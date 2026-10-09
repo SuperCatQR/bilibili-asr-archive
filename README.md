@@ -45,7 +45,7 @@ Package boundaries:
 - `storage/` owns SQLite schema, records, repositories, and workflow scheduling.
 - `workflow.py` runs claimed jobs; `workflow_runtime.py` supplies the media handlers.
 - `archive.py` writes SRT, WebVTT, TXT, Markdown, raw JSON, and the five-product bundle marker.
-- `coverage_report.py`, `integrity.py`, `export.py`, and `search_index/` are read projections over SQLite and published files.
+- `coverage_report.py`, `integrity.py`, `export.py`, and search queries read projections over SQLite and published files; explicit index builds write FTS and recovery progress.
 
 ## Install
 
@@ -91,8 +91,8 @@ The summary distinguishes page evidence (`recorded`) from successfully
 collected nonempty pages, videos and parts. Failure diagnostics report the
 operation and available HTTP status, API code or `wbi_retry_exhausted`
 reason, without raw upstream messages or credentials. `--page-retries 0`
-stops on the first failed upload-list attempt; opt into at most three retries
-with `--page-retries 1` through `3` (30/60/120 second cooldowns).
+stops on the first failed upload-list attempt; opt into at most five retries
+with `--page-retries 1` through `5` (30/60/120/240/300 second cooldowns).
 When `BILI_SESSDATA` is configured, the gateway verifies login once before
 the first upload-list request. Rejected credentials stop with `auth_error`
 and require refreshing the cookie; they are not retried as rate control.
@@ -214,7 +214,7 @@ across parts; it never deletes, merges, or rewrites source records. Use
 `--format json` for a machine-readable baseline and `--limit` to cap only the
 example groups included in the output.
 
-`status` and `runs` refuse a missing database, although opening a compatible existing database may refresh derived views. Workflow inspection uses the initializing database entrypoint. Coverage, verification, export, publication export, editorial export and dedup use read-only projections; `search-index` writes a derived index.
+`status`, `runs`, and workflow inspection use read-only sessions over an existing compatible database. Queries never initialize a database or refresh views; missing or incompatible databases are refused. Coverage, verification, export, publication export, editorial export and dedup also use read-only projections. `fetch-meta` explicitly bootstraps the archive; `search-index` and `search --rebuild` explicitly write the derived index.
 
 `workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/artifact-root.md](docs/artifact-root.md).
 

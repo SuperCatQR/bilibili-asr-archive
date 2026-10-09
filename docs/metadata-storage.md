@@ -38,7 +38,18 @@ bili-asr verify --archive-root archive --format json
 
 ## 数据库打开与 schema 边界
 
-`storage.database.open_database()` 接受归档目录、显式 `.db`/`.sqlite`/`.sqlite3` 文件或 `:memory:`。目录不存在时创建目录和数据库；显式路径按文件解释。连接使用 `sqlite3.Row`、`isolation_level="DEFERRED"`，并启用及验证 `PRAGMA foreign_keys = ON`。URI 字符串不会被该函数当作 SQLite URI 解释。
+公共命令和应用读写通过 [`ArchiveSession`](../src/bili_asr/archive_session.py) 或 `open_archive_connection()` 显式声明数据库模式、schema 契约和产物根范围。它接受归档目录或显式 `.db`/`.sqlite`/`.sqlite3` 文件，拒绝数据库及其父路径中的 symlink/reparse point。连接和归档访问租约具有同一生命周期；关闭连接也释放其维护协调资源，后台续租连接持有自己的访问租约。
+
+| 访问模式 | 开库与修改边界 |
+|---|---|
+| `READ` | 要求数据库已存在；使用 SQLite `mode=ro` 和 `query_only`，只校验契约，不初始化表或刷新视图。 |
+| `WRITE` | 要求数据库已存在；允许应用的显式 DML 或派生索引更新，开库本身不执行 schema 初始化。 |
+| `BOOTSTRAP` | 显式创建新归档；对已有数据库先校验契约，再执行允许的 schema 初始化及视图刷新。 |
+| `MAINTENANCE` | 持有归档维护独占访问；源数据库只读。快照、restore 与冻结旧源预检还各有专用校验与文件操作规则。 |
+
+session 默认核对 runtime 契约，稿件操作增加 `MANUSCRIPT` 契约检查；`NONE` 仅供有独立兼容性校验的读取、派生索引或冻结维护路径使用，不代表公开命令可跳过自身校验。READ/WRITE 与维护独占访问相互协调；共享访问租约不是 SQLite 写锁，多个 worker 仍由短数据库事务串行化写入。
+
+底层 [`storage.database.connect_database()`](../src/bili_asr/storage/database.py) 只配置连接，不创建 schema；所有连接使用 `sqlite3.Row`、`isolation_level="DEFERRED"`、启用外键及受控 busy timeout。旧 `open_database()` 是明确执行 bootstrap 的库函数兼容入口，仍支持目录、显式数据库文件和 `:memory:`；它的建库行为不能用来解释公共查询命令。
 
 初始化资源分为四份：
 
@@ -51,160 +62,30 @@ bili-asr verify --archive-root archive --format json
 | `schema-workflow.sql` 的 `workflow_asr_profile_configs` | 完整有效 ASR 配置的不可变快照与 schema version。 |
 | [`schema-editorial.sql`](../src/bili_asr/storage/schema-editorial.sql) | 校对输入快照、API 调用、chunks、revision 和渲染产物等独立编辑数据；见 AI 校对指南。 |
 
-新数据库按四份 SQL 建立完整 schema。打开非空数据库前，从当前 SQL 推导表契约并核对所有产品表；旧字段或约束不符在修改 schema 前失败。当前有明确的新增观察表例外：缺少 `video_tag_observations` 可补建，不改写 tags 或稿件；其他必需表缺失仍按现有契约拒绝。兼容数据库中的派生视图仍可刷新。
+`BOOTSTRAP` 按四份 SQL 建立新数据库的完整 schema。已有数据库先从当前 SQL 推导表契约并核对产品表；旧字段或约束不符在修改 schema 前失败。当前有明确的新增观察表例外：兼容数据库缺少 `video_tag_observations` 时，只在显式 bootstrap 路径补建，不改写 tags 或稿件；其他必需表缺失仍拒绝。兼容数据库中的派生视图也只在 bootstrap 刷新，普通 READ/WRITE 的开库阶段保留原有视图定义与数据库字节。
 
-main 9b28957 的四份 schema 共 38 张持久表、8 个视图；完整字段、外键及按需创建的 FTS 虚拟表/水位表见[架构源码与覆盖清单](architecture-sources.md)。
+当前四份 schema 共 38 张持久表、8 个视图；完整字段、外键及按需创建的 FTS 虚拟表/水位表见[架构源码与覆盖清单](architecture-sources.md)。
 原始标签观察的 success_nonempty/success_empty/unavailable 与已存集合分别保存；不可用观察保留旧集合。
 
 当前不支持旧数据库迁移或自动 `ALTER TABLE` 补列。不兼容时提示 `delete archive.db and re-run fetch-meta`；应先停止 worker、备份数据库和必要文件，再由操作者重建。重建会丢失原数据库中的转录、任务、校对与审核历史；备份与重建步骤见 [取消指南](workflow-cancellation.md)。
 
-`status`、`runs` 先检查数据库是否存在，缺失时退出 `1`，不创建新库。打开兼容库仍可能刷新派生视图。`workflow status` 和 `workflow explain` 使用 `open_database()`，可以初始化新库。需要结构性只读时，应使用下文的 `mode=ro` 投影或自行建立只读 SQLite 连接。
+`status`、`runs`、`workflow status`、`workflow explain` 与 `workflow asr-evidence` 使用 READ，数据库缺失时给出 bounded 诊断并退出 `1`，不创建数据库、不刷新派生视图。普通 search/export/coverage/verify 同样是数据库读者。`fetch-meta` 与 `fetch-tags` 显式选择 BOOTSTRAP；工作流规划、执行、重试、取消和重新发布使用 WRITE。`search-index` 与 `search --rebuild` 显式更新派生索引；该索引应用的建库路径在归档缺失时明确选择 BOOTSTRAP，不能推广到普通搜索。
 
-### Manuscript Contract
+### 稿件契约
 
-Fresh archives also carry `schema-editorial.sql` and its explicit manuscript
-contract marker. Opening an existing archive validates this contract before
-any schema initialization, view refresh or commit. Legacy editorial tables,
-missing required entities, changed constraints, and unsupported artifact
-templates fail with a schema-contract error; the program does not add tables
-to make an old manuscript archive appear current. Read commands and repository
-boundaries use the same read-only guard. Existing data is retained; create a
-separate fresh archive to use the new manuscript contract.
+新归档同时包含 `schema-editorial.sql` 及明确的稿件契约标记。现有 archive 的缺失实体、改变的约束、旧 editorial 表或不支持的模板会在 schema 校验阶段失败；普通读写不会补表让旧稿件 archive 看似兼容。该校验只读，保持原数据；需要使用新契约时另建完整的新归档。
 
-The AI layer freezes inputs and model evidence in `editorial_inputs`,
-`editorial_job_inputs`, `editorial_model_calls`, `editorial_chunk_results`, and
-`editorial_revisions`. `document_artifacts` records the exact revision/template
-pair, `ai-draft` / `review-reference` role, controlled path and byte hash for
-`ai-draft.md` and `review.md` under `ai-draft-v1`.
+AI 输入与模型证据冻结在 `editorial_inputs`、`editorial_job_inputs`、`editorial_model_calls`、`editorial_chunk_results`、`editorial_revisions`。`document_artifacts` 登记精确 revision/template 对、`ai-draft` / `review-reference` 角色、受控路径及 `ai-draft-v1` 下 `ai-draft.md` / `review.md` 的字节 hash。
 
-The publication layer stores immutable complete reader content in
-`publication_editions`, exact edition/hash reviews in
-`publication_edition_reviews`, versioned release artifacts in
-`publication_releases`, and append-only operator facts in
-`publication_events`. `publication_heads` has independent current edition and
-current release pointers for each video part. Creating or reviewing edition B
-leaves release A public until approved B is explicitly published. Withdrawing
-the current release clears only the public pointer and keeps its history.
+稿件发布保存 `publication_editions` 的不可变完整读者内容、`publication_edition_reviews` 的精确 edition/hash 审核、`publication_releases` 的版本化发布产物，以及 `publication_events` 的追加操作事实。`publication_heads` 对每分 P 分别保存当前 edition 和当前 release；创建或审核 B 不替换公开的 A，只有获批 B 被显式 publish 后才改变 release 指针。withdraw 只清除当前公开指针，保留历史。
 
-Complete reader content has its own canonical JSON SHA-256. The separately
-rendered `publish.md` byte hash is also registered. The reviewer must submit
-the exact content hash, and publication revalidates the edition, approval,
-relationship and artifact. AI quality states are not publication approval.
-See [publication.md](publication.md) for commands and export schemas; workflow
-`publish` still means publication of transcript bundles.
-
-### Normalized entity tables
-
-| Table | Key | Contents |
-|-------|-----|----------|
-| `bilibili_users` | `mid` | The collected user and its current display label. |
-| `videos` | `bvid` | One row per video: `aid`, owner `mid` (FK to `bilibili_users`), `title`, `pubdate`. |
-| `video_parts` | `(bvid, page_index)` | One row per part: `cid`, part `title`, `duration_ms`, zero-based `page_index` (`{bvid}:p{page_index}` is the derived `work_id`, computed, never stored), `processing_status` (`discovered`, `metadata_collected`, `gone`), FK to `videos`. |
-
-### Ingestion process tables
-
-| Table | Key | Contents |
-|-------|-----|----------|
-| `ingestion_runs` | `run_id` | One row per collection run: target `mid`, source package and version, requested start page and page limit, `started_at` / `finished_at`, terminal `outcome` (`complete`, `limited`, `risk_interrupted`, `failed`). |
-| `ingestion_pages` | `(run_id, page_number)` | One evidence row per requested page: `outcome` (`ok`, `empty`, `risk_interrupted`, `failed`) and a bounded scalar `error_code` on failure. |
-| `ingestion_cursors` | `mid` | The resumable one-based cursor: `next_page`, `state` (`ready`, `complete`, `limited`, `risk_interrupted`), `observed_total`. |
-| `ingestion_discoveries` | `(run_id, page_number, bvid)` | Run-scoped discovery evidence linking a run page to a discovered video. |
-
-### Media and transcript tables
-
-`transcripts` and `transcript_segments` store acquired captions and local ASR
-results with their ordered segments. `harvest-subs` records caption acquisition;
-the store-backed ASR path records local transcripts and their `asr_models`
-identity. `adopt-transcripts` imports verified legacy bundles without ASR.
-
-`derive-audio-inventory` records confined, hashed files in `audio_objects` and
-`part_audio_objects`. The download and ASR store routes also record their
-acquisition attempts and close their run rows. The execution manifest retains
-per-stage state and published artifact paths alongside this store evidence.
-
-### Views
-
-| View | Contents |
-|------|----------|
-| `v_video_parts` | Every part with its derived `work_id` and the joined user/video context. |
-| `v_ingestion_run_stats` | Per-run page and video counts (the `runs` command's source). |
-| `v_pending_metadata` | Parts with `processing_status = 'discovered'` (the `status` command's pending work). |
-| `v_pending_subtitles` | Every part that is not `gone` and has no stored transcript, ordered never-attempted first — the subtitle commands' work list, carrying the newest attempt's outcome, timestamp, and credential presence. |
-
-### Manuscript Contract
-
-Fresh archives also carry `schema-editorial.sql` and its explicit manuscript
-contract marker. Opening an existing archive validates this contract before
-any schema initialization, view refresh or commit. Legacy editorial tables,
-missing required entities, changed constraints, and unsupported artifact
-templates fail with a schema-contract error; the program does not add tables
-to make an old manuscript archive appear current. Read commands and repository
-boundaries use the same read-only guard. Existing data is retained; create a
-separate fresh archive to use the new manuscript contract.
-
-The AI layer freezes inputs and model evidence in `editorial_inputs`,
-`editorial_job_inputs`, `editorial_model_calls`, `editorial_chunk_results`, and
-`editorial_revisions`. `document_artifacts` records the exact revision/template
-pair, `ai-draft` / `review-reference` role, controlled path and byte hash for
-`ai-draft.md` and `review.md` under `ai-draft-v1`.
-
-The publication layer stores immutable complete reader content in
-`publication_editions`, exact edition/hash reviews in
-`publication_edition_reviews`, versioned release artifacts in
-`publication_releases`, and append-only operator facts in
-`publication_events`. `publication_heads` has independent current edition and
-current release pointers for each video part. Creating or reviewing edition B
-leaves release A public until approved B is explicitly published. Withdrawing
-the current release clears only the public pointer and keeps its history.
-
-Complete reader content has its own canonical JSON SHA-256. The separately
-rendered `publish.md` byte hash is also registered. The reviewer must submit
-the exact content hash, and publication revalidates the edition, approval,
-relationship and artifact. AI quality states are not publication approval.
-See [publication.md](publication.md) for commands and export schemas; workflow
-`publish` still means publication of transcript bundles.
-
-### Normalized entity tables
-
-| Table | Key | Contents |
-|-------|-----|----------|
-| `bilibili_users` | `mid` | The collected user and its current display label. |
-| `videos` | `bvid` | One row per video: `aid`, owner `mid` (FK to `bilibili_users`), `title`, `pubdate`. |
-| `video_parts` | `(bvid, page_index)` | One row per part: `cid`, part `title`, `duration_ms`, zero-based `page_index` (`{bvid}:p{page_index}` is the derived `work_id`, computed, never stored), `processing_status` (`discovered`, `metadata_collected`, `gone`), FK to `videos`. |
-
-### Ingestion process tables
-
-| Table | Key | Contents |
-|-------|-----|----------|
-| `ingestion_runs` | `run_id` | One row per collection run: target `mid`, source package and version, requested start page and page limit, `started_at` / `finished_at`, terminal `outcome` (`complete`, `limited`, `risk_interrupted`, `failed`). |
-| `ingestion_pages` | `(run_id, page_number)` | One evidence row per requested page: `outcome` (`ok`, `empty`, `risk_interrupted`, `failed`) and a bounded scalar `error_code` on failure. |
-| `ingestion_cursors` | `mid` | The resumable one-based cursor: `next_page`, `state` (`ready`, `complete`, `limited`, `risk_interrupted`), `observed_total`. |
-| `ingestion_discoveries` | `(run_id, page_number, bvid)` | Run-scoped discovery evidence linking a run page to a discovered video. |
-
-### Media and transcript tables
-
-`transcripts` and `transcript_segments` store acquired captions and local ASR
-results with their ordered segments. `harvest-subs` records caption acquisition;
-the store-backed ASR path records local transcripts and their `asr_models`
-identity. `adopt-transcripts` imports verified legacy bundles without ASR.
-
-`derive-audio-inventory` records confined, hashed files in `audio_objects` and
-`part_audio_objects`. The download and ASR store routes also record their
-acquisition attempts and close their run rows. The execution manifest retains
-per-stage state and published artifact paths alongside this store evidence.
-
-### Views
-
-| View | Contents |
-|------|----------|
-| `v_video_parts` | Every part with its derived `work_id` and the joined user/video context. |
-| `v_ingestion_run_stats` | Per-run page and video counts (the `runs` command's source). |
-| `v_pending_metadata` | Parts with `processing_status = 'discovered'` (the `status` command's pending work). |
-| `v_pending_subtitles` | Every part that is not `gone` and has no stored transcript, ordered never-attempted first — the subtitle commands' work list, carrying the newest attempt's outcome, timestamp, and credential presence. |
+完整读者内容使用 canonical JSON SHA-256，渲染的 `publish.md` 另行登记字节 hash。审核必须提交准确内容 hash；发布重新校验 edition、审核、关系和产物。AI 质量状态不是发布批准。命令与导出 schema 见 [稿件发布](publication.md)；`workflow publish` 仍表示转录五产物包发布。
 
 ## 数据身份与核心表
 
 源站 P1 对应数据库 `page_index=0`。分 P 的稳定身份为 `(bvid, page_index)`；`video_part_id` 是该数据库分配的内部主键，适合 CLI 精确选择与外键关联。`work_id` 派生为 `BV…:p0`，不存储在实体表；文件目录使用 `BV….p0`，避免将冒号放进路径。公开播放链接的 `?p=` 值为 `page_index + 1`。
+
+来源接口使用纯 [`ContentRef`](../src/bili_asr/platform_identity.py) 的 `(platform, external_video_id, part_index)` 身份；当前 Bilibili adapter 将它绑定到已存 `bvid/page_index/cid`，在网络调用前校验平台及分 P 一致性。`PageIdentity.content_ref` 等是只读派生属性，不增加数据库列、不改变旧 work ID、文件 key、source JSON 或内容 hash。完整来源端口约定见 [来源适配边界](source-adapters.md)。
 
 时间戳为 Unix 整数秒，视频时长和转录时间轴为整数毫秒。外键默认 `ON DELETE RESTRICT`，存储 API 不通过删除旧版本来覆盖历史结果。
 
@@ -304,7 +185,7 @@ bili-asr fetch-meta --archive-root archive --start-page 3 --limit-pages 1
 
 ## 字幕观察、选择与凭据证据
 
-[`SubtitleIngestor`](../src/bili_asr/services/subtitle_ingest.py) 仍提供 `probe()` 和 `harvest()` 服务方法。probe 只列轨道，不创建 run/attempt/transcript 或文件；它没有当前同名公共 CLI。harvest 接受 `SubtitleSelection`，列表与正文经 typed gateway 校验后写入 `TranscriptRepository`。workflow subtitle handler 以已存 BVID、零基 index 和 `limit=1` 获取一个分 P；`cid` 来自 `video_parts`，不重新请求 pagelist 来猜身份。
+[`SubtitleIngestor`](../src/bili_asr/services/subtitle_ingest.py) 仍提供 `probe()` 和 `harvest()` 服务方法。probe 只列轨道，不创建 run/attempt/transcript 或文件；它没有当前同名公共 CLI。harvest 接受 `SubtitleSelection`，通过 `SubtitleSource` 的列表、正文与访问验证端口获取已校验 DTO，随后写入 `TranscriptRepository`。兼容的 Bilibili gateway 调用由 `BilibiliSubtitleSource` 绑定当前 part 的 `ContentRef`；workflow subtitle handler 以已存 BVID、零基 index 和 `limit=1` 获取一个分 P，`cid` 来自 `video_parts`，不重新请求 pagelist 来猜身份。
 
 服务的显式 BVID selection 可包含已存转录，用于重新观察；pending selection 从 `v_pending_subtitles` 取工作，按 never-attempted、最早 last attempt、BVID、index 排序。公共 `workflow plan` 使用独立 jobs，不直接消费这条 pending enumeration。
 
@@ -312,7 +193,7 @@ bili-asr fetch-meta --archive-root archive --start-page 3 --limit-pages 1
 
 每次获取至多选择一条轨道。默认排序键为 `(language family rank, is_ai, upstream index)`：family 依次为 `zh`、`en`、其他；同 family rank 下 CC 优先 AI，最后保持上游顺序。其他语言共享同一 rank，所以不同的非中英文 family 之间，CC 也可优先于较早出现的 AI。
 
-family 由语言代码小写 primary subtag 派生；机器轨道先去掉 `ai-`。因此 `zh-CN`、`zh-Hans`、`zh-Hant`、`ai-zh` 都归为 `zh`。存储 language 仍保留 trimmed 原代码，family 不替代版本身份。
+family 由共享纯策略 `transcript_selection.language_family()` 从语言代码的小写 primary subtag 派生；机器轨道先去掉 `ai-`。因此 `zh-CN`、`zh-Hans`、`zh-Hant`、`ai-zh` 都归为 `zh`。存储 language 仍保留 trimmed 原代码，family 不替代版本身份。
 
 服务 API 的 `SubtitleSelection.languages` 可提供精确代码偏好：首个有匹配的代码获选，同代码下 CC 优先 AI，再按上游顺序。有效偏好无匹配时返回 no-subtitle。当前 workflow subtitle handler 使用默认选择；`workflow plan --language` 配置的是 ASR profile，不是字幕语言过滤参数。
 
@@ -330,7 +211,7 @@ family 由语言代码小写 primary subtag 派生；机器轨道先去掉 `ai-`
 
 ### 凭据与网络边界
 
-SESSDATA 从 `--sessdata` 优先读取，否则使用 `BILI_SESSDATA`；显式空 flag 强制匿名，不回落环境。输出及持久证据只包含 presence；`acquisition_runs.credential_present` 只表示配置存在，不能证明登录成功。服务对每次带凭据的空观察调用 `validate_subtitle_credentials()`，成功才将该 attempt 的 `credential_verified` 设为 1。失效登录或不可读验证结果记录 failed，不能累计为已认证空列表。
+SESSDATA 从 `--sessdata` 优先读取，否则使用 `BILI_SESSDATA`；显式空 flag 强制匿名，不回落环境。输出及持久证据只包含 presence；`acquisition_runs.credential_present` 只表示配置存在，不能证明登录成功。服务对每次空选择调用 `source.verify_access()`；带凭据的 Bilibili adapter 内部用网关 `validate_subtitle_credentials()` 取得验证事实。只有配置存在且返回的 `SourceAccessObservation` 明确表示 credentialed、verified，才将该 attempt 的 `credential_verified` 设为 1；匿名的 verified 观察不能转换成认证缺失证明。失效登录或不可读验证结果记录 failed，不能累计为已认证空列表。
 
 网关仅向应用返回验证过的 DTO 和有界 error code，不向数据库输出凭据、带签名字幕 URL、原始响应或上游异常文本。正文获取会重新列轨道以解析临时 URL，规范为 HTTPS，并向 CDN 使用空 Credential。正文 transport failure 允许一次额外的“重新列表 + 正文获取”；这不等同于 `fetch-meta --page-retries`，rate control 等其他错误仍直接上抛。
 
@@ -348,11 +229,13 @@ content hash 是以下 canonical 数据的 SHA-256：按 ordinal 排列的 `[sta
 
 `record_local_transcript()` 是单独的 ASR 写入入口，在同一事务内登记模型、新转录与 segments、attempt 和可选 coverage。其内容复用查询同样按 part/source/language/hash，model ID 不是版本唯一身份；重用既有 cue 内容时保留已有 transcript/model 关联。`read_transcript()` 默认取身份的最新 version，显式 version 仍可读取历史内容。
 
-提供 `asr_evidence` 时，它也在同一结果事务写入 `transcript_asr_evidence`；cue 内容复用不跳过本次证据。完整快照与查询合同见 [ASR 参数与诊断](asr-configuration.md)。取消与过期租约的 write guard 同时保护诊断和转录写入。
+提供 `asr_evidence` 时，它也在同一结果事务写入 `transcript_asr_evidence`；cue 内容复用不跳过本次证据。完整快照与查询合同见 [ASR 参数与诊断](asr-configuration.md)。共享 ownership guard 同时保护诊断、转录、segments 与模型身份写入。
 
 acquisition run 的开始和结束分别独立提交；每个成功/无字幕/失败的 part attempt 是单独写组。不要将这些会自行提交的方法嵌套到包含其他待提交内容的 `MetadataRepository.transaction()` 中。纯 repository read 方法只执行 SELECT，不 commit，也不改写 caller 已持有的事务。
 
-工作流向 transcript repository 注入 `write_guard`。结果事务先 `BEGIN IMMEDIATE`，在取得 SQLite 写锁后检查当前 job 的状态、owner、attempt count 和 lease，再允许写入。它拒绝嵌套事务，防止独立 repository 提前提交外层写组。API/模型返回之后及后续 publication 请求也会检查 ownership；取消已经提交时，迟到结果不能追加 transcript、segments、模型或成功 run 终态。
+工作流向 transcript repository 注入 `write_transaction=lambda: repository.owned_transaction(job)`，由 [`JobCommitGuard`](../src/bili_asr/storage/job_commit.py) 提供共享事务边界。结果事务先 `BEGIN IMMEDIATE`，在取得 SQLite 写锁后核对当前 job 的 running 状态、owner、attempt count 和未过期 lease；事务体结束、数据库 commit 前再次完整核对。即使大批 segments 或其他写入越过第一次检查时的租约期限，第二次检查也会拒绝提交并回滚整个结果写组。它拒绝嵌套事务，避免 repository 提前提交调用者的外层写组。
+
+网络/模型返回后的 checkpoint 负责及时停止失去 ownership 的工作；转录成功收尾和后续 publish 请求仍通过各自的受守卫事务提交。checkpoint 不能替代提交前检查。旧库调用者的 `write_guard=` 回调仍兼容，并在其结果事务的入口及提交前调用；当前 workflow 使用完整的共享 `write_transaction`。取消先提交或租约失效时，迟到结果不能追加 transcript、segments、模型、ASR evidence 或成功 run 终态。
 
 失败收尾是受控例外：`finish_acquisition_run(..., outcome="failed")` 不要求已撤销的 lease，允许将已打开 run 关闭为 failed。这条路径只收尾获取证据，不授权继续提交内容。workflow attempt 可为 cancelled，同时 acquisition run 为 failed，二者描述不同层次的事实。
 
@@ -377,11 +260,17 @@ subtitle 观察的“最新”按 attempt finished_at、run started_at、run row
 
 BVID/part ID 选择先一次性验证全部目标与策略参数，再创建 profile/jobs；重复目标去重，稳定按 BVID/index/internal ID 排序。BVID 未指定 index 时选择所有非 gone parts 并打印 gone 排除项；显式 ID/index 指向 gone、缺失分 P、未知 BVID 或全部 gone 的视频则整次请求失败。重复 plan 通过 dedupe key 保留已有任务状态，不复活 cancelled。完整规则见 [BVID 选择指南](workflow-selection.md)。
 
-[`services.workflow_projection.workflow_records()`](../src/bili_asr/services/workflow_projection.py) 使用独立 `mode=ro` 连接，从 active parts、transcripts、workflow_publications 生成每分 P 一条当前记录。数据库不存在时返回空集合，不创建数据库。状态为 meta_ok、subtitle_done、asr_done、archived，分别表示无转录、已存字幕、已存 ASR 和已登记且按默认读取规则确认完整的产物包；这些状态不同于 job status，也不同于 `v_part_pipeline`。
+[服务投影 `workflow_records()`](../src/bili_asr/services/workflow_projection.py) 使用 READ session 和单个 SQLite 读取快照，从 active parts、transcripts、workflow_publications 生成每分 P 一条记录。数据库不存在时返回空集合，不创建数据库。按 `video_part_id` keyset 每批最多 256 个 parts，批量读取候选、发布登记和需要的 segments；不为每个 part 单独查询，也不为未请求文本的读者加载 segments。返回记录仍按 pubdate 降序、BVID/index 排序；返回的全集会保留在内存中，因此这里只保证数据库中间读取有界，不承诺流式结果。
 
-普通投影默认检查发布登记对应的完整包；`with_text=True` 从有序 segments 构建文本，不要求重读 TXT。integrity/coverage 读取时可保留数据库声明的 archived，再由自己的验证器判断产物缺陷，避免将损坏包误判为普通 backlog。该投影的来源优先为 CC、AI、ASR，语言偏向中文、再按 version/created_at/internal ID；发布候选的严格语言排序见下节，两种读者当前并非同一函数，应按实际用途解释。
+存储转录的默认选择由纯 [`transcript_selection`](../src/bili_asr/transcript_selection.py) 策略统一决定：先 source kind CC、AI、ASR，再 language family `zh`、`en`、其他，完整 language code 升序，version 降序。发布 handler 和普通投影使用同一策略；创建时间及内部 transcript ID 不再参与偏好排序。获取上游轨道的策略仍先比较 language family、再比较 AI 标记与上游顺序，它回答的是另一个选择问题。
 
-元数据搜索也使用 `mode=ro`，直接查当前 title/description/tags，不建立 FTS；转录搜索 FTS 由 `search-index` 或显式 `search --rebuild` 更新。查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；publication export-drafts 另行输出当前且从未发布的 edition 预览。两个 catalog v2 都登记正文和配对 AI 校验参照 review.md 的路径与字节哈希；editorial export 单独输出含审核事件和请求配置的完整私有审阅包。这些导出不是数据库或队列，也不代表仓库附带前端源码。
+每条记录显式区分 `preferred_*` 与 `published_*`，分别表示当前最优存储版本和实际发布登记的版本；`publication_current` 仅在两者 transcript ID 一致且发布关系有效时为 true。有发布登记时，兼容字段 `source/language/version/transcript_id` 及 `with_text=True` 的文本描述已发布版本；尚未发布时才描述 preferred 版本。新获取的较优版本不会改写既有包、悄悄切换导出文本或把完整发布退回 backlog；需要重新发布后，两类身份才会一致。
+
+状态 meta_ok、subtitle_done、asr_done、archived 描述无转录、有效读取身份为字幕/ASR、或已登记且按默认读取规则确认完整的产物包，区别于 job status 与 `v_part_pipeline`。普通投影默认检查发布登记对应的完整包；`with_text=True` 按 ordinal 从对应 transcript 的 segments 构建文本，不要求重读 TXT。integrity/coverage 传入 `verify_artifacts=False` 保留数据库声明的 archived，再由自己的验证器判断缺陷；即使新候选已出现，损坏包、缺失发布转录或 part 关系错误仍作为 defect 暴露，不改判普通 backlog。
+
+元数据搜索也使用 READ，直接查当前 title/description/tags，不建立 FTS；转录搜索 FTS 由 `search-index` 或显式 `search --rebuild` 更新。普通索引查询不创建表、不推进水位。显式索引 build 在开始时固定 transcript high-water mark，按 `(transcript_id, ordinal)` keyset 分页，每个批次单独提交 blocks 与进度；中断可从已提交的 segment cursor 恢复，同期新获取的 transcript 留待下一次 build。旧索引恢复与 Markdown fallback 将去重集合留在连接内的 keyed temporary tables，再分批读取，不把全库 key 集合加载到 Python。
+
+查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；publication export-drafts 另行输出当前且从未发布的 edition 预览。两个 catalog v2 都登记正文和配对 AI 校验参照 review.md 的路径与字节哈希；editorial export 单独输出含审核事件和请求配置的完整私有审阅包。这些导出不是数据库或队列，也不代表仓库附带前端源码。
 
 ## 五产物发布与取消保护
 
@@ -404,7 +293,7 @@ archive/
 
 `.bundle-ready` schema 为 `archive-bundle-v2`，声明五项路径与各自 SHA-256。文件存在、大小或 mtime 相同都不能证明完整；读者逐块哈希核对 marker、路径和全部内容。旧四产物包没有当前完整性契约，需从存储版本重发，不能通过补一个空 VTT 或伪造 marker 认定完成。
 
-当前 workflow writer 先在 guard 外准备编码、摘要及暂存文件，然后进入 `WorkflowRepository.owned_transaction(job)`：取得 SQLite 写锁、检查精确 attempt ownership、使旧 marker 失效、依次替换五项产物、最后替换 marker，并在同一 guard 内 upsert `workflow_publications`。每次最终替换前仍执行 lease checkpoint；guard 成功退出才提交数据库。失败清理回调在数据库回滚和写锁释放前失效已开始发布的 marker，避免部分包被读者认可，也防止旧 attempt 退出时误删新 worker 的有效 marker。暂存文件按 writer 清理路径释放。
+当前 workflow writer 先在 guard 外准备编码、摘要及暂存文件，然后进入共享的 `WorkflowRepository.owned_transaction(job)`：取得 SQLite 写锁、检查精确 attempt ownership、使旧 marker 失效、依次替换五项产物、最后替换 marker，并在同一 guard 内 upsert `workflow_publications`。每次最终替换前仍执行 lease checkpoint；共享 guard 在退出事务体、数据库 commit 前再次检查 ownership 和 lease。失败清理回调在数据库回滚和写锁释放前失效已开始发布的 marker，避免部分包被读者认可，也防止旧 attempt 退出时误删新 worker 的有效 marker。暂存文件按 writer 清理路径释放。
 
 SQLite 与文件系统不是一个可回滚事务。若文件阶段在取消前已经取得写锁，取消要等该短事务完成，已提交的内容保留；之后取消尚为 running 的 job 仍可成功。若 job 的终态已经提交，取消为 noop。若取消先提交，后续 guard 拒绝最终替换和发布登记。中途文件写入、目录创建、暂存或已提交的早期 acquisition 证据不承诺因取消消失；有效 marker 和数据库状态决定可见结果。
 
@@ -427,16 +316,19 @@ publish CLI 会在请求前解析完整 ID 集合并确认每个 part 有候选�
 
 `fetch-meta` 的 `0` 表示 complete 或 limited，`1` 表示参数/根目录/恢复配置错误，`2` 表示 gateway failure 或内部异常。`workflow plan/publish/cancel/retry` 的可识别选择或 schema 错误为 `1`；`workflow run` 在 failed 非零时为 `1`，仅取消不作为 failure。输出 `succeeded/failed/cancelled/idle` 表达本次执行结果，不表示整个 corpus 已归档。`workflow run` 的未被转换的内部异常和底层 SQLite/I/O 错误没有统一的额外退出码保证。
 
-顶层 `status`、`runs` 对不存在或无法打开的数据库给出 bounded 诊断。它们不修复损坏库；更早 schema 的后续查询兼容性仍取决于实际对象，打开成功不等于所有读取入口可用。`verify` 默认将声明发布后的产物缺失/损坏作为 defect 并退出 `1`，未发布内容作为 backlog；strict 模式也将 backlog 计为失败。coverage 只有通过完整性检查的五产物才计为 complete。
+顶层 `status`、`runs` 及 workflow 查询对不存在、无法打开或 schema 不兼容的数据库给出 bounded 诊断。它们使用 READ，不修复损坏库、不补 schema、不刷新视图；冻结旧库和索引兼容读取由各自的明确契约入口负责。`verify` 默认将声明发布后的产物缺失/损坏作为 defect 并退出 `1`，未发布内容作为 backlog；strict 模式也将 backlog 计为失败。coverage 只有通过完整性检查的五产物才计为 complete。
 
 以下当前测试覆盖主要离线契约，可作为进一步追踪入口：
 
 - [`test_metadata_repository.py`](../tests/test_metadata_repository.py)、[`test_metadata_ingest.py`](../tests/test_metadata_ingest.py)、[`test_metadata_page_retries.py`](../tests/test_metadata_page_retries.py)：页事务、游标、刷新与有界重试。
 - [`test_transcript_repository.py`](../tests/test_transcript_repository.py)、[`test_subtitles.py`](../tests/test_subtitles.py)、[`test_pending_subtitles_cost.py`](../tests/test_pending_subtitles_cost.py)：版本身份、观察/凭据和 pending 查询成本。
 - [`test_workflow_control_plane.py`](../tests/test_workflow_control_plane.py)、[`test_workflow_selection.py`](../tests/test_workflow_selection.py)、[`test_workflow_lease_heartbeat.py`](../tests/test_workflow_lease_heartbeat.py)、[`test_workflow_cancellation.py`](../tests/test_workflow_cancellation.py)：独立规划、租约、精确选择、取消及真实 SQLite 连接竞态。
+- [`test_archive_sessions.py`](../tests/test_archive_sessions.py)、[`test_workflow_result_fences.py`](../tests/test_workflow_result_fences.py)：只读查询不建库、不刷新视图、连接访问租约，以及结果事务精确到期时的入口/提交前检查与回滚。
+- [`test_projection_policy_consistency.py`](../tests/test_projection_policy_consistency.py)、[`test_search_index_paging.py`](../tests/test_search_index_paging.py)：统一转录优先级、preferred/published 身份、损坏包诊断、批量查询与索引分段恢复。
 - [`test_webvtt.py`](../tests/test_webvtt.py)、[`test_ai_editorial.py`](../tests/test_ai_editorial.py)：五产物完整性、发布 guard 与独立校对/渲染。
 
 本文依据当前代码与离线契约更新，不将旧入口的历史 live smoke 结果视为当前 CLI 的实网验证，也不声明这次文档更新验证了上游网络、账号权限或模型服务可用性。
+
 ## 任务状态、阻塞解释与定向恢复
 
 持久状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。
@@ -471,7 +363,7 @@ bili-asr workflow retry --archive-root ./archive --job-id JOB_ID --kind asr --pa
 ```
 
 过期租约在下一次领取时回收，旧 attempt 记录 `lease_expired`。终态与续租验证
-`job_id + lease_owner + attempt_count`，旧 worker 不能覆盖新 attempt。运行时注册
+`job_id + lease_owner + attempt_count` 及当前租约期限；取得 SQLite 写锁后核对，提交前再次确认，旧 worker 不能覆盖新 attempt。运行时注册
 subtitle、audio、asr、publish、proofread、render_document handler；schema 中的 `index`
 kind 当前没有运行 handler，全文索引通过 `search-index` 建立。
 
@@ -515,10 +407,10 @@ bili-asr workflow run --archive-root ./archive --worker-id worker-b --limit 20
 `bili-asr fetch-tags --archive-root ROOT --bvid BV...` 专门补采已归档视频；可重复 --bvid，
 省略时补采归档中的全部视频。失败保留上次成功标签，只有成功空集合才清空源集合；存在失败时退出 2。
 
-这个观察表是严格限定的可加扩展：原有兼容数据库缺少该表时，open_database 可以仅建立该表，
+这个观察表是严格限定的可加扩展：原有兼容数据库缺少该表时，显式 BOOTSTRAP 可以仅补建该表，
 不改写已有表、源标签、转录、任务或人工审核历史。若该表已存在但契约不符仍拒绝。
 其他原有缺表、旧字段、约束不匹配，以及旧 manuscript schema 的拒绝规则继续适用。
-publication 只读操作把缺少观察表视为未知覆盖，不自动初始化。
+READ/WRITE 开库不自动补表；publication 只读操作把缺少观察表视为未知覆盖，不自动初始化。
 
 ## 固定旧源迁移预检的读取边界
 

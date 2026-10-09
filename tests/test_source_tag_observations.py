@@ -180,23 +180,34 @@ def test_source_tag_sync_keeps_approved_release_bytes_and_head(tmp_path):
 
 def test_tag_commands_acquire_archive_access_before_dispatch(tmp_path, monkeypatch):
     from contextlib import contextmanager
+    from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+
     held = []
+    visited = []
+    original_access = ArchiveSession.access
 
     @contextmanager
-    def access(root):
-        held.append(root)
-        try:
-            yield
-        finally:
-            held.pop()
+    def access(session, *, allow_missing=False):
+        with original_access(session, allow_missing=allow_missing):
+            held.append(session)
+            visited.append(session.mode)
+            try:
+                yield
+            finally:
+                held.pop()
 
     def handler(args):
-        assert held == [str(tmp_path)]
+        assert len(held) == 1
+        assert held[0].archive_root == tmp_path
+        assert held[0].mode is (
+            ArchiveAccessMode.BOOTSTRAP if args.command == "fetch-tags" else ArchiveAccessMode.WRITE)
         return 0
 
-    monkeypatch.setattr(cli.main, "archive_access", access)
+    monkeypatch.setattr(ArchiveSession, "access", access)
     monkeypatch.setattr(cli, "_cmd_fetch_tags", handler)
     monkeypatch.setattr(cli, "_cmd_publication", handler)
     assert cli.main(["fetch-tags", "--archive-root", str(tmp_path)]) == 0
     assert cli.main(["publication", "sync-source-tags", "--archive-root", str(tmp_path),
                      "--edition-id", "expected", "--actor", "operator", "--note", "source"]) == 0
+    assert visited == [ArchiveAccessMode.BOOTSTRAP, ArchiveAccessMode.WRITE]
+    assert held == []

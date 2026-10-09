@@ -1,6 +1,6 @@
 # 公开、未发布预览与私有审阅三种导出
 
-源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
+源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
 
 [交互时序图](12-reader-private-export.html) · [Archify 规格](12-reader-private-export.json) · [全部时序图](../architecture-sequences.md)
 
@@ -51,13 +51,17 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/publication.py:74–135](../../src/bili_asr/cli/publication.py#L74)：`_cmd_publication`。
+- [src/bili_asr/cli/publication.py:60–121](../../src/bili_asr/cli/publication.py#L60)：`_cmd_publication`。
 - [src/bili_asr/cli/editorial.py:14–27](../../src/bili_asr/cli/editorial.py#L14)：`_cmd_editorial`。
 - [src/bili_asr/publication_export.py:61–105](../../src/bili_asr/publication_export.py#L61)：`export_publications`。
 - [src/bili_asr/publication_export.py:108–181](../../src/bili_asr/publication_export.py#L108)：`export_publication_drafts`。
 - [src/bili_asr/publication_export.py:193–271](../../src/bili_asr/publication_export.py#L193)：`export_editorial`。
 - [src/bili_asr/publication_export.py:19–27](../../src/bili_asr/publication_export.py#L19)：`_read_snapshot`。
-- [src/bili_asr/publication.py:298–304](../../src/bili_asr/publication.py#L298)：`verify_release`。
-- [src/bili_asr/publication.py:142–165](../../src/bili_asr/publication.py#L142)：`get_ai_artifacts`。
+- [src/bili_asr/publication.py:125–131](../../src/bili_asr/publication.py#L125)：`verify_release`。
+- [src/bili_asr/publication.py:44–67](../../src/bili_asr/publication.py#L44)：`get_ai_artifacts`。
 - [src/bili_asr/export_snapshot.py:367–444](../../src/bili_asr/export_snapshot.py#L367)：`replace_snapshot`。
 - [src/bili_asr/publication_export.py:1–60](../../src/bili_asr/publication_export.py#L1)：`模块入口`。
+
+## 本次边界修复
+
+CLI 使用 ArchiveSession 的 READ/WRITE 与 MANUSCRIPT 契约管理连接及维护锁；纯内容与身份规则由 publication_content / publication_identity / canonical_json 承载，历史字节身份保持原算法。读取快照经 storage.publication 的公开读/校验接口，不导入出版编排函数。

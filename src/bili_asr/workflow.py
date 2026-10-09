@@ -10,12 +10,29 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import threading
-from typing import Any
+from typing import Any, Protocol
 
-from bili_asr.storage.workflow import JobKind, JobCancelledError, LeaseLostError, WorkflowJob, WorkflowRepository
+from bili_asr.workflow_models import JobKind, JobCancelledError, LeaseLostError, WorkflowJob
 
 
 JobHandler = Callable[[WorkflowJob], Mapping[str, Any] | None]
+
+
+class LeaseRepository(Protocol):
+    def renew_lease(self, job: WorkflowJob, *, lease_seconds: int) -> None: ...
+    def close(self) -> None: ...
+
+
+class WorkflowControl(Protocol):
+    """The executor's durable port; storage owns its transaction semantics."""
+
+    def claim(self, worker_id: str, *, lease_seconds: int,
+              kinds: tuple[JobKind, ...] | None) -> WorkflowJob | None: ...
+    def finish(self, job_id: str, *, worker_id: str, result: Mapping[str, Any] | None,
+               expected_attempt_count: int) -> None: ...
+    def fail(self, job_id: str, *, worker_id: str, error_code: str,
+             expected_attempt_count: int) -> None: ...
+    def open_lease_repository(self) -> LeaseRepository | None: ...
 
 
 @dataclass(frozen=True)
@@ -31,7 +48,7 @@ class WorkflowExecutor:
 
     def __init__(
         self,
-        repository: WorkflowRepository,
+        repository: WorkflowControl,
         *,
         worker_id: str,
         handlers: Mapping[JobKind, JobHandler],
@@ -115,7 +132,7 @@ class _LeaseHeartbeat:
 
     def __init__(
         self,
-        repository: WorkflowRepository,
+        repository: WorkflowControl,
         job: WorkflowJob,
         *,
         lease_seconds: int,
@@ -168,4 +185,4 @@ class _LeaseHeartbeat:
                 if self._stop.wait(self.interval_seconds):
                     return
         finally:
-            lease_repository.connection.close()
+            lease_repository.close()

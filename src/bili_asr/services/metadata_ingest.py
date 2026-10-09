@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from bili_asr.services._common import _now
 from bili_asr.services.video_tags import bounded_tag_error
 
+from bili_asr.sources.bilibili_source import BilibiliMetadataSource
 from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayDiagnostic,
@@ -227,6 +228,7 @@ class MetadataIngestor:
 
     def __init__(self, gateway: BilibiliGateway, repository: MetadataRepository) -> None:
         self._gateway = gateway
+        self._source = BilibiliMetadataSource(gateway)
         self._repository = repository
 
     def collect_user_pages(
@@ -371,8 +373,8 @@ class MetadataIngestor:
                     # only repeat upstream work.
                     if summary.bvid not in parts_by_video:
                         parts_by_video[summary.bvid] = (
-                            await self._gateway.get_video_parts(
-                                summary.bvid, video_title_fallback=summary.title
+                            await self._source.get_parts(
+                                summary.content_ref, video_title_fallback=summary.title
                             )
                         )
                 # Keep this page's answers independently of LRU eviction,

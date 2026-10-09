@@ -8,7 +8,6 @@ workflow repository; a later worker can therefore resume any job independently.
 from __future__ import annotations
 
 from contextlib import contextmanager
-import hashlib
 import json
 import math
 import os
@@ -21,7 +20,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from bili_asr import archive, asr, audio, bili_client
+from bili_asr import archive, asr, bili_client
+from bili_asr.artifact_inventory import stream_hash
 from bili_asr.artifact_root import ArtifactRoots, usable_audio_path, resolve_audio_path
 from bili_asr.formatting import duration_s_from_ms, pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
@@ -29,16 +29,24 @@ from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
 from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
+from bili_asr.sources.bilibili_source import BilibiliAudioSource
 from bili_asr.storage import (
     AcquisitionRunRecord,
     TranscriptRepository,
     TranscriptSegmentRecord,
 )
 from bili_asr.storage.workflow import (
-    AsrProfile,
-    JobKind,
-    WorkflowJob,
     WorkflowRepository,
+)
+from bili_asr.workflow_models import AsrProfile, JobKind, WorkflowJob
+from bili_asr.workflow_payloads import decode_job_payload
+from bili_asr.workflow_runtime_ports import (
+    AudioClientFactory,
+    GatewayFactory,
+    JobHandler,
+    RunnerFactory,
+    TimeoutTranscriber,
+    WorkflowAsrRunner,
 )
 
 
@@ -53,6 +61,10 @@ class ArchiveWorkflowHandlers:
         archive_root: str | os.PathLike[str],
         sessdata: str | None,
         artifact_roots: ArtifactRoots | None = None,
+        gateway_factory: GatewayFactory | None = None,
+        audio_client_factory: AudioClientFactory | None = None,
+        runner_factory: RunnerFactory | None = None,
+        timeout_transcriber: TimeoutTranscriber | None = None,
     ) -> None:
         self.connection = connection
         self.repository = repository
@@ -60,10 +72,14 @@ class ArchiveWorkflowHandlers:
         self.archive_root = self.artifact_roots.archive_root
         self.archive_root.mkdir(parents=True, exist_ok=True)
         self.sessdata = sessdata
+        self.gateway_factory = gateway_factory or BilibiliApiGateway
+        self.audio_client_factory = audio_client_factory or bili_client.BiliClient
+        self.runner_factory = runner_factory or asr.ASRRunner
+        self.timeout_transcriber = timeout_transcriber or asr.transcribe_with_timeout
         self._client: bili_client.BiliClient | None = None
-        self._runners: dict[int, asr.ASRRunner] = {}
+        self._runners: dict[int, WorkflowAsrRunner] = {}
 
-    def handlers(self) -> Mapping[JobKind, Any]:
+    def handlers(self) -> Mapping[JobKind, JobHandler]:
         return {
             JobKind.SUBTITLE: self.subtitle,
             JobKind.AUDIO: self.audio,
@@ -77,11 +93,12 @@ class ArchiveWorkflowHandlers:
         self._runners.clear()
 
     def subtitle(self, job: WorkflowJob) -> Mapping[str, Any]:
+        decode_job_payload(job)
         self.repository.assert_lease(job)
         part = self._part(job)
         ingestor = SubtitleIngestor(
-            BilibiliApiGateway(sessdata=self.sessdata),
-            TranscriptRepository(self.connection, write_guard=lambda: self.repository.assert_lease(job)),
+            self.gateway_factory(sessdata=self.sessdata),
+            TranscriptRepository(self.connection, write_transaction=lambda: self.repository.owned_transaction(job)),
             credential_present=self.sessdata is not None,
             checkpoint=lambda: self.repository.assert_lease(job),
         )
@@ -116,6 +133,7 @@ class ArchiveWorkflowHandlers:
         }
 
     def audio(self, job: WorkflowJob) -> Mapping[str, Any]:
+        decode_job_payload(job)
         self.repository.assert_lease(job)
         part = self._part(job)
         identity = PageIdentity(
@@ -132,7 +150,7 @@ class ArchiveWorkflowHandlers:
         existing = usable_audio_path(self.artifact_roots, [relative, relative.removesuffix(".m4a") + ".flac"])
         if existing is not None:
             return self._store_audio(job, part, existing[2], existing[2])
-        client = self._client or bili_client.BiliClient(sessdata=self.sessdata)
+        client = self._client or self.audio_client_factory(sessdata=self.sessdata)
         self._client = client
         self.repository.assert_lease(job)
         with tempfile.TemporaryDirectory(prefix=".workflow-audio-", dir=target.parent) as staging:
@@ -141,8 +159,14 @@ class ArchiveWorkflowHandlers:
             return self._download_audio(job, part, client, identity, staged_audio / target.name, target)
 
     def _download_audio(self, job, part, client, identity, staged_target: Path, target: Path):
-        staging_roots = ArtifactRoots.of(staged_target.parent.parent)
-        final = Path(audio.download_audio(client, identity, staged_target, artifact_roots=staging_roots))
+        source = BilibiliAudioSource(client, resolve_part=lambda ref: identity)
+        final = source.download_audio(identity.content_ref, staged_target, staging_root=staged_target.parent.parent)
+        if final.suffix not in {".m4a", ".flac"}:
+            raise ValueError("invalid_audio_output")
+        checked = confined_audio_path(staged_target.parent.parent,
+            f"audio/{staged_target.stem}{final.suffix}", require_exists=True)
+        if checked is None or checked.absolute() != final.absolute():
+            raise ValueError("audio_output_outside_staging")
         # The downloader may keep a FLAC stream when ffmpeg is unavailable.
         target = target.with_suffix(final.suffix)
         return self._store_audio(job, part, final, target)
@@ -157,12 +181,13 @@ class ArchiveWorkflowHandlers:
         if not math.isfinite(duration_s) or duration_s <= 0:
             raise RuntimeError("invalid_audio_duration")
         duration_ms = max(1, round(duration_s * 1000))
-        digest = hashlib.sha256(final.read_bytes()).hexdigest()
+        with final.open("rb") as stream:
+            size_bytes, digest = stream_hash(stream)
         self.repository.assert_lease(job)
         storage_key = next(target.relative_to(base).as_posix()
                            for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
         now = int(time.time())
-        byte_size = final.stat().st_size
+        byte_size = size_bytes
         media_format = final.suffix.removeprefix(".")
         with self.repository.owned_transaction(job):
             if final != target:
@@ -184,6 +209,7 @@ class ArchiveWorkflowHandlers:
         return {"storage_key": storage_key, "sha256": digest, "duration_ms": duration_ms}
 
     def local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
+        decode_job_payload(job)
         self.repository.assert_lease(job)
         if job.profile_id is None:
             raise RuntimeError("missing_profile")
@@ -203,7 +229,7 @@ class ArchiveWorkflowHandlers:
         )
         started = int(time.time())
         run_id = str(uuid4())
-        transcripts = TranscriptRepository(self.connection, write_guard=lambda: self.repository.assert_lease(job))
+        transcripts = TranscriptRepository(self.connection, write_transaction=lambda: self.repository.owned_transaction(job))
         transcripts.start_acquisition_run(
             AcquisitionRunRecord(
                 run_id=run_id,
@@ -219,7 +245,7 @@ class ArchiveWorkflowHandlers:
             self.repository.assert_lease(job)
             diagnostics: dict[str, Any] = {}
             if profile.device.casefold().startswith(("cuda", "rocm")):
-                segments, provenance, coverage = asr.transcribe_with_timeout(
+                segments, provenance, coverage = self.timeout_transcriber(
                     config,
                     os.fspath(audio_path),
                     paired_subtitle_text=paired_text,
@@ -291,6 +317,7 @@ class ArchiveWorkflowHandlers:
 
     def publish(self, job: WorkflowJob) -> Mapping[str, Any]:
         """Project the currently preferred stored transcript into an archive bundle."""
+        decode_job_payload(job)
         self.repository.assert_lease(job)
         if job.video_part_id is None:
             raise RuntimeError("missing_video_part")
@@ -356,13 +383,21 @@ class ArchiveWorkflowHandlers:
             # The writer invalidates the marker if this transaction cannot commit.
             with self.repository.owned_transaction(job, on_rollback=invalidate):
                 yield
+                # A part owns one mutable bundle slot. Same-second republishing
+                # an earlier transcript must still become the newest committed
+                # publication fact, independently of its original row id.
+                previous = self.connection.execute(
+                    "SELECT MAX(published_at) FROM workflow_publications WHERE video_part_id = ?",
+                    (int(part["video_part_id"]),),
+                ).fetchone()[0]
+                published_at = max(int(time.time()), 0 if previous is None else int(previous) + 1)
                 self.connection.execute(
                     """INSERT INTO workflow_publications(
                            video_part_id, transcript_id, published_at, artifact_json
                        ) VALUES (?, ?, ?, ?)
                        ON CONFLICT(video_part_id, transcript_id) DO UPDATE SET
                            published_at = excluded.published_at, artifact_json = excluded.artifact_json""",
-                    (int(part["video_part_id"]), transcript_id, int(time.time()),
+                    (int(part["video_part_id"]), transcript_id, published_at,
                      json.dumps(paths, ensure_ascii=False, separators=(",", ":"))),
                 )
 
@@ -382,12 +417,12 @@ class ArchiveWorkflowHandlers:
             **paths,
         }
 
-    def _runner(self, profile_id: int) -> asr.ASRRunner:
+    def _runner(self, profile_id: int) -> WorkflowAsrRunner:
         existing = self._runners.get(profile_id)
         if existing is not None:
             return existing
         profile: AsrProfile = self.repository.profile(profile_id)
-        runner = asr.ASRRunner(profile.asr_config())
+        runner = self.runner_factory(profile.asr_config())
         self._runners[profile_id] = runner
         return runner
 

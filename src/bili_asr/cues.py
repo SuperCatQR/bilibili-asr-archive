@@ -16,9 +16,8 @@ Plan 009 consolidated the three independent implementations here; residual
 C-R3 (deciding which other readers gain a source guard) is the follow-up that
 this structure exists to make clean.
 
-``Cue`` itself stays in ``quality.py`` for now: it is part of that module's
-public surface (tests import ``quality.Cue``), so the shared parser works on
-``quality``'s ``Cue`` and nothing is re-homed in this consolidation.
+``Cue`` is defined in the dependency-free ``cue_models`` module and
+re-exported by ``quality`` for existing callers.
 """
 
 from __future__ import annotations
@@ -28,14 +27,9 @@ import html
 import math
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Mapping
+from typing import Any, Mapping
 
-if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime cost.
-    from .quality import Cue
-
-#: Bound late, after ``bili_asr.quality`` has finished importing (the parser
-#: constructs ``Cue`` instances at call time, never at import time).
-_cue_type: Callable[..., Any] | None = None
+from .cue_models import Cue
 
 #: Cap on the cues one read keeps, unchanged from the pre-consolidation
 #: ``quality._read_cues`` (its callers also account against it).
@@ -100,7 +94,7 @@ def read_cues(
             if start is None or end is None:
                 malformed = True
             else:
-                cues.append(_cue(start, end, _cue_text(lines, timing), None))
+                cues.append(Cue(start, end, _cue_text(lines, timing), None))
         return cues[:_MAX_CUES], malformed, not cues
     if path.suffix.lower() == ".json":
         try:
@@ -145,7 +139,7 @@ def read_cues(
             if not (math.isfinite(start) and math.isfinite(end)):
                 malformed = True
                 continue
-            cues.append(_cue(start, end, _text_of(item), _confidence_of(item)))
+            cues.append(Cue(start, end, _text_of(item), _confidence_of(item)))
         return cues, malformed, not cues
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return [], False, not lines
@@ -207,22 +201,6 @@ def read_route_ms(
             ) from exc
         triples.append((start_ms, end_ms, text))
     return triples
-
-
-def _cue(start: float, end: float, text: str, confidence: float | None) -> "Cue":
-    """Construct one :class:`bili_asr.quality.Cue`.
-
-    Resolved late — on every call, but cached after the first — because
-    ``quality`` imports this module while it is itself still importing, so
-    the ``Cue`` class cannot be bound here at import time.
-    """
-
-    global _cue_type
-    if _cue_type is None:
-        from .quality import Cue as _quality_Cue
-
-        _cue_type = _quality_Cue
-    return _cue_type(start, end, text, confidence)
 
 
 def _render_source(source: Any) -> str:

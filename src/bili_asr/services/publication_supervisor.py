@@ -7,6 +7,7 @@ the supervisor never transfers or releases those locks.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import math
 import os
 import secrets
@@ -17,7 +18,7 @@ import sys
 import time
 
 from bili_asr.diagnostics import write_stderr
-from bili_asr.services.bundle_verification import _worker_environment
+from bili_asr.process_environment import worker_environment
 
 DEFAULT_IO_TIMEOUT_SECONDS = 60.0
 _UNREAPED: list[subprocess.Popen] = []
@@ -30,8 +31,21 @@ def publication_phase(phase: str) -> None:
         _PROGRESS.sendall({"candidate": b"C", "final": b"F"}[phase])
 
 
+@contextmanager
+def publication_progress(progress: socket.socket):
+    """Bind the isolated worker's phase channel for one invocation."""
+    global _PROGRESS
+    if _PROGRESS is not None:
+        raise RuntimeError("publication progress channel is already active")
+    _PROGRESS = progress
+    try:
+        yield
+    finally:
+        _PROGRESS = None
+
+
 def _command(port: int, token: str, argv: list[str]) -> list[str]:
-    return [sys.executable, "-m", __name__, str(port), token, *argv]
+    return [sys.executable, "-m", "bili_asr.publication_worker", str(port), token, *argv]
 
 
 def _terminate(worker: subprocess.Popen) -> None:
@@ -89,7 +103,7 @@ def supervise_publication(argv: list[str], *, timeout_seconds: float) -> int:
             worker = subprocess.Popen(
                 _command(listener.getsockname()[1], token, argv),
                 stdout=sys.stdout, stderr=sys.stderr,
-                env=_worker_environment(), close_fds=True,
+                env=worker_environment(), close_fds=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 start_new_session=os.name == "posix",
             )
@@ -144,19 +158,6 @@ def supervise_publication(argv: list[str], *, timeout_seconds: float) -> int:
                 progress.close()
 
 
-def _worker() -> int:
-    import importlib
-    service = importlib.import_module("bili_asr.services.publication_supervisor")
-    from bili_asr.cli.main import _main
-    port, token, *argv = sys.argv[1:]
-    with socket.create_connection(("127.0.0.1", int(port)), timeout=5) as progress:
-        progress.sendall(token.encode("ascii") + b"\n")
-        service._PROGRESS = progress
-        try:
-            return _main(argv, _publication_worker=True)
-        finally:
-            service._PROGRESS = None
-
-
 if __name__ == "__main__":
-    raise SystemExit(_worker())
+    from bili_asr.publication_worker import main
+    raise SystemExit(main())

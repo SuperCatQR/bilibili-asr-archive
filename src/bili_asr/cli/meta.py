@@ -8,13 +8,14 @@ import sqlite3
 from bili_asr.cli._shared import _metadata_database_path
 from bili_asr.config import MetadataConfigError, load_metadata_config, redact_sessdata
 from bili_asr.diagnostics import write_stderr
+from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
 
 
 def _cmd_fetch_meta(args) -> int:
     """Collect Bilibili metadata into the SQLite archive database."""
     from bili_asr.services import MetadataIngestor
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
-    from bili_asr.storage import MetadataRepository, open_database
+    from bili_asr.storage import MetadataRepository
 
     try:
         config = load_metadata_config(args)
@@ -25,7 +26,7 @@ def _cmd_fetch_meta(args) -> int:
         write_stderr(f"fetch-meta: no archive database at {config.archive_root}; --resume requires a stored cursor")
         return 1
     try:
-        connection = open_database(config.archive_root)
+        connection = open_archive_connection(config.archive_root, mode=ArchiveAccessMode.BOOTSTRAP)
     except (OSError, sqlite3.Error) as exc:
         write_stderr(f"fetch-meta: invalid --archive-root {config.archive_root} ({type(exc).__name__})")
         return 1
@@ -84,14 +85,13 @@ def _cmd_fetch_tags(args) -> int:
     from bili_asr.config import resolve_sessdata
     from bili_asr.services.video_tags import refresh_video_tags
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
-    from bili_asr.storage import open_database
     from pathlib import Path
 
     if not Path(_metadata_database_path(args.archive_root)).is_file():
         write_stderr("fetch-tags: archive database does not exist")
         return 1
     try:
-        connection = open_database(args.archive_root)
+        connection = open_archive_connection(args.archive_root, mode=ArchiveAccessMode.BOOTSTRAP)
         try:
             selected = args.bvid or [row[0] for row in connection.execute("SELECT bvid FROM videos ORDER BY bvid")]
             result = refresh_video_tags(connection, BilibiliApiGateway(

@@ -5,9 +5,7 @@ from __future__ import annotations
 import multiprocessing as _multiprocessing
 import os
 import queue as _queue
-import sys
 import time
-import types
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, NamedTuple
@@ -20,7 +18,7 @@ import bili_asr.asr.coverage as _dependency_coverage
 import bili_asr.asr.diagnostics as _dependency_diagnostics
 import bili_asr.asr.errors as _dependency_errors
 import bili_asr.asr.hotwords as _dependency_hotwords
-import bili_asr.asr.provenance as _dependency_provenance
+from bili_asr.asr.provenance import _redact
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -48,7 +46,9 @@ def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_te
                 "diagnostics": runner.diagnostics(),
             }
         )
-    except BaseException as exc:
+    # The process boundary reports even SystemExit/KeyboardInterrupt so the
+    # supervisor does not wait for the full inference deadline after exit.
+    except BaseException as exc:  # noqa: BLE001
         result_queue.put(
             {"ok": False, "error_type": type(exc).__name__, "error": str(exc)[:512]}
         )
@@ -149,15 +149,6 @@ def _progress(phase: str) -> None:
         # The parent may have stopped supervising after a worker failure.  The
         # inference path must still fail normally instead of masking its error.
         set_progress_hook(None)
-
-
-class _RunnerModule(types.ModuleType):
-    def __setattr__(self, name, value):
-        super().__setattr__(name, value)
-        if name == "ASRRunner":
-            package = sys.modules.get("bili_asr.asr")
-            if package is not None:
-                types.ModuleType.__setattr__(package, name, value)
 
 
 class _ModelSet(NamedTuple):
@@ -320,7 +311,9 @@ class ASRRunner:
             self._models = factory(**kwargs)
         except (_dependency_errors.ASRDependencyError, _dependency_errors.ASRModelError):
             raise
-        except Exception:
+        # Third-party loaders expose many exception classes.  Keep their
+        # paths/tokens out of archive errors while retaining one bounded code.
+        except Exception:  # noqa: BLE001
             raise _dependency_errors.ASRModelError(
                 "Qwen3-ASR model load failed; check the configured local checkpoints."
             ) from None
@@ -462,7 +455,7 @@ class ASRRunner:
         report["aligner_dtype"] = str(models.aligner.dtype)
         for key, model in (("resolved_model_revision", models.model), ("resolved_aligner_revision", models.aligner)):
             revision = getattr(getattr(model, "config", None), "_commit_hash", None)
-            report[key] = _dependency_provenance._redact(str(revision)) if revision else None
+            report[key] = _redact(str(revision)) if revision else None
         try:
             import numpy as np
             import soxr
@@ -683,23 +676,23 @@ class ASRRunner:
 
         config = self.config
         provenance = {
-            "model_name": _dependency_provenance._redact(config.model_id or config.model_name),
-            "aligner_model": _dependency_provenance._redact(config.aligner_name),
-            "model_revision": _dependency_provenance._redact(config.model_revision or ""),
-            "aligner_revision": _dependency_provenance._redact(config.aligner_revision or ""),
-            "device": _dependency_provenance._redact(config.device),
-            "language": _dependency_provenance._redact(self._last_language or config.language or ""),
-            "hotwords": _dependency_provenance._redact(",".join(self._prompt_hotwords())),
+            "model_name": _redact(config.model_id or config.model_name),
+            "aligner_model": _redact(config.aligner_name),
+            "model_revision": _redact(config.model_revision or ""),
+            "aligner_revision": _redact(config.aligner_revision or ""),
+            "device": _redact(config.device),
+            "language": _redact(self._last_language or config.language or ""),
+            "hotwords": _redact(",".join(self._prompt_hotwords())),
             "chunk_seconds": f"{config.chunk_seconds:g}",
             "tokens_per_second": f"{config.tokens_per_second:g}",
             "min_new_tokens": str(config.min_new_tokens),
             "second_pass_use_cache": str(config.second_pass_use_cache),
             "offline": str(config.offline),
-            "local_source": _dependency_provenance._redact(config.local_source),
+            "local_source": _redact(config.local_source),
         }
         if self._hotwords_dropped:
             provenance["hotword_dropped_no_evidence"] = ",".join(
-                _dependency_provenance._redact(term) for term in self._hotwords_dropped
+                _redact(term) for term in self._hotwords_dropped
             )
         return provenance
 
@@ -733,17 +726,24 @@ def two_pass_transcribe(
     return first_pass
 
 
-def transcribe(audio_path: str, model_name: str | None = None) -> list[dict[str, Any]]:
+def transcribe(
+    audio_path: str,
+    model_name: str | None = None,
+    *,
+    runner_factory: Callable[[_dependency_config.ASRConfig | None], ASRRunner] | None = None,
+) -> list[dict[str, Any]]:
     """Transcribe one file with a fresh runner (one-shot; batches should hold a runner)."""
 
     config = replace(_dependency_config.default_config(), model_name=model_name) if model_name else None
-    return ASRRunner(config).transcribe(audio_path)
+    factory = ASRRunner if runner_factory is None else runner_factory
+    return factory(config).transcribe(audio_path)
 
 
-def provenance() -> dict[str, str]:
+def provenance(
+    *,
+    runner_factory: Callable[[_dependency_config.ASRConfig | None], ASRRunner] | None = None,
+) -> dict[str, str]:
     """The provenance of the default configuration."""
 
-    return ASRRunner(_dependency_config.default_config()).provenance()
-
-
-sys.modules[__name__].__class__ = _RunnerModule
+    factory = ASRRunner if runner_factory is None else runner_factory
+    return factory(_dependency_config.default_config()).provenance()

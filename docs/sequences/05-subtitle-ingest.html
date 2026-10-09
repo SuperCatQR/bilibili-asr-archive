@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="generator" content="archify 3.0.1">
   <meta name="archify-reader-contract" content="declared-wide-v1">
-  <title>字幕轨道选择、缺失证据与不可变转录</title>
+  <title>字幕来源端口、缺失证据与不可变转录</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
     // see a dark flash. The toolbar script below re-applies with UI state.
@@ -4978,17 +4978,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
            data-preset-badge-blueprint="蓝图 / 修订 01"
            data-preset-badge-editorial="编辑风格 / 现场笔记">
         <div class="pulse-dot"></div>
-        <h1>字幕轨道选择、缺失证据与不可变转录</h1>
+        <h1>字幕来源端口、缺失证据与不可变转录</h1>
       </div>
     </div>
 
-    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"48b31843510e5b1d78ee4f1448cec6dee7ab2296","shortRevision":"48b3184","label":"SuperCatQR/bilibili-asr-archive","href":"https://github.com/SuperCatQR/bilibili-asr-archive/tree/48b31843510e5b1d78ee4f1448cec6dee7ab2296"},"referenceCount":6,"nodes":{"executor":[{"path":"src/bili_asr/workflow.py","line":53,"endLine":97,"label":"WorkflowExecutor.run","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/48b31843510e5b1d78ee4f1448cec6dee7ab2296/src/bili_asr/workflow.py#L53-L97"}],"handler":[{"path":"src/bili_asr/workflow_runtime.py","line":79,"endLine":116,"label":"ArchiveWorkflowHandlers.subtitle","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/48b31843510e5b1d78ee4f1448cec6dee7ab2296/src/bili_asr/workflow_runtime.py#L79-L116"}],"ingest":[{"path":"src/bili_asr/services/subtitle_ingest.py","line":423,"endLine":470,"label":"SubtitleIngestor._acquire_part","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/48b31843510e5b1d78ee4f1448cec6dee7ab2296/src/bili_asr/services/subtitle_ingest.py#L423-L470"}],"gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":707,"endLine":1259,"label":"BilibiliApiGateway","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/48b31843510e5b1d78ee4f1448cec6dee7ab2296/src/bili_asr/sources/bilibili_api_gateway.py#L707-L1259"}],"db":[{"path":"src/bili_asr/storage/transcripts.py","line":189,"endLine":312,"label":"TranscriptRepository.record_acquired_transcript","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/48b31843510e5b1d78ee4f1448cec6dee7ab2296/src/bili_asr/storage/transcripts.py#L189-L312"},{"path":"src/bili_asr/storage/transcripts.py","line":520,"endLine":583,"label":"TranscriptRepository.record_subtitle_attempt","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/48b31843510e5b1d78ee4f1448cec6dee7ab2296/src/bili_asr/storage/transcripts.py#L520-L583"}]}}</script>
+    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"5d7a57e201564a10dec7a360b2ef8f7874dc51a7","shortRevision":"5d7a57e","label":"SuperCatQR/bilibili-asr-archive","linkMode":"local-only"},"referenceCount":13,"nodes":{"executor":[{"path":"src/bili_asr/workflow.py","line":70,"endLine":114,"label":"WorkflowExecutor.run"}],"handler":[{"path":"src/bili_asr/workflow_runtime.py","line":95,"endLine":133,"label":"ArchiveWorkflowHandlers.subtitle"},{"path":"src/bili_asr/workflow_runtime_ports.py","line":15,"endLine":16,"label":"GatewayFactory"}],"ingest":[{"path":"src/bili_asr/services/subtitle_ingest.py","line":456,"endLine":505,"label":"SubtitleIngestor._acquire_part"},{"path":"src/bili_asr/services/subtitle_ingest.py","line":305,"endLine":320,"label":"SubtitleIngestor._source_for"}],"source":[{"path":"src/bili_asr/sources/bilibili_source.py","line":48,"endLine":87,"label":"BilibiliSubtitleSource"},{"path":"src/bili_asr/sources/protocols.py","line":62,"endLine":76,"label":"SubtitleSource"},{"path":"src/bili_asr/sources/protocols.py","line":32,"endLine":46,"label":"SourceAccessObservation"}],"gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":971,"endLine":988,"label":"BilibiliApiGateway.get_subtitle_tracks"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":990,"endLine":998,"label":"BilibiliApiGateway.validate_subtitle_credentials"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":1014,"endLine":1054,"label":"BilibiliApiGateway.fetch_subtitle_segments"}],"db":[{"path":"src/bili_asr/storage/transcripts.py","line":206,"endLine":329,"label":"TranscriptRepository.record_acquired_transcript"},{"path":"src/bili_asr/storage/transcripts.py","line":537,"endLine":600,"label":"TranscriptRepository.record_subtitle_attempt"}]}}</script>
     <script id="archify-i18n-data" type="application/json">{"locale":"zh-CN","messages":{"viewer.kind.frontend":"前端","viewer.kind.backend":"后端","viewer.kind.database":"数据库","viewer.kind.cloud":"云服务","viewer.kind.security":"安全","viewer.kind.messagebus":"消息总线","viewer.kind.external":"外部系统","viewer.kind.neutral":"中性","viewer.kind.node":"节点","viewer.kind.start":"开始","viewer.kind.active":"活动","viewer.kind.waiting":"等待","viewer.kind.decision":"决策","viewer.kind.success":"成功","viewer.kind.failure":"失败","viewer.toolbar.actions":"图表操作","viewer.theme.toggle.title":"切换主题（T）","viewer.theme.toggle":"切换颜色主题","viewer.theme.dark":"深色","viewer.theme.light":"浅色","viewer.preset.choose.title":"选择视觉风格（S 循环切换）","viewer.preset.choose":"选择视觉风格","viewer.preset.style":"风格","viewer.preset.menu":"视觉风格","viewer.preset.identity":"视觉表达","viewer.preset.cycles":"循环切换","viewer.preset.classic":"经典","viewer.preset.classic.short":"经典","viewer.preset.classic.hint":"稳定的技术默认风格","viewer.preset.flow":"信号流","viewer.preset.flow.short":"流动","viewer.preset.flow.hint":"突出动态流向","viewer.preset.blueprint":"蓝图","viewer.preset.blueprint.hint":"工程评审","viewer.preset.editorial":"编辑风格","viewer.preset.editorial.hint":"适合发布与上线说明","viewer.preset.badge.signalFlow":"信号流","viewer.preset.badge.blueprint":"蓝图 / 修订 01","viewer.preset.badge.editorial":"编辑风格 / 现场笔记","viewer.preset.badge.editorialPlate":"ARCHIFY / 图版 04","viewer.preset.current":"当前视觉风格：{style}。选择视觉风格","viewer.motion.live":"动态","viewer.motion.still":"静态","viewer.motion.pause":"暂停动效","viewer.motion.resume":"恢复动效","viewer.motion.reduced":"已根据减少动态效果偏好暂停动效","viewer.motion.hidden":"页面不可见时已暂停动效","viewer.motion.yielding":"暂停动效；当前让位于{owner}","viewer.motion.yielding.title":"动态预览已启用 · 正在让位于{owner}","viewer.owner.route":"路径探测","viewer.owner.lens":"语义透镜","viewer.owner.relationship":"关系预览","viewer.owner.intent":"意图追踪","viewer.owner.focus":"语义聚焦","viewer.owner.legend":"图例预览","viewer.owner.reader":"读者交互","viewer.present.enter":"进入演示模式","viewer.present.enter.title":"演示模式（F）","viewer.present.exit":"退出演示模式","viewer.present.exit.title":"退出演示模式（F 或 Escape）","viewer.present.present":"演示","viewer.present.exit.label":"退出","viewer.export.button":"导出","viewer.export.button.title":"导出图表（E）","viewer.export.diagram":"导出图表","viewer.export.menu":"导出","viewer.export.subtitle":"便携、整洁的输出","viewer.export.share":"分享","viewer.export.shareCard":"分享卡片","viewer.export.routeShareCard":"路径分享卡片","viewer.export.reachShareCard":"可达范围分享卡片","viewer.export.copyDiagram":"复制图表","viewer.export.clipboardPng":"复制 PNG 到剪贴板","viewer.export.raster":"位图","viewer.export.image":"图像","viewer.export.lossless":"无损图像","viewer.export.compact":"紧凑图像","viewer.export.modern":"现代图像格式","viewer.export.vectorMotion":"矢量与动效","viewer.export.vectorMotion.heading":"矢量与动效","viewer.export.editable":"可编辑矢量图","viewer.export.svg.auto":"SVG · 自动","viewer.export.svg.auto.hint":"匹配宿主主题","viewer.export.svg.light":"SVG · 浅色","viewer.export.svg.light.hint":"始终浅色","viewer.export.svg.dark":"SVG · 深色","viewer.export.svg.dark.hint":"始终深色","viewer.export.motion6s":"6 秒动效","viewer.export.unsupported":"当前浏览器不支持","viewer.export.clipboardUnsupported":"当前浏览器不支持写入图片剪贴板","viewer.export.clipboardUnsupported.short":"此浏览器不支持写入图片剪贴板。","viewer.export.motionUnavailable":"当前浏览器无法录制动效","viewer.export.webmUnavailable":"当前浏览器不支持 WebM","viewer.export.failed":"导出失败：{message}","viewer.export.unknownVariant":"未知的分享卡片类型：{variant}","viewer.export.routeRequired":"请先追踪路径，再导出路径分享卡片","viewer.export.reachRequired":"请先追踪编写可达范围，再导出可达范围分享卡片","viewer.export.unknown":"未知错误","viewer.export.routeFailed":"路径分享卡片导出失败：{message}","viewer.export.reachFailed":"可达范围分享卡片导出失败：{message}","viewer.export.copyFailed":"复制失败：{message}","viewer.export.copiedPng":"已将 PNG 复制到剪贴板","viewer.export.downloadedRoute":"已下载路径分享卡片","viewer.export.downloadedReach":"已下载可达范围分享卡片","viewer.export.downloadedWebm":"已下载 WebM","viewer.export.recording":"正在录制 6 秒动效…","viewer.export.card.routeSummary.one":"路径：{source} → {target} · {count} 步","viewer.export.card.routeSummary.other":"路径：{source} → {target} · {count} 步","viewer.export.card.reachSummary":"从{origin}开始的编写{direction} · {nodes} · {links} · 最深 {hops}","viewer.export.card.node.one":"{count} 个节点","viewer.export.card.node.other":"{count} 个节点","viewer.export.card.link.one":"{count} 条连接","viewer.export.card.link.other":"{count} 条连接","viewer.export.card.hop.one":"{count} 跳","viewer.export.card.hop.other":"{count} 跳","viewer.export.card.routeBadge":"ARCHIFY · 路径 · {hops}","viewer.export.card.reachBadge":"ARCHIFY · {direction}可达范围","viewer.export.direction.upstream":"上游","viewer.export.direction.downstream":"下游","viewer.export.error.canvasUnavailable":"无法为{label}使用画布","viewer.export.error.contextUnavailable":"无法为{label}创建二维画布上下文","viewer.export.error.toBlobUnavailable":"{label}无法使用 canvas.toBlob","viewer.export.error.toBlobNull":"{label}的 canvas.toBlob 未返回数据","viewer.export.error.variantsCombined":"无法同时组合多种分享卡片类型","viewer.export.error.viewerState":"分享卡片导出无法移除临时 Viewer 状态","viewer.export.error.routeState":"路径卡片导出无法安全保留已解析路径","viewer.export.error.reachState":"可达范围卡片导出无法安全保留编写的可达范围","viewer.export.error.webmRequirements":"WebM 动效导出需要追踪动画及浏览器 MediaRecorder 支持","viewer.export.error.mediaRecorder":"MediaRecorder 录制失败","viewer.export.error.emptyWebm":"MediaRecorder 生成了空的 WebM","viewer.export.error.webmBackground":"无法为 WebM 导出加载 SVG 背景","viewer.guide.title":"探索此系统","viewer.focus.selectedNodes":"已选择 {count} 个节点","viewer.guide.eyebrow":"图表指南","viewer.guide.close":"关闭图表指南","viewer.guide.inspecting":"正在检查已编译语义","viewer.guide.actions":"图表探索操作","viewer.guide.find":"查找任意节点","viewer.guide.find.hint":"搜索标签、职责、类型和稳定 ID。","viewer.guide.route":"追踪路径","viewer.guide.route.aria":"追踪有向路径","viewer.guide.route.hint":"查看两个语义节点如何按编写方向连接。","viewer.guide.map":"查看完整系统","viewer.guide.map.hint":"打开带实时视口和稳定节点的语义雷达。","viewer.guide.lens":"比较语义类型","viewer.guide.lens.hint":"统计角色、显示流量并比较直接编写的连接。","viewer.guide.present":"进入演示模式","viewer.guide.present.hint":"让实时图表占满视口，同时不改变导出。","viewer.guide.shortcuts":"其他键盘快捷键","viewer.guide.shortcut.export":"导出","viewer.guide.shortcut.theme":"主题","viewer.guide.shortcut.style":"风格","viewer.guide.shortcut.reset":"重置","viewer.guide.shortcut.zoomIn":"放大","viewer.guide.shortcut.zoomOut":"缩小","viewer.guide.shortcut.close":"关闭","viewer.guide.facts":"{nodes} · {relationships}","viewer.guide.fact.node.one":"{count} 个语义节点","viewer.guide.fact.node.other":"{count} 个语义节点","viewer.guide.fact.relationship.one":"{count} 条关系","viewer.guide.fact.relationship.other":"{count} 条关系","viewer.guide.open":"打开图表指南","viewer.finder.title":"查找节点","viewer.finder.close":"关闭节点查找器","viewer.finder.placeholder":"搜索标签或 ID","viewer.finder.search":"搜索图表节点","viewer.finder.results":"图表节点","viewer.finder.empty":"没有匹配的节点","viewer.finder.result.focus":"聚焦{label}","viewer.finder.result.routeStart":"选择{label}作为路径起点","viewer.finder.result.routeTarget":"选择{label}作为路径终点，{links}","viewer.finder.status.empty":"没有匹配的节点","viewer.finder.status.count.one":"{count} 个匹配节点","viewer.finder.status.count.other":"{count} 个匹配节点","viewer.finder.noun.nodes":"个节点","viewer.finder.link.one":"{count} 条连接","viewer.finder.link.other":"{count} 条连接","viewer.finder.result.focus.one":"聚焦{label}，{count} 条相关连接","viewer.finder.result.focus.other":"聚焦{label}，{count} 条相关连接","viewer.finder.status.filtered":"{visible}/{available} {noun}","viewer.finder.status.all":"{available} {noun}","viewer.passport.eyebrow":"语义护照","viewer.passport.metadata":"节点元数据","viewer.passport.evidence":"已验证的源代码证据","viewer.passport.verified":"已验证来源","viewer.passport.verificationScope":"已按固定修订版本验证本地 Git 证据，未检查远程访问权限。","viewer.passport.reach":"编写可达范围","viewer.passport.reach.trace":"追踪编写的可达性","viewer.passport.upstream":"上游","viewer.passport.downstream":"下游","viewer.passport.upstream.trace":"追踪上游编写可达性","viewer.passport.downstream.trace":"追踪下游编写可达性","viewer.passport.close":"关闭语义护照","viewer.passport.move":"移动语义护照。可拖动、使用方向键移动，或按 Home 恢复自动位置。","viewer.passport.copy":"复制链接","viewer.passport.copy.focus":"复制聚焦节点的链接","viewer.passport.relations":"关系","viewer.passport.relations.show":"显示关联关系","viewer.passport.relations.hide":"隐藏关联关系","viewer.passport.relations.list":"关联关系","viewer.passport.copyRelation":"复制关系","viewer.passport.copyNode":"复制节点","viewer.passport.copyPinned":"复制固定关系的链接","viewer.passport.copySource":"复制来源节点的链接","viewer.passport.copy.focused.success":"已复制聚焦节点链接","viewer.passport.copy.pinned.success":"已复制固定关系链接","viewer.passport.copy.focused.failed":"无法复制聚焦节点链接","viewer.passport.copy.pinned.failed":"无法复制固定关系链接","viewer.passport.relationship.none":"没有关联关系","viewer.passport.relationship.count.one":"{count} 条关系","viewer.passport.relationship.count.other":"{count} 条关系","viewer.passport.relationship.show.one":"显示 {count} 条关联关系","viewer.passport.relationship.show.other":"显示 {count} 条关联关系","viewer.passport.relationship.summary":"{out} 条出向 · {in} 条入向{loops}","viewer.passport.relationship.loops":" · {count} 条自环","viewer.passport.relationship.explorer":"直接关系浏览器","viewer.passport.relationship.help":"使用方向键浏览关系。按 Enter 或空格键固定详情；按 Escape 清除。","viewer.passport.relationship.loopsBack":"回环","viewer.passport.relationship.connectsTo":"连接到","viewer.passport.relationship.connectsFrom":"连接自","viewer.passport.relationship.pinned":"已固定关系 · {from} → {to} · {label}","viewer.passport.relationship.inspect":"检查第 {index}/{total} 条关系：{from} 到 {to}，{label}。按 Enter 查看详情。","viewer.passport.relationship.group.out":"出向","viewer.passport.relationship.group.in":"入向","viewer.passport.relationship.group.loop":"自环","viewer.passport.relationship.row":"{group}：{relationship}，{neighbor}","viewer.passport.relationship.direction.out":"出 →","viewer.passport.relationship.direction.in":"← 入","viewer.passport.relationship.direction.loop":"自环","viewer.passport.sourceCount.one":"{count} 个已验证来源引用","viewer.passport.sourceCount.other":"{count} 个已验证来源引用","viewer.passport.sourceMarker":"来源","viewer.passport.beacon.one":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.beacon.other":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.repository.open":"打开已验证的仓库修订版本 {revision}","viewer.passport.source.open":"打开修订版本 {revision} 中已验证的来源 {path}","viewer.passport.source.openLink":"打开 ↗","viewer.passport.reach.upstream.one":"追踪 {count} 个上游编写节点","viewer.passport.reach.upstream.other":"追踪 {count} 个上游编写节点","viewer.passport.reach.downstream.one":"追踪 {count} 个下游编写节点","viewer.passport.reach.downstream.other":"追踪 {count} 个下游编写节点","viewer.passport.reach.noUpstream":"没有上游编写节点","viewer.passport.reach.noDownstream":"没有下游编写节点","viewer.passport.reach.status":"{direction} · {nodes} 个节点 · {links} 条连接 · 最深 {hops} 跳","viewer.route.eyebrow":"路径","viewer.route.start":"点击路径的起点","viewer.route.start.find":"查找起点","viewer.route.start.find.aria":"查找路径起点","viewer.route.copy":"复制链接","viewer.route.copy.aria":"复制已追踪路径的链接","viewer.route.clear":"清除","viewer.route.clear.aria":"清除路径探测","viewer.route.traced":"路径","viewer.route.pickTwo":"在图上点两个节点","viewer.route.pickOne":"在图上点一个节点","viewer.route.controls":"路径旅程控制","viewer.route.previous":"上一个路径位置","viewer.route.play":"播放路径旅程","viewer.route.pause":"暂停路径旅程","viewer.route.replay":"重播路径旅程","viewer.route.next":"下一个路径位置","viewer.route.journey":"旅程","viewer.route.pause.label":"暂停","viewer.route.replay.label":"重播","viewer.route.overview":"总览","viewer.route.overview.aria":"显示完整路径总览","viewer.route.instructions":"先点起点，再点终点，沿箭头方向找路。","viewer.route.destination":"从{label}出发，走到哪里？","viewer.route.destination.find":"查找目标","viewer.route.destination.find.aria":"查找可达的路径目标","viewer.route.differentDestination":"选择其他目标","viewer.route.distinct":"请选两个不同的节点。","viewer.route.unreachable":"走不到{label}","viewer.route.unreachable.detail":"沿箭头方向，从{source}走不到{target}。请选一个高亮节点。","viewer.route.start.instructions":"接着选终点，能走到的节点会亮起。","viewer.route.copy.success":"已复制路径链接","viewer.route.copy.failed":"无法复制路径链接","viewer.route.position":"路径位置 {index}/{total}：{label}","viewer.route.step":"第 {index}/{total} 步 · {phase} · {label}","viewer.route.motionRequired":"自动旅程需要动态模式","viewer.route.trigger.clear":"清除已追踪路径","viewer.route.overview.status":"{nodes} · {hops} · 最短路径","viewer.route.overview.node.one":"{count} 个节点","viewer.route.overview.node.other":"{count} 个节点","viewer.route.overview.hop.one":"{count} 步","viewer.route.overview.hop.other":"{count} 步","viewer.route.phase.playing":"播放中","viewer.route.phase.complete":"已完成","viewer.route.phase.inspecting":"检查中","viewer.route.destination.count.one":"有 {count} 个能走到的节点已高亮，点一下。","viewer.route.destination.count.other":"有 {count} 个能走到的节点已高亮，点一个。","viewer.route.noOutgoing":"这个节点没有向外的箭头。清除后换一个起点。","viewer.route.result.title":"{source} 到 {target}","viewer.route.finder.source.title":"选择路径起点","viewer.route.finder.source.placeholder":"搜索路径来源","viewer.route.finder.source.empty":"没有匹配的路径来源","viewer.route.finder.source.results":"可作为路径起点的节点","viewer.route.finder.source.noun":"个路径来源","viewer.route.finder.source.badge":"起点","viewer.route.finder.target.title":"从{label}出发的目标","viewer.route.finder.target.placeholder":"搜索可达目标","viewer.route.finder.target.empty":"没有匹配的可达目标","viewer.route.finder.target.results":"可达路径目标","viewer.route.finder.target.noun":"个可达目标","viewer.route.hop.one":"{count} 跳","viewer.route.hop.other":"{count} 跳","viewer.lens.eyebrow":"语义透镜","viewer.lens.title":"比较系统角色","viewer.lens.close":"关闭语义透镜","viewer.lens.instruction":"最多选择两种语义类型。选择一种可显示其真实流量；选择两种只比较直接编写的关系。","viewer.lens.kinds":"语义类型","viewer.lens.choose":"选择一种类型以检查其节点和相连关系。","viewer.lens.copy":"复制语义透镜链接","viewer.lens.clear":"清除语义透镜","viewer.lens.open":"打开语义透镜","viewer.lens.openActive":"打开当前语义透镜","viewer.lens.legend":"语义图例","viewer.lens.legend.inspect.one":"检查{label}，{count} 个节点","viewer.lens.legend.inspect.other":"检查{label}，{count} 个节点","viewer.lens.kind.count.one":"{label}，{count} 个节点","viewer.lens.kind.count.other":"{label}，{count} 个节点","viewer.lens.compare.one":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.compare.other":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.single":"{nodes} · {relationships} · 已连接节点保持可见","viewer.lens.node.one":"{count} 个{label}节点","viewer.lens.node.other":"{count} 个{label}节点","viewer.lens.relationship.one":"{count} 条相连关系","viewer.lens.relationship.other":"{count} 条相连关系","viewer.radar.title":"语义雷达","viewer.radar.building":"正在构建总览","viewer.radar.openFull":"打开完整语义雷达","viewer.radar.open":"打开雷达","viewer.radar.close":"关闭语义雷达","viewer.radar.surface":"图表总览。点击节点进行聚焦，或使用方向键平移。","viewer.radar.click":"点击节点","viewer.radar.drag":"拖动平移","viewer.radar.space":"语义雷达需要更多地图可见空间。","viewer.radar.nodes":"语义图表雷达节点","viewer.radar.focus":"从语义雷达聚焦{label}","viewer.radar.status":"{count} 个节点 · {viewport}","viewer.radar.fullMap":"{count} 个节点 · 完整地图","viewer.radar.compacted":"已收紧雷达，避免遮挡语义护照或地图控件。","viewer.radar.cancelWaiting":"取消等待更多地图空间的语义雷达","viewer.radar.needsSpace":"语义雷达需要更多可见地图空间","viewer.radar.viewport.full":"完整地图","viewer.radar.viewport.width":"宽度 {percent}%","viewer.radar.viewport.scale":"视口 {percent}%","viewer.nav.controls":"图表视图控制","viewer.nav.route":"追踪有向路径","viewer.nav.route.title":"追踪路径（R）","viewer.nav.route.short":"路径","viewer.nav.radar":"打开语义雷达","viewer.nav.radar.title":"语义雷达（M）","viewer.nav.radar.short":"地图","viewer.nav.lens":"打开语义透镜","viewer.nav.lens.title":"语义透镜（L）","viewer.nav.lens.short":"透镜","viewer.nav.find":"查找节点","viewer.nav.find.title":"查找节点（/）","viewer.outline.title":"节点索引","viewer.rail.show":"要点与索引","viewer.rail.controls":"侧栏","viewer.rail.collapse":"收起侧栏","viewer.rail.bottom":"移到图下方","viewer.rail.right":"移到图右侧","viewer.nav.guide":"打开图表指南","viewer.nav.guide.title":"图表指南（?）","viewer.nav.zoomOut":"缩小","viewer.nav.zoomOut.title":"缩小（-）","viewer.nav.reset":"重置图表视图","viewer.nav.reset.title":"重置视图（0）","viewer.nav.read":"阅读","viewer.nav.zoomIn":"放大","viewer.nav.zoomIn.title":"放大（+）","viewer.nav.camera":"{hint}。重置图表视图","viewer.nav.camera.title":"{semantic}{hint} · 重置视图（0）","viewer.nav.camera.semantic":"语义相机已启用 · ","viewer.nav.level.map":"概览","viewer.nav.level.read":"阅读","viewer.nav.level.full":"完整","viewer.nav.level.auto":"自动","viewer.nav.detail.map":"放大以显示关系标签和节点上下文","viewer.nav.detail.read":"再次放大以显示标签和注释","viewer.nav.detail.full":"完整图表详情","viewer.intent.summary":"{label}。{out} 条出向，{in} 条入向{loops}。共 {total} 条连接。按 Enter 查看详情。","viewer.intent.loops":"，{count} 条自环","viewer.common.copied":"已复制","viewer.common.copyFailed":"复制失败","viewer.common.copyLink":"复制链接","viewer.common.clear":"清除","viewer.common.close":"关闭"}}</script>
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 920 1012" data-sequence-column-fit="spread" data-reader-fit="intrinsic-height" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
-        <title id="archify-diagram-title">字幕轨道选择、缺失证据与不可变转录</title>
+      <svg viewBox="0 0 920 1716" data-sequence-column-fit="spread" data-reader-fit="intrinsic-height" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+        <title id="archify-diagram-title">字幕来源端口、缺失证据与不可变转录</title>
         <desc id="archify-diagram-description">由 Archify 生成的时序图。</desc>
         <!-- Definitions -->
         <defs>
@@ -5013,248 +5013,424 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Time Segments -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="0" x="48" y="368" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="0" x="48" y="528" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="440" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="600" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="512" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="672" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="3" x="48" y="584" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="3" x="48" y="712" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="4" x="48" y="656" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="4" x="48" y="784" width="824" height="56" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="5" x="48" y="728" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="5" x="48" y="888" width="824" height="56" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="6" x="48" y="864" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="6" x="48" y="992" width="824" height="56" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="7" x="48" y="1096" width="824" height="120" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="8" x="48" y="1264" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="9" x="48" y="1336" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="10" x="48" y="1512" width="824" height="24" rx="10" class="c-lane" stroke-width="1"/>
 
         <!-- Lifelines -->
-        <path d="M 129.5 142 L 129.5 916" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 300.25 142 L 300.25 916" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 471 142 L 471 916" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 641.75 142 L 641.75 916" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 812.5 142 L 812.5 916" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 116.5 142 L 116.5 1620" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 258.3 142 L 258.3 1620" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 400.1 142 L 400.1 1620" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 541.9000000000001 142 L 541.9000000000001 1620" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 683.7 142 L 683.7 1620" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 825.5 142 L 825.5 1620" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
 
         <!-- Activations -->
 
 
         <!-- Messages -->
         <g data-edge-from="executor" data-edge-to="handler" data-edge-label="执行 subtitle job" data-edge-key="0" data-edge-id="m1">
-          <path data-composition-edge-from="executor" data-composition-edge-to="handler" data-composition-edge-id="m1" data-composition-points="136.5,180;293.25,180" d="M 136.5 180 L 293.25 180" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+          <path data-composition-edge-from="executor" data-composition-edge-to="handler" data-composition-edge-id="m1" data-composition-points="123.5,180;251.3,180" d="M 123.5 180 L 251.3 180" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="152.775" y="160" width="124.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="214.875" y="170" class="t-muted" font-size="11" text-anchor="middle">执行 subtitle job</text>
+          <rect x="125.30000000000001" y="160" width="124.19999999999999" height="18" rx="3" class="c-mask"/>
+          <text x="187.4" y="170" class="t-muted" font-size="11" text-anchor="middle">执行 subtitle job</text>
         </g>
+        <text data-detail="fine" x="135.5" y="198" class="t-dim" font-size="7">执行 subtitle job</text>
         </g>
 
-        <g data-edge-from="handler" data-edge-to="db" data-edge-label="assert_lease" data-edge-key="1" data-edge-id="m2">
-          <path data-composition-edge-from="handler" data-composition-edge-to="db" data-composition-edge-id="m2" data-composition-points="307.25,212;805.5,212" d="M 307.25 212 L 805.5 212" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="handler" data-edge-to="db" data-edge-label="解码任务身份并 assert_lease" data-edge-key="1" data-edge-id="m2">
+          <path data-composition-edge-from="handler" data-composition-edge-to="db" data-composition-edge-id="m2" data-composition-points="265.3,212;818.5,212" d="M 265.3 212 L 818.5 212" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="510.775" y="192" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="556.375" y="202" class="t-edge-security" font-size="11" text-anchor="middle">assert_lease</text>
+          <rect x="446.79999999999995" y="192" width="190.2" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="202" class="t-edge-security" font-size="11" text-anchor="middle">解码任务身份并 assert_lease</text>
         </g>
+        <text data-detail="fine" x="277.3" y="230" class="t-dim" font-size="7">解码任务身份并 assert_lease</text>
         </g>
 
-        <g data-edge-from="handler" data-edge-to="ingest" data-edge-label="选择精确 part" data-edge-key="2" data-edge-id="m3">
-          <path data-composition-edge-from="handler" data-composition-edge-to="ingest" data-composition-edge-id="m3" data-composition-points="307.25,244;464,244" d="M 307.25 244 L 464 244" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="handler" data-edge-to="gateway" data-edge-label="创建本次 gateway" data-edge-key="2" data-edge-id="m3">
+          <path data-composition-edge-from="handler" data-composition-edge-to="gateway" data-composition-edge-id="m3" data-composition-points="265.3,244;676.7,244" d="M 265.3 244 L 676.7 244" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="336.725" y="224" width="97.8" height="18" rx="3" class="c-mask"/>
-          <text x="385.625" y="234" class="t-muted" font-size="11" text-anchor="middle">选择精确 part</text>
+          <rect x="412.2" y="224" width="117.6" height="18" rx="3" class="c-mask"/>
+          <text x="471" y="234" class="t-muted" font-size="11" text-anchor="middle">创建本次 gateway</text>
         </g>
+        <text data-detail="fine" x="277.3" y="262" class="t-dim" font-size="7">gateway_factory(sessdata) 创建本次网关</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="创建 acquisition run" data-edge-key="3" data-edge-id="m4">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m4" data-composition-points="478,276;805.5,276" d="M 478 276 L 805.5 276" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="handler" data-edge-to="ingest" data-edge-label="选择精确 part" data-edge-key="3" data-edge-id="m4">
+          <path data-composition-edge-from="handler" data-composition-edge-to="ingest" data-composition-edge-id="m4" data-composition-points="265.3,276;393.1,276" d="M 265.3 276 L 393.1 276" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="569.75" y="256" width="144" height="18" rx="3" class="c-mask"/>
-          <text x="641.75" y="266" class="t-muted" font-size="11" text-anchor="middle">创建 acquisition run</text>
+          <rect x="280.30000000000007" y="256" width="97.8" height="18" rx="3" class="c-mask"/>
+          <text x="329.20000000000005" y="266" class="t-edge-security" font-size="11" text-anchor="middle">选择精确 part</text>
         </g>
+        <text data-detail="fine" x="277.3" y="294" class="t-dim" font-size="7">选择精确 part；checkpoint 与共享 JobCommitGuard 上下文绑定当前 lease</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="gateway" data-edge-label="列出字幕轨道" data-edge-key="4" data-edge-id="m5">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="gateway" data-composition-edge-id="m5" data-composition-points="478,308;634.75,308" d="M 478 308 L 634.75 308" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="创建 run 并读取分 P" data-edge-key="4" data-edge-id="m5">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m5" data-composition-points="407.1,308;818.5,308" d="M 407.1 308 L 818.5 308" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="510.775" y="288" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="556.375" y="298" class="t-muted" font-size="11" text-anchor="middle">列出字幕轨道</text>
+          <rect x="544.0999999999999" y="288" width="137.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="298" class="t-muted" font-size="11" text-anchor="middle">创建 run 并读取分 P</text>
         </g>
+        <text data-detail="fine" x="419.1" y="326" class="t-dim" font-size="7">创建 acquisition run 并读取候选 part 行</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="保存 failed attempt" data-edge-key="5" data-edge-id="m6">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m6" data-composition-points="478,380;805.5,380" d="M 478 380 L 805.5 380" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="ingest" data-edge-to="source" data-edge-label="绑定 ContentRef 与 cid" data-edge-key="5" data-edge-id="m6">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="source" data-composition-edge-id="m6" data-composition-points="407.1,340;534.9000000000001,340" d="M 407.1 340 L 534.9000000000001 340" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="573.05" y="360" width="137.39999999999998" height="18" rx="3" class="c-mask"/>
-          <text x="641.75" y="370" class="t-muted" font-size="11" text-anchor="middle">保存 failed attempt</text>
+          <rect x="392.4000000000001" y="320" width="157.2" height="18" rx="3" class="c-mask"/>
+          <text x="471.0000000000001" y="330" class="t-muted" font-size="11" text-anchor="middle">绑定 ContentRef 与 cid</text>
         </g>
+        <text data-detail="fine" x="419.1" y="358" class="t-dim" font-size="7">使用显式 source 或由已有行绑定 ContentRef 到真实 cid</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="gateway" data-edge-label="验证凭据有效性" data-edge-key="6" data-edge-id="m8">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="gateway" data-composition-edge-id="m8" data-composition-points="478,452;634.75,452" d="M 478 452 L 634.75 452" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="ingest" data-edge-to="source" data-edge-label="list_tracks(item.content_ref)" data-edge-key="6" data-edge-id="m7">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="source" data-composition-edge-id="m7" data-composition-points="407.1,372;534.9000000000001,372" d="M 407.1 372 L 534.9000000000001 372" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="504.175" y="432" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="556.375" y="442" class="t-edge-security" font-size="11" text-anchor="middle">验证凭据有效性</text>
+          <rect x="369.30000000000007" y="352" width="203.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="471.00000000000006" y="362" class="t-muted" font-size="11" text-anchor="middle">list_tracks(item.content_ref)</text>
         </g>
+        <text data-detail="fine" x="419.1" y="390" class="t-dim" font-size="7">list_tracks(item.content_ref)</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="保存无字幕证据" data-edge-key="7" data-edge-id="m9">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m9" data-composition-points="478,524;805.5,524" d="M 478 524 L 805.5 524" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="source" data-edge-to="gateway" data-edge-label="校验 Bilibili 平台与 cid 后读取字幕清单" data-edge-key="7" data-edge-id="m8">
+          <path data-composition-edge-from="source" data-composition-edge-to="gateway" data-composition-edge-id="m8" data-composition-points="548.9000000000001,404;676.7,404" d="M 548.9000000000001 404 L 676.7 404" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="589.55" y="504" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="641.75" y="514" class="t-muted" font-size="11" text-anchor="middle">保存无字幕证据</text>
+          <rect x="478.1000000000001" y="384" width="269.4" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="394" class="t-edge-security" font-size="11" text-anchor="middle">校验 Bilibili 平台与 cid 后读取字幕清单</text>
         </g>
+        <text data-detail="fine" x="560.9000000000001" y="422" class="t-dim" font-size="7">校验 Bilibili 平台与 cid 后读取字幕清单</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="gateway" data-edge-label="下载正文 segments" data-edge-key="8" data-edge-id="m10">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="gateway" data-composition-edge-id="m10" data-composition-points="478,596;634.75,596" d="M 478 596 L 634.75 596" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="gateway" data-edge-to="source" data-edge-label="轨道 DTO 或 bounded GatewayError" data-edge-key="8" data-edge-id="m9">
+          <path data-composition-edge-from="gateway" data-composition-edge-to="source" data-composition-edge-id="m9" data-composition-points="676.7,436;548.9000000000001,436" d="M 676.7 436 L 548.9000000000001 436" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="494.275" y="576" width="124.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="556.375" y="586" class="t-muted" font-size="11" text-anchor="middle">下载正文 segments</text>
+          <rect x="501.20000000000005" y="416" width="223.2" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="426" class="t-muted" font-size="11" text-anchor="middle">轨道 DTO 或 bounded GatewayError</text>
         </g>
+        <text data-detail="fine" x="560.9000000000001" y="454" class="t-dim" font-size="7">轨道 DTO 或 bounded GatewayError</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="保护性保存版本" data-edge-key="9" data-edge-id="m11">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m11" data-composition-points="478,668;805.5,668" d="M 478 668 L 805.5 668" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="source" data-edge-to="ingest" data-edge-label="原样返回类型化清单或有界错误" data-edge-key="9" data-edge-id="m10">
+          <path data-composition-edge-from="source" data-composition-edge-to="ingest" data-composition-edge-id="m10" data-composition-points="534.9000000000001,468;407.1,468" d="M 534.9000000000001 468 L 407.1 468" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="589.55" y="648" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="641.75" y="658" class="t-muted" font-size="11" text-anchor="middle">保护性保存版本</text>
+          <rect x="372.6000000000001" y="448" width="196.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="471.00000000000006" y="458" class="t-muted" font-size="11" text-anchor="middle">原样返回类型化清单或有界错误</text>
         </g>
+        <text data-detail="fine" x="419.1" y="486" class="t-dim" font-size="7">原样返回类型化清单或有界错误</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="保存失败获取证据" data-edge-key="10" data-edge-id="m12">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m12" data-composition-points="478,740;805.5,740" d="M 478 740 L 805.5 740" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="明确 not_found 缺失证据" data-edge-key="10" data-edge-id="m11">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m11" data-composition-points="407.1,540;818.5,540" d="M 407.1 540 L 818.5 540" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="582.95" y="720" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="641.75" y="730" class="t-muted" font-size="11" text-anchor="middle">保存失败获取证据</text>
+          <rect x="530.9" y="520" width="163.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="530" class="t-muted" font-size="11" text-anchor="middle">明确 not_found 缺失证据</text>
         </g>
+        <text data-detail="fine" x="419.1" y="558" class="t-dim" font-size="7">保存 no-subtitle、not_found 与 absence_verified</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="结束 acquisition run" data-edge-key="11" data-edge-id="m13">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m13" data-composition-points="478,772;805.5,772" d="M 478 772 L 805.5 772" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="有界失败 attempt" data-edge-key="11" data-edge-id="m12">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m12" data-composition-points="407.1,612;818.5,612" d="M 407.1 612 L 818.5 612" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="569.75" y="752" width="144" height="18" rx="3" class="c-mask"/>
-          <text x="641.75" y="762" class="t-muted" font-size="11" text-anchor="middle">结束 acquisition run</text>
+          <rect x="554" y="592" width="117.6" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="602" class="t-muted" font-size="11" text-anchor="middle">有界失败 attempt</text>
         </g>
+        <text data-detail="fine" x="419.1" y="630" class="t-dim" font-size="7">保存 failed attempt 与 bounded error_code</text>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="handler" data-edge-label="返回 part outcome" data-edge-key="12" data-edge-id="m14">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="handler" data-composition-edge-id="m14" data-composition-points="464,804;307.25,804" d="M 464 804 L 307.25 804" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="ingest" data-edge-to="source" data-edge-label="verify_access(ContentRef)" data-edge-key="12" data-edge-id="m14">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="source" data-composition-edge-id="m14" data-composition-points="407.1,724;534.9000000000001,724" d="M 407.1 724 L 534.9000000000001 724" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="323.525" y="784" width="124.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="385.625" y="794" class="t-muted" font-size="11" text-anchor="middle">返回 part outcome</text>
+          <rect x="382.50000000000006" y="704" width="177" height="18" rx="3" class="c-mask"/>
+          <text x="471.00000000000006" y="714" class="t-muted" font-size="11" text-anchor="middle">verify_access(ContentRef)</text>
         </g>
+        <text data-detail="fine" x="419.1" y="742" class="t-dim" font-size="7">verify_access(ContentRef)；访问事实与 ASR 资格分开</text>
         </g>
 
-        <g data-edge-from="handler" data-edge-to="db" data-edge-label="保护性请求 publish" data-edge-key="13" data-edge-id="m15">
-          <path data-composition-edge-from="handler" data-composition-edge-to="db" data-composition-edge-id="m15" data-composition-points="307.25,876;805.5,876" d="M 307.25 876 L 805.5 876" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="source" data-edge-to="gateway" data-edge-label="validate_subtitle_credentials" data-edge-key="13" data-edge-id="m15">
+          <path data-composition-edge-from="source" data-composition-edge-to="gateway" data-composition-edge-id="m15" data-composition-points="548.9000000000001,796;676.7,796" d="M 548.9000000000001 796 L 676.7 796" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="490.975" y="856" width="130.8" height="18" rx="3" class="c-mask"/>
-          <text x="556.375" y="866" class="t-muted" font-size="11" text-anchor="middle">保护性请求 publish</text>
+          <rect x="511.1000000000001" y="776" width="203.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="786" class="t-edge-security" font-size="11" text-anchor="middle">validate_subtitle_credentials</text>
         </g>
+        <text data-detail="fine" x="560.9000000000001" y="814" class="t-dim" font-size="7">validate_subtitle_credentials；cookie 存在不等于认证成功</text>
         </g>
 
-        <g data-edge-from="handler" data-edge-to="executor" data-edge-label="返回获取与发布身份" data-edge-key="14" data-edge-id="m16">
-          <path data-composition-edge-from="handler" data-composition-edge-to="executor" data-composition-edge-id="m16" data-composition-points="293.25,908;136.5,908" d="M 293.25 908 L 136.5 908" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="gateway" data-edge-to="source" data-edge-label="已验证登录或 auth/transport 失败" data-edge-key="14" data-edge-id="m16">
+          <path data-composition-edge-from="gateway" data-composition-edge-to="source" data-composition-edge-id="m16" data-composition-points="676.7,828;548.9000000000001,828" d="M 676.7 828 L 548.9000000000001 828" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="149.475" y="888" width="130.8" height="18" rx="3" class="c-mask"/>
-          <text x="214.875" y="898" class="t-muted" font-size="11" text-anchor="middle">返回获取与发布身份</text>
+          <rect x="501.20000000000005" y="808" width="223.2" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="818" class="t-muted" font-size="11" text-anchor="middle">已验证登录或 auth/transport 失败</text>
         </g>
+        <text data-detail="fine" x="560.9000000000001" y="846" class="t-dim" font-size="7">已验证登录或 auth/transport 失败</text>
+        </g>
+
+        <g data-edge-from="source" data-edge-to="ingest" data-edge-label="bounded GatewayError" data-edge-key="15" data-edge-id="m17">
+          <path data-composition-edge-from="source" data-composition-edge-to="ingest" data-composition-edge-id="m17" data-composition-points="534.9000000000001,900;407.1,900" d="M 534.9000000000001 900 L 407.1 900" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="399.00000000000006" y="880" width="144" height="18" rx="3" class="c-mask"/>
+          <text x="471.00000000000006" y="890" class="t-muted" font-size="11" text-anchor="middle">bounded GatewayError</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="918" class="t-dim" font-size="7">bounded GatewayError</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="failed" data-edge-key="16" data-edge-id="m18">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m18" data-composition-points="407.1,932;818.5,932" d="M 407.1 932 L 818.5 932" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="587" y="912" width="51.599999999999994" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="922" class="t-muted" font-size="11" text-anchor="middle">failed</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="950" class="t-dim" font-size="7">failed；不能产生可信的空字幕证据</text>
+        </g>
+
+        <g data-edge-from="source" data-edge-to="ingest" data-edge-label="访问上下文观察" data-edge-key="17" data-edge-id="m19">
+          <path data-composition-edge-from="source" data-composition-edge-to="ingest" data-composition-edge-id="m19" data-composition-points="534.9000000000001,1004;407.1,1004" d="M 534.9000000000001 1004 L 407.1 1004" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="418.80000000000007" y="984" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
+          <text x="471.00000000000006" y="994" class="t-muted" font-size="11" text-anchor="middle">访问上下文观察</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="1022" class="t-dim" font-size="7">SourceAccessObservation(anonymous/credentialed, verified)</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="无匹配字幕" data-edge-key="18" data-edge-id="m20">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m20" data-composition-points="407.1,1036;818.5,1036" d="M 407.1 1036 L 818.5 1036" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="573.8" y="1016" width="78" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="1026" class="t-muted" font-size="11" text-anchor="middle">无匹配字幕</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="1054" class="t-dim" font-size="7">无匹配字幕；仅配置凭据且 credentialed 且 verified 才保存登录证据</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="source" data-edge-label="ContentRef 查询正文" data-edge-key="19" data-edge-id="m21">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="source" data-composition-edge-id="m21" data-composition-points="407.1,1108;534.9000000000001,1108" d="M 407.1 1108 L 534.9000000000001 1108" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="402.30000000000007" y="1088" width="137.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="471.00000000000006" y="1098" class="t-muted" font-size="11" text-anchor="middle">ContentRef 查询正文</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="1126" class="t-dim" font-size="7">fetch_segments(track, ContentRef)</text>
+        </g>
+
+        <g data-edge-from="source" data-edge-to="gateway" data-edge-label="用真实 bvid/cid 请求正文" data-edge-key="20" data-edge-id="m22">
+          <path data-composition-edge-from="source" data-composition-edge-to="gateway" data-composition-edge-id="m22" data-composition-points="548.9000000000001,1140;676.7,1140" d="M 548.9000000000001 1140 L 676.7 1140" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="527.6000000000001" y="1120" width="170.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000002" y="1130" class="t-muted" font-size="11" text-anchor="middle">用真实 bvid/cid 请求正文</text>
+        </g>
+        <text data-detail="fine" x="560.9000000000001" y="1158" class="t-dim" font-size="7">用真实 bvid/cid 请求正文；不暴露签名 URL</text>
+        </g>
+
+        <g data-edge-from="gateway" data-edge-to="source" data-edge-label="毫秒字幕或有界错误" data-edge-key="21" data-edge-id="m23">
+          <path data-composition-edge-from="gateway" data-composition-edge-to="source" data-composition-edge-id="m23" data-composition-points="676.7,1172;548.9000000000001,1172" d="M 676.7 1172 L 548.9000000000001 1172" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="547.4000000000001" y="1152" width="130.8" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="1162" class="t-muted" font-size="11" text-anchor="middle">毫秒字幕或有界错误</text>
+        </g>
+        <text data-detail="fine" x="560.9000000000001" y="1190" class="t-dim" font-size="7">毫秒 SubtitleSegment DTO 或 bounded error</text>
+        </g>
+
+        <g data-edge-from="source" data-edge-to="ingest" data-edge-label="字幕正文或有界失败" data-edge-key="22" data-edge-id="m24">
+          <path data-composition-edge-from="source" data-composition-edge-to="ingest" data-composition-edge-id="m24" data-composition-points="534.9000000000001,1204;407.1,1204" d="M 534.9000000000001 1204 L 407.1 1204" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="405.6" y="1184" width="130.8" height="18" rx="3" class="c-mask"/>
+          <text x="471" y="1194" class="t-muted" font-size="11" text-anchor="middle">字幕正文或有界失败</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="1222" class="t-dim" font-size="7">字幕正文或有界失败</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="转录版本与 attempt 事务" data-edge-key="23" data-edge-id="m25">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m25" data-composition-points="407.1,1276;818.5,1276" d="M 407.1 1276 L 818.5 1276" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-detail="context">
+          <rect x="530.9" y="1256" width="163.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="1266" class="t-edge-security" font-size="11" text-anchor="middle">转录版本与 attempt 事务</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="1294" class="t-dim" font-size="7">共享 guard 在事务开始与提交前检查精确 lease；转录/segments/attempt 同事务保存，到期全部回滚</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="正文不可用或形状错误" data-edge-key="24" data-edge-id="m26">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m26" data-composition-points="407.1,1348;818.5,1348" d="M 407.1 1348 L 818.5 1348" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="540.8" y="1328" width="144" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="1338" class="t-muted" font-size="11" text-anchor="middle">正文不可用或形状错误</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="1366" class="t-dim" font-size="7">subtitle_body_unavailable/shape_error；不伪装为永久缺失</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="db" data-edge-label="complete/partial/failed" data-edge-key="25" data-edge-id="m27">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="db" data-composition-edge-id="m27" data-composition-points="407.1,1420;818.5,1420" d="M 407.1 1420 L 818.5 1420" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="530.9" y="1400" width="163.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="612.8" y="1410" class="t-muted" font-size="11" text-anchor="middle">complete/partial/failed</text>
+        </g>
+        <text data-detail="fine" x="419.1" y="1438" class="t-dim" font-size="7">complete/partial/failed；逃逸异常也收尾 failed</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="handler" data-edge-label="精确 part outcome 与转录版本" data-edge-key="26" data-edge-id="m28">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="handler" data-composition-edge-id="m28" data-composition-points="393.1,1452;265.3,1452" d="M 393.1 1452 L 265.3 1452" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="230.80000000000007" y="1432" width="196.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="329.20000000000005" y="1442" class="t-muted" font-size="11" text-anchor="middle">精确 part outcome 与转录版本</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="1470" class="t-dim" font-size="7">精确 part outcome 与转录版本</text>
+        </g>
+
+        <g data-edge-from="handler" data-edge-to="db" data-edge-label="请求该 part 发布 job" data-edge-key="27" data-edge-id="m29">
+          <path data-composition-edge-from="handler" data-composition-edge-to="db" data-composition-edge-id="m29" data-composition-points="265.3,1524;818.5,1524" d="M 265.3 1524 L 818.5 1524" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="469.9" y="1504" width="144" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1514" class="t-muted" font-size="11" text-anchor="middle">请求该 part 发布 job</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="1542" class="t-dim" font-size="7">请求该 part 发布 job；保留独立 ASR 转录版本</text>
+        </g>
+
+        <g data-edge-from="handler" data-edge-to="executor" data-edge-label="返回获取与发布身份" data-edge-key="28" data-edge-id="m30">
+          <path data-composition-edge-from="handler" data-composition-edge-to="executor" data-composition-edge-id="m30" data-composition-points="251.3,1596;123.5,1596" d="M 251.3 1596 L 123.5 1596" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="122" y="1576" width="130.8" height="18" rx="3" class="c-mask"/>
+          <text x="187.4" y="1586" class="t-muted" font-size="11" text-anchor="middle">返回获取与发布身份</text>
+        </g>
+        <text data-detail="fine" x="135.5" y="1614" class="t-dim" font-size="7">返回获取与发布身份</text>
         </g>
 
         <!-- Segment Labels -->
         <g data-graph-role="segment-label" data-segment-id="0">
-          <rect x="56" y="346" width="118" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="359" class="t-dim" font-size="9" font-weight="600">B01 alt 轨道获取失败</text>
+          <rect x="56" y="506" width="149.20000000000002" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="519" class="t-dim" font-size="9" font-weight="600">B01 alt 清单明确 not_found</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="1">
-          <rect x="56" y="418" width="107.60000000000001" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="431" class="t-dim" font-size="9" font-weight="600">B02 opt 提供了凭据</text>
+          <rect x="56" y="578" width="242.8" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="591" class="t-dim" font-size="9" font-weight="600">B02 else 清单 transport/auth/shape/risk 失败</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="2">
-          <rect x="56" y="490" width="107.60000000000001" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="503" class="t-dim" font-size="9" font-weight="600">B03 alt 无匹配轨道</text>
+          <rect x="56" y="650" width="102.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="663" class="t-dim" font-size="9" font-weight="600">B03 else 清单可用</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="3">
-          <rect x="56" y="562" width="92" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="575" class="t-dim" font-size="9" font-weight="600">B04 else 有轨道</text>
+          <rect x="56" y="690" width="107.60000000000001" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="703" class="t-dim" font-size="9" font-weight="600">B04 alt 无匹配轨道</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="4">
-          <rect x="56" y="634" width="97.2" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="647" class="t-dim" font-size="9" font-weight="600">B05 alt 正文有效</text>
+          <rect x="56" y="762" width="222" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="775" class="t-dim" font-size="9" font-weight="600">B05 opt 默认 Bilibili adapter 配置了凭据</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="5">
-          <rect x="56" y="706" width="154.4" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="719" class="t-dim" font-size="9" font-weight="600">B06 else 正文消失或形状错误</text>
+          <rect x="56" y="866" width="118" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="879" class="t-dim" font-size="9" font-weight="600">B06 alt 访问验证失败</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="6">
-          <rect x="56" y="842" width="138.8" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="855" class="t-dim" font-size="9" font-weight="600">B07 opt 成功存有转录版本</text>
+          <rect x="56" y="970" width="123.2" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="983" class="t-dim" font-size="9" font-weight="600">B07 else 取得访问观察</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="7">
+          <rect x="56" y="1074" width="112.8" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1087" class="t-dim" font-size="9" font-weight="600">B08 else 有匹配轨道</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="8">
+          <rect x="56" y="1242" width="138.8" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1255" class="t-dim" font-size="9" font-weight="600">B09 alt 正文有效且可存储</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="9">
+          <rect x="56" y="1314" width="154.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1327" class="t-dim" font-size="9" font-weight="600">B10 else 正文消失或形状错误</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="10">
+          <rect x="56" y="1490" width="149.20000000000002" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1503" class="t-dim" font-size="9" font-weight="600">B11 opt 已成功获得转录版本</text>
         </g>
 
         <!-- Participants -->
         <g id="node-executor" data-node-id="executor" data-node-label="执行器" tabindex="0" role="button" aria-label="聚焦执行器，时序参与者" aria-pressed="false" data-node-kind="backend" data-node-context="时序参与者">
           <title>执行器 · 时序参与者</title>
-          <rect x="62" y="72" width="135" height="60" rx="6" class="c-mask"/>
-          <rect x="62" y="72" width="135" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
+          <rect x="62" y="72" width="109" height="60" rx="6" class="c-mask"/>
+          <rect x="62" y="72" width="109" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(68 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" x="129.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">执行器</text>
+          <text data-node-label="" x="116.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">执行器</text>
         </g>
 
         <g id="node-handler" data-node-id="handler" data-node-label="字幕 handler" tabindex="0" role="button" aria-label="聚焦字幕 handler，时序参与者" aria-pressed="false" data-node-kind="backend" data-node-context="时序参与者">
           <title>字幕 handler · 时序参与者</title>
-          <rect x="232.75" y="72" width="135" height="60" rx="6" class="c-mask"/>
-          <rect x="232.75" y="72" width="135" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(238.75 78) scale(0.6875)">
+          <rect x="203.8" y="72" width="109" height="60" rx="6" class="c-mask"/>
+          <rect x="203.8" y="72" width="109" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(209.8 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" x="300.25" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">字幕 handler</text>
+          <text data-node-label="" x="258.3" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">字幕 handler</text>
         </g>
 
         <g id="node-ingest" data-node-id="ingest" data-node-label="SubtitleIngestor" tabindex="0" role="button" aria-label="聚焦SubtitleIngestor，时序参与者" aria-pressed="false" data-node-kind="backend" data-node-context="时序参与者">
           <title>SubtitleIngestor · 时序参与者</title>
-          <rect x="403.5" y="72" width="135" height="60" rx="6" class="c-mask"/>
-          <rect x="403.5" y="72" width="135" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(409.5 78) scale(0.6875)">
+          <rect x="345.6" y="72" width="109" height="60" rx="6" class="c-mask"/>
+          <rect x="345.6" y="72" width="109" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(351.6 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" x="471" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">SubtitleIngestor</text>
+          <text data-node-label="" x="400.1" y="108" class="t-primary" font-size="10.5" font-weight="600" text-anchor="middle">SubtitleIngestor</text>
         </g>
 
-        <g id="node-gateway" data-node-id="gateway" data-node-label="字幕 API" tabindex="0" role="button" aria-label="聚焦字幕 API，时序参与者" aria-pressed="false" data-node-kind="external" data-node-context="时序参与者">
-          <title>字幕 API · 时序参与者</title>
-          <rect x="574.25" y="72" width="135" height="60" rx="6" class="c-mask"/>
-          <rect x="574.25" y="72" width="135" height="60" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(580.25 78) scale(0.6875)">
+        <g id="node-source" data-node-id="source" data-node-label="字幕来源端口" tabindex="0" role="button" aria-label="聚焦字幕来源端口，时序参与者" aria-pressed="false" data-node-kind="backend" data-node-context="时序参与者">
+          <title>字幕来源端口 · 时序参与者</title>
+          <rect x="487.4000000000001" y="72" width="109" height="60" rx="6" class="c-mask"/>
+          <rect x="487.4000000000001" y="72" width="109" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(493.4000000000001 78) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" x="541.9000000000001" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">字幕来源端口</text>
+        </g>
+
+        <g id="node-gateway" data-node-id="gateway" data-node-label="B站网关/API" tabindex="0" role="button" aria-label="聚焦B站网关/API，时序参与者" aria-pressed="false" data-node-kind="external" data-node-context="时序参与者">
+          <title>B站网关/API · 时序参与者</title>
+          <rect x="629.2" y="72" width="109" height="60" rx="6" class="c-mask"/>
+          <rect x="629.2" y="72" width="109" height="60" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(635.2 78) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" x="641.75" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">字幕 API</text>
+          <text data-node-label="" x="683.7" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">B站网关/API</text>
         </g>
 
         <g id="node-db" data-node-id="db" data-node-label="转录与获取证据" tabindex="0" role="button" aria-label="聚焦转录与获取证据，时序参与者" aria-pressed="false" data-node-kind="database" data-node-context="时序参与者">
           <title>转录与获取证据 · 时序参与者</title>
-          <rect x="745" y="72" width="135" height="60" rx="6" class="c-mask"/>
-          <rect x="745" y="72" width="135" height="60" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(751 78) scale(0.6875)">
+          <rect x="771" y="72" width="109" height="60" rx="6" class="c-mask"/>
+          <rect x="771" y="72" width="109" height="60" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(777 78) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-node-label="" x="812.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">转录与获取证据</text>
+          <text data-node-label="" x="825.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">转录与获取证据</text>
         </g>
 
         <!-- Legend -->
         <g data-legend="">
-          <text x="40" y="938" class="t-primary" font-size="12" font-weight="650">图例</text>
-          <g data-legend-semantic-kind="return" data-legend-x="40" data-legend-baseline="958" data-legend-width="63">
-            <path d="M 40 955 L 74 955" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
-            <text x="83" y="958" class="t-muted" font-size="10" font-weight="500">返回</text>
+          <text x="40" y="1642" class="t-primary" font-size="12" font-weight="650">图例</text>
+          <g data-legend-semantic-kind="return" data-legend-x="40" data-legend-baseline="1662" data-legend-width="63">
+            <path d="M 40 1659 L 74 1659" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+            <text x="83" y="1662" class="t-muted" font-size="10" font-weight="500">返回</text>
           </g>
-          <g data-legend-semantic-kind="security" data-legend-x="125" data-legend-baseline="958" data-legend-width="63">
-            <path d="M 125 955 L 159 955" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-            <text x="168" y="958" class="t-muted" font-size="10" font-weight="500">安全</text>
+          <g data-legend-semantic-kind="security" data-legend-x="125" data-legend-baseline="1662" data-legend-width="63">
+            <path d="M 125 1659 L 159 1659" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+            <text x="168" y="1662" class="t-muted" font-size="10" font-weight="500">安全</text>
           </g>
-          <g data-legend-semantic-kind="default" data-legend-x="210" data-legend-baseline="958" data-legend-width="83">
-            <path d="M 210 955 L 244 955" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-            <text x="253" y="958" class="t-muted" font-size="10" font-weight="500">普通消息</text>
+          <g data-legend-semantic-kind="default" data-legend-x="210" data-legend-baseline="1662" data-legend-width="83">
+            <path d="M 210 1659 L 244 1659" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+            <text x="253" y="1662" class="t-muted" font-size="10" font-weight="500">普通消息</text>
           </g>
         </g>
       </svg>
@@ -5436,23 +5612,25 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>条件与提交边界</h3>
+          <h3>已固定源码基线</h3>
         </div>
         <ul>
-          <li>每个 job 对应当前选择的一个分 P；ASR 不等待这条路径的成功。</li>
-          <li>语言、来源、内容和 version 是转录身份；同内容复用不丢失本次获取证据。</li>
-          <li>取消可留下失败 run/attempt 收尾；新的成功转录与新 publish 请求仍受 lease 检查。</li>
+          <li>代码提交 5d7a57e201564a10dec7a360b2ef8f7874dc51a7；源码引用指向本地路径。文档更新与产物生成使用该提交的源码证据。</li>
+          <li>真实字幕/ASR 结果复用同一 JobCommitGuard 完整事务；legacy write_guard 回调也有退出检查。认领、续约、终态在获写锁后取时，exact expiry 不续约、不提交。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-dot slate"></div>
-          <h3>阅读方法</h3>
+          <div class="card-dot emerald"></div>
+          <h3>边界与恢复</h3>
         </div>
         <ul>
-          <li>B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。</li>
-          <li>HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。</li>
+          <li>每个 subtitle job 处理一个既有分 P；显式 source 注入不新增 schema，不伪造 bvid/cid，也不为每个网络调用增加 SQL。</li>
+          <li>probe 不创建 run、attempt、transcript 或文件；probe 清单 not_found 报 failed，harvest 将明确 not_found 保存为 no-subtitle 观察。</li>
+          <li>已验证的匿名访问仍是匿名；配置 cookie 而登录验证失败不能产生 credential_verified 或可信空字幕证据。</li>
+          <li>语言、来源、内容和 version 构成转录身份；同内容复用仍保存本次获取证据，正文失效与清单缺失有不同语义。</li>
+          <li>ASR 不等待字幕路径成功。取消可留下失败 run/attempt 收尾，新的成功转录和 publish 请求仍受 lease 检查。</li>
         </ul>
       </div>
 
@@ -5462,23 +5640,27 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>参与者内部动作</h3>
         </div>
         <ul>
-          <li>时间轴步骤 7 · SubtitleIngestor：按语言与来源选轨。详细操作见同名 Markdown。</li>
+          <li>步骤 13 · SubtitleIngestor：共享语言 family 规则与来源优先级选轨</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-dot amber"></div>
+          <div class="card-dot violet"></div>
           <h3>完整条件路径</h3>
         </div>
         <ul>
-          <li>B01（m6）：alt 轨道获取失败</li>
-          <li>B02（m8）：else 可用轨道清单 → alt 无匹配轨道 → opt 提供了凭据</li>
-          <li>B03（m9）：else 可用轨道清单 → alt 无匹配轨道</li>
-          <li>B04（m10）：else 可用轨道清单 → else 有轨道</li>
-          <li>B05（m11）：else 可用轨道清单 → else 有轨道 → alt 正文有效</li>
-          <li>B06（m12）：else 可用轨道清单 → else 有轨道 → else 正文消失或形状错误</li>
-          <li>B07（m15）：opt 成功存有转录版本</li>
+          <li>B01：alt 清单明确 not_found</li>
+          <li>B02：else 清单 transport/auth/shape/risk 失败</li>
+          <li>B03：else 清单可用</li>
+          <li>B04：else 清单可用 → alt 无匹配轨道</li>
+          <li>B05：else 清单可用 → alt 无匹配轨道 → opt 默认 Bilibili adapter 配置了凭据</li>
+          <li>B06：else 清单可用 → alt 无匹配轨道 → alt 访问验证失败</li>
+          <li>B07：else 清单可用 → alt 无匹配轨道 → else 取得访问观察</li>
+          <li>B08：else 清单可用 → else 有匹配轨道</li>
+          <li>B09：else 清单可用 → else 有匹配轨道 → alt 正文有效且可存储</li>
+          <li>B10：else 清单可用 → else 有匹配轨道 → else 正文消失或形状错误</li>
+          <li>B11：opt 已成功获得转录版本</li>
         </ul>
       </div>
     </div>

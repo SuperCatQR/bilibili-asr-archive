@@ -6,19 +6,17 @@ import argparse
 import json
 import os
 from dataclasses import asdict
-from pathlib import Path
 from uuid import uuid4
 
 from bili_asr.asr import default_config
 from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
 from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
-from bili_asr.artifact_root import roots_for, ArtifactRootError
-from bili_asr.storage import AsrPolicy, AsrProfile, WorkflowRepository, open_database
-from bili_asr.storage.editorial import EditorialRepository
+from bili_asr.artifact_root import roots_for
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind
+from bili_asr.services.workflow_application import WorkflowApplication
 from bili_asr.storage.database import SchemaContractError
-from bili_asr.workflow import WorkflowExecutor
-from bili_asr.storage.workflow_selection import resolve_workflow_selection
 
 
 def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -79,6 +77,7 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     run.add_argument("--artifact-root", default=None, help="Write products here; falls back to BILI_ARTIFACT_ROOT")
 
     status = actions.add_parser("status", help="Print workflow job counts from SQLite")
+    status.set_defaults(database_policy=ArchiveAccessMode.READ)
     status.add_argument("--archive-root", default=archive_root)
     status.add_argument("--jobs", action="store_true", help="List job IDs, stored part identity, and cancellation blockers")
 
@@ -91,10 +90,12 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     publish.add_argument("--part-id", type=int, action="append", required=True)
     status.add_argument("--details", action="store_true", help="Explain each job and its unsatisfied dependencies")
     explain = actions.add_parser("explain", help="Inspect a job, its dependency blockers and latest attempt")
+    explain.set_defaults(database_policy=ArchiveAccessMode.READ)
     explain.add_argument("--archive-root", default=archive_root)
     explain.add_argument("--job-id", required=True)
 
     evidence = actions.add_parser("asr-evidence", help="Print persisted ASR diagnostics for one acquisition run")
+    evidence.set_defaults(database_policy=ArchiveAccessMode.READ)
     evidence.add_argument("--archive-root", default=archive_root)
     evidence.add_argument("--run-id", required=True)
     evidence.add_argument("--part-id", type=int, required=True)
@@ -103,7 +104,6 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     retry.add_argument("--archive-root", default=archive_root)
     retry.add_argument("--part-id", type=int, action="append", default=None)
     retry.add_argument("--job-id", action="append", default=None)
-    from bili_asr.storage.workflow import JobKind
     retry.add_argument("--kind", choices=[kind.value for kind in JobKind], action="append", default=None)
 
 
@@ -139,23 +139,22 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
 def _cmd_workflow(args: argparse.Namespace) -> int:
     try:
         return _execute_workflow(args)
-    except SchemaContractError as exc:
+    except (SchemaContractError, ValueError, OSError) as exc:
         write_stderr(f"workflow {args.workflow_action}: {exc}")
         return 1
 
 
 def _execute_workflow(args: argparse.Namespace) -> int:
-    connection = open_database(args.archive_root)
+    artifact_roots = None
+    if args.workflow_action in {"run", "render"}:
+        artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
+                                   require_writable=args.workflow_action == "run")
+    mode = ArchiveAccessMode.READ if args.workflow_action in {"status", "explain", "asr-evidence"} else ArchiveAccessMode.WRITE
+    session = ArchiveSession(args.archive_root, mode=mode, artifact_roots=artifact_roots).open()
+    connection = session.connection
     try:
-        artifact_roots = None
-        if args.workflow_action in {"run", "render"}:
-            try:
-                artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
-                                           require_writable=args.workflow_action == "run")
-            except ArtifactRootError as exc:
-                write_stderr(f"workflow {args.workflow_action}: {exc}")
-                return 1
-        repository = WorkflowRepository(connection)
+        application = WorkflowApplication(session)
+        repository = application.repository
         if args.workflow_action != "status":
             repository.require_cancellation_contract()
         if args.workflow_action == "asr-evidence":
@@ -176,24 +175,8 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                       f"status={item.status} changed={int(item.changed)}")
             return 0
         if args.workflow_action == "publish":
-            from bili_asr.services.transcript_projection import ordered_candidates
-            from bili_asr.storage import TranscriptRepository
-
-            selection = resolve_workflow_selection(connection, part_ids=args.part_id)
-            transcripts = TranscriptRepository(connection)
-            selected = []
-            for target in selection.targets:
-                candidates = ordered_candidates(transcripts.list_stored_transcripts(
-                    bvid=target.bvid, page_index=target.page_index))
-                if len(candidates) != 1:
-                    raise ValueError(f"no stored transcript for {target.work_id}")
-                selected.append((target, int(candidates[0].transcript["transcript_id"])))
-            for target, transcript_id in selected:
-                job_id, created = repository.request_publication(
-                    video_part_id=target.video_part_id, transcript_id=transcript_id, force=True)
-                status = connection.execute("SELECT status FROM workflow_jobs WHERE job_id = ?", (job_id,)).fetchone()[0]
-                print(f"workflow publish: work_id={target.work_id} transcript_id={transcript_id} "
-                      f"job_id={job_id} status={status} created={int(created)}")
+            for item in application.publish(args.part_id):
+                print("workflow publish: " + " ".join(f"{name}={value}" for name, value in item.items()))
             return 0
         if args.workflow_action == "explain":
             try:
@@ -203,35 +186,13 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 return 1
             return 0
         if args.workflow_action == "proofread":
-            editorial = EditorialRepository(connection)
-            try:
-                if args.base_transcript_id is not None:
-                    base_id = args.base_transcript_id
-                    base = editorial.read_source(base_id)
-                    part_id = base.video_part_id
-                    default_reference = editorial.latest_reference(part_id, base.language) if base.source_kind == "asr-local" else None
-                else:
-                    part_id = args.part_id
-                    base_id, default_reference = editorial.latest_sources(part_id)
-                reference_id = None if args.no_reference else (
-                    args.reference_transcript_id if args.reference_transcript_id is not None else default_reference)
-                prepared = editorial.prepare(base_id, reference_id, _editorial_config(args))
-                proof_id, render_id, _, _ = repository.request_editorial(video_part_id=part_id, input_id=prepared["input_id"])
-            except ValueError as exc:
-                write_stderr(f"workflow proofread: {exc}")
-                return 1
-            print(f"workflow proofread: input_id={prepared['input_id']} chunks={len(prepared['chunks'])} "
-                  f"job_id={proof_id} render_job_id={render_id}")
+            item = application.proofread(part_id=args.part_id, base_transcript_id=args.base_transcript_id,
+                reference_transcript_id=args.reference_transcript_id, no_reference=args.no_reference,
+                config=_editorial_config(args))
+            print("workflow proofread: " + " ".join(f"{name}={value}" for name, value in item.items()))
             return 0
         if args.workflow_action == "render":
-            editorial = EditorialRepository(connection)
-            try:
-                prepared, _ = editorial.revision(args.revision_id)
-                job_id, _ = repository.request_document(video_part_id=prepared["snapshot"]["video_part_id"],
-                                                       revision_id=args.revision_id, template_version=args.template_version)
-            except ValueError as exc:
-                write_stderr(f"workflow render: {exc}")
-                return 1
+            job_id = application.render(args.revision_id, args.template_version)
             print(f"workflow render: job_id={job_id}")
             return 0
         if args.workflow_action == "status":
@@ -241,10 +202,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
             blocked = repository.blocked_by_cancelled()
             print(f"blocked_by_cancelled: {len(blocked)}")
             if args.jobs:
-                rows = connection.execute(
-                    "SELECT j.*, p.bvid, p.page_index FROM workflow_jobs AS j "
-                    "LEFT JOIN video_parts AS p ON p.video_part_id = j.video_part_id "
-                    "ORDER BY j.created_at, j.job_id")
+                rows = repository.list_job_identities()
                 for row in rows:
                     print(f"  job_id={row['job_id']} kind={row['kind']} status={row['status']} "
                           f"bvid={row['bvid']} page_index={row['page_index']} "
@@ -255,21 +213,13 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                     print(json.dumps(repository.explain_job(job.job_id), ensure_ascii=False, sort_keys=True))
             return 0
         if args.workflow_action == "retry":
-            from bili_asr.storage.workflow import JobKind
             count = repository.requeue_failed(part_ids=args.part_id, job_ids=args.job_id,
                                              kinds=None if args.kind is None else [JobKind(k) for k in args.kind])
             print(f"workflow retry: requeued={count}")
             return 0
         if args.workflow_action == "plan":
             try:
-                selection = resolve_workflow_selection(
-                    connection, part_ids=args.part_id, bvids=args.bvid, page_index=args.page_index,
-                )
                 policy = AsrPolicy(args.asr_policy)
-                if policy is AsrPolicy.BELOW_THRESHOLD and (
-                    args.quality_threshold is None or not 0.0 <= args.quality_threshold <= 1.0
-                ):
-                    raise ValueError("quality_threshold must be between 0 and 1")
                 editorial_config = _editorial_config(args).to_dict() if args.proofread else None
                 names = {
                     "model": "model_name", "aligner": "aligner_name",
@@ -289,14 +239,10 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 values.pop("local_source")
                 values["model_revision"] = values["model_revision"] or ""
                 profile = AsrProfile(profile_key=args.profile_key, **values)
-                profile_id = repository.register_profile(profile)
-                plan = repository.plan(
-                    part_ids=selection.part_ids,
-                    policy=policy,
-                    profile_id=profile_id,
-                    quality_threshold=args.quality_threshold,
-                    editorial_config=editorial_config,
-                )
+                planned = application.plan(part_ids=args.part_id, bvids=args.bvid, page_index=args.page_index,
+                    policy=policy, profile=profile, quality_threshold=args.quality_threshold,
+                    editorial_config=editorial_config)
+                profile_id, plan, selection = planned.profile_id, planned.jobs, planned.selection
             except ValueError as exc:
                 write_stderr(f"workflow plan: {exc}")
                 return 1
@@ -313,36 +259,8 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                       f"video_part_id={target.video_part_id} work_id={target.work_id}")
             return 0
         sessdata = resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
-        # Planning and status are useful on a minimal SQLite installation.  The
-        # concrete API/model adapter is needed only when a worker actually runs.
-        from bili_asr.editorial_runtime import EditorialWorkflowHandlers
-        from bili_asr.storage.workflow import JobKind
-
-        editorial_handlers = None
-        has_manuscript_contract = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manuscript_contract'"
-        ).fetchone() is not None
-        registered = {}
-        if has_manuscript_contract or args.only_editorial:
-            editorial_handlers = EditorialWorkflowHandlers(EditorialRepository(connection), repository,
-                                                           archive_root=Path(args.archive_root), artifact_roots=artifact_roots)
-            registered.update(editorial_handlers.handlers())
-        archive_handlers = None
-        if not args.only_editorial:
-            from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
-            archive_handlers = ArchiveWorkflowHandlers(connection, repository, archive_root=args.archive_root,
-                                                       sessdata=sessdata, artifact_roots=artifact_roots)
-            registered.update(archive_handlers.handlers())
-        try:
-            summary = WorkflowExecutor(
-                repository, worker_id=args.worker_id, handlers=registered,
-                kinds=(JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT) if args.only_editorial else None,
-            ).run(limit=args.limit)
-        finally:
-            if editorial_handlers is not None:
-                editorial_handlers.close()
-            if archive_handlers is not None:
-                archive_handlers.close()
+        summary = application.run(worker_id=args.worker_id, sessdata=sessdata,
+                                  only_editorial=args.only_editorial, limit=args.limit)
         print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} "
               f"cancelled={summary.cancelled} idle={int(summary.idle)}")
         return 1 if summary.failed else 0
@@ -350,4 +268,4 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         write_stderr(f"workflow {args.workflow_action}: {exc}")
         return 1
     finally:
-        connection.close()
+        session.close()

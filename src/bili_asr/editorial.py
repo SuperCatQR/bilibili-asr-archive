@@ -7,12 +7,13 @@ Token budgeting uses UTF-8 bytes as a conservative estimate, not a tokenizer.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, TYPE_CHECKING
+from bili_asr.canonical_json import canonical, digest
 
-from bili_asr.storage.models import TranscriptRecord
+if TYPE_CHECKING:
+    from bili_asr.storage.models import TranscriptRecord
 
 
 RULE_VERSION = "readable-prose-v2"
@@ -66,14 +67,6 @@ SYSTEM_PROMPT = """你是中文口述转录的阅读稿编辑。核心任务是�
 "issues":[{"note":"具体疑点和不确定原因","candidate":"可能的文字或空字符串",
 "evidence_refs":["对应参考字幕ID"]}]}]}
 无疑点时 issues=[]。不得输出其他字段、代码围栏或 JSON 外的解释。"""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
-def digest(value: Any) -> str:
-    return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

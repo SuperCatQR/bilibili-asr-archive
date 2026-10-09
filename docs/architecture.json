@@ -2,15 +2,15 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Bilibili 归档 · main 完整架构",
+    "title": "Bilibili 归档 · 架构边界修复",
     "locale": "zh-CN",
     "output": "docs/architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "components": [
@@ -53,21 +53,21 @@
         {
           "path": "src/bili_asr/cli/main.py",
           "line": 41,
-          "end_line": 106,
+          "end_line": 102,
           "label": "_main"
         },
         {
           "path": "src/bili_asr/cli/registry.py",
           "line": 1,
-          "end_line": 55,
+          "end_line": 60,
           "label": "模块入口"
         }
       ]
     },
     {
       "id": "guard",
-      "label": "产物路径与维护锁",
-      "sublabel": "共享 writer / 独占维护",
+      "label": "ArchiveSession 与产物范围",
+      "sublabel": "显式访问 · 连接持有维护锁",
       "type": "security",
       "pos": [
         840,
@@ -79,23 +79,29 @@
       ],
       "sources": [
         {
-          "path": "src/bili_asr/archive_maintenance.py",
+          "path": "src/bili_asr/archive_session.py",
           "line": 64,
-          "end_line": 137,
+          "end_line": 149,
+          "label": "ArchiveSession"
+        },
+        {
+          "path": "src/bili_asr/archive_maintenance.py",
+          "line": 84,
+          "end_line": 160,
           "label": "archive_access"
         },
         {
           "path": "src/bili_asr/artifact_root.py",
-          "line": 1,
-          "end_line": 60,
-          "label": "模块入口"
+          "line": 100,
+          "end_line": 141,
+          "label": "ArtifactRoots"
         }
       ]
     },
     {
       "id": "platform",
-      "label": "Bilibili API / CDN",
-      "sublabel": "元数据、字幕、DASH 字节",
+      "label": "Bilibili 来源适配与 API",
+      "sublabel": "ContentRef 端口 · SDK / CDN",
       "type": "external",
       "pos": [
         40,
@@ -107,16 +113,22 @@
       ],
       "sources": [
         {
-          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 707,
-          "end_line": 1259,
-          "label": "BilibiliApiGateway"
+          "path": "src/bili_asr/sources/bilibili_source.py",
+          "line": 48,
+          "end_line": 87,
+          "label": "BilibiliSubtitleSource"
         },
         {
-          "path": "src/bili_asr/bili_client.py",
-          "line": 219,
-          "end_line": 657,
-          "label": "BiliClient"
+          "path": "src/bili_asr/sources/bilibili_source.py",
+          "line": 90,
+          "end_line": 118,
+          "label": "BilibiliAudioSource"
+        },
+        {
+          "path": "src/bili_asr/sources/protocols.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
         }
       ]
     },
@@ -126,8 +138,8 @@
       "sublabel": "有界页重试 · 成功观察与游标",
       "type": "backend",
       "pos": [
-        440,
-        640
+        40,
+        340
       ],
       "size": [
         260,
@@ -136,8 +148,8 @@
       "sources": [
         {
           "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 303,
-          "end_line": 535,
+          "line": 305,
+          "end_line": 537,
           "label": "MetadataIngestor._collect"
         },
         {
@@ -172,8 +184,8 @@
     },
     {
       "id": "workflow",
-      "label": "工作流控制与执行",
-      "sublabel": "plan / claim / heartbeat / cancel",
+      "label": "用例、规划与控制执行",
+      "sublabel": "应用组装 · JobSpec · 控制协议",
       "type": "backend",
       "pos": [
         440,
@@ -185,22 +197,22 @@
       ],
       "sources": [
         {
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 28,
+          "end_line": 115,
+          "label": "WorkflowApplication"
+        },
+        {
+          "path": "src/bili_asr/workflow_planning.py",
+          "line": 60,
+          "end_line": 91,
+          "label": "plan_producers"
+        },
+        {
           "path": "src/bili_asr/workflow.py",
-          "line": 53,
-          "end_line": 97,
+          "line": 70,
+          "end_line": 114,
           "label": "WorkflowExecutor.run"
-        },
-        {
-          "path": "src/bili_asr/storage/workflow.py",
-          "line": 212,
-          "end_line": 304,
-          "label": "WorkflowRepository.plan"
-        },
-        {
-          "path": "src/bili_asr/storage/workflow.py",
-          "line": 413,
-          "end_line": 422,
-          "label": "WorkflowRepository.owned_transaction"
         }
       ]
     },
@@ -220,15 +232,21 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 306,
-          "end_line": 372,
+          "line": 195,
+          "end_line": 257,
           "label": "WorkflowRepository.claim"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 450,
-          "end_line": 498,
+          "line": 305,
+          "end_line": 353,
           "label": "WorkflowRepository.cancel"
+        },
+        {
+          "path": "src/bili_asr/storage/job_commit.py",
+          "line": 13,
+          "end_line": 62,
+          "label": "JobCommitGuard"
         }
       ]
     },
@@ -239,7 +257,7 @@
       "type": "backend",
       "pos": [
         40,
-        340
+        940
       ],
       "size": [
         260,
@@ -248,8 +266,8 @@
       "sources": [
         {
           "path": "src/bili_asr/asr/runner.py",
-          "line": 425,
-          "end_line": 588,
+          "line": 418,
+          "end_line": 581,
           "label": "ASRRunner.transcribe"
         },
         {
@@ -267,7 +285,7 @@
       "type": "external",
       "pos": [
         40,
-        940
+        1240
       ],
       "size": [
         260,
@@ -289,7 +307,7 @@
       "type": "backend",
       "pos": [
         440,
-        940
+        640
       ],
       "size": [
         260,
@@ -298,15 +316,21 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 45,
-          "end_line": 417,
+          "line": 53,
+          "end_line": 452,
           "label": "ArchiveWorkflowHandlers"
         },
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 17,
-          "end_line": 89,
+          "line": 19,
+          "end_line": 97,
           "label": "EditorialWorkflowHandlers"
+        },
+        {
+          "path": "src/bili_asr/workflow_payloads.py",
+          "line": 30,
+          "end_line": 55,
+          "label": "validate_payload"
         }
       ]
     },
@@ -326,20 +350,20 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 150,
-          "end_line": 184,
+          "line": 174,
+          "end_line": 209,
           "label": "ArchiveWorkflowHandlers._store_audio"
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 292,
-          "end_line": 383,
+          "line": 318,
+          "end_line": 418,
           "label": "ArchiveWorkflowHandlers.publish"
         },
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 59,
-          "end_line": 89,
+          "line": 63,
+          "end_line": 97,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -360,14 +384,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/transcripts.py",
-          "line": 314,
-          "end_line": 499,
+          "line": 331,
+          "end_line": 516,
           "label": "TranscriptRepository.record_local_transcript"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 138,
-          "end_line": 154,
+          "line": 151,
+          "end_line": 167,
           "label": "EditorialRepository.commit_revision"
         }
       ]
@@ -388,19 +412,19 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 307,
-          "end_line": 347,
+          "line": 134,
+          "end_line": 174,
           "label": "publish_edition"
         },
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 157,
-          "end_line": 180,
+          "line": 160,
+          "end_line": 183,
           "label": "PublicationRepository.set_review"
         },
         {
           "path": "src/bili_asr/publication_tags.py",
-          "line": 24,
+          "line": 25,
           "end_line": 41,
           "label": "sync_source_tags"
         }
@@ -409,7 +433,7 @@
     {
       "id": "queries",
       "label": "投影、校验与搜索",
-      "sublabel": "coverage / verify / export / dedup",
+      "sublabel": "批量投影 · published 身份 · 验证",
       "type": "backend",
       "pos": [
         40,
@@ -422,21 +446,21 @@
       "sources": [
         {
           "path": "src/bili_asr/services/workflow_projection.py",
-          "line": 55,
-          "end_line": 158,
+          "line": 117,
+          "end_line": 224,
           "label": "workflow_records"
+        },
+        {
+          "path": "src/bili_asr/transcript_selection.py",
+          "line": 24,
+          "end_line": 37,
+          "label": "transcript_preference_key"
         },
         {
           "path": "src/bili_asr/search_index/query.py",
           "line": 21,
           "end_line": 63,
           "label": "search_archive"
-        },
-        {
-          "path": "src/bili_asr/integrity.py",
-          "line": 52,
-          "end_line": 83,
-          "label": "IntegrityVerifier"
         }
       ]
     },
@@ -490,8 +514,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 19,
-          "end_line": 230,
+          "line": 22,
+          "end_line": 233,
           "label": "PublicationRepository"
         }
       ]
@@ -499,7 +523,7 @@
     {
       "id": "fts",
       "label": "SQLite · 派生 FTS5",
-      "sublabel": "显式增量构建 · metadata 只读",
+      "sublabel": "keyset 分页 · 持久 cursor 恢复",
       "type": "database",
       "pos": [
         40,
@@ -512,15 +536,21 @@
       "sources": [
         {
           "path": "src/bili_asr/search_index/store.py",
-          "line": 343,
-          "end_line": 471,
+          "line": 426,
+          "end_line": 542,
           "label": "TranscriptSearchIndex.build"
         },
         {
-          "path": "src/bili_asr/search_index/metadata.py",
-          "line": 1,
-          "end_line": 60,
-          "label": "模块入口"
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 320,
+          "end_line": 362,
+          "label": "TranscriptSearchIndex._new_store_rows"
+        },
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 364,
+          "end_line": 410,
+          "label": "TranscriptSearchIndex._published_md_candidates"
         }
       ]
     },
@@ -540,20 +570,20 @@
       "sources": [
         {
           "path": "src/bili_asr/services/archive_snapshot.py",
-          "line": 260,
-          "end_line": 324,
+          "line": 157,
+          "end_line": 221,
           "label": "save_snapshot"
         },
         {
           "path": "src/bili_asr/services/archive_snapshot.py",
-          "line": 438,
-          "end_line": 463,
+          "line": 335,
+          "end_line": 360,
           "label": "restore_snapshot"
         },
         {
           "path": "src/bili_asr/services/migration_preflight.py",
-          "line": 118,
-          "end_line": 212,
+          "line": 119,
+          "end_line": 213,
           "label": "migration_preflight"
         }
       ]
@@ -580,8 +610,8 @@
         },
         {
           "path": "src/bili_asr/services/archive_snapshot.py",
-          "line": 260,
-          "end_line": 324,
+          "line": 157,
+          "end_line": 221,
           "label": "save_snapshot"
         }
       ]
@@ -599,7 +629,7 @@
       "id": "cli-guard",
       "from": "cli",
       "to": "guard",
-      "label": "策略与锁",
+      "label": "访问模式",
       "variant": "security"
     },
     {
@@ -613,7 +643,7 @@
       "id": "ingest-platform",
       "from": "ingest",
       "to": "platform",
-      "label": "SDK / HTTPS",
+      "label": "来源端口",
       "variant": "default"
     },
     {
@@ -676,7 +706,7 @@
       "id": "handlers-products",
       "from": "handlers",
       "to": "products",
-      "label": "保护写入",
+      "label": "guard 提交",
       "variant": "security"
     },
     {
@@ -784,7 +814,7 @@
       "title": "执行与所有权",
       "items": [
         "本地 Python CLI 与 SQLite；图中各 SQLite 节点是同一 archive.db 的逻辑表组。",
-        "控制仓库拥有 lease/attempt；handler 在锁外执行网络与推理，短保护事务提交结果。",
+        "WorkflowApplication 组装运行用例；纯 JobSpec 规划与持久写入分离，profile/jobs 在同一事务保存。",
         "ASR 只依赖 audio；字幕独立；AI 校对可选；原始 bundle 与人工 publication 两个域独立。"
       ]
     },
@@ -792,7 +822,7 @@
       "dot": "emerald",
       "title": "消费与恢复",
       "items": [
-        "FTS、公开/预览/私有快照均为消费产物；读者站点属于独立仓库。",
+        "preferred 当前转录与 published 发布身份分离；批量投影、coverage 和 export 描述同一已发布内容。",
         "完整 ZIP 保留数据库、音频、bundle、AI 双稿与全部历史 release；restore 恢复中断 job。",
         "17 个分流程时序图与源码、命令、SQL 清单补充全部条件分支和保留工具边界。"
       ]
@@ -813,6 +843,16 @@
         "archive migration-preflight 持有源维护独占锁，以冻结 Bilibili v1 契约只读检查旧库与全部历史产物。",
         "停止所有 writer 并完成 checkpoint 是前置条件；不初始化当前 schema，不创建目标，不恢复任务或执行转换。",
         "表指纹、文件摘要、遮蔽/排除项、历史审核及 release 校验和变化检测见时序 17。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "共享策略与访问边界",
+      "items": [
+        "transcript_selection 统一 CC/AI/ASR、语言 family、精确代码与版本偏好；来源端口只适配 ID/观察，不决定 ASR 策略。",
+        "ArchiveSession READ/WRITE 无初始化 DDL，BOOTSTRAP 显式建库；程序化连接持有维护 lease 到 close。",
+        "JobCommitGuard 保护相同 owner/attempt/lease；payload 在副作用前校验，旧无版本 JSON 按 v1 读取。",
+        "FTS 固定 transcript 上界、每页最多 500 segments；cursor 同批提交，MD 回退也按键分页。"
       ]
     }
   ]

@@ -1,13 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "checked_on": "2026-10-09",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+  "repository_revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+  "implementation_baseline": "6544eb85ea3e95e5b9571930fefaf35bde6b7dc1",
   "archify_version": "3.0.1",
   "coverage": {
     "top_level_commands": 16,
     "command_paths": 35,
-    "python_modules": 101,
+    "python_modules": 122,
     "schema_files": 4,
     "schema_tables": 38,
     "schema_views": 8,
@@ -16,22 +17,48 @@
     "interactive_diagrams": 19
   },
   "content_checks": {
-    "pinned_source_ranges_checked": 207,
-    "local_markdown_links_checked": 538,
+    "pinned_source_ranges_checked": 269,
+    "exact_ast_symbols_checked": 257,
+    "local_markdown_links_checked": 698,
     "module_inventory": "pass",
     "command_registry_and_parser": "pass",
     "sql_object_names_and_columns": "pass",
+    "committed_source_bytes": "pass",
     "mermaid_branch_balance_and_participants": "pass",
     "git_diff_check": "pass",
-    "tracked_changes_only_in_docs": true
+    "tracked_changes_only_in_docs": false
+  },
+  "implementation_validation": {
+    "environment": "WSL Ubuntu-24.04, native Linux files, isolated Python 3.12 environment",
+    "pytest": {
+      "passed": 2112,
+      "skipped": 11,
+      "failed": 0,
+      "errors": 0,
+      "seconds": 405.125
+    },
+    "coverage": {
+      "line_percent": 81.87,
+      "branch_percent": 71.06,
+      "line_minimum": 75,
+      "branch_minimum": 63
+    },
+    "ruff_E9": "pass",
+    "compileall": "pass",
+    "sdist_and_wheel_build": "pass",
+    "isolated_wheel_install_and_resources": "pass",
+    "installed_read_only_bytes_and_missing_database": "pass",
+    "dependency_audit": "pass; no known vulnerabilities found",
+    "condition_mutations": "read-only mode, platform comparison, lease expiry, real transcript shared context and control deadline regressions detected",
+    "earlier_failures": "Old installed-test expectations were corrected. Borrowed dependency .pth failed subprocess coverage startup; final run installed all dependencies directly in the isolated environment."
   },
   "artifacts": [
     {
       "type": "architecture",
       "specification": "docs/architecture.json",
       "output": "docs/architecture.html",
-      "specification_sha256": "c7a32b3841648396ddaac484b46ff180729204b9cb7f204940be6a7911fd3459",
-      "artifact_sha256": "99603f515289b320e18ed050d3356fa5caf32353cab4ce5a8e6dc87a619b3a83",
+      "specification_sha256": "bb96873d81fc557d26f35249c1c4028b69da697664d58b1382029f01c3c48608",
+      "artifact_sha256": "6d2bb4d9e6e456b307624dad8f2e7eb120d239342eac9951f4c09f9081fa9f19",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -72,29 +99,30 @@
           "vertical_scroll_accepted": true
         }
       ],
-      "capture_checks": {
-        "chrome": "available",
-        "containment": "pass",
-        "themeStates": "pass",
-        "readability": "pass",
-        "viewerChrome": "pass",
-        "captures": "pass"
-      },
       "visual_review": "partial",
-      "visual_review_scope": "1440x900 light first viewport only; remaining viewports and themes were checked automatically",
+      "visual_review_scope": "Actual endpoint-theme desktop captures inspected; long-page lower sections were not exhaustively traced.",
       "correction_rounds": 1,
       "layout_advisory": {
-        "resolvedCrossovers": 17,
-        "routesOverSuggestedBends": 8,
-        "routesOverSuggestedStretch": 1
+        "routes": {
+          "resolvedCrossovers": 14,
+          "routesOverSuggestedBends": 10
+        },
+        "layout": {}
+      },
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
       }
     },
     {
       "type": "architecture",
       "specification": "docs/ai-proofreading-architecture.json",
       "output": "docs/ai-proofreading-architecture.html",
-      "specification_sha256": "1b6c7734d661a0724bfcc5fb35cf02a366624bad028b9b988d4fcca08b78c6f5",
-      "artifact_sha256": "be1b8c2b3137915472ad9035c4730858d3cd172d83382f8debfadebe97ca7b84",
+      "specification_sha256": "9f820d74694762e2720f717819278057460e4420999f4245794adf040bdb1d1e",
+      "artifact_sha256": "b6473d5eab10006460d840ea45fa60cef5c24ae1a328a5c08ded870e0e726572",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -135,20 +163,29 @@
           "vertical_scroll_accepted": true
         }
       ],
-      "capture_checks": null,
-      "visual_review": "not_requested",
-      "visual_review_scope": null,
+      "visual_review": "partial",
+      "visual_review_scope": "Actual endpoint-theme desktop captures inspected; long-page lower sections were not exhaustively traced.",
       "correction_rounds": 0,
       "layout_advisory": {
-        "routesOverSuggestedBends": 6
+        "routes": {
+          "routesOverSuggestedBends": 6
+        },
+        "layout": {}
+      },
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
       }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/01-cli-bootstrap.json",
       "output": "docs/sequences/01-cli-bootstrap.html",
-      "specification_sha256": "56928100e44c4fc041a1c77af9cbb9339d5a5fdd1b0347eef55be6fd7ebef6d9",
-      "artifact_sha256": "0be773ed500e7a7c86daf6c3c6b8c55f51b8dc8e84db836abc37fa207df288ef",
+      "specification_sha256": "f905ca1f6f868a7ffb17270f810ad4880027b261ad4d770bed2e03501385586c",
+      "artifact_sha256": "c8b5e7b70f5a887ae26e42131113bc1cbc45e4e70e16468b06330265fd1826ff",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -189,18 +226,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/02-metadata-tags.json",
       "output": "docs/sequences/02-metadata-tags.html",
-      "specification_sha256": "ad4d462b9daea0558591941882c360dd4df2bc27fe17d83efea1766c7c081b8b",
-      "artifact_sha256": "eccc87b6c632f91d0fd898895ed2f8ac19c46ebae8f73069de6f2cbef51d6df0",
+      "specification_sha256": "6db03720b42b0fc8a198505eeeaf1432367c6f159a19cc11f213b0dc532f4714",
+      "artifact_sha256": "f608c2fb53f9f6385a331280724ea1dd59b13ce7b2f2e6788749399e21f9201f",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -217,14 +256,14 @@
           "height": 900,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 1600,
           "height": 1000,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 1920,
@@ -241,18 +280,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/03-workflow-plan.json",
       "output": "docs/sequences/03-workflow-plan.html",
-      "specification_sha256": "305c96cd28e96c18c34001a3c3c4c2b59abed629f1b5c17193505414417d99bf",
-      "artifact_sha256": "4b5e6f19a85618e8b838a4f7124e3b656e70854fdaf7b6dae5811ea32080ceaf",
+      "specification_sha256": "40457d2ffee87912f7b17f89289295f01075fe8662e678cc82b3907f54529d69",
+      "artifact_sha256": "b7b4a059d9716af676715661d6ac25000f79ff8ce5862c140e50eee7e9e325f7",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -269,7 +310,7 @@
           "height": 900,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 1600,
@@ -293,18 +334,27 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
-      "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {}
+      "visual_review": "partial",
+      "visual_review_scope": "Actual endpoint-theme desktop captures inspected; long-page lower sections were not exhaustively traced.",
+      "correction_rounds": 1,
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      },
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/04-lease-cancel-retry.json",
       "output": "docs/sequences/04-lease-cancel-retry.html",
-      "specification_sha256": "98c65b65b13d6c589eb9a7dfa1f962dc8a0e09dd4d4c8056db8e0bb7b160a715",
-      "artifact_sha256": "8f8c3aa4943bef31cc7e238b7299b32a48c03a4ef8d10a12134f6abb02d748a9",
+      "specification_sha256": "3e7fb5ecfbfd8d6c7dc80997fb095624a4b245f1a9f1e09c19e891a2cc2e2568",
+      "artifact_sha256": "0577e50ae249742eb59fce174e82307d699c29682f02793e3d813154776546d2",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -321,14 +371,14 @@
           "height": 900,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 1600,
           "height": 1000,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 1920,
@@ -345,18 +395,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/05-subtitle-ingest.json",
       "output": "docs/sequences/05-subtitle-ingest.html",
-      "specification_sha256": "f36ee27ec82c2300f88a35bf26e205c084aa1ed1c1e8f9ac248b39126e841496",
-      "artifact_sha256": "ee997e84bf6ecd9c4e4bffd283d837dc9c48a46f1601c7a8a7f1873c00aa0005",
+      "specification_sha256": "23ac8a83ab381abdae5d9c381e76fa247dd429e706e1fb4d2538525991128606",
+      "artifact_sha256": "c5fffa2931cde62ac7014d7b93f8caa931a5b6f754a73219b14a0c7d78d2a852",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -373,21 +425,21 @@
           "height": 900,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 1600,
           "height": 1000,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 1920,
           "height": 1080,
           "theme": "light",
           "overflow_x": false,
-          "vertical_scroll_accepted": false
+          "vertical_scroll_accepted": true
         },
         {
           "width": 2048,
@@ -397,18 +449,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/06-audio-download.json",
       "output": "docs/sequences/06-audio-download.html",
-      "specification_sha256": "1697d0a31328ce282c36876bd6f55793b4e424f7a972bd573bb56f388abcf010",
-      "artifact_sha256": "2bf2099f5fb652e61a156b66af41c1ac7195489315da3a2830ca80ac73ca7288",
+      "specification_sha256": "dbd4c6273f810905ee8792f1eac6e1da2f5a6564c07f7c0b710a57c31bdf5706",
+      "artifact_sha256": "1a9aa41972db05af105a1e324669b1f0bb96c70e74faef0cd8c600978bccf9ba",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -449,18 +503,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/07-asr-runtime.json",
       "output": "docs/sequences/07-asr-runtime.html",
-      "specification_sha256": "c416aa8870589cf2749377285a909ffb7decf1e83424d70de8c0a82860ad1760",
-      "artifact_sha256": "16bbe2d78e783f25de247ca901f61e3728fe98d7314375098f48a3f5f455f244",
+      "specification_sha256": "c018359ebbb7dbcad92e6887354b1b9e83b7a5eaa69aa8e5dc880653494138d3",
+      "artifact_sha256": "9e7190b8e34f52f528a67b04835e5b22cc89416094754fcb12516e2f8950c4e0",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -501,18 +557,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/08-transcript-bundle.json",
       "output": "docs/sequences/08-transcript-bundle.html",
-      "specification_sha256": "4c813f5b4d577fc6105ed9f04b9a29a2ccd93a343d531007bf1a9b48c4ed423b",
-      "artifact_sha256": "60ed41af83cedab63ea37b8cee124e18396d328eacad3dfff2afac865cad7235",
+      "specification_sha256": "ba20c111e4a347006536e98d9fb02446ab95b5a34fb03ce41018703b38b81829",
+      "artifact_sha256": "b37650cb5f836fea753305427b19efb6db0a853912ed3373d35a8b8f6acd9f03",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -553,18 +611,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/09-ai-proofread.json",
       "output": "docs/sequences/09-ai-proofread.html",
-      "specification_sha256": "b220ddcd29b590619f1d937f7aa6449be0e02a264a96ad34d61f98e38a8b50a8",
-      "artifact_sha256": "865cb77f6fdc0c9276c8d990a2b13df39aaffd0604427131dba1f907234e0d55",
+      "specification_sha256": "87db78e669a44e8bcbbdb2e43801baf0de4f52e17817d339cf1b7409adeda6e7",
+      "artifact_sha256": "a3061a1191181a92e045aa6891b3c86d778fd3f58a60a98c26a7a463a0118887",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -605,18 +665,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/10-document-render.json",
       "output": "docs/sequences/10-document-render.html",
-      "specification_sha256": "1a25779ad4cc3086ae826b6d981f65dd33ad48bed4f96d10f8166cf30492ea19",
-      "artifact_sha256": "2e8f0a98ae860d4c8ed438cef83aeeb87b76cc58f47c4589ffa233f2514ab7d1",
+      "specification_sha256": "0caba75b4033f52520640bb09185e85eeb8c6aa9e48b16ed30ad33e7c2ee2dee",
+      "artifact_sha256": "bf454f3a3921928e4d5247f518aacf3ad01e27776f9d17f561d0d02485d3937f",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -657,18 +719,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/11-publication-lifecycle.json",
       "output": "docs/sequences/11-publication-lifecycle.html",
-      "specification_sha256": "8cabbceb336fe15124dfb66a9a80422e9733e242dd314fe41ce0c25da5ae7ff0",
-      "artifact_sha256": "2d308b1053b2f7259ed924e9731158e275f6e241cd75fff571331ae6c863b07b",
+      "specification_sha256": "b8d011c1bcecc801843cd0976ea49c971bd52b951a8332a8fe872d330c021798",
+      "artifact_sha256": "6faae733c176b8785d309637ac6db2bc5820b702a9aed65bb86e0d4ce8ccdf89",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -709,18 +773,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/12-reader-private-export.json",
       "output": "docs/sequences/12-reader-private-export.html",
-      "specification_sha256": "52fc29ea11952d9b2a6be2857b48a4d6d106260931be75c2254b159be2575e48",
-      "artifact_sha256": "e271d330129f592a03d803569962cb478ee89ce3ee9d98fc7d039a1d9fe517db",
+      "specification_sha256": "127db514edc4497197aecb87d5ff3c5c8d38551e4aab66c7f151d006d85bf718",
+      "artifact_sha256": "1128e7e9ef25068a7140f5bc50643627af470059d83c2fd6ad99d0de6aea04c3",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -761,18 +827,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/13-projection-verify.json",
       "output": "docs/sequences/13-projection-verify.html",
-      "specification_sha256": "bdf2105abd4b607b5eee7062b503f7b3890b2e11166a771f13f405848965150d",
-      "artifact_sha256": "b72ee687802c6dc3ae9a7745e5f66fb10d918089db6ecd22108d8b044c54c76a",
+      "specification_sha256": "c6396d22af48dc3ad0816bff0f6302999c4d4d8569928c1fe8bc1a2a2ca91a70",
+      "artifact_sha256": "dda8dea100630f7c480ee302467d2231325b7c06dfb9125362c6545394e2fc46",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -813,18 +881,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/14-search-index.json",
       "output": "docs/sequences/14-search-index.html",
-      "specification_sha256": "8270414bcba890153acfd3f184fa34afb6cc390b84adf46bc90d327250bc9981",
-      "artifact_sha256": "e26f7836b3b694d867d3a4b65be50498a4fe1210825eeaa3bcafecbe45d2b8eb",
+      "specification_sha256": "cfed6f131bde9a5c001d4f1f029829eced75c162f23f6d88454654f64998853a",
+      "artifact_sha256": "57e032e8414bfb9f48bb4b3121c70b0622cbe64b688582f5a0b148f58b58286c",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -865,18 +935,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/15-archive-snapshot.json",
       "output": "docs/sequences/15-archive-snapshot.html",
-      "specification_sha256": "2646abd87ffa828ee6b9b5f9f05223b95ff37903c6f5beea4e6062760c2e3f4c",
-      "artifact_sha256": "fa0f94a23b984e4afd36eaf5ff7937da26c94b21045b16bcc9850d4294188adc",
+      "specification_sha256": "a6729f76c1ee7ec68a1bac7ecb144392423b8c72ca4fd0d6750f7df44c646394",
+      "artifact_sha256": "e7eaf3587e1ae55b9f54691fdad3e630c903618a0b3157a75e144879c859a2d6",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -917,18 +989,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/16-library-and-operations.json",
       "output": "docs/sequences/16-library-and-operations.html",
-      "specification_sha256": "897f52c712ab6ec1a81e36c2bb2e6bccb11224c337317384629571bbd3c8900e",
-      "artifact_sha256": "a508381a12e8200f971053667baf3421ecaab5c438bc4a204241939c36db1e0c",
+      "specification_sha256": "6b2c5594121d2b5a0bab6936da51333339c6257ee0de950a2a5cec829b5f1f61",
+      "artifact_sha256": "f920b92e5e52a931a90d28184ee761b67864b43c349c488a726f2d36e125f696",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -969,18 +1043,20 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": null,
       "visual_review": "not_requested",
       "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     },
     {
       "type": "sequence",
       "specification": "docs/sequences/17-migration-preflight.json",
       "output": "docs/sequences/17-migration-preflight.html",
-      "specification_sha256": "d8f4341881352fea80314cbd0fede4cf329eb569e43c18d73c59b1a9ec175076",
-      "artifact_sha256": "d0ca0c8fea696afb8dfa79fd98e57b65c5b1b6aabe187c6f089df7503cc4c7d6",
+      "specification_sha256": "ce55f9009b099d0630b8496a5dbe5d87ef4293c82c68541b943837d78e2075d7",
+      "artifact_sha256": "9f2bf2016ede5ca955c683563b160189ddb0a3a91e9e4952c18af247cae192fc",
       "validation": "pass",
       "quality": "showcase",
       "gates": {
@@ -1021,23 +1097,19 @@
           "vertical_scroll_accepted": false
         }
       ],
-      "capture_checks": {
-        "chrome": "available",
-        "containment": "pass",
-        "themeStates": "pass",
-        "readability": "pass",
-        "viewerChrome": "pass",
-        "captures": "pass"
-      },
-      "visual_review": "passed",
-      "visual_review_scope": "1440x900 light first viewport only; remaining viewports and themes were checked automatically",
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
       "correction_rounds": 0,
-      "layout_advisory": {}
+      "layout_advisory": {
+        "routes": {},
+        "layout": {}
+      }
     }
   ],
   "limitations": [
-    "Overview is a dense 20-component / 27-relationship diagram; per-artifact layout_advisory retains actual route measurements. One positions-only repair was evaluated. Automated gates do not imply perceptual approval.",
-    "HTML unfolds nested conditional paths in paired B-number cards and preserves self calls in internal-action cards; complete Mermaid is maintained in each matching Markdown file.",
-    "Source/document verification does not execute network, GPU, paid API, deployment, full business regression or semantic listening review."
+    "No live Bilibili network, real GPU inference, paid model request or external reader deployment was performed.",
+    "Automated browser checks passed for every artifact; endpoint captures provide partial visual review, not exhaustive long-page acceptance.",
+    "Overview retains 14 crossings and 10 routes over suggested bend count; AI topic retains 6 such routes.",
+    "Internal projection queries are bounded; the public full mapping still grows with output size."
   ]
 }

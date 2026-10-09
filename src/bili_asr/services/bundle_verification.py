@@ -12,9 +12,9 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 from dataclasses import dataclass
 from typing import Mapping
+from bili_asr.process_environment import worker_environment as _worker_environment
 
 DEFAULT_VERIFY_TIMEOUT_SECONDS = 30.0
 DEFAULT_VERIFY_READ_BUDGET_BYTES = 256 * 1024 * 1024
@@ -44,16 +44,6 @@ _UNREAPED: list[subprocess.Popen] = []
 
 def _command() -> list[str]:
     return [sys.executable, "-m", "bili_asr.services.bundle_verification"]
-
-
-def _worker_environment() -> dict[str, str]:
-    # sys.path changes made by source callers/pytest do not reach a new Python
-    # process. Pin the active package's import root for source and installed runs.
-    environment = os.environ.copy()
-    package_root = str(Path(__file__).resolve().parents[2])
-    previous = environment.get("PYTHONPATH")
-    environment["PYTHONPATH"] = package_root + (os.pathsep + previous if previous else "")
-    return environment
 
 
 def _stop_worker(worker: subprocess.Popen) -> None:

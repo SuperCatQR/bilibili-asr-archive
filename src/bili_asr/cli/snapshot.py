@@ -19,6 +19,7 @@ def add_snapshot_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     save.add_argument("--artifact-root", default=None, help="Existing artifact root (or BILI_ARTIFACT_ROOT)")
     save.add_argument("--out", required=True, help="New snapshot ZIP outside the archive roots")
     check = actions.add_parser("check", help="Verify snapshot hashes, database contract, and file references offline")
+    check.set_defaults(database_policy=None)
     check.add_argument("--file", required=True, help="Snapshot ZIP to verify")
     restore = actions.add_parser("restore", help="Restore a verified snapshot into a new or empty archive root")
     restore.add_argument("--file", required=True, help="Snapshot ZIP to restore")

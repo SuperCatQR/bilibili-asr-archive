@@ -76,7 +76,10 @@ class IntegrityVerifier:
             paths = {key: entry[key] for key in REQUIRED_ARTIFACT_KEYS if isinstance(entry.get(key), str)}
             complete = len(paths) == len(REQUIRED_ARTIFACT_KEYS) and any(archive_bundle_complete(base, paths) for base in roots.read_bases())
             status = str(entry.get("status") or "")
-            if status == "archived" and not complete:
+            publication_error = entry.get("publication_error")
+            if publication_error is not None:
+                report.defects.append(IntegrityDefect(work_id, str(publication_error)))
+            elif status == "archived" and not complete:
                 report.defects.append(IntegrityDefect(work_id, "terminal_missing_artifact"))
             elif status in {"subtitle_done", "asr_done"} and not complete:
                 report.defects.append(IntegrityDefect(work_id, RETRYABLE_INCOMPLETE))

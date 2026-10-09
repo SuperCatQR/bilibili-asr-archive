@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import Mapping
 import re
 
+from bili_asr.platform_identity import ContentRef
+
 _WORK_ID_RE = re.compile(r"^(?P<bvid>[^:]+):p(?P<page_index>0|[1-9]\d*)$")
 
 
@@ -20,6 +22,12 @@ class PageIdentity:
     page_index: int
     cid: int
     page_label: str = ""
+
+    @property
+    def content_ref(self) -> ContentRef:
+        """Runtime source reference; legacy fields and file keys stay unchanged."""
+
+        return ContentRef("bilibili", self.bvid, self.page_index)
 
 
 def format_work_id(bvid: str, page_index: int) -> str:

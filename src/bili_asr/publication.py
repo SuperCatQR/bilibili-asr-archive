@@ -9,77 +9,25 @@ from pathlib import Path
 import re
 import sqlite3
 import time
-from typing import Any, Iterable
+from typing import Iterable
 from urllib.parse import urlparse
 
-from bili_asr.editorial import canonical, digest
-from bili_asr.manuscript_templates import AI_RENDERERS, PUBLISH_RENDERERS, renderer_for
+from bili_asr.canonical_json import digest
+from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
 from bili_asr.manuscript_files import atomic_write_artifact, read_artifact
-from bili_asr.storage.publication import PublicationConflictError, PublicationRepository
+from bili_asr.storage.publication import (
+    PublicationConflictError, PublicationRepository, read_edition as get_edition,
+    read_revision as _revision, verify_release_identity as _verify_release_identity,
+)
+from bili_asr.publication_content import (
+    EDITABLE_METADATA as _EDITABLE_METADATA, PUBLISH_TEMPLATE_VERSION,
+    normalize_actor as _actor, normalize_text as _text, normalize_content,
+    content_from_ai, render_publication,
+)
 from bili_asr.publication_tags import source_tags
 
 
-PUBLISH_TEMPLATE_VERSION = "publish-v1"
-_CONTENT_KEYS = frozenset({"title", "markdown", "summary", "tags", "source", "attribution", "editorNote"})
-_EDITABLE_METADATA = _CONTENT_KEYS - {"markdown", "source"}
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
-_IDENTITY = re.compile(r"[A-Za-z0-9_-]+\Z")
-
-
-def _text(value: Any, name: str, *, nonempty: bool = False, multiline: bool = True) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"publication-content: {name} must be text")
-    value = value.replace("\r\n", "\n").replace("\r", "\n")
-    try:
-        value.encode("utf-8", errors="strict")
-    except UnicodeEncodeError as exc:
-        raise ValueError(f"publication-content: {name} must be valid UTF-8 text") from exc
-    if "\x00" in value or any(ord(c) < 32 and c not in "\n\t" for c in value):
-        raise ValueError(f"publication-content: {name} contains control characters")
-    if not multiline and ("\n" in value or "\t" in value):
-        raise ValueError(f"publication-content: {name} must be one line")
-    value = value.strip()
-    if nonempty and not value:
-        raise ValueError(f"publication-content: {name} must not be empty")
-    return value
-
-
-def _actor(actor: str) -> str:
-    return _text(actor, "actor", nonempty=True, multiline=False)
-
-
-def normalize_content(content: dict[str, Any]) -> dict[str, Any]:
-    """Normalize the entire reader-visible object before canonical JSON hashing."""
-    if not isinstance(content, dict) or set(content) != _CONTENT_KEYS:
-        raise ValueError("publication-content: reader content fields do not match the contract")
-    source = content["source"]
-    if not isinstance(source, dict) or set(source) != {"bvid", "pageIndex", "videoPartId", "url"}:
-        raise ValueError("publication-content: invalid source fields")
-    bvid = _text(source["bvid"], "source.bvid", nonempty=True, multiline=False)
-    if not _IDENTITY.fullmatch(bvid):
-        raise ValueError("publication-content: invalid BVID")
-    for key, minimum in (("pageIndex", 0), ("videoPartId", 1)):
-        if type(source[key]) is not int or source[key] < minimum:
-            raise ValueError(f"publication-content: source.{key} must be an integer >= {minimum}")
-    url = f"https://www.bilibili.com/video/{bvid}/?p={source['pageIndex'] + 1}"
-    if source["url"] != url:
-        raise ValueError("publication-content: source URL must match the frozen video and part")
-    tags = content["tags"]
-    if not isinstance(tags, list):
-        raise ValueError("publication-content: tags must be a list")
-    tags = [_text(tag, "tag", nonempty=True, multiline=False) for tag in tags]
-    if len(tags) != len(set(tags)):
-        raise ValueError("publication-content: duplicate tags are forbidden")
-    normalized = {
-        "title": _text(content["title"], "title", nonempty=True, multiline=False),
-        "markdown": _text(content["markdown"], "markdown", nonempty=True) + "\n",
-        "summary": _text(content["summary"], "summary"),
-        "tags": tags,
-        "source": {"bvid": bvid, "pageIndex": source["pageIndex"], "videoPartId": source["videoPartId"], "url": url},
-        "attribution": _text(content["attribution"], "attribution", nonempty=True),
-        "editorNote": _text(content["editorNote"], "editorNote"),
-    }
-    return normalized
 
 
 def _roots(artifact_roots: Iterable[Path]) -> tuple[Path, ...]:
@@ -91,52 +39,6 @@ def _roots(artifact_roots: Iterable[Path]) -> tuple[Path, ...]:
     if not roots:
         raise ValueError("manuscript-path: at least one artifact root is required")
     return roots
-
-
-def _revision(connection: sqlite3.Connection, revision_id: str) -> tuple[dict, dict]:
-    if not isinstance(revision_id, str) or not _IDENTITY.fullmatch(revision_id):
-        raise ValueError("publication-revision: invalid revision ID")
-    row = connection.execute(
-        "SELECT r.*, i.video_part_id, i.base_transcript_id, i.reference_transcript_id, "
-        "i.prepared_json FROM editorial_revisions r "
-        "JOIN editorial_inputs i ON i.input_id = r.input_id WHERE r.revision_id = ?",
-        (revision_id,),
-    ).fetchone()
-    if row is None:
-        raise ValueError("publication-revision: unknown revision ID")
-    try:
-        prepared = json.loads(row["prepared_json"])
-        snapshot = prepared["snapshot"]
-        blocks = json.loads(row["blocks_json"])
-        metadata = snapshot["metadata"]
-        if (prepared["input_id"] != row["input_id"] or digest(snapshot) != row["input_id"]
-                or digest({"input_id": row["input_id"], "blocks": blocks}) != revision_id
-                or snapshot["video_part_id"] != row["video_part_id"]
-                or snapshot["base"]["transcript_id"] != row["base_transcript_id"]
-                or (snapshot["reference"]["transcript_id"] if snapshot["reference"] else None)
-                    != row["reference_transcript_id"]):
-            raise ValueError("publication-integrity: frozen revision identity mismatch")
-        for transcript_id in (row["base_transcript_id"], row["reference_transcript_id"]):
-            if transcript_id is None:
-                continue
-            transcript = connection.execute(
-                "SELECT video_part_id FROM transcripts WHERE transcript_id = ?", (transcript_id,)
-            ).fetchone()
-            if transcript is None or transcript[0] != row["video_part_id"]:
-                raise ValueError("publication-integrity: frozen transcript belongs to another part")
-        job = connection.execute(
-            "SELECT video_part_id FROM workflow_jobs WHERE job_id = ?", (row["job_id"],)
-        ).fetchone()
-        if job is None or job[0] != row["video_part_id"]:
-            raise ValueError("publication-integrity: frozen revision job belongs to another part")
-        live = connection.execute(
-            "SELECT bvid, page_index FROM video_parts WHERE video_part_id = ?", (row["video_part_id"],)
-        ).fetchone()
-        if live is None or tuple(live) != (metadata["bvid"], metadata["page_index"]):
-            raise ValueError("publication-integrity: frozen revision belongs to another video part")
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise ValueError("publication-integrity: invalid frozen revision") from exc
-    return dict(row), prepared
 
 
 def get_ai_artifacts(connection: sqlite3.Connection, revision_id: str,
@@ -163,40 +65,6 @@ def get_ai_artifacts(connection: sqlite3.Connection, revision_id: str,
             raise ValueError("publication-integrity: AI artifact identity does not match revision")
         artifacts[name] = read_artifact(path, row["content_sha256"], roots)
     return artifacts
-
-
-def get_edition(connection: sqlite3.Connection, edition_id: str) -> dict:
-    repository = PublicationRepository(connection)
-    edition = repository.edition(edition_id)
-    revision, prepared = _revision(connection, edition["revision_id"])
-    normalized = normalize_content(edition["content"])
-    metadata = prepared["snapshot"]["metadata"]
-    if (normalized != edition["content"] or edition["video_part_id"] != revision["video_part_id"]
-            or normalized["source"]["videoPartId"] != edition["video_part_id"]
-            or normalized["source"]["bvid"] != metadata["bvid"]
-            or normalized["source"]["pageIndex"] != metadata["page_index"]):
-        raise ValueError("publication-integrity: edition content or source identity mismatch")
-    if edition["parent_edition_id"]:
-        parent = repository.edition(edition["parent_edition_id"])
-        if parent["video_part_id"] != edition["video_part_id"]:
-            raise ValueError("publication-integrity: edition parent belongs to another part")
-    return edition
-
-
-def content_from_ai(prepared: dict, markdown_text: str) -> dict:
-    """Build the complete default edition and review baseline from frozen input."""
-    snapshot = prepared["snapshot"]
-    metadata = snapshot["metadata"]
-    return normalize_content({
-        "title": metadata["title"], "markdown": markdown_text,
-        "summary": "", "tags": [],
-        "source": {"bvid": metadata["bvid"], "pageIndex": metadata["page_index"],
-                   "videoPartId": snapshot["video_part_id"],
-                   "url": f"https://www.bilibili.com/video/{metadata['bvid']}/?p={metadata['page_index'] + 1}"},
-        "attribution": "\u6839\u636e\u89c6\u9891\u8f6c\u5f55\u6574\u7406\uff0c\u7ecf AI "
-                       "\u5408\u6210\u3002",
-        "editorNote": "",
-    })
 
 
 def create_edition(connection: sqlite3.Connection, *, revision_id: str,
@@ -252,47 +120,6 @@ def review_edition(connection: sqlite3.Connection, *, edition_id: str, status: s
             edition_id=edition_id, status=status, content_sha256=content_sha256,
             expected_status=expected_status, actor=actor, note=note, issue_url=issue_url,
         )
-
-
-def render_publication(content: dict[str, Any]) -> bytes:
-    """Render the current writer template from normalized reader content."""
-    return renderer_for(PUBLISH_RENDERERS, PUBLISH_TEMPLATE_VERSION)(normalize_content(content))
-
-
-def _verify_release_identity(connection: sqlite3.Connection, release: dict) -> dict:
-    edition = get_edition(connection, release["edition_id"])
-    version = release["template_version"]
-    render = renderer_for(PUBLISH_RENDERERS, version)
-    expected_id = digest({"edition_id": edition["edition_id"], "content_sha256": edition["content_sha256"],
-                          "template_version": version})
-    expected_path = f"publications/part-{edition['video_part_id']}/{expected_id}/{version}/publish.md"
-    if (release["release_id"] != expected_id or release["video_part_id"] != edition["video_part_id"]
-            or release["review_id"] != edition["review_id"] or edition["review_status"] != "approved"
-            or release["content_sha256"] != edition["content_sha256"]
-            or release["relative_path"] != expected_path
-            or release["artifact_sha256"] != hashlib.sha256(render(edition["content"])).hexdigest()):
-        raise ValueError("publication-integrity: release is not bound to the exact approved edition")
-    if (release["status"] == "published") != (edition["current_release_id"] == release["release_id"]):
-        raise ValueError("publication-integrity: release state disagrees with effective head")
-    events = connection.execute(
-        "SELECT * FROM publication_events WHERE release_id = ? ORDER BY event_id",
-        (release["release_id"],),
-    ).fetchall()
-    previous = None
-    transitions = {None: {"published"}, "published": {"superseded", "withdrawn"},
-                   "superseded": {"withdrawn"}, "withdrawn": set()}
-    for event in events:
-        status = event["event_type"]
-        if (status not in transitions.get(previous, set()) or event["from_status"] != previous
-                or event["to_status"] != status or event["video_part_id"] != edition["video_part_id"]
-                or event["edition_id"] != edition["edition_id"] or event["review_id"] != edition["review_id"]
-                or event["content_sha256"] != edition["content_sha256"]
-                or (status == "published" and event["actor"] != release["published_by"])):
-            raise ValueError("publication-integrity: release audit event identity or transition mismatch")
-        previous = status
-    if previous != release["status"]:
-        raise ValueError("publication-integrity: release state disagrees with audit events")
-    return edition
 
 
 def verify_release(connection: sqlite3.Connection, release_id: str,

@@ -10,10 +10,11 @@ import os
 from pathlib import Path
 import sqlite3
 
-from bili_asr.archive_maintenance import ArchiveAccessError, archive_access
-from bili_asr.services.archive_snapshot import (
-    SnapshotError, _ARTIFACT_DIRECTORIES, _check_path_collisions, _collect_artifacts,
-    _no_links, _path_key, _regular_file, _stream_hash, _temporary_component,
+from bili_asr.archive_maintenance import ArchiveAccessError
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.artifact_inventory import (
+    ArtifactInventoryError, ARTIFACT_DIRECTORIES, check_artifact_collisions, collect_artifacts,
+    require_no_links, portable_artifact_parts, require_regular_file, stream_hash, is_temporary_artifact,
 )
 from bili_asr.storage.migration_artifacts import (
     LEGACY_BUNDLE_NAMES, LEGACY_BUNDLE_SCHEMA, LEGACY_MARKER, MigrationArtifactError,
@@ -37,7 +38,7 @@ _EXCLUDED_DIRS = {"models": "model-weights", "logs": "operational-logs", "cache"
 
 
 def _identity(path: Path) -> tuple:
-    info = _regular_file(path)
+    info = require_regular_file(path)
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
 
 
@@ -47,7 +48,7 @@ def _hash_file(path: Path) -> tuple[int, str, tuple]:
         opened = os.fstat(stream.fileno())
         if (opened.st_dev, opened.st_ino) != before[:2]:
             raise MigrationPreflightError("source file changed before reading")
-        size, sha256 = _stream_hash(stream)
+        size, sha256 = stream_hash(stream)
     if _identity(path) != before or size != before[2]:
         raise MigrationPreflightError("source file changed while reading")
     return size, sha256, before
@@ -57,7 +58,7 @@ def _database_state(path: Path) -> tuple:
     for suffix in ("-wal", "-journal"):
         sidecar = path.with_name(path.name + suffix)
         if sidecar.exists() or sidecar.is_symlink():
-            _regular_file(sidecar)
+            require_regular_file(sidecar)
             if sidecar.stat().st_size:
                 raise MigrationPreflightError("pending WAL or journal: stop writers and checkpoint first")
     return _identity(path)
@@ -66,20 +67,20 @@ def _database_state(path: Path) -> tuple:
 def _root_entries(base: Path, archive: Path, product: Path) -> list[dict]:
     excluded = []
     for entry in sorted(base.iterdir()):
-        _no_links(entry)
+        require_no_links(entry)
         if entry.name == "archive.db" and base == archive:
-            _regular_file(entry)
+            require_regular_file(entry)
         elif entry == product and product != archive:
             continue  # The configured root is inspected separately.
         elif entry in product.parents and product.is_relative_to(archive) and product != archive:
             excluded.extend(_root_entries(entry, archive, product))
-        elif entry.name in _ARTIFACT_DIRECTORIES and entry.is_dir():
+        elif entry.name in ARTIFACT_DIRECTORIES and entry.is_dir():
             continue
         elif entry.name in _EXCLUDED_FILES and entry.is_file():
             excluded.append({"path": entry.name, "base": str(base), "category": _EXCLUDED_FILES[entry.name]})
         elif entry.name in _EXCLUDED_DIRS and entry.is_dir():
             excluded.append({"path": entry.name, "base": str(base), "category": _EXCLUDED_DIRS[entry.name]})
-        elif _temporary_component(entry.name):
+        elif is_temporary_artifact(entry.name):
             raise MigrationPreflightError("unfinished temporary artifact at source root")
         else:
             raise MigrationPreflightError("unsupported source root entry; define an explicit preservation rule")
@@ -87,8 +88,8 @@ def _root_entries(base: Path, archive: Path, product: Path) -> list[dict]:
 
 
 def _inventory_paths(bases: tuple[Path, ...]) -> list[tuple[str, Path, Path]]:
-    paths = [(key, path, base) for base in bases for key, path in _collect_artifacts((base,)).items()]
-    _check_path_collisions(sorted({key for key, _, _ in paths}))
+    paths = [(key, path, base) for base in bases for key, path in collect_artifacts((base,)).items()]
+    check_artifact_collisions(sorted({key for key, _, _ in paths}))
     return sorted(paths, key=lambda item: (item[0], bases.index(item[2])))
 
 
@@ -96,7 +97,7 @@ def _verify_markers(selected: dict[str, dict], physical: dict[str, Path]) -> Non
     for marker, item in selected.items():
         if marker.split("/")[-1] != LEGACY_MARKER:
             continue
-        parts = _path_key(marker)
+        parts = portable_artifact_parts(marker)
         if len(parts) != 3 or parts[0] != "transcripts" or item["size"] > 8192:
             raise MigrationPreflightError("invalid legacy bundle marker path or size")
         with physical[marker].open("rb") as stream:
@@ -126,24 +127,24 @@ def migration_preflight(source_root: Path, *, artifact_root: Path | None = None)
         for requested in (source_root, artifact_root):
             if requested is not None:
                 lexical = Path(requested)
-                _no_links(lexical if lexical.is_absolute() else Path.cwd() / lexical)
+                require_no_links(lexical if lexical.is_absolute() else Path.cwd() / lexical)
         root = Path(os.path.abspath(source_root))
         product = root if artifact_root is None else Path(os.path.abspath(artifact_root))
         for base in (root, product):
-            _no_links(base)
+            require_no_links(base)
             if not base.is_dir():
                 raise MigrationPreflightError("source archive or artifact root is not a directory")
         database = root / "archive.db"
-        _regular_file(database)  # Guard lexical path before any resolve/open.
+        require_regular_file(database)  # Guard lexical path before any resolve/open.
         if product != root:
             if root.is_relative_to(product):
                 raise MigrationPreflightError("artifact root cannot contain the source archive")
             if product.is_relative_to(root):
                 first = product.relative_to(root).parts[0]
-                if first in _ARTIFACT_DIRECTORIES or first in _EXCLUDED_DIRS:
+                if first in ARTIFACT_DIRECTORIES or first in _EXCLUDED_DIRS:
                     raise MigrationPreflightError("nested artifact root cannot overlap managed artifact or excluded directories")
         bases = tuple(dict.fromkeys((product, root)))
-        with archive_access(root, exclusive=True, create_root=False):
+        with ArchiveSession(root, mode=ArchiveAccessMode.MAINTENANCE).access():
             database_before = _database_state(database)
             source = inspect_migration_source(database)
             _, database_sha256, _ = _hash_file(database)
@@ -163,8 +164,8 @@ def migration_preflight(source_root: Path, *, artifact_root: Path | None = None)
                 connection.execute("PRAGMA trusted_schema=OFF")
                 for path, expected in legacy_artifact_references(connection).items():
                     try:
-                        _path_key(path)
-                    except SnapshotError as exc:
+                        portable_artifact_parts(path)
+                    except ArtifactInventoryError as exc:
                         raise MigrationPreflightError("unsafe legacy artifact reference path") from exc
                     if path not in selected:
                         raise MigrationPreflightError(f"missing legacy artifact: {path}")
@@ -202,7 +203,7 @@ def migration_preflight(source_root: Path, *, artifact_root: Path | None = None)
                            "file_count": len(files), "file_bytes": sum(item["size"] for item in files)},
                 "excluded": excluded, "shadowed": shadowed, "recovery_candidates": recovery,
             }
-    except (MigrationSourceError, MigrationArtifactError, SnapshotError, ArchiveAccessError) as exc:
+    except (MigrationSourceError, MigrationArtifactError, ArtifactInventoryError, ArchiveAccessError) as exc:
         raise MigrationPreflightError(str(exc)) from exc
     except (OSError, sqlite3.Error) as exc:
         raise MigrationPreflightError("cannot inspect legacy source safely") from exc

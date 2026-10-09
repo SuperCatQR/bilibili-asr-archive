@@ -9,9 +9,9 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -22,8 +22,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 150,
-          "end_line": 198,
+          "line": 137,
+          "end_line": 185,
           "label": "add_publication_parser"
         }
       ]
@@ -35,19 +35,19 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 202,
-          "end_line": 216,
+          "line": 70,
+          "end_line": 84,
           "label": "create_edition"
         },
         {
           "path": "src/bili_asr/publication.py",
-          "line": 307,
-          "end_line": 347,
+          "line": 134,
+          "end_line": 174,
           "label": "publish_edition"
         },
         {
           "path": "src/bili_asr/publication_tags.py",
-          "line": 24,
+          "line": 25,
           "end_line": 41,
           "label": "sync_source_tags"
         }
@@ -60,14 +60,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 123,
-          "end_line": 155,
+          "line": 126,
+          "end_line": 158,
           "label": "PublicationRepository.insert_edition"
         },
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 157,
-          "end_line": 180,
+          "line": 160,
+          "end_line": 183,
           "label": "PublicationRepository.set_review"
         }
       ]
@@ -79,14 +79,14 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 142,
-          "end_line": 165,
+          "line": 44,
+          "end_line": 67,
           "label": "get_ai_artifacts"
         },
         {
           "path": "src/bili_asr/manuscript_files.py",
-          "line": 78,
-          "end_line": 105,
+          "line": 129,
+          "end_line": 132,
           "label": "atomic_write_artifact"
         }
       ]
@@ -98,14 +98,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 182,
-          "end_line": 209,
+          "line": 185,
+          "end_line": 212,
           "label": "PublicationRepository.register_release"
         },
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 211,
-          "end_line": 230,
+          "line": 214,
+          "end_line": 233,
           "label": "PublicationRepository.withdraw"
         }
       ]

@@ -9,7 +9,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from bili_asr.artifact_root import ARTIFACT_ROOT_ENV_VAR
-from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS as _PRODUCT_PATH_KEYS
+from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS as _PRODUCT_PATH_KEYS  # noqa: F401 - compatibility export
 from bili_asr.diagnostics import write_stderr
 
 if TYPE_CHECKING:
@@ -38,14 +38,15 @@ def _metadata_database_path(archive_root: str) -> str:
 
 
 def _open_read_repository(command: str, archive_root: str) -> "MetadataRepository | None":
-    from bili_asr.storage import MetadataRepository, open_database
+    from bili_asr.storage import MetadataRepository
+    from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
 
     path = _metadata_database_path(archive_root)
     if not os.path.isfile(path):
         write_stderr(f"{command}: no archive database at {archive_root}; run fetch-meta to create it")
         return None
     try:
-        return MetadataRepository(open_database(archive_root))
+        return MetadataRepository(open_archive_connection(archive_root, mode=ArchiveAccessMode.READ))
     except (OSError, sqlite3.Error) as exc:
         write_stderr(f"{command}: unreadable archive database at {archive_root} ({type(exc).__name__})")
         return None

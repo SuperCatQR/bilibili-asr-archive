@@ -1,0 +1,119 @@
+"""Immutable workflow descriptions shared by planning, execution and storage."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from enum import StrEnum
+from typing import Any
+
+
+class JobKind(StrEnum):
+    SUBTITLE = "subtitle"
+    AUDIO = "audio"
+    ASR = "asr"
+    PUBLISH = "publish"
+    INDEX = "index"
+    PROOFREAD = "proofread"
+    RENDER_DOCUMENT = "render_document"
+
+
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AsrPolicy(StrEnum):
+    ALL = "all"
+    SELECTED = "selected"
+    BELOW_THRESHOLD = "below-threshold"
+
+
+class LeaseLostError(RuntimeError):
+    """A superseded worker cannot report an authoritative terminal result."""
+
+
+class JobCancelledError(LeaseLostError):
+    """The cancellation transaction has revoked this attempt's ownership."""
+
+
+@dataclass(frozen=True)
+class CancellationResult:
+    job_id: str
+    previous_status: str
+    status: str
+    changed: bool
+
+
+@dataclass(frozen=True)
+class AsrProfile:
+    profile_key: str
+    model_name: str
+    model_revision: str = ""
+    aligner_name: str = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
+    device: str = "cuda"
+    language: str | None = None
+    aligner_revision: str | None = None
+    chunk_seconds: float = 180.0
+    inference_timeout_seconds: float = 1800.0
+    hotwords: tuple[str, ...] = ()
+    offline: bool = True
+    model_id: str | None = None
+    tokens_per_second: float = 8.0
+    min_new_tokens: int = 256
+    second_pass_use_cache: bool = False
+
+    def asr_config(self):
+        """Reconstruct the frozen configuration without consulting the environment."""
+        from bili_asr.asr.config import ASRConfig
+
+        values = asdict(self)
+        values.pop("profile_key")
+        values["model_revision"] = self.model_revision or None
+        ASRConfig(**values)  # Reject bool/string values before numeric normalization.
+        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
+            values[name] = float(values[name])
+        return ASRConfig(**values)
+
+    def canonical(self) -> str:
+        self.asr_config()  # Validate before hashing or persisting a profile.
+        values = asdict(self)
+        values.pop("profile_key")
+        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
+            values[name] = float(values[name])
+        return json.dumps(
+            {"schema_version": 2, **values},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+            allow_nan=False,
+        )
+
+
+@dataclass(frozen=True)
+class WorkflowJob:
+    job_id: str
+    kind: JobKind
+    video_part_id: int | None
+    profile_id: int | None
+    policy_key: str | None
+    payload: Mapping[str, Any]
+    status: JobStatus
+    attempt_count: int
+    lease_owner: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowPlan:
+    subtitle_jobs: int
+    audio_jobs: int
+    asr_jobs: int
+    proofread_jobs: int = 0
+    document_jobs: int = 0
+
+
+

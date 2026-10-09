@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import re
 import sqlite3
 import time
 from uuid import uuid4
 
-from bili_asr.editorial import canonical, digest
+from bili_asr.canonical_json import canonical, digest
+from bili_asr.publication_content import normalize_content
+from bili_asr.publication_identity import validate_release_identity
 from bili_asr.storage.database import _validate_connection, require_manuscript_schema
 
 
@@ -228,3 +231,81 @@ class PublicationRepository:
         )
         self.event(edition, "withdrawn", release["status"], "withdrawn", actor, note, release_id=release_id)
         return {**self.release(release_id), "idempotent": False}
+
+
+_IDENTITY = re.compile(r"[A-Za-z0-9_-]+\Z")
+
+
+def read_revision(connection: sqlite3.Connection, revision_id: str) -> tuple[dict, dict]:
+    if not isinstance(revision_id, str) or not _IDENTITY.fullmatch(revision_id):
+        raise ValueError("publication-revision: invalid revision ID")
+    row = connection.execute(
+        "SELECT r.*, i.video_part_id, i.base_transcript_id, i.reference_transcript_id, "
+        "i.prepared_json FROM editorial_revisions r "
+        "JOIN editorial_inputs i ON i.input_id = r.input_id WHERE r.revision_id = ?",
+        (revision_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("publication-revision: unknown revision ID")
+    try:
+        prepared = json.loads(row["prepared_json"])
+        snapshot = prepared["snapshot"]
+        blocks = json.loads(row["blocks_json"])
+        metadata = snapshot["metadata"]
+        if (prepared["input_id"] != row["input_id"] or digest(snapshot) != row["input_id"]
+                or digest({"input_id": row["input_id"], "blocks": blocks}) != revision_id
+                or snapshot["video_part_id"] != row["video_part_id"]
+                or snapshot["base"]["transcript_id"] != row["base_transcript_id"]
+                or (snapshot["reference"]["transcript_id"] if snapshot["reference"] else None)
+                    != row["reference_transcript_id"]):
+            raise ValueError("publication-integrity: frozen revision identity mismatch")
+        for transcript_id in (row["base_transcript_id"], row["reference_transcript_id"]):
+            if transcript_id is None:
+                continue
+            transcript = connection.execute(
+                "SELECT video_part_id FROM transcripts WHERE transcript_id = ?", (transcript_id,)
+            ).fetchone()
+            if transcript is None or transcript[0] != row["video_part_id"]:
+                raise ValueError("publication-integrity: frozen transcript belongs to another part")
+        job = connection.execute(
+            "SELECT video_part_id FROM workflow_jobs WHERE job_id = ?", (row["job_id"],)
+        ).fetchone()
+        if job is None or job[0] != row["video_part_id"]:
+            raise ValueError("publication-integrity: frozen revision job belongs to another part")
+        live = connection.execute(
+            "SELECT bvid, page_index FROM video_parts WHERE video_part_id = ?", (row["video_part_id"],)
+        ).fetchone()
+        if live is None or tuple(live) != (metadata["bvid"], metadata["page_index"]):
+            raise ValueError("publication-integrity: frozen revision belongs to another video part")
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("publication-integrity: invalid frozen revision") from exc
+    return dict(row), prepared
+
+
+def read_edition(connection: sqlite3.Connection, edition_id: str) -> dict:
+    repository = PublicationRepository(connection)
+    edition = repository.edition(edition_id)
+    revision, prepared = read_revision(connection, edition["revision_id"])
+    normalized = normalize_content(edition["content"])
+    metadata = prepared["snapshot"]["metadata"]
+    if (normalized != edition["content"] or edition["video_part_id"] != revision["video_part_id"]
+            or normalized["source"]["videoPartId"] != edition["video_part_id"]
+            or normalized["source"]["bvid"] != metadata["bvid"]
+            or normalized["source"]["pageIndex"] != metadata["page_index"]):
+        raise ValueError("publication-integrity: edition content or source identity mismatch")
+    if edition["parent_edition_id"]:
+        parent = repository.edition(edition["parent_edition_id"])
+        if parent["video_part_id"] != edition["video_part_id"]:
+            raise ValueError("publication-integrity: edition parent belongs to another part")
+    return edition
+
+
+def verify_release_identity(connection: sqlite3.Connection, release: dict) -> dict:
+    """Read immutable release, approval and audit identity without artifact access."""
+    edition = read_edition(connection, release["edition_id"])
+    events = connection.execute(
+        "SELECT * FROM publication_events WHERE release_id = ? ORDER BY event_id",
+        (release["release_id"],),
+    )
+    validate_release_identity(release, edition, events)
+    return edition

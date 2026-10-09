@@ -2,16 +2,16 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "确定性 AI 双稿渲染与历史模板验证",
+    "title": "确定性 AI 双稿、锁外暂存与保护登记",
     "locale": "zh-CN",
     "output": "docs/sequences/10-document-render.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -22,8 +22,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 562,
-          "end_line": 577,
+          "line": 412,
+          "end_line": 427,
           "label": "WorkflowRepository.request_document"
         }
       ]
@@ -35,34 +35,15 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 59,
-          "end_line": 89,
+          "line": 63,
+          "end_line": 97,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
     },
     {
-      "id": "db",
-      "label": "修订与文档登记",
-      "type": "database",
-      "sources": [
-        {
-          "path": "src/bili_asr/storage/editorial.py",
-          "line": 188,
-          "end_line": 208,
-          "label": "EditorialRepository.preflight_artifacts"
-        },
-        {
-          "path": "src/bili_asr/storage/editorial.py",
-          "line": 210,
-          "end_line": 218,
-          "label": "EditorialRepository.record_artifacts"
-        }
-      ]
-    },
-    {
       "id": "template",
-      "label": "固定模板注册表",
+      "label": "固定模板",
       "type": "backend",
       "sources": [
         {
@@ -81,20 +62,64 @@
     },
     {
       "id": "files",
-      "label": "AI 双稿文件",
+      "label": "暂存与双稿",
       "type": "database",
       "sources": [
         {
           "path": "src/bili_asr/manuscript_files.py",
-          "line": 78,
-          "end_line": 105,
-          "label": "atomic_write_artifact"
+          "line": 110,
+          "end_line": 126,
+          "label": "stage_artifact"
+        },
+        {
+          "path": "src/bili_asr/manuscript_files.py",
+          "line": 88,
+          "end_line": 106,
+          "label": "StagedArtifact.install"
         },
         {
           "path": "src/bili_asr/publication.py",
-          "line": 142,
-          "end_line": 165,
+          "line": 44,
+          "end_line": 67,
           "label": "get_ai_artifacts"
+        }
+      ]
+    },
+    {
+      "id": "guard",
+      "label": "共享提交保护",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/job_commit.py",
+          "line": 58,
+          "end_line": 62,
+          "label": "JobCommitGuard.owned_transaction"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "修订与登记",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 201,
+          "end_line": 221,
+          "label": "EditorialRepository.preflight_artifacts"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 223,
+          "end_line": 231,
+          "label": "EditorialRepository.record_artifacts"
+        },
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 239,
+          "end_line": 282,
+          "label": "read_revision"
         }
       ]
     }
@@ -105,144 +130,178 @@
       "from": "executor",
       "to": "handler",
       "y": 180,
-      "label": "领取 render_document",
+      "label": "领取准确渲染任务",
       "variant": "default"
     },
     {
       "id": "m2",
       "from": "handler",
       "to": "db",
-      "y": 212,
-      "label": "读取固定 revision",
+      "y": 220,
+      "label": "验证固定 revision",
       "variant": "default"
     },
     {
       "id": "m3",
       "from": "handler",
       "to": "template",
-      "y": 244,
-      "label": "锁外确定性排版",
+      "y": 260,
+      "label": "确定性排版",
       "variant": "default"
     },
     {
       "id": "m4",
       "from": "template",
       "to": "handler",
-      "y": 276,
-      "label": "返回两个 UTF-8 文档",
+      "y": 300,
+      "label": "返回两个文档",
       "variant": "return"
     },
     {
       "id": "m5",
       "from": "handler",
       "to": "db",
-      "y": 308,
-      "label": "预检完整双稿身份",
+      "y": 340,
+      "label": "预检完整双稿",
       "variant": "default"
     },
     {
       "id": "m6",
       "from": "handler",
       "to": "files",
-      "y": 340,
-      "label": "预检已有文件字节",
+      "y": 380,
+      "label": "锁外写入并 fsync",
       "variant": "default"
     },
     {
       "id": "m7",
-      "from": "handler",
-      "to": "db",
-      "y": 372,
-      "label": "取得 owned_transaction",
-      "variant": "security"
+      "from": "files",
+      "to": "handler",
+      "y": 460,
+      "label": "复用相同既有字节",
+      "variant": "return"
     },
     {
       "id": "m8",
-      "from": "handler",
-      "to": "files",
-      "y": 404,
-      "label": "事务内原子写双稿",
-      "variant": "default"
+      "from": "files",
+      "to": "handler",
+      "y": 540,
+      "label": "准备完整暂存集",
+      "variant": "return"
     },
     {
       "id": "m9",
       "from": "handler",
-      "to": "db",
-      "y": 436,
-      "label": "事务内登记 artifacts",
-      "variant": "default"
+      "to": "guard",
+      "y": 620,
+      "label": "取得共享提交保护",
+      "variant": "security"
     },
     {
       "id": "m10",
-      "from": "db",
-      "to": "handler",
-      "y": 468,
-      "label": "提交 path 与 hash",
-      "variant": "return"
+      "from": "guard",
+      "to": "files",
+      "y": 660,
+      "label": "安装已准备字节",
+      "variant": "default"
     },
     {
       "id": "m11",
       "from": "handler",
-      "to": "executor",
-      "y": 500,
-      "label": "返回 artifact 身份",
-      "variant": "return"
+      "to": "db",
+      "y": 700,
+      "label": "同时登记两个身份",
+      "variant": "default"
     },
     {
       "id": "m12",
-      "from": "executor",
-      "to": "files",
-      "y": 572,
-      "label": "验证登记与文件摘要",
+      "from": "guard",
+      "to": "db",
+      "y": 740,
+      "label": "再检查并提交",
       "variant": "default"
     },
     {
       "id": "m13",
-      "from": "executor",
-      "to": "template",
-      "y": 604,
-      "label": "按保存版本重渲染",
-      "variant": "default"
+      "from": "handler",
+      "to": "executor",
+      "y": 780,
+      "label": "清理临时产物",
+      "variant": "return"
     },
     {
       "id": "m14",
-      "from": "template",
-      "to": "executor",
-      "y": 636,
-      "label": "比较预期字节",
-      "variant": "return"
+      "from": "executor",
+      "to": "db",
+      "y": 860,
+      "label": "公开 revision 校验",
+      "variant": "default"
+    },
+    {
+      "id": "m15",
+      "from": "executor",
+      "to": "template",
+      "y": 900,
+      "label": "校验历史模板",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "executor",
+      "to": "files",
+      "y": 940,
+      "label": "读取并验证双稿",
+      "variant": "default"
     }
   ],
   "segments": [
     {
-      "from": 560,
-      "to": 648,
-      "label": "B01 opt 创建 edition 或导出读取历史双稿"
+      "from": 448,
+      "to": 480,
+      "label": "B01 alt 已有相同不可变产物"
+    },
+    {
+      "from": 528,
+      "to": 560,
+      "label": "B02 else 新产物"
+    },
+    {
+      "from": 848,
+      "to": 960,
+      "label": "B03 opt 创建 edition 或导出历史双稿"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "条件与提交边界",
+      "title": "边界与恢复",
       "items": [
-        "重新渲染不访问 DeepSeek；相同 revision 与模板的字节保持一致。",
-        "双稿不是文件系统事务；预检和租约写锁防止合作竞态，第二次文件写入失败仍可能留下第一份文件。",
-        "当前仅注册 v1 renderer；历史版本按 registry 验证的机制不等于已经存在 v2 writer。"
+        "重新渲染不调用 DeepSeek。新文件的写入与文件 fsync 在 SQLite 事务外；短保护事务只负责最终安装、登记和精确租约检查。",
+        "SQLite 不能回滚文件系统。第二个安装失败或 commit 失败可能留下第一份不可变文件；登记会整体 rollback，重试先验证相同字节再登记完整双稿。",
+        "相同既有产物不再写入 staging 或 fsync；只读产物目录可安全重试。已有不同内容永远拒绝覆盖。修改字节算法需新模板版本。",
+        "storage.publication 读取 revision/edition 并调用 publication_content/publication_identity 纯契约；快照和标签同步共用公开读 API，应用保留旧函数名兼容。"
       ]
     },
     {
       "dot": "slate",
-      "title": "阅读方法",
+      "title": "完整条件与操作",
       "items": [
-        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
-        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "完整条件路径",
-      "items": [
-        "B01（m12–m14）：opt 创建 edition 或导出读取历史双稿"
+        "m1：共同步骤；解码版本化 job；显式 revision 或成功 proofread job；当前 writer ai-draft-v1",
+        "m2：共同步骤；验证 part、prepared snapshot 与 blocks 的固定 revision",
+        "m3：共同步骤；锁外确定性排版",
+        "m4：共同步骤；ai-draft.md 纯正文；review.md 原文、来源、时间、疑点与模型参数",
+        "m5：共同步骤；preflight 全部 path/hash/role；完整双稿登记不能冲突",
+        "m6：共同步骤；锁外 stage_artifact；已有不同字节拒绝；新文件写入并 fsync 暂存",
+        "m7：alt 已有相同不可变产物；不创建临时文件、不重复写入；允许只读目录重试；install 前再确认字节",
+        "m8：else 新产物；返回已 fsync 的 StagedArtifact；ExitStack 持有全部暂存",
+        "m9：共同步骤；owned_transaction；BEGIN IMMEDIATE；进入时检查准确 attempt/owner/lease",
+        "m10：共同步骤；安装已持久字节；不覆盖不同内容；POSIX link 与目录 fsync",
+        "m11：共同步骤；同一保护事务登记两个 artifact 身份",
+        "m12：共同步骤；退出时再次检查 lease；成功 commit；失败 rollback 登记",
+        "m13：共同步骤；返回双稿 artifact 路径；清理临时文件",
+        "m14：opt 创建 edition 或导出历史双稿；storage.publication.read_revision 校验固定输入、revision、job/part/source 身份",
+        "m15：opt 创建 edition 或导出历史双稿；按已登记历史 renderer 验证 path/role/hash；未知版本拒绝",
+        "m16：opt 创建 edition 或导出历史双稿；读取两个固定文件并校验真实字节摘要"
       ]
     }
   ]

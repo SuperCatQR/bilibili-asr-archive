@@ -16,26 +16,16 @@ from pathlib import Path
 from typing import Any, Callable, ContextManager, Mapping
 
 from .cues import segments_to_srt, segments_to_vtt, segments_to_txt
-from .artifacts import BUNDLE_SCHEMA, REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS
+from .artifacts import (
+    BUNDLE_SCHEMA, BUNDLE_MARKER_NAME, BUNDLE_BASENAMES as _BUNDLE_BASENAMES,
+    REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS, owns_bundle_paths as _owned_bundle_parts,
+)
 from .artifact_root import ArtifactRoots
 from .page_identity import artifact_stem, page_identity, page_query_index
 
-#: The bundle's completion marker: a fixed basename **inside** the work's own
-#: directory (``transcripts/{stem}/.bundle-ready``).  It is deliberately not a
-#: suffix on an artifact name any more -- that spelling only made sense while the
-#: four artifacts lived in four different directories and the marker had to name
-#: which sibling it certified.
-BUNDLE_MARKER_NAME = ".bundle-ready"
-
-#: The five fixed basenames inside one work's bundle directory. The
-#: directory carries the identity, so the files inside do not repeat it.
-_BUNDLE_BASENAMES = {
-    "srt_path": "bundle.srt",
-    "vtt_path": "bundle.vtt",
-    "txt_path": "bundle.txt",
-    "md_path": "bundle.md",
-    "raw_path": "bundle.raw.json",
-}
+# Bundle names and ownership rules are shared by writers, snapshots and readers.
+# The private aliases above preserve historical imports while artifacts owns
+# the public contract.
 _MARKER_MAX_BYTES = 8192
 _BUNDLE_LOCKS: dict[str, threading.RLock] = {}
 _BUNDLE_LOCKS_GUARD = threading.Lock()
@@ -231,25 +221,6 @@ def _open_declared(root: Path, relative: str) -> tuple[int, str] | None:
         os.close(current)
         raise
 
-
-def _owned_bundle_parts(paths: Mapping[str, str]) -> bool:
-    """Five fixed names inside one ``transcripts/{stem}/`` directory.
-
-    Every bundle is ``transcripts/<stem>/<fixed basename>``, and all five must sit
-    in the **same** directory — that sameness is what makes the directory the
-    work's identity and removes the two-naming-rules defect the four-kind-dir
-    shape had (the markdown file used to embed the pubdate and title, so it moved
-    whenever either did while its siblings did not).
-    """
-    dirs: set[tuple[str, ...]] = set()
-    for key in _REQUIRED_ARTIFACT_KEYS:
-        parts = _component_names(paths[key])
-        if parts is None or len(parts) != 3 or parts[0] != "transcripts":
-            return False
-        if parts[2] != _BUNDLE_BASENAMES[key]:
-            return False
-        dirs.add(parts[:2])
-    return len(dirs) == 1
 
 def archive_bundle_complete(
     archive_root: str | os.PathLike[str],

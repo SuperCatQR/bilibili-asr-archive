@@ -7,9 +7,10 @@ from pathlib import Path
 import re
 import sqlite3
 import time
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 from bili_asr.archive import bundle_relpaths_for_stem
 from bili_asr.artifact_root import ArtifactRoots
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveContract, open_archive_connection
 import bili_asr.search_index.common as _dependency_common
 import bili_asr.search_index.constants as _dependency_constants
 import bili_asr.search_index.errors as _dependency_errors
@@ -50,7 +51,10 @@ class TranscriptSearchIndex:
                 "transcript store missing — index missing; run `bili-asr search-index`"
             )
         try:
-            return sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True)
+            return open_archive_connection(
+                self.db_path, mode=ArchiveAccessMode.READ, contract=ArchiveContract.NONE,
+                artifact_roots=self.artifact_roots,
+            )
         except sqlite3.DatabaseError as exc:
             raise _dependency_errors.TranscriptStoreError(f"transcript store unreadable: {exc}") from exc
 
@@ -64,8 +68,12 @@ class TranscriptSearchIndex:
         os.makedirs(self.root, exist_ok=True)
         fresh = not os.path.exists(self.db_path)
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = open_archive_connection(
+                self.db_path,
+                mode=ArchiveAccessMode.BOOTSTRAP if fresh else ArchiveAccessMode.WRITE,
+                contract=ArchiveContract.RUNTIME if fresh else ArchiveContract.NONE,
+                artifact_roots=self.artifact_roots,
+            )
         except sqlite3.DatabaseError as exc:
             raise _dependency_errors.TranscriptStoreError(f"transcript store unreadable: {exc}") from exc
         if fresh:
@@ -73,12 +81,9 @@ class TranscriptSearchIndex:
             # ``open_database`` does — the search-index path may create a
             # store (an empty archive indexes to zero blocks) but never
             # ALTERs one.
-            from bili_asr.storage import open_database
-
-            conn.close()
-            conn = open_database(self.db_path)
             return conn
         if not self._looks_like_store(conn):
+            conn.close()
             raise _dependency_errors.TranscriptStoreError(
                 f"transcript store corrupt: {self.db_path} is not a valid archive database"
             )
@@ -223,28 +228,52 @@ class TranscriptSearchIndex:
 
     @staticmethod
     def _legacy_store_progress(
-        conn: sqlite3.Connection, existing_keys: set[str] | None = None,
+        conn: sqlite3.Connection, *, temporary_keys: bool = False,
     ) -> tuple[int, int, int]:
-        """Verify the old FTS prefix once, before durable cursors existed."""
-        keys = {
-            str(row[0]) for row in conn.execute(
-                f"SELECT block_key FROM {_dependency_constants.STORE_FTS5_TABLE} WHERE source = ?",
-                (_dependency_constants._SOURCE_STORE,),
-            )
-        }
-        if existing_keys is not None:
-            existing_keys.update(keys)
+        """Stream the verified old prefix without a Python set of every key.
+
+        Builds reuse their connection-local primary-key table. A read-only
+        legacy stamp uses a materialized read query instead: SQLite owns the
+        temporary index and no DDL runs on the read connection.
+        """
+        if temporary_keys:
+            prefix, table, params = "", "temp._fts_legacy_store_keys", ()
+        else:
+            prefix = ("WITH indexed AS MATERIALIZED (SELECT block_key FROM "
+                      f"{_dependency_constants.STORE_FTS5_TABLE} WHERE source = ?) ")
+            table, params = "indexed", (_dependency_constants._SOURCE_STORE,)
+        sql = (prefix + "SELECT ts.transcript_id, ts.ordinal, indexed.block_key "
+               "FROM transcript_segments AS ts "
+               f"LEFT JOIN {table} AS indexed ON indexed.block_key = "
+               "'t' || ts.transcript_id || ':' || ts.ordinal ")
+
+        def prefix_rows():
+            if not temporary_keys:
+                # Materialize the read-only key index once, then stream rows;
+                # repeating this CTE for every page would rescan the whole FTS.
+                yield from conn.execute(sql + "ORDER BY ts.transcript_id, ts.ordinal", params)
+                return
+            after_id, after_ordinal = -1, -1
+            while True:
+                rows = conn.execute(
+                    sql + "WHERE ts.transcript_id > ? OR "
+                    "(ts.transcript_id = ? AND ts.ordinal > ?) "
+                    "ORDER BY ts.transcript_id, ts.ordinal LIMIT ?",
+                    (after_id, after_id, after_ordinal, _dependency_constants.INDEX_BUILD_BATCH_SIZE),
+                ).fetchall()
+                if not rows:
+                    return
+                yield from rows
+                after_id, after_ordinal = int(rows[-1][0]), int(rows[-1][1])
+
         completed, cursor_id, cursor_ordinal = -1, -1, -1
         current_id = None
-        for row in conn.execute(
-            "SELECT transcript_id, ordinal FROM transcript_segments "
-            "ORDER BY transcript_id, ordinal"
-        ):
+        for row in prefix_rows():
             transcript_id, ordinal = int(row[0]), int(row[1])
             if current_id is not None and transcript_id != current_id:
                 completed = current_id
             current_id = transcript_id
-            if _dependency_common._store_block_key(transcript_id, ordinal) not in keys:
+            if row[2] is None:
                 return completed, cursor_id, cursor_ordinal
             cursor_id, cursor_ordinal = transcript_id, ordinal
         if current_id is not None:
@@ -252,14 +281,24 @@ class TranscriptSearchIndex:
         return completed, cursor_id, cursor_ordinal
 
     def _store_progress(
-        self, conn: sqlite3.Connection, legacy_keys: set[str] | None = None,
+        self, conn: sqlite3.Connection, *, for_build: bool = False,
     ) -> tuple[int, int, int]:
         rows = dict(conn.execute(
             f"SELECT key, value FROM {_dependency_constants.STORE_INDEX_META_TABLE} "
             "WHERE key IN (?, ?, ?)", _dependency_constants._STORE_PROGRESS_KEYS,
         ))
         if not rows:
-            return self._legacy_store_progress(conn, legacy_keys)
+            if for_build:
+                # Preserve already indexed blocks beyond a legacy gap without
+                # materializing their keys in Python. This keyed, temporary
+                # table is scoped to this build connection and is not schema.
+                conn.execute("CREATE TEMP TABLE _fts_legacy_store_keys (block_key TEXT PRIMARY KEY)")
+                conn.execute(
+                    "INSERT OR IGNORE INTO temp._fts_legacy_store_keys "
+                    f"SELECT block_key FROM {_dependency_constants.STORE_FTS5_TABLE} WHERE source = ?",
+                    (_dependency_constants._SOURCE_STORE,),
+                )
+            return self._legacy_store_progress(conn, temporary_keys=for_build)
         try:
             completed, cursor_id, cursor_ordinal = (
                 int(rows[key]) for key in _dependency_constants._STORE_PROGRESS_KEYS
@@ -280,22 +319,51 @@ class TranscriptSearchIndex:
 
     def _new_store_rows(
         self, conn: sqlite3.Connection, after_transcript_id: int, after_ordinal: int = -1,
-    ) -> list[sqlite3.Row]:
-        return list(
-            conn.execute(
-                _dependency_constants._STORE_BLOCKS_SQL.replace(
-                    "ORDER BY t.transcript_id, ts.ordinal",
-                    "WHERE t.transcript_id > ? "
-                    "OR (t.transcript_id = ? AND ts.ordinal > ?) "
-                    "ORDER BY t.transcript_id, ts.ordinal",
-                ),
-                (after_transcript_id, after_transcript_id, after_ordinal),
-            ).fetchall()
+    ) -> Iterator[sqlite3.Row]:
+        """Read a stable transcript high-water mark with bounded keyset pages.
+
+        Closing each page query before yielding lets index batches commit on
+        this connection. A concurrent acquisition belongs to the next build,
+        and a failure resumes at the separately committed segment cursor.
+        """
+        upper_id = int(conn.execute(
+            "SELECT COALESCE(MAX(transcript_id), -1) FROM transcripts"
+        ).fetchone()[0])
+        legacy = conn.execute(
+            "SELECT 1 FROM sqlite_temp_master WHERE name = '_fts_legacy_store_keys'"
+        ).fetchone() is not None
+        base_sql = _dependency_constants._STORE_BLOCKS_SQL.replace(
+            "ts.text ", "ts.text, " + (
+                "indexed.block_key IS NOT NULL" if legacy else "0"
+            ) + " AS already_indexed ",
         )
+        if legacy:
+            base_sql = base_sql.replace(
+                "ORDER BY t.transcript_id, ts.ordinal",
+                "LEFT JOIN temp._fts_legacy_store_keys AS indexed "
+                "ON indexed.block_key = 't' || t.transcript_id || ':' || ts.ordinal "
+                "ORDER BY t.transcript_id, ts.ordinal",
+            )
+        while True:
+            rows = conn.execute(
+                base_sql.replace(
+                    "ORDER BY t.transcript_id, ts.ordinal",
+                    "WHERE t.transcript_id <= ? AND (t.transcript_id > ? "
+                    "OR (t.transcript_id = ? AND ts.ordinal > ?)) "
+                    "ORDER BY t.transcript_id, ts.ordinal LIMIT ?",
+                ),
+                (upper_id, after_transcript_id, after_transcript_id, after_ordinal,
+                 _dependency_constants.INDEX_BUILD_BATCH_SIZE),
+            ).fetchall()
+            if not rows:
+                return
+            yield from rows
+            after_transcript_id = int(rows[-1]["transcript_id"])
+            after_ordinal = int(rows[-1]["ordinal"])
 
     def _published_md_candidates(
         self, conn: sqlite3.Connection, exclude: set[int] | None = None
-    ) -> list[sqlite3.Row]:
+    ) -> Iterator[sqlite3.Row]:
         """Parts the store holds but has no stored transcript for.
 
         These are the only candidates for the published-markdown fallback;
@@ -304,27 +372,42 @@ class TranscriptSearchIndex:
         excluded here, in SQL, so the caller never re-probes or re-reads
         their markdown on a rebuild.
         """
-        params: list[object] = []
-        stamped_clause = ""
-        if exclude:
-            stamped_clause = (
-                "AND vp.video_part_id NOT IN ("
-                + ",".join("?" for _ in exclude)
-                + ") "
-            )
-            params.extend(sorted(exclude))
-        return list(
-            conn.execute(
+        # FTS5's unindexed block_key column has no equality index. Materialize
+        # its stamped part ids once in a connection-local keyed table, rather
+        # than scanning every FTS block for every candidate part. This also
+        # avoids retaining the complete set in Python or binding an unbounded
+        # NOT IN list; no persistent archive table or contract is changed.
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS _fts_stamped_md_parts (video_part_id INTEGER PRIMARY KEY)")
+        conn.execute("DELETE FROM temp._fts_stamped_md_parts")
+        conn.execute(
+            "INSERT OR IGNORE INTO temp._fts_stamped_md_parts "
+            f"SELECT CAST(substr(block_key, 2, instr(block_key, ':') - 2) AS INTEGER) "
+            f"FROM {_dependency_constants.STORE_FTS5_TABLE} WHERE substr(block_key, 1, 1) = ?",
+            (_dependency_constants._MD_KEY_PREFIX,),
+        )
+        conn.commit()
+        after_id = 0
+        upper_id = int(conn.execute(
+            "SELECT COALESCE(MAX(video_part_id), 0) FROM video_parts"
+        ).fetchone()[0])
+        while True:
+            rows = conn.execute(
                 "SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.duration_ms, "
                 "vp.cid, vd.pubdate "
                 "FROM video_parts AS vp JOIN videos AS vd ON vd.bvid = vp.bvid "
-                "WHERE NOT EXISTS ("
+                "WHERE vp.video_part_id > ? AND vp.video_part_id <= ? AND NOT EXISTS ("
                 "SELECT 1 FROM transcripts AS t WHERE t.video_part_id = vp.video_part_id) "
-                + stamped_clause
-                + "ORDER BY vp.video_part_id",
-                params,
+                "AND NOT EXISTS (SELECT 1 FROM temp._fts_stamped_md_parts AS stamped "
+                "WHERE stamped.video_part_id = vp.video_part_id) "
+                "ORDER BY vp.video_part_id LIMIT ?",
+                (after_id, upper_id, _dependency_constants.INDEX_BUILD_BATCH_SIZE),
             ).fetchall()
-        )
+            if not rows:
+                return
+            for row in rows:
+                if not exclude or int(row["video_part_id"]) not in exclude:
+                    yield row
+            after_id = int(rows[-1]["video_part_id"])
 
     def _published_md_text_for(self, bvid: str, page_index: int) -> str | None:
         """Best-effort published-markdown text for one part, first hit wins."""
@@ -358,8 +441,7 @@ class TranscriptSearchIndex:
         conn = self._connect_for_build()
         try:
             self._ensure_schema(conn)
-            legacy_keys: set[str] = set()
-            completed_id, after_id, after_ordinal = self._store_progress(conn, legacy_keys)
+            completed_id, after_id, after_ordinal = self._store_progress(conn, for_build=True)
             self._write_store_progress(conn, (completed_id, after_id, after_ordinal))
             conn.commit()
 
@@ -383,12 +465,14 @@ class TranscriptSearchIndex:
                 indexed += len(pending)
                 pending.clear()
 
-            store_rows = self._new_store_rows(conn, after_id, after_ordinal)
-            for row_index, row in enumerate(store_rows):
+            store_rows = iter(self._new_store_rows(conn, after_id, after_ordinal))
+            row = next(store_rows, None)
+            while row is not None:
+                following = next(store_rows, None)
                 transcript_id = int(row["transcript_id"])
                 ordinal = int(row["ordinal"])
                 block_key = _dependency_common._store_block_key(transcript_id, ordinal)
-                if block_key not in legacy_keys:
+                if not row["already_indexed"]:
                     text = _dependency_common._redact_text(str(row["text"]))
                     pending.append(
                         (
@@ -404,27 +488,14 @@ class TranscriptSearchIndex:
                         )
                     )
                 last_segment = (
-                    row_index + 1 == len(store_rows)
-                    or int(store_rows[row_index + 1]["transcript_id"]) != transcript_id
+                    following is None or int(following["transcript_id"]) != transcript_id
                 )
                 if last_segment:
                     completed_id = transcript_id
                 if len(pending) >= _dependency_constants.INDEX_BUILD_BATCH_SIZE or last_segment:
                     flush((completed_id, transcript_id, ordinal))
-            # Only md-sourced rows carry a video_part_id in the key
-            # (``m<video_part_id>:0``); store rows are ``t<transcript_id>:<ordinal>``,
-            # so the id is read from after the ``m`` prefix — reading from column 1
-            # would harvest store transcript_ids and never the stamped part.
-            stamped_part_ids = {
-                int(r[0])
-                for r in conn.execute(
-                    f"SELECT DISTINCT CAST(substr(block_key, 2, instr(block_key, ':') - 2) "
-                    f"AS INTEGER) FROM {_dependency_constants.STORE_FTS5_TABLE} "
-                    f"WHERE substr(block_key, 1, 1) = ?",
-                    (_dependency_constants._MD_KEY_PREFIX,),
-                )
-            }
-            for part in self._published_md_candidates(conn, stamped_part_ids):
+                row = following
+            for part in self._published_md_candidates(conn):
                 part_id = int(part["video_part_id"])
                 text = self._published_md_text_for(
                     str(part["bvid"]), int(part["page_index"])

@@ -2,16 +2,16 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "分页元数据采集、失败恢复与原始标签",
+    "title": "分页元数据采集、来源身份与原始标签",
     "locale": "zh-CN",
     "output": "docs/sequences/02-metadata-tags.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -22,13 +22,13 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/meta.py",
-          "line": 13,
-          "end_line": 80,
+          "line": 14,
+          "end_line": 81,
           "label": "_cmd_fetch_meta"
         },
         {
           "path": "src/bili_asr/cli/meta.py",
-          "line": 83,
+          "line": 84,
           "end_line": 108,
           "label": "_cmd_fetch_tags"
         }
@@ -41,8 +41,8 @@
       "sources": [
         {
           "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 303,
-          "end_line": 535,
+          "line": 305,
+          "end_line": 537,
           "label": "MetadataIngestor._collect"
         },
         {
@@ -54,8 +54,27 @@
       ]
     },
     {
+      "id": "source",
+      "label": "分 P 来源端口",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_source.py",
+          "line": 36,
+          "end_line": 45,
+          "label": "BilibiliMetadataSource.get_parts"
+        },
+        {
+          "path": "src/bili_asr/platform_identity.py",
+          "line": 17,
+          "end_line": 48,
+          "label": "ContentRef"
+        }
+      ]
+    },
+    {
       "id": "gateway",
-      "label": "B站适配器",
+      "label": "B站网关",
       "type": "backend",
       "sources": [
         {
@@ -72,10 +91,22 @@
       "type": "external",
       "sources": [
         {
-          "path": "src/bili_asr/sources/models.py",
-          "line": 245,
-          "end_line": 296,
-          "label": "BilibiliGateway"
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 784,
+          "end_line": 861,
+          "label": "BilibiliApiGateway.get_user_video_page"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 863,
+          "end_line": 875,
+          "label": "BilibiliApiGateway.get_video_parts"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 897,
+          "end_line": 969,
+          "label": "BilibiliApiGateway.get_video_tags"
         }
       ]
     },
@@ -99,16 +130,18 @@
       "from": "cli",
       "to": "ingest",
       "y": 180,
-      "label": "校验采集参数",
-      "variant": "default"
+      "label": "采集参数与恢复策略",
+      "variant": "default",
+      "note": "mid、显式起页/恢复、页数、page_retries、skip_failed_page"
     },
     {
       "id": "m2",
       "from": "ingest",
       "to": "db",
       "y": 212,
-      "label": "保存 run 与游标",
-      "variant": "default"
+      "label": "建立 user",
+      "variant": "default",
+      "note": "建立 user；从持久游标或显式页号开始并记录 SDK 版本"
     },
     {
       "id": "m3",
@@ -116,7 +149,8 @@
       "to": "gateway",
       "y": 284,
       "label": "请求用户视频页",
-      "variant": "default"
+      "variant": "default",
+      "note": "请求用户视频页"
     },
     {
       "id": "m4",
@@ -124,217 +158,318 @@
       "to": "remote",
       "y": 316,
       "label": "SDK 请求及 pacing",
-      "variant": "default"
+      "variant": "default",
+      "note": "SDK 请求及 pacing"
     },
     {
       "id": "m5",
-      "from": "gateway",
-      "to": "ingest",
-      "y": 388,
-      "label": "返回有界错误",
-      "variant": "return"
+      "from": "remote",
+      "to": "gateway",
+      "y": 348,
+      "label": "页面响应或有界上游失败",
+      "variant": "return",
+      "note": "页面响应或有界上游失败"
     },
     {
       "id": "m6",
-      "from": "ingest",
-      "to": "gateway",
-      "y": 420,
-      "label": "有界退避重试",
-      "variant": "default"
-    },
-    {
-      "id": "m7",
-      "from": "remote",
-      "to": "gateway",
-      "y": 492,
-      "label": "视频摘要与总数",
-      "variant": "return"
+      "from": "gateway",
+      "to": "ingest",
+      "y": 380,
+      "label": "类型化 DTO 或 GatewayError",
+      "variant": "return",
+      "note": "类型化 DTO 或 GatewayError"
     },
     {
       "id": "m8",
-      "from": "gateway",
-      "to": "ingest",
-      "y": 524,
-      "label": "类型化 DTO",
-      "variant": "return"
+      "from": "ingest",
+      "to": "gateway",
+      "y": 452,
+      "label": "仅重试同一页列表",
+      "variant": "default",
+      "note": "仅重试同一页列表；不重放已成功的逐视频采集"
     },
     {
       "id": "m9",
       "from": "ingest",
       "to": "gateway",
-      "y": 596,
-      "label": "补详情与分 P",
-      "variant": "default"
+      "y": 524,
+      "label": "页内按 BVID 去重",
+      "variant": "default",
+      "note": "页内按 BVID 去重；缺失 aid 的摘要由详情补充"
     },
     {
       "id": "m10",
-      "from": "ingest",
-      "to": "gateway",
-      "y": 628,
-      "label": "获取原始标签",
-      "variant": "default"
+      "from": "gateway",
+      "to": "remote",
+      "y": 556,
+      "label": "缺失字段才读取详情",
+      "variant": "default",
+      "note": "缺失字段才读取详情"
     },
     {
       "id": "m11",
-      "from": "gateway",
-      "to": "remote",
-      "y": 660,
-      "label": "详情、parts、tags",
-      "variant": "default"
+      "from": "remote",
+      "to": "gateway",
+      "y": 588,
+      "label": "完整 VideoSummary",
+      "variant": "return",
+      "note": "完整 VideoSummary"
     },
     {
       "id": "m12",
-      "from": "remote",
+      "from": "gateway",
       "to": "ingest",
-      "y": 692,
-      "label": "返回观察结果",
-      "variant": "return"
+      "y": 620,
+      "label": "保留实际上传者和协作者",
+      "variant": "return",
+      "note": "保留实际上传者和协作者"
     },
     {
       "id": "m13",
       "from": "ingest",
-      "to": "db",
-      "y": 724,
-      "label": "提交整页与游标",
-      "variant": "default"
+      "to": "source",
+      "y": 652,
+      "label": "ContentRef 查询分 P",
+      "variant": "default",
+      "note": "get_parts(summary.content_ref, video_title_fallback)"
     },
     {
       "id": "m14",
-      "from": "ingest",
-      "to": "db",
-      "y": 796,
-      "label": "保存完成证据",
-      "variant": "default"
+      "from": "source",
+      "to": "gateway",
+      "y": 684,
+      "label": "Bilibili ID 查询",
+      "variant": "security",
+      "note": "校验平台后用真实 external_video_id 取 pagelist"
     },
     {
       "id": "m15",
-      "from": "ingest",
-      "to": "db",
-      "y": 868,
-      "label": "保存失败页证据",
-      "variant": "default"
+      "from": "gateway",
+      "to": "remote",
+      "y": 716,
+      "label": "获取分 P 清单",
+      "variant": "default",
+      "note": "获取分 P 清单"
     },
     {
       "id": "m16",
-      "from": "ingest",
-      "to": "db",
-      "y": 940,
-      "label": "单独提交下一页",
-      "variant": "default"
+      "from": "remote",
+      "to": "gateway",
+      "y": 748,
+      "label": "真实 cid、分 P 标题与时长",
+      "variant": "return",
+      "note": "真实 cid、分 P 标题与时长"
     },
     {
       "id": "m17",
-      "from": "ingest",
-      "to": "db",
-      "y": 972,
-      "label": "收尾并读取游标",
-      "variant": "default"
+      "from": "gateway",
+      "to": "source",
+      "y": 780,
+      "label": "VideoPart DTO",
+      "variant": "return",
+      "note": "VideoPart DTO"
     },
     {
       "id": "m18",
-      "from": "ingest",
-      "to": "cli",
-      "y": 1004,
-      "label": "采集与标签统计",
-      "variant": "return"
+      "from": "source",
+      "to": "ingest",
+      "y": 812,
+      "label": "拒绝其他视频的 parts",
+      "variant": "return",
+      "note": "拒绝其他视频的 parts；保留真实 cid 与旧 DTO 字段"
     },
     {
       "id": "m19",
-      "from": "cli",
-      "to": "ingest",
-      "y": 1076,
-      "label": "验证所有已存 BVID",
-      "variant": "default"
+      "from": "ingest",
+      "to": "gateway",
+      "y": 844,
+      "label": "每次 run 重新观察 tags",
+      "variant": "default",
+      "note": "每次 run 重新观察 tags；本次有界 LRU 避免重复请求"
     },
     {
       "id": "m20",
-      "from": "ingest",
-      "to": "gateway",
-      "y": 1108,
-      "label": "逐视频重取 tags",
-      "variant": "default"
+      "from": "gateway",
+      "to": "remote",
+      "y": 876,
+      "label": "读取原始标签",
+      "variant": "default",
+      "note": "读取原始标签"
     },
     {
       "id": "m21",
+      "from": "remote",
+      "to": "gateway",
+      "y": 908,
+      "label": "成功标签集合或不可用观察",
+      "variant": "return",
+      "note": "成功标签集合或不可用观察"
+    },
+    {
+      "id": "m22",
+      "from": "gateway",
+      "to": "ingest",
+      "y": 940,
+      "label": "unavailable 与成功空集合保持不同",
+      "variant": "return",
+      "note": "unavailable 与成功空集合保持不同"
+    },
+    {
+      "id": "m23",
       "from": "ingest",
       "to": "db",
-      "y": 1140,
-      "label": "更新成功观察",
-      "variant": "default"
+      "y": 972,
+      "label": "整页元数据事务",
+      "variant": "default",
+      "note": "users/videos/parts/details、标签观察、page/discoveries、cursor 同一页事务"
+    },
+    {
+      "id": "m24",
+      "from": "ingest",
+      "to": "db",
+      "y": 1044,
+      "label": "保存空页与 complete cursor",
+      "variant": "default",
+      "note": "保存空页与 complete cursor；终止循环"
+    },
+    {
+      "id": "m25",
+      "from": "ingest",
+      "to": "db",
+      "y": 1116,
+      "label": "失败页与恢复证据",
+      "variant": "default",
+      "note": "failed/risk_interrupted run 与 page；保留可恢复位置"
+    },
+    {
+      "id": "m26",
+      "from": "ingest",
+      "to": "db",
+      "y": 1188,
+      "label": "只推进未来 run cursor",
+      "variant": "default",
+      "note": "只推进未来 run cursor；本次仍失败；risk_interrupted 不跳过"
+    },
+    {
+      "id": "m27",
+      "from": "ingest",
+      "to": "db",
+      "y": 1260,
+      "label": "收尾 run 与游标",
+      "variant": "default",
+      "note": "complete/limited/risk_interrupted 各自提交；failed 已由 page 事务终结"
+    },
+    {
+      "id": "m28",
+      "from": "ingest",
+      "to": "cli",
+      "y": 1292,
+      "label": "采集与标签统计",
+      "variant": "return",
+      "note": "采集与标签统计"
+    },
+    {
+      "id": "m29",
+      "from": "cli",
+      "to": "ingest",
+      "y": 1364,
+      "label": "验证所有已存 BVID",
+      "variant": "security",
+      "note": "验证所有已存 BVID"
+    },
+    {
+      "id": "m30",
+      "from": "ingest",
+      "to": "gateway",
+      "y": 1396,
+      "label": "逐视频重新读取 tags",
+      "variant": "default",
+      "note": "逐视频重新读取 tags"
+    },
+    {
+      "id": "m31",
+      "from": "ingest",
+      "to": "db",
+      "y": 1428,
+      "label": "成功非空替换",
+      "variant": "default",
+      "note": "成功非空替换；成功空清空；不可用保留旧标签并记录 unavailable"
     }
   ],
   "segments": [
     {
       "from": 272,
-      "to": 328,
+      "to": 392,
       "label": "B01 loop 每页直到空页、上限或失败"
     },
     {
-      "from": 376,
-      "to": 432,
-      "label": "B02 opt 可重试的传输或限流错误"
+      "from": 440,
+      "to": 464,
+      "label": "B02 opt 传输/限流错误且尚有页面重试次数"
     },
     {
-      "from": 480,
-      "to": 536,
-      "label": "B03 loop 每页直到空页、上限或失败"
+      "from": 512,
+      "to": 984,
+      "label": "B03 alt 页面成功且非空"
     },
     {
-      "from": 584,
-      "to": 736,
-      "label": "B04 alt 页面成功且非空"
+      "from": 1032,
+      "to": 1056,
+      "label": "B04 else 页面成功且为空"
     },
     {
-      "from": 784,
-      "to": 808,
-      "label": "B05 else 空页"
+      "from": 1104,
+      "to": 1128,
+      "label": "B05 else 页请求最终失败"
     },
     {
-      "from": 856,
-      "to": 880,
-      "label": "B06 else 页请求失败"
+      "from": 1176,
+      "to": 1200,
+      "label": "B06 opt skip-failed-page 且 failed"
     },
     {
-      "from": 928,
-      "to": 952,
-      "label": "B07 opt skip-failed-page 且 faile"
-    },
-    {
-      "from": 1064,
-      "to": 1152,
-      "label": "B08 opt 显式 fetch-tags"
+      "from": 1352,
+      "to": 1440,
+      "label": "B07 opt 显式 fetch-tags"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "条件与提交边界",
+      "title": "已固定源码基线",
       "items": [
-        "SESSDATA 是否存在与凭据是否有效是不同事实；秘密和瞬时签名 URL 不作为长期归档内容。",
-        "原始标签只在 edition create 或显式 sync-source-tags 时冻结；抓取更新不改写既有 edition/release。",
-        "page_retries 的退避由采集服务拥有；标签失败是可选数据失败，不把成功页变成失败页。"
+        "代码提交 5d7a57e201564a10dec7a360b2ef8f7874dc51a7；源码引用指向本地路径。文档更新与产物生成使用该提交的源码证据。"
       ]
     },
     {
-      "dot": "slate",
-      "title": "阅读方法",
+      "dot": "emerald",
+      "title": "边界与恢复",
       "items": [
-        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
-        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+        "SESSDATA 是否存在与凭据是否有效是不同事实；秘密和瞬时签名 URL 不作为长期归档内容。",
+        "VideoSummary.content_ref 是视频查找引用；BilibiliMetadataSource 返回每个真实分 P，保留 cid，ContentRef 不进入数据库或旧 JSON 字段。",
+        "创建者发现、页面恢复、摘要补充与原始标签仍属于 Bilibili gateway；通用 MetadataSource 端口当前只承担 parts 查询。",
+        "page_retries 的退避由采集服务拥有；标签失败是可选数据失败，不把成功页变成失败页。",
+        "原始标签只在 edition create 或显式 sync-source-tags 时冻结；抓取更新不改写既有 edition/release。"
       ]
     },
     {
       "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "步骤 7 · 采集服务：30/60/120/240/300 秒退避；最多 page_retries 次重试，上限 5"
+      ]
+    },
+    {
+      "dot": "violet",
       "title": "完整条件路径",
       "items": [
-        "B01（m3–m4）：loop 每页直到空页、上限或失败",
-        "B02（m5–m6）：loop 每页直到空页、上限或失败 → opt 可重试的传输或限流错误",
-        "B03（m7–m8）：loop 每页直到空页、上限或失败",
-        "B04（m9–m13）：loop 每页直到空页、上限或失败 → alt 页面成功且非空",
-        "B05（m14）：loop 每页直到空页、上限或失败 → else 空页",
-        "B06（m15）：loop 每页直到空页、上限或失败 → else 页请求失败",
-        "B07（m16）：loop 每页直到空页、上限或失败 → else 页请求失败 → opt skip-failed-page 且 failed",
-        "B08（m19–m21）：opt 显式 fetch-tags"
+        "B01：loop 每页直到空页、上限或失败",
+        "B02：loop 每页直到空页、上限或失败 → opt 传输/限流错误且尚有页面重试次数",
+        "B03：loop 每页直到空页、上限或失败 → alt 页面成功且非空",
+        "B04：loop 每页直到空页、上限或失败 → else 页面成功且为空",
+        "B05：loop 每页直到空页、上限或失败 → else 页请求最终失败",
+        "B06：loop 每页直到空页、上限或失败 → else 页请求最终失败 → opt skip-failed-page 且 failed",
+        "B07：opt 显式 fetch-tags"
       ]
     }
   ]
