@@ -1,9 +1,10 @@
 # AI 双稿、完整版本审核与发布架构
 
-日期：2026-10-08。工作流、AI 校对与阅读站发布的当前实现。
+日期：2026-10-09（Asia/Hong_Kong）。基线 main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
 入口见 [使用说明](ai-proofreading.md)；当前模块边界与跨域关系见
-[架构文字说明](architecture.md)，全景交互图保留为旧版本源码快照。
+[架构文字说明](architecture.md)和已刷新到同一基线的[全景图](architecture.html)。
+完整条件、事务与恢复过程见[时序图总索引](architecture-sequences.md)，其中校对、渲染、出版、导出分别为 09–12。
 
 ## 目标与主链路
 
@@ -19,7 +20,7 @@
 7. 独立渲染任务生成纯正文 `ai-draft.md` 与原文对照 `review.md`，同 revision、同 `ai-draft-v1`。重渲染不调用模型。
 8. 明确创建完整 edition，冻结标题、正文、摘要、标签、来源、整理归属和编辑说明；任何读者可见变化产生新 edition。
 9. 审核指定 edition、完整 SHA-256、预期状态和操作者；批准仍不公开，显式 publish 才生成 release 并切换公开指针。
-10. 公开导出只读有效 release；私有导出明确选定 revision / edition，包含固定基线、完整版本、双差异和审核记录。
+10. 公开导出只读有效 release；未发布预览选择当前且从未产生任何 release 的 edition；私有导出明确选定 revision / edition，包含固定基线、完整版本、双差异和审核记录。
 
 ## 模块边界
 
@@ -63,7 +64,7 @@ JSON 字段为 chunk_id、paragraphs；段落字段为 segment_ids、text、issu
 | editorial_revisions | 完整派生修订、内容标识、ai-unreviewed / needs-review 状态 |
 | document_artifacts | 修订、模板、路径和 SHA-256 |
 | publication_editions | 完整不可变读者内容、父版、AI 来源及完整内容哈希 |
-| publication_edition_reviews | 准确 edition / 内容哈希的状态、审核人、意见和时间 |
+| publication_edition_reviews | 每个 edition 的当前准确内容哈希审核状态、审核人、意见和时间；历次变更追加到 events |
 | publication_releases | 获批固定 publish.md、批准记录、内容 / 字节哈希、发布状态 |
 | publication_heads | 分 P 的当前 edition 和当前有效 release 两个独立指针 |
 | publication_events | 编辑、审核、批准、发布、替换和撤回的追加事实 |
@@ -82,6 +83,7 @@ flowchart LR
   edition --> review[准确 edition 与完整哈希审核]
   review -->|approved + 显式 publish| release[不可变 publish.md release]
   release -->|有效指针 + 完整性验证| public[公开快照]
+  edition -->|当前且从未产生 release| preview[未发布读者预览]
   ai --> private[明确 revision / edition 的私有审阅包]
   edition --> private
   review --> private
@@ -95,11 +97,21 @@ flowchart LR
 产物位于 documents/part-<ID>/<修订ID>/ai-draft-v1/。
 ai-draft.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
 review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链接、疑点、模型参数和版本，注明未经人工复核。
-文件原子写入，相同修订与模板重新渲染字节一致。
+每份文件原子写入，相同修订与模板重新渲染字节一致。文本生成和完整双稿身份预检在锁外，
+当前 `atomic_write_artifact` 的文件暂存、fsync 与替换在租约保护事务内，与双稿 artifact 登记共享写锁。
+两文件不构成文件系统事务，失败可能保留第一份已写字节；读取方仍验证完整登记与固定内容。
+
+`manuscript_templates.py` 固定 `AI_RENDERERS` 与 `PUBLISH_RENDERERS`。读取历史 artifact 按记录版本
+重渲染并验证，不拿后来的 active writer 算法解释旧文件；未知版本拒绝，排版变化需要新模板、路径与身份。
+当前已注册 `ai-draft-v1` / `publish-v1`，不据此宣称已有 v2 writer。
+
+`publication create` 从当前原始 `video_tags` 冻结 edition 标签；后续抓取不修改既有版本。
+`publication sync-source-tags` 要求成功标签观察（包含成功空集合），以精确父版 CAS 创建新的 pending-review edition；
+原有效 release 保持。标签 unavailable 保留旧原始集合，但不能视为本次刷新成功。
 
 发布稿位于 `publications/part-<ID>/<releaseID>/publish-v1/publish.md`，渲染完整获批内容。
 A 发布后创建、请求修改、拒绝或批准 B 都保持 A；显式发布 B 才切换有效 release。
-撤回清空公开指针，公开快照移除旧文章，内部历史保留。OS 独占锁、完整 staging、恢复日志和目录切换
+撤回清空公开指针，再次公开导出时移除旧文章，内部历史保留。OS 独占锁、完整 staging、恢复日志和目录切换
 保证成功快照不混合版本；输出可能短暂不可用。输出与输入不重叠，链接、junction 和手工文件拒绝。
 只部署输出目录，其父目录为私有恢复空间；已部署副本和缓存需与撤回同步刷新。
 
@@ -109,6 +121,8 @@ A 发布后创建、请求修改、拒绝或批准 B 都保持 A；显式发布 
 - src/bili_asr/deepseek.py：官方 JSON 模式、high 思考及 top_p 请求。
 - src/bili_asr/editorial_runtime.py、storage/editorial.py：调用审计、检查点、完整修订及文档。
 - src/bili_asr/publication.py、storage/publication.py、cli/publication.py：完整内容、准确审核、CAS、双指针、显式发布和撤回。
+- src/bili_asr/publication_tags.py、services/video_tags.py：原始标签观察与显式冻结同步。
+- src/bili_asr/manuscript_templates.py、manuscript_files.py：固定历史模板、字节验证与受限文件写入。
 - src/bili_asr/publication_export.py、export_snapshot.py、cli/editorial.py：公开 / 私有快照、严格契约、锁和恢复。
 - src/bili_asr/storage/workflow.py：独立依赖、认领、租约、尝试与渲染模板版本。
 - tests/test_ai_editorial.py：正文、来源、恢复、接口参数、租约和重渲染契约。

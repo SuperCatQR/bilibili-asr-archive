@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "ASR 配置重建、GPU 超时、分块与逐次证据",
+    "locale": "zh-CN",
+    "output": "docs/sequences/07-asr-runtime.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "handler",
+      "label": "ASR handler",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 186,
+          "end_line": 290,
+          "label": "ArchiveWorkflowHandlers.local_asr"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "转录与运行证据",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/transcripts.py",
+          "line": 314,
+          "end_line": 499,
+          "label": "TranscriptRepository.record_local_transcript"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 510,
+          "end_line": 528,
+          "label": "WorkflowRepository.dependency_result"
+        }
+      ]
+    },
+    {
+      "id": "audio",
+      "label": "归档音频",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/artifact_root.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        },
+        {
+          "path": "src/bili_asr/asr/audio.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        }
+      ]
+    },
+    {
+      "id": "runner",
+      "label": "Qwen3 Runner",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 425,
+          "end_line": 588,
+          "label": "ASRRunner.transcribe"
+        },
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 707,
+          "end_line": 733,
+          "label": "two_pass_transcribe"
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "label": "模型或 GPU 子进程",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 57,
+          "end_line": 132,
+          "label": "transcribe_with_timeout"
+        },
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 370,
+          "end_line": 387,
+          "label": "ASRRunner._align_chunk"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "handler",
+      "to": "db",
+      "y": 180,
+      "label": "验证 lease 与依赖",
+      "variant": "security"
+    },
+    {
+      "id": "m2",
+      "from": "handler",
+      "to": "audio",
+      "y": 212,
+      "label": "解析精确 storage key",
+      "variant": "default"
+    },
+    {
+      "id": "m3",
+      "from": "handler",
+      "to": "db",
+      "y": 244,
+      "label": "开始 acquisition run",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "handler",
+      "to": "model",
+      "y": 316,
+      "label": "spawn 可终止子进程",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "model",
+      "to": "runner",
+      "y": 348,
+      "label": "运行两遍转录",
+      "variant": "default"
+    },
+    {
+      "id": "m6",
+      "from": "handler",
+      "to": "runner",
+      "y": 420,
+      "label": "复用 profile runner",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "runner",
+      "to": "audio",
+      "y": 452,
+      "label": "解码与重采样",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "runner",
+      "to": "model",
+      "y": 524,
+      "label": "生成文本及语言",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "runner",
+      "to": "model",
+      "y": 596,
+      "label": "真实强制对齐",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "runner",
+      "to": "model",
+      "y": 668,
+      "label": "新调用执行第二遍",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "runner",
+      "to": "handler",
+      "y": 700,
+      "label": "返回 cues 与证据",
+      "variant": "return"
+    },
+    {
+      "id": "m14",
+      "from": "handler",
+      "to": "model",
+      "y": 772,
+      "label": "终止并必要时 kill",
+      "variant": "default"
+    },
+    {
+      "id": "m15",
+      "from": "handler",
+      "to": "db",
+      "y": 804,
+      "label": "获取 run 失败收尾",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "handler",
+      "to": "db",
+      "y": 876,
+      "label": "保存转录与本次证据",
+      "variant": "default"
+    },
+    {
+      "id": "m17",
+      "from": "handler",
+      "to": "db",
+      "y": 908,
+      "label": "收尾及请求 publish",
+      "variant": "default"
+    }
+  ],
+  "segments": [
+    {
+      "from": 304,
+      "to": 360,
+      "label": "B01 alt CUDA 或 ROCm profile"
+    },
+    {
+      "from": 408,
+      "to": 432,
+      "label": "B02 else CPU profile"
+    },
+    {
+      "from": 512,
+      "to": 536,
+      "label": "B03 loop 每个音频块"
+    },
+    {
+      "from": 584,
+      "to": 608,
+      "label": "B04 opt 非空输出"
+    },
+    {
+      "from": 656,
+      "to": 680,
+      "label": "B05 opt 第一遍证据保留了热词"
+    },
+    {
+      "from": 760,
+      "to": 816,
+      "label": "B06 alt GPU 超时或推理失败"
+    },
+    {
+      "from": 864,
+      "to": 920,
+      "label": "B07 else 非空成功结果且 lease 有效"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "GPU 超时与手动取消是不同机制；取消在调用后的 checkpoint/提交事务阻断写入。",
+        "失败或取消的全部中间块诊断尚未持久化；质量告警不等于 CER，也不自动禁止归档发布。",
+        "workflow publish 没有把全部 transcript_asr_evidence/coverage/characters 传给 bundle writer；不能把数据库证据误画成必然随包发布。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "时间轴步骤 8 · Qwen3 Runner：按配置完整切块。详细操作见同名 Markdown。",
+        "时间轴步骤 11 · Qwen3 Runner：归并全局时间轴。详细操作见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m4–m5）：alt CUDA 或 ROCm profile",
+        "B02（m6）：else CPU profile",
+        "B03（m9）：loop 每个音频块",
+        "B04（m10）：loop 每个音频块 → opt 非空输出",
+        "B05（m12）：opt 第一遍证据保留了热词",
+        "B06（m14–m15）：alt GPU 超时或推理失败",
+        "B07（m16–m17）：else 非空成功结果且 lease 有效"
+      ]
+    }
+  ]
+}

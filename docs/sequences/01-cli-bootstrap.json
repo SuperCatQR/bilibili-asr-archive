@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "CLI 启动、路径策略与数据库契约",
+    "locale": "zh-CN",
+    "output": "docs/sequences/01-cli-bootstrap.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "operator",
+      "label": "操作者",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/parser.py",
+          "line": 11,
+          "end_line": 113,
+          "label": "build_parser"
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "label": "CLI 入口",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/main.py",
+          "line": 41,
+          "end_line": 106,
+          "label": "_main"
+        },
+        {
+          "path": "src/bili_asr/cli/registry.py",
+          "line": 1,
+          "end_line": 54,
+          "label": "模块入口"
+        }
+      ]
+    },
+    {
+      "id": "paths",
+      "label": "路径与维护锁",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/artifact_root.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        },
+        {
+          "path": "src/bili_asr/archive_maintenance.py",
+          "line": 64,
+          "end_line": 137,
+          "label": "archive_access"
+        }
+      ]
+    },
+    {
+      "id": "handler",
+      "label": "命令处理器",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 147,
+          "end_line": 353,
+          "label": "_execute_workflow"
+        },
+        {
+          "path": "src/bili_asr/cli/publication.py",
+          "line": 74,
+          "end_line": 135,
+          "label": "_cmd_publication"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "archive.db",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/database.py",
+          "line": 508,
+          "end_line": 532,
+          "label": "initialize_schema"
+        },
+        {
+          "path": "src/bili_asr/storage/database.py",
+          "line": 549,
+          "end_line": 567,
+          "label": "open_database"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "operator",
+      "to": "cli",
+      "y": 180,
+      "label": "执行 bili-asr",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "cli",
+      "to": "operator",
+      "y": 252,
+      "label": "输出帮助并退出",
+      "variant": "return"
+    },
+    {
+      "id": "m3",
+      "from": "cli",
+      "to": "paths",
+      "y": 324,
+      "label": "解析产物策略",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "cli",
+      "to": "paths",
+      "y": 396,
+      "label": "获取共享维护锁",
+      "variant": "security"
+    },
+    {
+      "id": "m6",
+      "from": "cli",
+      "to": "handler",
+      "y": 468,
+      "label": "分派已注册入口",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "handler",
+      "to": "db",
+      "y": 540,
+      "label": "连接与校验 schema",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "db",
+      "to": "handler",
+      "y": 612,
+      "label": "返回连接",
+      "variant": "return"
+    },
+    {
+      "id": "m10",
+      "from": "db",
+      "to": "handler",
+      "y": 684,
+      "label": "拒绝初始化写入",
+      "variant": "security"
+    },
+    {
+      "id": "m11",
+      "from": "handler",
+      "to": "db",
+      "y": 756,
+      "label": "mode=ro 读取",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "handler",
+      "to": "cli",
+      "y": 828,
+      "label": "返回结果与退出码",
+      "variant": "return"
+    },
+    {
+      "id": "m13",
+      "from": "cli",
+      "to": "paths",
+      "y": 860,
+      "label": "释放维护锁",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "cli",
+      "to": "operator",
+      "y": 892,
+      "label": "stdout 与 stderr",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 240,
+      "to": 264,
+      "label": "B01 alt 无子命令或帮助请求"
+    },
+    {
+      "from": 312,
+      "to": 336,
+      "label": "B02 else 有效命令"
+    },
+    {
+      "from": 384,
+      "to": 408,
+      "label": "B03 opt 写归档或初始化查询"
+    },
+    {
+      "from": 456,
+      "to": 480,
+      "label": "B04 else 有效命令"
+    },
+    {
+      "from": 528,
+      "to": 552,
+      "label": "B05 alt 使用 open_database"
+    },
+    {
+      "from": 600,
+      "to": 624,
+      "label": "B06 alt 表契约兼容"
+    },
+    {
+      "from": 672,
+      "to": 696,
+      "label": "B07 else 不兼容"
+    },
+    {
+      "from": 744,
+      "to": 768,
+      "label": "B08 else 只读消费入口"
+    },
+    {
+      "from": 816,
+      "to": 904,
+      "label": "B09 else 有效命令"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "status/runs 在库存在时仍使用初始化连接，并持有共享维护锁；workflow 查询也可初始化新库。",
+        "共享 OS 维护锁只协调合作写入者与快照；SQLite BEGIN IMMEDIATE 决定事务写入顺序。",
+        "注册表中共有 15 个顶层命令；旧版命令不能由源码中的历史 docstring 推断为当前入口。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "时间轴步骤 4 · 路径与维护锁：选择并验证根。详细操作见同名 Markdown。",
+        "时间轴步骤 8 · archive.db：初始化及刷新视图。详细操作见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m2）：alt 无子命令或帮助请求",
+        "B02（m3）：else 有效命令",
+        "B03（m5）：else 有效命令 → opt 写归档或初始化查询",
+        "B04（m6）：else 有效命令",
+        "B05（m7）：else 有效命令 → alt 使用 open_database",
+        "B06（m9）：else 有效命令 → alt 使用 open_database → alt 表契约兼容",
+        "B07（m10）：else 有效命令 → alt 使用 open_database → else 不兼容",
+        "B08（m11）：else 有效命令 → else 只读消费入口",
+        "B09（m12–m14）：else 有效命令"
+      ]
+    }
+  ]
+}

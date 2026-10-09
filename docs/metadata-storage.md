@@ -51,7 +51,10 @@ bili-asr verify --archive-root archive --format json
 | `schema-workflow.sql` 的 `workflow_asr_profile_configs` | 完整有效 ASR 配置的不可变快照与 schema version。 |
 | [`schema-editorial.sql`](../src/bili_asr/storage/schema-editorial.sql) | 校对输入快照、API 调用、chunks、revision 和渲染产物等独立编辑数据；见 AI 校对指南。 |
 
-新数据库按四份 SQL 建立完整 schema。打开非空数据库前，从当前 SQL 推导表契约并核对所有产品表；缺表、旧字段或约束不符在修改 schema 前失败。兼容数据库中的派生视图仍可刷新。
+新数据库按四份 SQL 建立完整 schema。打开非空数据库前，从当前 SQL 推导表契约并核对所有产品表；旧字段或约束不符在修改 schema 前失败。当前有明确的新增观察表例外：缺少 `video_tag_observations` 可补建，不改写 tags 或稿件；其他必需表缺失仍按现有契约拒绝。兼容数据库中的派生视图仍可刷新。
+
+main 9b28957 的四份 schema 共 38 张持久表、8 个视图；完整字段、外键及按需创建的 FTS 虚拟表/水位表见[架构源码与覆盖清单](architecture-sources.md)。
+原始标签观察的 success_nonempty/success_empty/unavailable 与已存集合分别保存；不可用观察保留旧集合。
 
 当前不支持旧数据库迁移或自动 `ALTER TABLE` 补列。不兼容时提示 `delete archive.db and re-run fetch-meta`；应先停止 worker、备份数据库和必要文件，再由操作者重建。重建会丢失原数据库中的转录、任务、校对与审核历史；备份与重建步骤见 [取消指南](workflow-cancellation.md)。
 

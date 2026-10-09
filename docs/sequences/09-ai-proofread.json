@@ -1,0 +1,310 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "AI 输入冻结、块恢复、调用审计与完整修订",
+    "locale": "zh-CN",
+    "output": "docs/sequences/09-ai-proofread.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "请求或依赖结果",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 147,
+          "end_line": 353,
+          "label": "_execute_workflow"
+        }
+      ]
+    },
+    {
+      "id": "handler",
+      "label": "校对 handler",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 33,
+          "end_line": 57,
+          "label": "EditorialWorkflowHandlers.proofread"
+        }
+      ]
+    },
+    {
+      "id": "repo",
+      "label": "Editorial 仓库",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 81,
+          "end_line": 103,
+          "label": "EditorialRepository.freeze_job_input"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 138,
+          "end_line": 154,
+          "label": "EditorialRepository.commit_revision"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "冻结输入与块",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 53,
+          "end_line": 66,
+          "label": "EditorialRepository.prepare"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 133,
+          "end_line": 136,
+          "label": "EditorialRepository.save_chunk"
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek API",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/deepseek.py",
+          "line": 38,
+          "end_line": 58,
+          "label": "DeepSeekClient.complete"
+        },
+        {
+          "path": "src/bili_asr/deepseek.py",
+          "line": 61,
+          "end_line": 81,
+          "label": "parse_response"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "cli",
+      "to": "repo",
+      "y": 180,
+      "label": "指定 base 与参考",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "repo",
+      "to": "db",
+      "y": 212,
+      "label": "冻结输入并排队",
+      "variant": "default"
+    },
+    {
+      "id": "m3",
+      "from": "handler",
+      "to": "repo",
+      "y": 284,
+      "label": "读取 ASR 成功结果",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "repo",
+      "to": "db",
+      "y": 316,
+      "label": "首次冻结并绑定 job",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "handler",
+      "to": "repo",
+      "y": 348,
+      "label": "查租约并加载输入",
+      "variant": "security"
+    },
+    {
+      "id": "m6",
+      "from": "handler",
+      "to": "repo",
+      "y": 420,
+      "label": "读取块检查点",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "repo",
+      "to": "handler",
+      "y": 492,
+      "label": "复用块并跳过调用",
+      "variant": "return"
+    },
+    {
+      "id": "m8",
+      "from": "handler",
+      "to": "db",
+      "y": 564,
+      "label": "延长 lease 并记调用",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "handler",
+      "to": "deepseek",
+      "y": 596,
+      "label": "锁外 JSON 请求",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "deepseek",
+      "to": "handler",
+      "y": 628,
+      "label": "实际 envelope",
+      "variant": "return"
+    },
+    {
+      "id": "m11",
+      "from": "handler",
+      "to": "repo",
+      "y": 660,
+      "label": "先保存调用审计",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "handler",
+      "to": "repo",
+      "y": 692,
+      "label": "保护性保存有效块",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "repo",
+      "to": "db",
+      "y": 724,
+      "label": "owned_transaction",
+      "variant": "security"
+    },
+    {
+      "id": "m15",
+      "from": "handler",
+      "to": "repo",
+      "y": 796,
+      "label": "记录错误并退出",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "handler",
+      "to": "repo",
+      "y": 828,
+      "label": "提交完整 revision",
+      "variant": "default"
+    },
+    {
+      "id": "m17",
+      "from": "repo",
+      "to": "db",
+      "y": 860,
+      "label": "核对覆盖及保存",
+      "variant": "default"
+    },
+    {
+      "id": "m18",
+      "from": "handler",
+      "to": "cli",
+      "y": 892,
+      "label": "返回 revision 身份",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 168,
+      "to": 224,
+      "label": "B01 alt 显式 workflow proofread"
+    },
+    {
+      "from": 272,
+      "to": 328,
+      "label": "B02 else plan --proofread 自动链"
+    },
+    {
+      "from": 408,
+      "to": 432,
+      "label": "B03 loop 每个冻结块"
+    },
+    {
+      "from": 480,
+      "to": 504,
+      "label": "B04 alt 已完成块"
+    },
+    {
+      "from": 552,
+      "to": 736,
+      "label": "B05 else 未完成块"
+    },
+    {
+      "from": 784,
+      "to": 808,
+      "label": "B06 opt 请求或结构校验失败"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "prepare 保存内容寻址输入与绑定 job 是不同事务；取消时可留下未绑定输入，但不能提交新块或新修订。",
+        "来源覆盖证明结构追溯，不证明模型语义保真；数字、专名、否定、立场仍需人工审核。",
+        "供应商已收请求而本地未保存时，retry 可能重复计费；不保证外部调用恰好一次。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "时间轴步骤 12 · 校对 handler：再查租约并校验。详细操作见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m1–m2）：alt 显式 workflow proofread",
+        "B02（m3–m4）：else plan --proofread 自动链",
+        "B03（m6）：loop 每个冻结块",
+        "B04（m7）：loop 每个冻结块 → alt 已完成块",
+        "B05（m8–m14）：loop 每个冻结块 → else 未完成块",
+        "B06（m15）：loop 每个冻结块 → else 未完成块 → opt 请求或结构校验失败"
+      ]
+    }
+  ]
+}
