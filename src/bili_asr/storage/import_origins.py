@@ -8,9 +8,8 @@ import sqlite3
 
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.storage.archive_contracts import _resource, frozen_version
-from bili_asr.contracts.registry import IMPORT_EXTENSION as EXTENSION
-
-POLICY = "legacy-frozen-facts-v1"
+from bili_asr.contracts.registry import IMPORT_EXTENSION as EXTENSION, LEGACY_FACTS_POLICY as POLICY
+from bili_asr.contracts.content_policies import content_policy
 
 
 def body_digest(text: str) -> str:
@@ -81,9 +80,9 @@ def frozen_legacy_source(connection, prepared: dict) -> tuple[dict, dict]:
     if (ref.platform, ref.external_video_id, ref.part_index) != ("bilibili", metadata["bvid"], metadata["page_index"]):
         raise ValueError("import-integrity: legacy source mapping differs from frozen input")
     source = SourceMetadataSnapshot(ref, metadata["title"], None, None, None, None).to_dict()
-    known = {"version", "platform", "externalVideoId", "partIndex", "title"}
-    evidence = {field: {"kind": "legacy-input" if field in known else "unobserved",
-        "objectId": prepared["input_id"] if field in known else None,
+    policy = content_policy(POLICY)
+    evidence = {field: {"kind": policy.field_kind(field),
+        "objectId": prepared["input_id"] if policy.field_kind(field) == "legacy-input" else None,
         "observedAt": None, "valueSha256": digest(value)} for field, value in source.items()}
     return source, evidence
 

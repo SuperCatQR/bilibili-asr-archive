@@ -104,6 +104,45 @@
       "schema": null
     },
     {
+      "identity": "legacy-frozen-facts-v1",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/content_policies.py",
+        "src/bili_asr/services/preserved_body_import.py"
+      ],
+      "consumers": [
+        "storage.import_origins",
+        "publication_origins"
+      ],
+      "capabilities": [
+        "content-upgrade",
+        "historical-read"
+      ],
+      "dependencies": [
+        "preserved-body-import-v1",
+        "publication-content/v1",
+        "publication-content/v2"
+      ],
+      "schema": null
+    },
+    {
+      "identity": "stored-segments-webvtt/v1",
+      "owner": "transcripts",
+      "authority": [
+        "src/bili_asr/services/transcript_derivatives.py",
+        "src/bili_asr/cues.py"
+      ],
+      "consumers": [
+        "cli.archive"
+      ],
+      "capabilities": [
+        "derive",
+        "export"
+      ],
+      "dependencies": [],
+      "schema": null
+    },
+    {
       "identity": "workflow-payload/v1",
       "owner": "workflow",
       "authority": [
@@ -708,6 +747,176 @@
       ],
       "sample": "tests/test_archive_upgrade.py",
       "reversible": false
+    }
+  ],
+  "content_policies": [
+    {
+      "identity": "legacy-frozen-facts-v1",
+      "source_content": [
+        "publication-content/v1",
+        "frozen-input/v1"
+      ],
+      "target_content": "publication-content/v2",
+      "body_rule": "selected-body-utf8-identical",
+      "review_status": "pending-review",
+      "release_rule": "preserve-current-release",
+      "field_kinds": [
+        [
+          "aid",
+          "unobserved"
+        ],
+        [
+          "categoryId",
+          "unobserved"
+        ],
+        [
+          "coverUrl",
+          "unobserved"
+        ],
+        [
+          "creatorId",
+          "unobserved"
+        ],
+        [
+          "creatorName",
+          "unobserved"
+        ],
+        [
+          "description",
+          "unobserved"
+        ],
+        [
+          "durationMs",
+          "unobserved"
+        ],
+        [
+          "externalVideoId",
+          "legacy-input"
+        ],
+        [
+          "metadataObservedAt",
+          "unobserved"
+        ],
+        [
+          "partIndex",
+          "legacy-input"
+        ],
+        [
+          "partTitle",
+          "unobserved"
+        ],
+        [
+          "platform",
+          "legacy-input"
+        ],
+        [
+          "pubdateUnix",
+          "unobserved"
+        ],
+        [
+          "sourcePublishedAt",
+          "unobserved"
+        ],
+        [
+          "tags",
+          "unobserved"
+        ],
+        [
+          "title",
+          "legacy-input"
+        ],
+        [
+          "version",
+          "legacy-input"
+        ]
+      ],
+      "consumer_profile": "universal-origin-v1",
+      "converter": "services.preserved_body_import",
+      "sample": "tests/test_preserved_body_import.py"
+    },
+    {
+      "identity": "legacy-part-title-supplement-v1",
+      "source_content": [
+        "publication-content/v2",
+        "legacy-frozen-facts-v1"
+      ],
+      "target_content": "publication-content/v2",
+      "body_rule": "parent-body-utf8-identical",
+      "review_status": "pending-review",
+      "release_rule": "preserve-current-release",
+      "field_kinds": [
+        [
+          "aid",
+          "unobserved"
+        ],
+        [
+          "categoryId",
+          "unobserved"
+        ],
+        [
+          "coverUrl",
+          "unobserved"
+        ],
+        [
+          "creatorId",
+          "unobserved"
+        ],
+        [
+          "creatorName",
+          "unobserved"
+        ],
+        [
+          "description",
+          "unobserved"
+        ],
+        [
+          "durationMs",
+          "unobserved"
+        ],
+        [
+          "externalVideoId",
+          "legacy-input"
+        ],
+        [
+          "metadataObservedAt",
+          "unobserved"
+        ],
+        [
+          "partIndex",
+          "legacy-input"
+        ],
+        [
+          "partTitle",
+          "archive-part-projection"
+        ],
+        [
+          "platform",
+          "legacy-input"
+        ],
+        [
+          "pubdateUnix",
+          "unobserved"
+        ],
+        [
+          "sourcePublishedAt",
+          "unobserved"
+        ],
+        [
+          "tags",
+          "unobserved"
+        ],
+        [
+          "title",
+          "legacy-input"
+        ],
+        [
+          "version",
+          "legacy-input"
+        ]
+      ],
+      "consumer_profile": "universal-origin-v1",
+      "converter": "services.source_supplement",
+      "sample": "tests/test_source_supplement.py"
     }
   ]
 }

@@ -13,6 +13,8 @@ ASR_EVIDENCE_VERSION = 1
 BUNDLE_SCHEMA = "archive-bundle-v2"
 ORIGIN_PROFILE = "universal-origin-v1"
 IMPORT_EXTENSION = "preserved-body-import-v1"
+LEGACY_FACTS_POLICY = "legacy-frozen-facts-v1"
+STORED_VTT_POLICY = "stored-segments-webvtt/v1"
 SOURCE_SUPPLEMENT_POLICY = "legacy-part-title-supplement-v1"
 SCHEMA_BASE_URI = "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/"
 
@@ -51,6 +53,12 @@ _CONTRACTS = (
              "src/bili_asr/storage/schema-source-supplements.sql"),
              ("storage.source_supplements", "publication_origins", "storage.snapshots"),
              ("extension", "snapshot", "export"), (IMPORT_EXTENSION,)),
+    Contract(LEGACY_FACTS_POLICY, "publication", ("src/bili_asr/contracts/content_policies.py",
+             "src/bili_asr/services/preserved_body_import.py"),
+             ("storage.import_origins", "publication_origins"), ("content-upgrade", "historical-read"),
+             (IMPORT_EXTENSION, "publication-content/v1", "publication-content/v2")),
+    Contract(STORED_VTT_POLICY, "transcripts", ("src/bili_asr/services/transcript_derivatives.py", "src/bili_asr/cues.py"),
+             ("cli.archive",), ("derive", "export")),
     Contract("workflow-payload/v1", "workflow", ("src/bili_asr/workflow_payloads.py",),
              ("storage.workflow", "workflow"), ("read", "write")),
     Contract("asr-profile/v2", "workflow", ("src/bili_asr/workflow_models.py", "src/bili_asr/storage/schema-workflow.sql"),
@@ -133,8 +141,9 @@ def manifest_contract(kind: str, profile: str | None, *, imported: bool = False)
 
 
 def catalog() -> dict:
+    from bili_asr.contracts.content_policies import policy_catalog
     return {"format_version": 1, "contracts": [asdict(entry) for entry in _CONTRACTS],
-            "upgrades": [asdict(entry) for entry in UPGRADE_EDGES]}
+            "upgrades": [asdict(entry) for entry in UPGRADE_EDGES], "content_policies": policy_catalog()}
 
 
 @dataclass(frozen=True)
