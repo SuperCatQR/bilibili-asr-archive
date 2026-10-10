@@ -6,7 +6,10 @@ import sqlite3
 import pytest
 
 from bili_asr.storage.archive_contracts import _resource, bootstrap_contract
-from bili_asr.storage.artifact_online import install_online_in_staged_copy, require_artifact_online
+from bili_asr.storage.artifact_online import (
+    install_online_in_staged_copy,
+    require_artifact_online,
+)
 from bili_asr.storage.database import SchemaContractError, require_archive_schema
 from bili_asr.storage.snapshots import _current_contract, validate_snapshot_database
 

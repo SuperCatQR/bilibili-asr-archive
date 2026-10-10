@@ -35,6 +35,9 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("artifact-policy-v1", "storage", ("src/bili_asr/services/artifact_policy.py",),
+             ("cli.artifacts", "services.artifact_consumer"), ("validate", "read", "write"),
+             ("artifact-online-v1",), "artifact-policy-v1.schema.json"),
     Contract("artifact-online-v1", "storage", ("src/bili_asr/storage/schema-artifact-online.sql",),
              ("services.artifact_policy", "services.artifact_consumer", "storage.snapshots"),
              ("extension", "snapshot", "explicit-upgrade"), ("artifact-storage-v1",)),

@@ -2,6 +2,26 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "artifact-policy-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/services/artifact_policy.py"
+      ],
+      "consumers": [
+        "cli.artifacts",
+        "services.artifact_consumer"
+      ],
+      "capabilities": [
+        "validate",
+        "read",
+        "write"
+      ],
+      "dependencies": [
+        "artifact-online-v1"
+      ],
+      "schema": "artifact-policy-v1.schema.json"
+    },
+    {
       "identity": "artifact-online-v1",
       "owner": "storage",
       "authority": [

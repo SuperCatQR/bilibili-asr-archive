@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import time
 from pathlib import Path
 
 from bili_asr.archive_session import ArchiveAccessMode
@@ -74,6 +75,19 @@ def add_artifacts_parser(subparsers: argparse._SubParsersAction, *, archive_root
     status.add_argument("--artifact-root", default=None)
     status.add_argument("--storage-target", action="append")
     status.add_argument("--check-targets", action="store_true", help="Probe target identity and manifests without extracting payloads")
+    for name in ("policy-show", "policy-set", "policy-run"):
+        action = actions.add_parser(name, help="Explicit online artifact policy " + name.removeprefix("policy-"))
+        action.set_defaults(database_policy=None)
+        action.add_argument("--archive-root", default=archive_root)
+        action.add_argument("--artifact-root", default=None)
+        action.add_argument("--policy-id", default="default")
+        if name == "policy-set":
+            action.add_argument("--config", required=True, help="Complete version 1 policy JSON; policy-show returns defaults")
+        if name == "policy-run":
+            action.add_argument("--target-root")
+            action.add_argument("--watch", action="store_true", help="Poll at the configured scan/backoff deadline")
+            action.add_argument("--drain-file")
+            _hold_arguments(action)
     for name in ("bind-target", "transfer", "restore", "reconcile", "check"):
         action = actions.add_parser(name, help=f"Artifact storage {name}")
         action.set_defaults(database_policy=None)
@@ -180,6 +194,36 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
             with ArchiveSession(roots.archive_root, mode=ArchiveAccessMode.READ, artifact_roots=roots) as session:
                 report = artifact_state(session.connection, roots, storage_targets=parse_target_bindings(args.storage_target),
                                         check_targets=args.check_targets)
+        elif args.artifacts_action.startswith("policy-"):
+            from bili_asr.archive_session import ArchiveSession
+            from bili_asr.services.artifact_policy import (
+                configure_policy,
+                read_policy,
+                run_policy_once,
+            )
+            if args.artifacts_action == "policy-run":
+                try:
+                    while True:
+                        if args.drain_file and Path(args.drain_file).exists():
+                            report = {"state": "drained", "policy_id": args.policy_id}
+                            break
+                        report = run_policy_once(roots, policy_id=args.policy_id,
+                            target_root=None if args.target_root is None else Path(args.target_root), external_holds=lambda: _external_holds(args))
+                        if not args.watch or report["state"] == "off":
+                            break
+                        print(json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
+                        deadline = report.get("retry_after", time.time() + 60)
+                        while time.time() < deadline:
+                            if args.drain_file and Path(args.drain_file).exists():
+                                break
+                            time.sleep(min(1, max(0, deadline - time.time())))
+                except KeyboardInterrupt:
+                    report = {"state": "drained", "policy_id": args.policy_id}
+            else:
+                mode = ArchiveAccessMode.WRITE if args.artifacts_action == "policy-set" else ArchiveAccessMode.READ
+                with ArchiveSession(roots.archive_root, mode=mode, artifact_roots=roots) as session:
+                    report = (configure_policy(session.connection, args.policy_id, _read_plan(Path(args.config)))
+                              if args.artifacts_action == "policy-set" else read_policy(session.connection, args.policy_id))
         elif args.artifacts_action == "check":
             from bili_asr.artifact_packages import check_artifact_package
             report = check_artifact_package(Path(args.package), expected_sha256=args.expected_sha256)
