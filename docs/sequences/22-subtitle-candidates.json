@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "字幕候选、可信证据与独立 ASR",
+    "locale": "zh-CN",
+    "output": "docs/sequences/22-subtitle-candidates.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "工作流命令",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 189,
+          "end_line": 221,
+          "label": "只读预览与显式应用"
+        }
+      ]
+    },
+    {
+      "id": "jobs",
+      "label": "规划与任务库",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_planning.py",
+          "line": 60,
+          "end_line": 91,
+          "label": "独立生产者依赖"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow_dependency_repair.py",
+          "line": 12,
+          "end_line": 85,
+          "label": "旧依赖定向修复"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 203,
+          "end_line": 265,
+          "label": "依赖就绪后领取"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "label": "执行与租约",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 103,
+          "end_line": 171,
+          "label": "执行、故障与安全诊断"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 120,
+          "end_line": 163,
+          "label": "字幕 handler 的围栏"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 164,
+          "end_line": 356,
+          "label": "音频与 ASR handlers"
+        }
+      ]
+    },
+    {
+      "id": "ingest",
+      "label": "字幕获取服务",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/subtitle_ingest.py",
+          "line": 289,
+          "end_line": 315,
+          "label": "候选与总时间预算"
+        },
+        {
+          "path": "src/bili_asr/services/subtitle_ingest.py",
+          "line": 467,
+          "end_line": 565,
+          "label": "候选迭代和错误分类"
+        },
+        {
+          "path": "src/bili_asr/services/subtitle_ingest.py",
+          "line": 567,
+          "end_line": 687,
+          "label": "转录或观察的事务结果"
+        }
+      ]
+    },
+    {
+      "id": "adapter",
+      "label": "来源与正文",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_source.py",
+          "line": 52,
+          "end_line": 103,
+          "label": "ContentRef 到真实 CID"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 645,
+          "end_line": 656,
+          "label": "合法空正文 typed DTO"
+        },
+        {
+          "path": "src/bili_asr/subtitle_policy.py",
+          "line": 9,
+          "end_line": 33,
+          "label": "语言、CC/AI 与上游顺序"
+        }
+      ]
+    },
+    {
+      "id": "facts",
+      "label": "转录与观察库",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/transcripts.py",
+          "line": 206,
+          "end_line": 330,
+          "label": "转录、segments 与 attempt"
+        },
+        {
+          "path": "src/bili_asr/storage/transcripts.py",
+          "line": 537,
+          "end_line": 600,
+          "label": "无字幕及失败观察"
+        },
+        {
+          "path": "src/bili_asr/storage/schema-transcripts.sql",
+          "line": 262,
+          "end_line": 331,
+          "label": "Bilibili 可信缺口条件"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 421,
+      "label": "旧图修复或新任务规划"
+    },
+    {
+      "from": 458,
+      "to": 881,
+      "label": "一次字幕任务与有界候选"
+    },
+    {
+      "from": 918,
+      "to": 1179,
+      "label": "结果分支与安全证据"
+    },
+    {
+      "from": 1216,
+      "to": 1423,
+      "label": "独立音频与 ASR"
+    }
+  ],
+  "messages": [
+    {
+      "id": "preview",
+      "from": "cli",
+      "to": "jobs",
+      "label": "预览选中 part",
+      "variant": "default",
+      "note": "最多 256 个，默认只读",
+      "y": 180
+    },
+    {
+      "id": "plan-hash",
+      "from": "jobs",
+      "to": "cli",
+      "label": "返回图与 plan_id",
+      "variant": "return",
+      "note": "拒绝活跃、跨 part、歧义音频",
+      "y": 234
+    },
+    {
+      "id": "apply",
+      "from": "cli",
+      "to": "jobs",
+      "label": "显式应用同一计划",
+      "variant": "security",
+      "note": "事务内重验；变化则拒绝",
+      "y": 288
+    },
+    {
+      "id": "graph",
+      "from": "jobs",
+      "to": "cli",
+      "label": "已移除字幕旧依赖",
+      "variant": "emphasis",
+      "note": "仅 queued/failed；补 audio→ASR",
+      "y": 342
+    },
+    {
+      "id": "claim",
+      "from": "worker",
+      "to": "jobs",
+      "label": "按独立依赖领取",
+      "variant": "default",
+      "note": "新 plan 的 ASR 只依赖 audio",
+      "y": 396
+    },
+    {
+      "id": "run",
+      "from": "worker",
+      "to": "ingest",
+      "label": "带租约检查获取",
+      "variant": "security",
+      "note": "结果提交核对 owner/attempt",
+      "y": 478
+    },
+    {
+      "id": "list",
+      "from": "ingest",
+      "to": "adapter",
+      "label": "列轨道并排序",
+      "variant": "default",
+      "note": "默认 32 候选、120 秒总预算",
+      "y": 532
+    },
+    {
+      "id": "inventory",
+      "from": "adapter",
+      "to": "ingest",
+      "label": "返回可见轨道",
+      "variant": "return",
+      "note": "空列表另行验证访问上下文",
+      "y": 586
+    },
+    {
+      "id": "body",
+      "from": "ingest",
+      "to": "adapter",
+      "label": "依序读取正文",
+      "variant": "default",
+      "note": "按剩余 deadline；每轮检查租约",
+      "y": 640
+    },
+    {
+      "id": "typed",
+      "from": "adapter",
+      "to": "ingest",
+      "label": "typed 正文或错误",
+      "variant": "return",
+      "note": "segments / empty_body / empty_text",
+      "y": 694
+    },
+    {
+      "id": "empty-next",
+      "from": "ingest",
+      "to": "adapter",
+      "label": "合法空→下一轨",
+      "variant": "default",
+      "note": "shape/transport 可试替代轨",
+      "y": 748
+    },
+    {
+      "id": "stop",
+      "from": "ingest",
+      "to": "facts",
+      "label": "认证或预算→失败",
+      "variant": "security",
+      "note": "限流、超时同样立即失败",
+      "y": 802
+    },
+    {
+      "id": "uncertain",
+      "from": "ingest",
+      "to": "facts",
+      "label": "不确定→失败观察",
+      "variant": "emphasis",
+      "note": "候选未遍历完不能证明耗尽",
+      "y": 856
+    },
+    {
+      "id": "valid",
+      "from": "ingest",
+      "to": "facts",
+      "label": "有效正文→存版本",
+      "variant": "emphasis",
+      "note": "segments 与 attempt 同一结果事务",
+      "y": 938
+    },
+    {
+      "id": "all-empty",
+      "from": "ingest",
+      "to": "facts",
+      "label": "全合法空→无字幕",
+      "variant": "default",
+      "note": "验证标志均为 0；不扩大旧缺口",
+      "y": 992
+    },
+    {
+      "id": "empty-list",
+      "from": "ingest",
+      "to": "facts",
+      "label": "空清单→访问观察",
+      "variant": "security",
+      "note": "语言过滤不冒充空 inventory",
+      "y": 1046
+    },
+    {
+      "id": "diagnostic",
+      "from": "ingest",
+      "to": "worker",
+      "label": "返回候选安全证据",
+      "variant": "return",
+      "note": "失败传受控代码与候选摘要",
+      "y": 1100
+    },
+    {
+      "id": "terminal",
+      "from": "worker",
+      "to": "jobs",
+      "label": "围栏内结束 attempt",
+      "variant": "security",
+      "note": "历史保留，成功转录另请求发布",
+      "y": 1154
+    },
+    {
+      "id": "audio",
+      "from": "worker",
+      "to": "jobs",
+      "label": "领取就绪音频任务",
+      "variant": "default",
+      "note": "字幕失败不再作为 prerequisite",
+      "y": 1236
+    },
+    {
+      "id": "audio-fact",
+      "from": "worker",
+      "to": "facts",
+      "label": "下载并登记音频",
+      "variant": "emphasis",
+      "note": "hash、探测及安装仍有围栏",
+      "y": 1290
+    },
+    {
+      "id": "asr",
+      "from": "worker",
+      "to": "jobs",
+      "label": "音频成功→领取 ASR",
+      "variant": "default",
+      "note": "all/selected 须有明确 profile",
+      "y": 1344
+    },
+    {
+      "id": "asr-fact",
+      "from": "worker",
+      "to": "facts",
+      "label": "推理成功→存转录",
+      "variant": "emphasis",
+      "note": "取消、旧租约不得提交结果",
+      "y": 1398
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "候选正文与缺失证据",
+      "items": [
+        "非空候选存转录；合法空正文继续；所有正文合法为空仅表示可见候选耗尽。",
+        "正文消失、transport 或 shape 未解决仍为不确定；预算耗尽不能被当作无字幕。",
+        "Bilibili 已验证 not_found / 多次 credentialed 空清单仍按旧视图规则判缺口。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "显式修复与不可变历史",
+      "items": [
+        "plan_id 覆盖选中任务状态、attempt、lease、依赖和 retry 选项；应用在写事务内重新生成比对。",
+        "只修待执行/失败的旧字幕依赖；succeeded、cancelled 与 attempt 历史保留。",
+        "--retry-failed 只显式重排此次触及的 failed audio/ASR；无活跃 worker 才能应用。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "独立执行条件",
+      "items": [
+        "all/selected 创建 audio→ASR；below-threshold 仅对已知低分创建该链，未知分数不自动触发。",
+        "源码基线 857906d3b3c54b31fd9bc0ba94b84618f68cd6f3；该图聚焦 Bilibili 候选策略。",
+        "离线回归验证语义，不代表账号、上游网络或 GPU 吞吐验收。"
+      ]
+    }
+  ]
+}

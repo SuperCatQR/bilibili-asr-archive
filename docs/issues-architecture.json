@@ -1,0 +1,458 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "多平台归档的控制与持久化边界",
+    "locale": "zh-CN",
+    "output": "docs/issues-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3"
+    }
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "CLI 操作入口",
+      "sublabel": "显式创建、计划、审核、维护",
+      "pos": [
+        40,
+        130
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/registry.py",
+          "line": 32,
+          "end_line": 50
+        }
+      ]
+    },
+    {
+      "id": "application",
+      "type": "backend",
+      "label": "应用用例与采集",
+      "sublabel": "组合端口；分页与字段观察",
+      "pos": [
+        335,
+        130
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 104,
+          "end_line": 168
+        },
+        {
+          "path": "src/bili_asr/services/metadata_refresh.py",
+          "line": 92,
+          "end_line": 153
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "角色 worker 父进程",
+      "sublabel": "领取、heartbeat、drain、fence",
+      "pos": [
+        690,
+        130
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 74,
+          "end_line": 165
+        },
+        {
+          "path": "src/bili_asr/workflow_supervisor.py",
+          "line": 127,
+          "end_line": 226
+        }
+      ]
+    },
+    {
+      "id": "adapters",
+      "type": "backend",
+      "label": "来源适配器",
+      "sublabel": "typed 结果；SDK / 有界 yt-dlp",
+      "pos": [
+        335,
+        330
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_source.py",
+          "line": 45,
+          "end_line": 119
+        },
+        {
+          "path": "src/bili_asr/sources/youtube_source.py",
+          "line": 111,
+          "end_line": 208
+        }
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "external",
+      "label": "Bilibili / YouTube",
+      "sublabel": "网络与账号授权边界",
+      "pos": [
+        40,
+        330
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 948,
+          "end_line": 1030
+        },
+        {
+          "path": "src/bili_asr/sources/youtube_source.py",
+          "line": 143,
+          "end_line": 200
+        }
+      ]
+    },
+    {
+      "id": "inference",
+      "type": "backend",
+      "label": "可终止 ASR 会话",
+      "sublabel": "模型复用；匹配任务身份",
+      "pos": [
+        1000,
+        130
+      ],
+      "size": [
+        180,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/session.py",
+          "line": 60,
+          "end_line": 112
+        },
+        {
+          "path": "src/bili_asr/asr/session.py",
+          "line": 138,
+          "end_line": 219
+        }
+      ]
+    },
+    {
+      "id": "repositories",
+      "type": "backend",
+      "label": "领域 repositories",
+      "sublabel": "唯一事务与不可变版本",
+      "pos": [
+        690,
+        440
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 203,
+          "end_line": 302
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 60,
+          "end_line": 104
+        },
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 30,
+          "end_line": 98
+        }
+      ]
+    },
+    {
+      "id": "database",
+      "type": "database",
+      "label": "archive.db / SQLite",
+      "sublabel": "事实、租约、历史、显式契约",
+      "pos": [
+        1000,
+        440
+      ],
+      "size": [
+        180,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/archive_contracts.py",
+          "line": 57,
+          "end_line": 132
+        },
+        {
+          "path": "src/bili_asr/archive_session.py",
+          "line": 106,
+          "end_line": 132
+        }
+      ]
+    },
+    {
+      "id": "publication",
+      "type": "backend",
+      "label": "校对、人工审核与出口",
+      "sublabel": "v1 / v2 明确分派；双 head",
+      "pos": [
+        40,
+        600
+      ],
+      "size": [
+        180,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 38,
+          "end_line": 100
+        },
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 75,
+          "end_line": 189
+        },
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 74,
+          "end_line": 193
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "type": "database",
+      "label": "归档与发布文件",
+      "sublabel": "音频、bundle、AI 双稿、release",
+      "pos": [
+        690,
+        760
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 420,
+          "end_line": 462
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 158,
+          "end_line": 218
+        }
+      ]
+    },
+    {
+      "id": "maintenance",
+      "type": "backend",
+      "label": "迁移与快照恢复",
+      "sublabel": "只读预检；独立 staging 安装",
+      "pos": [
+        335,
+        940
+      ],
+      "size": [
+        220,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_migration.py",
+          "line": 300,
+          "end_line": 395
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 353,
+          "end_line": 423
+        }
+      ]
+    },
+    {
+      "id": "ai",
+      "type": "external",
+      "label": "DeepSeek 校对服务",
+      "sublabel": "不可信响应先校验再提交",
+      "pos": [
+        40,
+        940
+      ],
+      "size": [
+        180,
+        78
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 38,
+          "end_line": 63
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "cli-app",
+      "from": "cli",
+      "to": "application",
+      "label": "命令用例",
+      "variant": "emphasis"
+    },
+    {
+      "id": "app-worker",
+      "from": "application",
+      "to": "worker",
+      "label": "组合 handlers"
+    },
+    {
+      "id": "worker-session",
+      "from": "worker",
+      "to": "inference",
+      "label": "有界 IPC",
+      "variant": "emphasis"
+    },
+    {
+      "id": "app-source",
+      "from": "application",
+      "to": "adapters",
+      "label": "采集请求"
+    },
+    {
+      "id": "source-network",
+      "from": "adapters",
+      "to": "providers",
+      "label": "SDK / 子进程"
+    },
+    {
+      "id": "app-storage",
+      "from": "application",
+      "to": "repositories",
+      "label": "计划与观察事务"
+    },
+    {
+      "id": "worker-storage",
+      "from": "worker",
+      "to": "repositories",
+      "label": "同 job/owner/attempt"
+    },
+    {
+      "id": "storage-db",
+      "from": "repositories",
+      "to": "database",
+      "label": "受控 SQL",
+      "variant": "security"
+    },
+    {
+      "id": "worker-files",
+      "from": "worker",
+      "to": "files",
+      "label": "租约有效后写 bundle"
+    },
+    {
+      "id": "publication-storage",
+      "from": "publication",
+      "to": "repositories",
+      "label": "复验审批与版本"
+    },
+    {
+      "id": "publication-files",
+      "from": "publication",
+      "to": "files",
+      "label": "稿件与出口"
+    },
+    {
+      "id": "publication-ai",
+      "from": "publication",
+      "to": "ai",
+      "label": "有界原语校对"
+    },
+    {
+      "id": "cli-maintenance",
+      "from": "cli",
+      "to": "maintenance",
+      "label": "显式维护"
+    },
+    {
+      "id": "maintenance-files",
+      "from": "maintenance",
+      "to": "files",
+      "label": "全量验证后安装"
+    },
+    {
+      "id": "maintenance-db",
+      "from": "maintenance",
+      "to": "database",
+      "label": "独立暂存数据库"
+    },
+    {
+      "id": "cli-publication",
+      "from": "cli",
+      "to": "publication",
+      "label": "人工审核 / 发布"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "调度与来源",
+      "items": [
+        "SQLite 是唯一调度事实。子进程与适配器不持有第二套进度。",
+        "字幕独立；ALL 中 ASR 只依赖 audio。未知错误不产生无字幕证明。",
+        "共享请求预算限定单进程协调器；来源模块不写数据库。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "数据与文件",
+      "items": [
+        "默认 bilibili-v1 保留；universal-v2 只由显式新目标初始化或迁移创建。",
+        "原 ID、rowid、SQLite 单元格和历史文件字节经迁移校验。",
+        "文件与 SQLite 非跨介质原子事务；marker / audit / staging 表达边界。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "冻结内容与运行位置",
+      "items": [
+        "历史内容版本 1；新内容版本 2。side row 登记版本，catalog 可混合。",
+        "当前元数据刷新不能改旧 edition、审核哈希、release。",
+        "模型绑定只重定位精确身份；drain、超时或失去租约终止会话。"
+      ]
+    }
+  ]
+}

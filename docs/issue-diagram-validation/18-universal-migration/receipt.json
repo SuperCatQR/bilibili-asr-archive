@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "command": "finalize",
+  "status": "pass",
+  "type": "sequence",
+  "quality": "showcase",
+  "sourceRevision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3",
+  "specification": {
+    "path": "docs/sequences/18-universal-migration.json",
+    "sha256": "50787272378b27693e75ad178a7e464a3c8d4d3cf828d8ad2379d1e01b360f03",
+    "bytes": 10908
+  },
+  "artifact": {
+    "path": "docs/sequences/18-universal-migration.html",
+    "sha256": "eadb505dceb40a835e7487c86dff4fedfa0dde43d5bd21932ef1263a803c4278",
+    "bytes": 775016
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  },
+  "browserEvidence": {
+    "status": "pass",
+    "evidenceKind": "automated-browser",
+    "artifactSha256": "eadb505dceb40a835e7487c86dff4fedfa0dde43d5bd21932ef1263a803c4278",
+    "state": {
+      "detail": "read",
+      "motion": "still"
+    },
+    "containmentStatus": "pass",
+    "viewports": [
+      {
+        "width": 1440,
+        "height": 900,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 1600,
+        "height": 1000,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 2048,
+        "height": 1320,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      }
+    ]
+  },
+  "widthReview": {
+    "currentLayout": "fixed",
+    "currentTask": "source revision pin only; no geometry edits",
+    "reviewBaselineRevision": "5aa729cf4553aa50bf65caf67da0c1f1af4bbee6",
+    "historicalReceipt": "../18-universal-migration.width-review.json",
+    "previousReview": "spread attempted then skill-required fixed restored",
+    "remainingSuggestion": {
+      "action": "inspect-sequence-width",
+      "evidence": {
+        "measured": true,
+        "columnFit": "fixed",
+        "participantCount": 6,
+        "occupiedRight": 652.6,
+        "viewBoxLeft": 0,
+        "canvasWidth": 920,
+        "emptyRightPx": 267.4,
+        "emptyRightRatio": 0.291,
+        "typicalParticipantWidth": 86,
+        "reviewSuggested": true
+      },
+      "reason": "Fixed participant columns leave substantial unused space on the right, after accounting for message labels and notes. This is a layout suggestion, not a failed gate.",
+      "repair": "For a newly authored Sequence with omitted meta.column_fit and no user-fixed column geometry, set meta.column_fit to \"spread\" and rerun finalize once. Preserve participant order, every message, its y position, labels, notes and sources. Retain explicit fixed layouts and legacy inputs; report the suggestion instead of changing them automatically."
+    }
+  },
+  "visualReview": "not-requested",
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-09T04:41:45.456Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "diagnostics": []
+}

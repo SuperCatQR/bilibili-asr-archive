@@ -6,6 +6,10 @@
 本分支新增来源、迁移、恢复检查和 GPU worker 的完整实施说明见
 [Issues 实现与架构边界](issues-implementation.md)。下列原有架构图绑定其固定提交，新增能力以本分支实施说明、对应使用指南和测试为准。
 
+本轮新增 [多平台归档架构图](issues-architecture.html)（[JSON](issues-architecture.json)）、
+[七张新增时序图](architecture-sequences.md#本轮新增流程)、[图表凭据](issue-diagram-validation/README.md)
+和 [WSL 验证记录](issues-validation.md)。新图绑定完成实现后的固定源码，旧图保留历史身份。
+
 ## 架构与数据
 
 | 文档 | 内容 |

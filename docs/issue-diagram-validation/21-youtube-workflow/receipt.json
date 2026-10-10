@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "command": "finalize",
+  "status": "pass",
+  "type": "sequence",
+  "quality": "showcase",
+  "sourceRevision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3",
+  "specification": {
+    "path": "docs/sequences/21-youtube-workflow.json",
+    "sha256": "4ff679a0cb96d8de10e54938de417619fb9ccbd4cf41f8c84cebff470f543a61",
+    "bytes": 12860
+  },
+  "artifact": {
+    "path": "docs/sequences/21-youtube-workflow.html",
+    "sha256": "6b25ce83a7f1e24e55c00159bc168d6c1246a1f44d7652bb9ffa5adc3a67b555",
+    "bytes": 779978
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  },
+  "browserEvidence": {
+    "status": "pass",
+    "evidenceKind": "automated-browser",
+    "artifactSha256": "6b25ce83a7f1e24e55c00159bc168d6c1246a1f44d7652bb9ffa5adc3a67b555",
+    "state": {
+      "detail": "read",
+      "motion": "still"
+    },
+    "containmentStatus": "pass",
+    "viewports": [
+      {
+        "width": 1440,
+        "height": 900,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 1600,
+        "height": 1000,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 2048,
+        "height": 1320,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      }
+    ]
+  },
+  "widthReview": {
+    "currentTask": "source revision pin only; no geometry edits",
+    "currentLayout": "fixed"
+  },
+  "visualReview": "not-requested",
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-09T04:41:45.456Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "diagnostics": []
+}

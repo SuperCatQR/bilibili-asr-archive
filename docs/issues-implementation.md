@@ -65,7 +65,7 @@ bili-asr archive migration-check --target-root /data/universal-archive
 
 历史 editorial input/content 在目标中显式登记版本 1，继续使用 `ai-draft-v1`/`publish-v1`。新输入/content 登记版本 2，使用多语言原语编辑规则、`ai-draft-v2`/`publish-v2`。稿件内容仍有七个顶层字段；v2 `source` 包含 platform、externalVideoId、partIndex、videoPartId、canonical URL 和完整冻结 metadata。包含 v2 内容的公开/草稿 catalog 使用 `schemaVersion: 3`；全旧内容仍输出版本 2。外部阅读站需支持版本 3 才能消费新增来源。
 
-YouTube 依赖独立可选 extra 和匹配的 EJS、Deno 运行时；安装与版本检查见来源使用说明。访问上下文、caption 语言、原始语言、自动/人工、翻译属性及归一化算法写入来源证据。公开访问、受限访问、内容下架、无可用字幕和网络故障分别处理。实时流和播放列表不进入单视频路径。
+YouTube 依赖独立可选 extra 和匹配的 EJS、Deno 运行时；安装与版本检查见来源使用说明。访问上下文、caption 语言、原始语言、自动/人工、翻译属性及归一化算法写入来源证据。访问限制归为 `auth_failed`，下架或不可访问归为 `youtube_unavailable`，其他字幕与传输故障有有界分类；匿名和 credentialed 上下文分开记录。实时流和播放列表不进入单视频路径。
 
 `BILI_YOUTUBE_COOKIES` 在每次适配器构造时解析为私有 cookie 文件位置，显式 import 参数优先；凭据重新配置由操作者负责，不保存在数据库中。YouTube 只有日期而没有精确时间戳时，发布时间保持未知，避免把 UTC 午夜冒充原发布时间。
 
@@ -77,7 +77,7 @@ YouTube 依赖独立可选 extra 和匹配的 EJS、Deno 运行时；安装与�
 
 runner 的 trace 记录准备、解码、对齐、空档和总体 wall time；这些不是 GPU kernel 时间，也不证明设备持续满载。双遍只在同一任务内复用经内容身份核对的 waveform。可选 `--asr-prefetch` 最多提前准备下一块，使用独立 processor 与显式内存预算，无法安全复制或预算不足则串行；没有提前领取其他音频任务。
 
-详见 [ASR worker 使用与限制](asr-workers.md)。真实 ROCm/CUDA 吞吐、显存峰值及生产五角色切换需要设备上的对照测量，不能从离线故障测试推断。
+详见 [ASR worker 使用与限制](asr-workers.md)。真实 ROCm/CUDA 吞吐、显存峰值及生产四类角色切换需要设备上的对照测量，不能从离线故障测试推断。
 
 ## #282：快照、恢复计划与模型位置
 
@@ -98,5 +98,9 @@ doctor 使用 READ/query_only，不执行 DDL、不改 profile、不重排任务
 ## 验证范围
 
 本地 WSL 的验证包括真实 SQLite 新旧契约、冻结旧 archive、typed row/rowid 与产物字节核对、完整恢复、双平台稿件到发布/导出的闭环、字幕异常分类、刷新账本、实际 spawn 子进程的超时/取消/崩溃/大 IPC/父死亡和并发准备。最终完整回归、覆盖门禁、构建安装和依赖审计结果另见交付记录。
+
+可审阅的 [新增架构图](issues-architecture.html) 和 [七张时序图](architecture-sequences.md#本轮新增流程)
+分别覆盖职责边界及全部新增条件路径；[图表凭据](issue-diagram-validation/README.md) 与
+[WSL 验证记录](issues-validation.md) 记录固定源码、文件身份和实际执行结果。
 
 离线 fixture 不等于真实账号、真实旧生产数据集或真实 GPU 吞吐验收。BW1000 部署测试按约定推迟；本次不执行生产进程替换或生产数据迁移。

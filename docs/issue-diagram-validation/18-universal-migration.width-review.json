@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "diagram": "18-universal-migration",
+  "sourceRevision": "5aa729cf4553aa50bf65caf67da0c1f1af4bbee6",
+  "initialPassingLayout": "fixed",
+  "reviewPerformed": true,
+  "onlyAuthoredChange": "meta.column_fit=spread",
+  "reviewAttempt": {
+    "gates": {
+      "validate": "pass",
+      "deliver": "pass",
+      "check": "pass",
+      "browser-check": "pass"
+    },
+    "finalStatus": "fail",
+    "failure": "delivery/provenance-locked",
+    "reason": "Another delivery owned the shared output directory at the final provenance check."
+  },
+  "skillRequiredRestorePerformed": true,
+  "finalLayout": "fixed",
+  "finalStatus": "pass",
+  "remainingSuggestion": {
+    "action": "inspect-sequence-width",
+    "emptyRightPx": 267.4,
+    "canvasWidth": 920,
+    "emptyRightRatio": 0.291,
+    "advisoryOnly": true
+  },
+  "visualReview": "not-requested"
+}

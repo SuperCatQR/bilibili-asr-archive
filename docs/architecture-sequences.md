@@ -1,10 +1,10 @@
 # 完整时序图
 
-本页 17 个图为原固定提交的执行快照；本分支新增来源、迁移、恢复与 GPU 会话的条件路径见 [Issues 实现与架构边界](issues-implementation.md)。
+本页原有 17 个图为原固定提交的执行快照；本分支新增来源、迁移、恢复与 GPU 会话的条件路径见 [Issues 实现与架构边界](issues-implementation.md) 和 [本轮新增流程](#本轮新增流程)。
 
 源码基线：本次架构边界修复的固定代码提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`；核对日期：2026-10-09（Asia/Hong_Kong）。该提交是从 main 开始的本地修复身份，不表示远端 main 已包含修复；17 张时序图与两张架构图共同绑定该代码快照。
 
-以下 17 个流程覆盖当前 CLI、生产链路、持久提交、读取消费、恢复及保留库能力。每页包含可直接渲染的 Mermaid 时序图、条件分支、交互 HTML、JSON 规格和源码证据。
+以下 17 个流程覆盖该历史基线的 CLI、生产链路、持久提交、读取消费、恢复及保留库能力。每页包含可直接渲染的 Mermaid 时序图、条件分支、交互 HTML、JSON 规格和源码证据。
 
 HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整嵌套条件路径，区域标题注明 alt/opt/loop；互斥分支只在条件成立时执行。同参与者内部动作保留在补充卡片。Markdown 中的 Mermaid 保留完整自调用与嵌套分支结构。时间轴纵向排列表示顺序，不表示墙钟耗时。
 
@@ -51,3 +51,19 @@ HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整
 | 固定旧源预检、全历史身份与字节校验、稳定指纹 | 17 |
 
 源码模块、SQL 表/视图和全部命令登记的清单见 [源码与覆盖清单](architecture-sources.md)。验收记录见 [图表验证记录](architecture-validation.md)。
+
+## 本轮新增流程
+
+以下七张时序图补齐七项 issues 的新增行为。固定源码身份、规格/HTML SHA、自动化门禁与感知审阅的实际范围见 [本轮图表凭据](issue-diagram-validation/README.md)；WSL 回归见 [本轮验证记录](issues-validation.md)。
+
+| 流程 | 说明与完整 Mermaid | 交互图与冻结规格 |
+| --- | --- | --- |
+| 18 显式旧归档迁移 | [停写、typed 保真、完整历史产物、恢复审计与安装](sequences/18-universal-migration.md) | [HTML](sequences/18-universal-migration.html) · [JSON](sequences/18-universal-migration.json) |
+| 19 持久 ASR 与角色 supervisor | [固定 slot、请求身份、heartbeat、准备重叠、销毁与 drain](sequences/19-persistent-asr.md) | [HTML](sequences/19-persistent-asr.html) · [JSON](sequences/19-persistent-asr.json) |
+| 20 恢复计划与运行环境 | [完整快照、只读 plan/doctor、模型绑定与独立审计](sequences/20-recovery-plan.md) | [HTML](sequences/20-recovery-plan.html) · [JSON](sequences/20-recovery-plan.json) |
+| 21 YouTube 单视频闭环 | [typed 身份、访问/字幕证据、音频与共享工作流](sequences/21-youtube-workflow.md) | [HTML](sequences/21-youtube-workflow.html) · [JSON](sequences/21-youtube-workflow.json) |
+| 22 候选字幕与旧依赖修复 | [合法空结果、故障分类、预算与 plan/apply](sequences/22-subtitle-candidates.md) | [HTML](sequences/22-subtitle-candidates.html) · [JSON](sequences/22-subtitle-candidates.json) |
+| 23 元数据增量与刷新 | [head/resume、字段观察、失败补抓及页原子提交](sequences/23-metadata-refresh.md) | [HTML](sequences/23-metadata-refresh.html) · [JSON](sequences/23-metadata-refresh.json) |
+| 来源冻结、校对与发布 | [版本分派、完整 edition、准确审批及混合出口](issues-publication-sequence.md) | [HTML](issues-publication-sequence.html) · [JSON](issues-publication-sequence.json) |
+
+这些图记录本仓库可执行行为。真实生产切换、外部阅读站版本支持与 GPU 性能验收须使用相应设备和数据集另行执行；BW1000 部署测试 #289 按约定排除。
