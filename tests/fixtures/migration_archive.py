@@ -73,13 +73,17 @@ def build_migration_archive(archive_root: Path, artifact_root: Path | None = Non
             raise ValueError("migration fixture requires a new artifact root")
         write_root.mkdir(parents=True)
         for name, body in files.items():
+            # Keep the file-only raw sidecar in the database root so a
+            # separate-root fixture still proves readers combine both roots.
+            if name.startswith("subtitles/"):
+                continue
             destination = write_root.joinpath(*name.split('/'))
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(body)
             archive_root.joinpath(*name.split('/')).unlink()
         # Empty managed directories have no historical content to preserve.
         for path in sorted(archive_root.rglob('*'), key=lambda item: len(item.parts), reverse=True):
-            if path.is_dir():
+            if path.is_dir() and not any(path.iterdir()):
                 path.rmdir()
     connection = sqlite3.connect(archive_root / 'archive.db')
     connection.row_factory = sqlite3.Row

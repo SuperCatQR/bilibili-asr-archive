@@ -58,7 +58,9 @@ catalog 只整体结构校验一次，随后逐条进行语义校验；Schema �
 
 七文件与十文件 manifest 都保留既有 wire `schemaVersion: 1`；区别在登记的布局身份，
 不伪造新的历史导出版本。review 也保留 envelope v1，以真实 `ai.templateVersion` 选择布局。
-13 份已有 Schema 按当前 main 的提交字节入包，新增两份独立 Schema；原格式、内容/产物哈希和生成 Markdown 不重写。
+13 份已有 Schema 入包，新增两份独立 Schema；其中七文件 manifest 的结构校验修复为要求每个路径恰好出现一次，
+十文件布局同样明确要求包含 import-origin.json，拒绝用重复路径替代必需文件，即使重复项哈希不同。
+这是对原有准确文件集合约束的补全；有效历史输出仍通过，原格式、内容/产物哈希和生成 Markdown 不重写。
 合入 #317 后，origins v1 延续旧策略分支，并按显式 `legacy-part-title-supplement-v1` 策略接受有证据的分 P 标题；
 这项数据库扩展、导出策略及其对 preserved-body 扩展的依赖也已登记。
 

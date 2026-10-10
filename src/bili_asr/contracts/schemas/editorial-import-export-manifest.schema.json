@@ -24,6 +24,18 @@
       "type": "array",
       "minItems": 10,
       "maxItems": 10,
+      "allOf": [
+        {"contains": {"properties": {"path": {"const": "ai-draft.md"}}}},
+        {"contains": {"properties": {"path": {"const": "review.md"}}}},
+        {"contains": {"properties": {"path": {"const": "edition.md"}}}},
+        {"contains": {"properties": {"path": {"const": "edition.json"}}}},
+        {"contains": {"properties": {"path": {"const": "review.json"}}}},
+        {"contains": {"properties": {"path": {"const": "differences/ai.patch"}}}},
+        {"contains": {"properties": {"path": {"const": "differences/parent.patch"}}}},
+        {"contains": {"properties": {"path": {"const": "import-origin.json"}}}},
+        {"contains": {"properties": {"path": {"const": "preserved-body.md"}}}},
+        {"contains": {"properties": {"path": {"const": "differences/preserved.patch"}}}}
+      ],
       "items": {
         "type": "object",
         "additionalProperties": false,
