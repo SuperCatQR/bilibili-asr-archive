@@ -130,8 +130,8 @@ def test_cli_exhausted_retries_keep_cursor_and_one_terminal_page(
         "fetch-meta", "--archive-root", tmp_root, "--resume", "--page-retries", "3",
     ]) == 2
 
-    assert gateway.page_calls == [(MID, 2, 30)] * 4
-    assert retry_waits == [30, 60, 120]
+    assert gateway.page_calls == [(MID, 1, 30)] + [(MID, 2, 30)] * 4
+    assert retry_waits == [1.0, 30, 60, 120]
     expected_outcome = "risk_interrupted" if failure is GatewayRateLimited else "failed"
     connection = open_database(tmp_root)
     try:
@@ -241,7 +241,7 @@ def test_exhausted_rate_retries_are_never_skipped(tmp_root, retry_waits):
         assert result.outcome == "risk_interrupted"
         assert result.next_cursor == before
         assert retry_waits == [30]
-        assert gateway.page_calls == [(MID, 1, 30), (MID, 2, 30), (MID, 2, 30)]
+        assert gateway.page_calls == [(MID, 1, 30), (MID, 1, 30), (MID, 2, 30), (MID, 2, 30)]
     finally:
         connection.close()
 
@@ -324,7 +324,9 @@ def test_explicit_start_and_skip_can_rewind_a_persisted_cursor(
     finally:
         connection.close()
     gateway.script_page(4, UserVideoPage(mid=MID, page_number=4, videos=(), observed_total=None))
-    assert main(["fetch-meta", "--archive-root", tmp_root, "--resume"]) == 0
+    assert main(["fetch-meta", "--archive-root", tmp_root, "--resume"]) == 2
+    assert "metadata_resume_requires_reenumeration" in capsys.readouterr().err
+    assert main(["fetch-meta", "--archive-root", tmp_root, "--start-page", "4"]) == 0
     assert gateway.page_calls == [(MID, 40, 30), (MID, 3, 30), (MID, 4, 30)]
 
 

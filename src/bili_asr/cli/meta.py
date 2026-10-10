@@ -56,6 +56,7 @@ def _cmd_fetch_meta(args) -> int:
             page_limit=config.page_limit,
             skip_failed_page=config.skip_failed_page,
             page_retries=config.page_retries,
+            operation_retries=config.operation_retries,
             incremental=config.incremental,
             refresh_policy=MetadataRefreshPolicy(config.refresh_mode, config.ttl_seconds),
         )
@@ -81,7 +82,7 @@ def _cmd_fetch_meta(args) -> int:
             write_stderr(f"fetch-meta: failed bvid={result.failure_bvid} operation={result.failure_operation}")
         if result.error_diagnostic is not None:
             write_stderr(f"fetch-meta: diagnostic {result.error_diagnostic.format()}")
-        if config.skip_failed_page and result.outcome == "failed" and result.next_cursor is not None:
+        if config.skip_failed_page and result.outcome == "failed" and result.next_cursor is not None and result.failure_operation != "resume_prefix":
             cursor_clause = f"cursor set to page {result.next_cursor.next_page} (the failed page was skipped)"
         elif result.next_cursor is not None:
             cursor_clause = f"cursor unchanged at page {result.next_cursor.next_page}"
@@ -94,6 +95,8 @@ def _cmd_fetch_meta(args) -> int:
             recovery = "re-run fetch-meta without --start-page to continue from the stored cursor"
         if result.error_code == "auth_error":
             recovery = f"refresh BILI_SESSDATA before retrying; {recovery}"
+        if result.error_code == "metadata_resume_requires_reenumeration":
+            recovery = "pagination changed or prefix evidence is missing; re-run fetch-meta with --incremental to enumerate from page 1"
         write_stderr(f"fetch-meta: metadata gateway failure ({result.error_code}); {cursor_clause} — {recovery}.")
         return 2
     if result.next_cursor is not None:
@@ -109,6 +112,9 @@ def _cmd_refresh_meta(args) -> int:
     from bili_asr.services.metadata_refresh import MetadataRefreshService
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
     from bili_asr.storage import MetadataRepository
+    if getattr(args, "operation_retries", 0) != 0:
+        write_stderr("fetch-meta: --operation-retries applies only to paginated collection")
+        return 1
     if any(getattr(args, name, False) for name in ("resume", "incremental", "start_page", "skip_failed_page")):
         write_stderr("fetch-meta: targeted refresh cannot change pagination options")
         return 1

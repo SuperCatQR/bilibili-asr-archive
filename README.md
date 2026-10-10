@@ -86,6 +86,14 @@ bili-asr fetch-meta --mid 123456 --limit-pages 2
 
 Each successful page advances a persisted cursor. Re-run `fetch-meta` to
 continue from that cursor, or pass `--resume` to require an existing cursor.
+Before resuming past page 1, collection verifies the BVID order of every
+previously collected page using list requests only. Changed or missing
+prefix evidence returns `metadata_resume_requires_reenumeration` and leaves
+the cursor untouched, even with `--skip-failed-page`. Use `--incremental`
+to enumerate from page 1 and recover moved or newly uploaded videos.
+Verification uses the shared request/deadline budget and does not refresh
+previous pages' details, parts or tags. It cannot freeze Bilibili's list;
+periodic homepage enumeration is still needed for changes during a run.
 An upstream gateway failure returns exit 2. Rate control records the
 page/run outcome `risk_interrupted` and preserves the existing cursor; a
 first-page failure can leave no cursor at all. Re-run without `--resume` in
@@ -99,6 +107,15 @@ operation and available HTTP status, API code or `wbi_retry_exhausted`
 reason, without raw upstream messages or credentials. `--page-retries 0`
 stops on the first failed upload-list attempt; opt into at most five retries
 with `--page-retries 1` through `5` (30/60/120/240/300 second cooldowns).
+`--operation-retries 0` also defaults to one attempt. Set it to `1` through
+`5` to retry necessary detail/parts transport failures with the same bounded
+cooldowns, without repeating successful list or sibling requests. Each
+attempt consumes the shared request budget; exhausted budgets, authentication,
+malformed data, not-found and rate control stop these operation retries.
+This option applies to paginated collection, not targeted `--bvid` or
+`--refresh-failed` commands. Prefix verification failures are never skipped;
+an explicitly skipped page leaves a gap requiring homepage re-enumeration
+before a later implicit resume can establish coverage.
 When `BILI_SESSDATA` is configured, the gateway verifies login once before
 the first upload-list request. Rejected credentials stop with `auth_error`
 and require refreshing the cookie; they are not retried as rate control.

@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retry rate-control or transport failures up to 5 times with 30/60/120/240/300 second waits",
     )
     fetch_meta.add_argument(
+        "--operation-retries", type=int, default=0,
+        help="Retry necessary detail/parts transport failures up to 5 times within the shared request budget",
+    )
+    fetch_meta.add_argument(
         "--skip-failed-page", action="store_true",
         help="Skip a failed page",
     )

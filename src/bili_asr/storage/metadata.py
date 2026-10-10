@@ -740,6 +740,41 @@ class MetadataRepository:
             ),
         )
 
+    def read_resume_prefix(self, mid: int, next_page: int) -> dict[int, tuple[str, ...]]:
+        """Read the most recent successful identities for each preceding page.
+
+        Missing pages remain missing: a skipped or unobserved prefix cannot
+        establish a safe offset. Discovery order uses the stored last position
+        of duplicate BVIDs, matching record_page's existing identity contract.
+        """
+        for name, value in (("mid", mid), ("next_page", next_page)):
+            if type(value) is not int:
+                raise TypeError(f"{name} must be an integer")
+            if value < 1:
+                raise ValueError(f"{name} must be positive")
+        rows = self.connection.execute(
+            """
+            WITH latest AS (
+                SELECT p.run_id, p.page_number,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY p.page_number
+                           ORDER BY p.finished_at DESC, p.rowid DESC
+                       ) AS rank
+                FROM ingestion_pages p JOIN ingestion_runs r USING (run_id)
+                WHERE r.mid = ? AND p.page_number < ? AND p.outcome = 'ok'
+            )
+            SELECT l.page_number, d.bvid FROM latest l
+            JOIN ingestion_discoveries d
+              ON d.run_id = l.run_id AND d.page_number = l.page_number
+            WHERE l.rank = 1
+            ORDER BY l.page_number, d.source_position
+            """, (mid, next_page),
+        ).fetchall()
+        pages: dict[int, list[str]] = {}
+        for row in rows:
+            pages.setdefault(row["page_number"], []).append(row["bvid"])
+        return {number: tuple(bvids) for number, bvids in pages.items()}
+
     def read_cursor(self, mid: int) -> CursorRecord | None:
         """Read the current one-based cursor for a user.
 

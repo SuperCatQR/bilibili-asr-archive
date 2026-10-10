@@ -565,8 +565,10 @@ def test_no_flag_rerun_observing_no_author_keeps_the_stored_display_name(tmp_roo
         assert tuple(user_row[:2]) == (MID, "未明子")
 
         # The cursor sits on the empty page, so the plain no-flag re-run
-        # observes no item at all and ends complete.
+        # verifies the old page without persisting a new observation, then
+        # observes the empty tail and ends complete.
         rerun_gateway = FakeGateway()
+        rerun_gateway.script_page(1, _page(1, _summary("BV1NAMED", aid=801), observed_total=1))
         rerun_gateway.script_page(2, _page(2, observed_total=1))
         rerun = _ingestor(rerun_gateway, repository).collect_user_pages(MID)
 
@@ -611,6 +613,7 @@ def test_risk_interrupted_run_keeps_the_display_name_it_never_observed(tmp_root)
         assert tuple(user_row[:2]) == (MID, "未明子")
 
         interrupted_gateway = FakeGateway()
+        interrupted_gateway.script_page(1, _page(1, _summary("BV1KEPT", aid=701), observed_total=2))
         interrupted_gateway.script_page(
             2, GatewayRateLimited(detail="get_user_video_page")
         )
@@ -1229,7 +1232,7 @@ def test_malformed_upstream_bvid_page_fails_bounded_and_preserves_the_prior_curs
             (2, "failed", "shape_error")
         ]
         # The malformed bvid never reached the parts or detail fetches.
-        assert script.calls == calls_after_first + ["space.arc.search(pn=2, ps=30)"]
+        assert script.calls == calls_after_first + ["space.arc.search(pn=1, ps=30)"]
     finally:
         connection.close()
 
