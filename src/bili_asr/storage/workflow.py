@@ -424,13 +424,17 @@ class WorkflowRepository:
         with self._write_transaction():
             return self.enqueue_editorial(video_part_id=video_part_id, input_id=input_id)
 
-    def enqueue_editorial(self, *, video_part_id: int, input_id: str) -> tuple[str, str, bool, bool]:
+    def enqueue_editorial(self, *, video_part_id: int, input_id: str,
+                          repair_of_job_id: str | None = None) -> tuple[str, str, bool, bool]:
         """Persist both jobs inside an application-owned write transaction."""
         if not self.connection.in_transaction:
             raise RuntimeError("editorial enqueue requires a write transaction")
         self.require_cancellation_contract()
         self._require_editorial_contract()
-        return self._editorial_jobs(video_part_id=video_part_id, payload={"input_id": input_id})
+        payload = {"input_id": input_id}
+        if repair_of_job_id is not None:
+            payload["repair_of_job_id"] = repair_of_job_id
+        return self._editorial_jobs(video_part_id=video_part_id, payload=payload)
 
     def _editorial_jobs(self, *, video_part_id: int, payload: Mapping[str, Any],
                         prerequisite_job_id: str | None = None) -> tuple[str, str, bool, bool]:

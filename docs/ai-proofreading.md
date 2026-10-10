@@ -173,6 +173,35 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 租约续期和尝试编号校验阻止过期工作器提交新块或覆盖新的任务尝试。
 `workflow retry` 只重排 `failed`，不会恢复 `cancelled`；重复相同输入的校对请求也不会复活已取消任务。
 
+更新提示词后，旧 job 仍使用自己的冻结输入。需要采用当前提示词、调整分块或更换
+经过复核的转录版本时，使用显式恢复入口：
+
+```bash
+bili-asr workflow repair-proofread --archive-root /srv/bili-archive --job-id <failed-proofread-job-id>
+# 异常源转录经复核并作为新版本存储后，显式指定该版本：
+bili-asr workflow repair-proofread --archive-root /srv/bili-archive --job-id <failed-proofread-job-id> --base-transcript-id <corrected-transcript-id>
+```
+
+该命令只排队，使用当前提示词重新冻结输入，并建立新的 proofread/render 依赖链。
+旧 job、attempt、输入、API 响应、已保存块和原渲染任务保持原状态；原渲染任务仍受旧失败依赖阻塞。
+新任务的 payload 保存 `repair_of_job_id`，相同恢复请求幂等。
+替换来源必须属于原分 P，参考字幕沿用原冻结版本；当前输入身份与旧输入相同则拒绝恢复，应使用普通 retry。
+原输入已保存的块不会移植到采用新提示词的任务。命令不修改静音例外或任何 retry hold。
+
+普通新输入默认每块最多 256 段、20,000 字符；恢复默认 128 段、10,000 字符及
+`reasoning_effort=low`，可用 `--max-chunk-segments`、`--max-chunk-chars` 和
+`--reasoning-effort` 显式调整。输入和输出 token 预算仍独立生效，单段无法满足预算时明确失败。
+最大输出预算包含供应商计入的推理 token；提高预算不能解决模型持续重复的情况。
+
+调用模型前检查 ASR 单段的异常重复：至少 1,000 字符、密度超过每秒 100 字符，
+且同一四词组合重复至少 24 次时，以 `editorial_source_repetition` 停止。
+该检查保留全部原文，记录来源 ID、段序号、时间、长度和重复计数；需复核或重新识别来源后再恢复。
+长文本或普通重复本身不触发该检查。它是保守的故障拦截，不代替音频质量评估。
+
+跨段证据引用仍严格拒绝，attempt 的 `result_json.diagnostic` 记录段落、issue 序号、
+非法引用计数和摘要，以及 `call_id`/`chunk_id`；原响应保存在 `editorial_model_calls` 供核对。
+截断诊断记录输出/推理长度和供应商提供的 token 用量，不把响应正文写入诊断。
+
 读取成功校对尝试的 `result_json`，或查询 `editorial_revisions`，取得 `revision_id` 后：
 
 ```bash

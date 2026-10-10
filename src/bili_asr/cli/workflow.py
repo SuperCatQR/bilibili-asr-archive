@@ -66,6 +66,15 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     reference.add_argument("--no-reference", action="store_true")
     _add_editorial_arguments(proofread)
 
+    repair_ai = actions.add_parser("repair-proofread",
+        help="Queue a replacement for a failed AI job using current prompt; preserve original evidence")
+    repair_ai.add_argument("--archive-root", default=archive_root)
+    repair_ai.add_argument("--job-id", required=True)
+    repair_ai.add_argument("--base-transcript-id", type=int, default=None,
+        help="Explicit corrected transcript version for the same part; otherwise retain the old source")
+    _add_editorial_arguments(repair_ai)
+    repair_ai.set_defaults(reasoning_effort="low", max_chunk_segments=128, max_chunk_chars=10_000)
+
     render = actions.add_parser("render", help="Queue deterministic Markdown rendering without calling AI")
     render.add_argument("--archive-root", default=archive_root)
     render.add_argument("--revision-id", required=True)
@@ -184,13 +193,16 @@ def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--api-timeout", type=int, default=defaults.timeout_seconds)
     parser.add_argument("--reasoning-effort", choices=("low", "high", "max"), default=defaults.reasoning_effort)
     parser.add_argument("--top-p", type=float, default=defaults.top_p)
+    parser.add_argument("--max-chunk-segments", type=int, default=defaults.max_chunk_segments)
+    parser.add_argument("--max-chunk-chars", type=int, default=defaults.max_chunk_chars)
 
 
 def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
     return EditorialConfig(model=args.editorial_model, context_tokens=args.context_tokens,
                            max_input_tokens=args.max_input_tokens, max_output_tokens=args.max_output_tokens,
                            context_segments=args.context_segments, timeout_seconds=args.api_timeout,
-                           reasoning_effort=args.reasoning_effort, top_p=args.top_p)
+                           reasoning_effort=args.reasoning_effort, top_p=args.top_p,
+                           max_chunk_segments=args.max_chunk_segments, max_chunk_chars=args.max_chunk_chars)
 
 
 def _cmd_workflow(args: argparse.Namespace) -> int:
@@ -244,6 +256,17 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 write_stderr("workflow asr-evidence: no evidence for this run and part")
                 return 1
             print(json.dumps(evidence, ensure_ascii=False, indent=2, allow_nan=False))
+            return 0
+        if args.workflow_action == "repair-proofread":
+            from bili_asr.services.editorial_repair import repair_proofread
+            from bili_asr.workflow_errors import JobExecutionError
+            try:
+                report = repair_proofread(repository, job_id=args.job_id, config=_editorial_config(args),
+                                         base_transcript_id=args.base_transcript_id)
+            except JobExecutionError as exc:
+                write_stderr(json.dumps({"error_code": exc.error_code, "diagnostic": exc.safe_details}))
+                return 1
+            print(json.dumps(report, ensure_ascii=False, sort_keys=True))
             return 0
         if args.workflow_action == "cancel":
             results = repository.cancel(job_ids=args.job_id)

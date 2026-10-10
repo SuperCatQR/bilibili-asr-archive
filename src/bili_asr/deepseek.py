@@ -62,7 +62,23 @@ def parse_response(envelope: dict[str, Any]) -> Any:
     try:
         choice = envelope["choices"][0]
         if choice["finish_reason"] != "stop":
-            raise DeepSeekError("DeepSeek output is truncated or unfinished")
+            error = DeepSeekError("DeepSeek output is truncated or unfinished")
+            usage = envelope.get("usage")
+            usage = usage if isinstance(usage, dict) else {}
+            details = usage.get("completion_tokens_details")
+            details = details if isinstance(details, dict) else {}
+            numbers = {"prompt_tokens": usage.get("prompt_tokens"),
+                       "completion_tokens": usage.get("completion_tokens"),
+                       "reasoning_tokens": details.get("reasoning_tokens")}
+            error.safe_details = {key: value for key, value in numbers.items()
+                                  if type(value) is int and 0 <= value < 2**63}
+            error.safe_details["length_exceeded"] = choice["finish_reason"] == "length"
+            message = choice.get("message")
+            message = message if isinstance(message, dict) else {}
+            for name, field in (("output_chars", "content"), ("reasoning_chars", "reasoning_content")):
+                value = message.get(field)
+                error.safe_details[name] = len(value) if isinstance(value, str) else 0
+            raise error
         content = choice["message"]["content"]
         if not isinstance(content, str) or not content.strip():
             raise DeepSeekError("DeepSeek output is empty")
