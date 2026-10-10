@@ -170,7 +170,12 @@ def manifest_contract(kind: str, profile: str | None, *, imported: bool = False)
 def catalog() -> dict:
     from bili_asr.contracts.content_policies import policy_catalog
     return {"format_version": 1, "contracts": [asdict(entry) for entry in _CONTRACTS],
-            "upgrades": [asdict(entry) for entry in UPGRADE_EDGES], "content_policies": policy_catalog()}
+            "upgrades": [asdict(entry) for entry in UPGRADE_EDGES], "content_policies": policy_catalog(),
+            "release_acceptance": {"frozen_files": [asdict(entry) for entry in FROZEN_RELEASE_FILES],
+                "baseline": RELEASE_BASELINE,
+                "required_tests": RELEASE_REQUIRED_TESTS,
+                "upgrades": [asdict(entry) for entry in UPGRADE_ACCEPTANCE],
+                "transitions": [asdict(entry) for entry in CONTRACT_TRANSITIONS]}}
 
 
 @dataclass(frozen=True)
@@ -225,6 +230,69 @@ UPGRADE_EDGES = (
           ("native", (UNIVERSAL_V2,)),
           ("preserved", (UNIVERSAL_V2, IMPORT_EXTENSION)),
           ("supplemented", (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY)))),
+)
+
+
+@dataclass(frozen=True)
+class FrozenReleaseFile:
+    path: str
+    sha256: str
+
+
+RELEASE_BASELINE = "tests/fixtures/data/contracts-release-baseline-v1.json"
+FROZEN_RELEASE_FILES = (
+    FrozenReleaseFile("tests/fixtures/data/bilibili-v1-frozen.zip",
+        "20790dfc0acec3dda5707cb534907374c458f99b04f1947dc865ffe67b93770b"),
+    FrozenReleaseFile("tests/fixtures/data/bilibili-v1-frozen.json",
+        "045f4d7cf96cf97d38a9dcf069a8fa4f0865c62fb321deb7232babb519d784dd"),
+    FrozenReleaseFile(RELEASE_BASELINE, "7ea6da1930354dbb5e871ae84828b189138d88a2b1467c33edd75174913f194e"),
+)
+
+
+@dataclass(frozen=True)
+class UpgradeAcceptance:
+    edge: str
+    frozen_files: tuple[str, ...]
+    # A function node admits itself and its parametrizations, never similarly
+    # named tests. Exact parametrized node IDs protect each concrete edge.
+    test_nodes: tuple[str, ...]
+
+
+_HISTORY = tuple(entry.path for entry in FROZEN_RELEASE_FILES[:2])
+_UPGRADE_TEST = "tests/test_archive_upgrade.py::"
+UPGRADE_ACCEPTANCE = (
+    *(UpgradeAcceptance(edge, _HISTORY, (
+        _UPGRADE_TEST + "test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[" + case + "]",
+        _UPGRADE_TEST + "test_changed_or_invalid_inputs_fail_before_target_install"))
+      for edge, case in (("bilibili-to-universal/v1", "native"),
+                        ("preserved-body-extension/v1", "preserved"),
+                        ("source-supplement-extension/v1", "supplemented"))),
+    *(UpgradeAcceptance("artifact-" + extension + "-" + case + "/v1", _HISTORY, tuple(
+        _UPGRADE_TEST + "test_artifact_catalog_is_reachable_from_each_actual_universal_combination[" + mode + "-" + origin + "-" + case + "]"
+        for origin in ("historical", "native")))
+      for extension, mode in (("storage", "stored"), ("online", "online"))
+      for case in ("native", "preserved", "supplemented")),
+)
+
+
+@dataclass(frozen=True)
+class ContractTransition:
+    """A deliberate replacement/reader retirement, with an executable path."""
+    contract: str
+    kind: str
+    source: tuple[str, ...]
+    target: tuple[str, ...]
+    path: tuple[str, ...]
+    acceptance: tuple[str, ...]
+    reason: str
+
+
+# New independent contracts need no artificial predecessor. Removing a known
+# identity, capability or consumer does require a reviewed declaration here.
+CONTRACT_TRANSITIONS: tuple[ContractTransition, ...] = ()
+RELEASE_REQUIRED_TESTS = (
+    "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
+    "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json",
 )
 
 
