@@ -111,6 +111,20 @@ def _disjoint(target: Path, bases: tuple[Path, ...]) -> None:
             raise ArtifactCatalogUpgradeError("artifact catalog upgrade source, artifact roots and target must be disjoint")
 
 
+def install_catalog_in_staged_copy(connection: sqlite3.Connection, files: dict[str, dict], *, now: int) -> list[dict]:
+    """Internal converter step for a caller-owned, independently verified stage.
+
+    The caller must own an unpublished preservation copy, supply verified file
+    facts, and compare original authority fingerprints before publishing it.
+    This is intentionally not exposed as an in-place archive command.
+    """
+    if require_artifact_catalog(connection):
+        raise ArtifactCatalogUpgradeError("staged copy already contains the artifact extension")
+    connection.executescript(_resource(SCHEMA_RESOURCE))
+    with connection:
+        return _backfill_audio(connection, files, now=now)
+
+
 def _backfill_audio(connection: sqlite3.Connection, files: dict[str, dict], *, now: int) -> list[dict]:
     catalog = ArtifactCatalog(connection)
     catalog.register_target("local", kind="local", created_at=now)
@@ -295,7 +309,6 @@ def upgrade_artifact_catalog(source_root: Path, target_root: Path, *,
                     session.connection.backup(converted, pages=256, progress=progress, sleep=0.05)
                     if authority_fingerprints(converted) != authority:
                         raise ArtifactCatalogUpgradeError("database backup did not preserve all typed authority rows")
-                    converted.executescript(_resource(SCHEMA_RESOURCE))
                     inventory = []
                     inventory_by_key = {}
                     preserved_extras = []
@@ -339,7 +352,7 @@ def upgrade_artifact_catalog(source_root: Path, target_root: Path, *,
                     preserved_extras.sort(key=lambda item: item["path"])
                     now = int(time.time())
                     with converted:
-                        findings = _backfill_audio(converted, {item["path"]: item for item in inventory}, now=now)
+                        findings = install_catalog_in_staged_copy(converted, {item["path"]: item for item in inventory}, now=now)
                     before = {item["table"] for item in authority}
                     if [item for item in authority_fingerprints(converted) if item["table"] in before] != authority:
                         raise ArtifactCatalogUpgradeError("catalog backfill changed original authority facts")
