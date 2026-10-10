@@ -141,8 +141,9 @@ def _schema(connection: sqlite3.Connection) -> dict[str, Any]:
     return objects
 
 
-@lru_cache(maxsize=8)
-def _current_contract(kind: str = "bilibili-v1", imports: bool = False, supplements: bool = False) -> tuple[dict[str, Any], str]:
+@lru_cache(maxsize=16)
+def _current_contract(kind: str = "bilibili-v1", imports: bool = False, supplements: bool = False,
+                      artifacts: bool = False) -> tuple[dict[str, Any], str]:
     from bili_asr.storage.archive_contracts import BILIBILI_V1, bootstrap_contract
     with closing(sqlite3.connect(":memory:")) as connection:
         if kind == BILIBILI_V1:
@@ -154,6 +155,9 @@ def _current_contract(kind: str = "bilibili-v1", imports: bool = False, suppleme
             connection.executescript(_resource("schema-preserved-body-import.sql"))
         if supplements:
             connection.executescript(_resource("schema-source-supplements.sql"))
+        if artifacts:
+            from bili_asr.storage.archive_contracts import _resource
+            connection.executescript(_resource("schema-artifact-storage.sql"))
         required = _schema(connection)
     canonical = json.dumps(required, sort_keys=True, separators=(",", ":"))
     return required, "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -170,8 +174,9 @@ def validate_snapshot_database(database_path: Path, expected_contract: str | Non
         with closing(_connect(database_path)) as connection:
             from bili_asr.storage.import_origins import require_import_extension
             from bili_asr.storage.source_supplements import require_supplement_extension
+            from bili_asr.storage.artifact_catalog import require_artifact_catalog
             required, contract = _current_contract(runtime_contract(connection), require_import_extension(connection),
-                                                   require_supplement_extension(connection))
+                                                   require_supplement_extension(connection), require_artifact_catalog(connection))
             if expected_contract is not None and expected_contract != contract:
                 raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             integrity = connection.execute("PRAGMA integrity_check").fetchall()
@@ -284,6 +289,13 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
             ):
                 add(key, digest)
             from bili_asr.storage.archive_contracts import UNIVERSAL_V2, runtime_contract
+            from bili_asr.storage.artifact_catalog import require_artifact_catalog
+
+            if require_artifact_catalog(connection):
+                for key, digest in connection.execute("SELECT report_key,report_sha256 FROM artifact_catalog_upgrades"):
+                    add(key, digest)
+                for key, digest in connection.execute("SELECT relative_key,sha256 FROM artifact_catalog_upgrade_files"):
+                    add(key, digest)
 
             if runtime_contract(connection) == UNIVERSAL_V2:
                 for migration_id, raw in connection.execute(

@@ -90,6 +90,8 @@ def bootstrap_contract(connection: sqlite3.Connection, contract: str = UNIVERSAL
 
 def require_universal_contract(connection: sqlite3.Connection) -> None:
     from bili_asr.storage.database import SchemaContractError, _normalize_manuscript_sql
+    from bili_asr.storage.artifact_catalog import require_artifact_catalog
+    require_artifact_catalog(connection)
 
     if runtime_contract(connection) != UNIVERSAL_V2:
         raise SchemaContractError("universal-v2 requires an explicitly initialized or migrated target")
