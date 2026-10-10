@@ -296,6 +296,16 @@ CONTRACT_TRANSITIONS: tuple[ContractTransition, ...] = ()
 RELEASE_REQUIRED_TESTS = (
     "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
     "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json",
+    "tests/test_upgrade_result_reuse.py::test_formal_upgrade_reuses_completed_ai_jobs_and_preserves_pending_work",
+    "tests/test_upgrade_result_reuse.py::test_explicit_refresh_or_changed_configuration_creates_current_input",
+    "tests/test_upgrade_result_reuse.py::test_upgrade_keeps_committed_chunks_and_only_explicit_retry_runs_missing_chunks",
+    "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[failed]",
+    "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[cancelled]",
+    "tests/test_content_upgrade_policies.py::test_formal_upgrade_and_registered_content_conversion_keep_original_review_and_body",
+    "tests/test_source_supplement.py::test_title_only_change_preserves_current_human_edits_and_historical_ai",
+    "tests/test_source_supplement.py::test_export_pair_and_snapshot_restore_keep_title_evidence",
+    *(_UPGRADE_TEST + "test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[" + case + "]"
+      for case in ("native", "preserved", "supplemented")),
 )
 
 

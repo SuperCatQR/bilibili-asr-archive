@@ -137,6 +137,11 @@ uv lock --check --default-index https://pypi.org/simple
 通过 `importlib.resources` 读取 SQL/JSON 并与源码摘要逐项比较，同时验证所有 Schema
 离线可用。新增扩展忘记进入 package-data 会直接失败，源码树可读不能替代 wheel 证据。
 
+必需节点同时固定已完成/未完成工作的真实 planner 与 handler 复用、部分 AI chunk 显式
+重试、failed/cancelled 终态不被重新规划复活、正文与审核保留、标题补充的导出和快照恢复，
+以及 current/superseded/withdrawn release 的历史校验。仅保留升级结构测试而删除这些
+业务行为测试，也会在分片前被拒绝。
+
 `FROZEN_RELEASE_FILES` 独立固定旧 ZIP 与 expected JSON 的 SHA256；旧文件保持原字节。
 新增 `contracts-release-baseline-v1.json` 记录 `91aeb026` 的 capability/consumer 基线，
 也被固定摘要保护。正常 PR 还比较基分支完整提交中的 catalog，push 比较此前提交，

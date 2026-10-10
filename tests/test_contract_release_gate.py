@@ -1,10 +1,10 @@
 """Release support cannot be inferred from ignored tests or regenerated history."""
-from copy import deepcopy
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -47,7 +47,7 @@ def test_collect_ignore_cannot_supply_release_acceptance(tmp_path):
     (tests / "test_other.py").write_text("def test_collected(): pass\n")
     (tests / "conftest.py").write_text("collect_ignore = ['test_archive_upgrade.py']\n")
     result = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q"],
-                            cwd=tmp_path, capture_output=True, text=True)
+                            cwd=tmp_path, capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     nodes = [line.strip() for line in result.stdout.splitlines() if "::" in line]
     assert nodes == ["tests/test_other.py::test_collected"]
@@ -55,12 +55,21 @@ def test_collect_ignore_cannot_supply_release_acceptance(tmp_path):
         validate_release_collection(ROOT, nodes)
 
 
+def test_removing_completed_work_reuse_test_blocks_release_even_with_all_upgrade_edges():
+    value = catalog()
+    removed = "tests/test_upgrade_result_reuse.py::test_formal_upgrade_reuses_completed_ai_jobs_and_preserves_pending_work"
+    nodes = [node for node in _nodes(value) if node != removed]
+    with pytest.raises(ValueError, match="required release test was not collected: " + removed):
+        validate_release_collection(ROOT, nodes, candidate=value)
+
+
 @pytest.mark.parametrize("damage", ["missing-case", "similar-name", "missing-matrix", "extra-matrix", "installed-test"])
 def test_missing_cases_and_unregistered_matrix_rows_fail(damage):
     value = deepcopy(catalog())
     nodes = _nodes(value)
     if damage == "missing-case":
-        nodes.remove(value["release_acceptance"]["upgrades"][0]["test_nodes"][0])
+        target = value["release_acceptance"]["upgrades"][0]["test_nodes"][0]
+        nodes = [node for node in nodes if node != target]
     elif damage == "similar-name":
         target = value["release_acceptance"]["upgrades"][0]["test_nodes"][1]
         nodes = [node + "_unrelated" if node == target else node for node in nodes]
