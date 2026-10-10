@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -67,6 +68,37 @@ validate_json('publication-catalog/v3', json.loads(sys.argv[1]))
         capture_output=True, text=True, check=False,
     )
     assert validated.returncode == 0, validated.stderr
+
+
+def test_installed_contract_authorities_include_registered_sql_and_json(isolated_cli) -> None:
+    """A new registered SQL/JSON authority must survive real wheel packaging."""
+    checked = subprocess.run([isolated_cli.python, "-c", """
+from importlib.resources import files
+from pathlib import Path, PurePosixPath
+import hashlib
+import json
+import sys
+import bili_asr
+from bili_asr.contracts import CONTRACTS
+
+assert Path(bili_asr.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+observed = {}
+for entry in CONTRACTS.values():
+    for name in entry.authority:
+        relative = PurePosixPath(name)
+        if relative.suffix in {'.sql', '.json'}:
+            relative = relative.relative_to('src/bili_asr')
+            body = files('bili_asr').joinpath(*relative.parts).read_bytes()
+            assert body, name
+            observed[name] = hashlib.sha256(body).hexdigest()
+print(json.dumps(observed))
+"""], cwd=isolated_cli.venv_dir, env=clean_cli_env(), capture_output=True, text=True, check=False)
+    assert checked.returncode == 0, checked.stderr
+    root = Path(__file__).resolve().parents[1]
+    expected = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+                for entry in CONTRACTS.values() for name in entry.authority
+                if Path(name).suffix in {".sql", ".json"}}
+    assert json.loads(checked.stdout) == expected
 
 
 def test_installed_console_script_status_fails_without_database(isolated_cli, tmp_path: Path) -> None:

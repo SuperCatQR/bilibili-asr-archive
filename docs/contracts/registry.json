@@ -1255,5 +1255,128 @@
       "converter": "services.source_supplement",
       "sample": "tests/test_source_supplement.py"
     }
-  ]
+  ],
+  "release_acceptance": {
+    "frozen_files": [
+      {
+        "path": "tests/fixtures/data/bilibili-v1-frozen.zip",
+        "sha256": "20790dfc0acec3dda5707cb534907374c458f99b04f1947dc865ffe67b93770b"
+      },
+      {
+        "path": "tests/fixtures/data/bilibili-v1-frozen.json",
+        "sha256": "045f4d7cf96cf97d38a9dcf069a8fa4f0865c62fb321deb7232babb519d784dd"
+      },
+      {
+        "path": "tests/fixtures/data/contracts-release-baseline-v1.json",
+        "sha256": "7ea6da1930354dbb5e871ae84828b189138d88a2b1467c33edd75174913f194e"
+      }
+    ],
+    "baseline": "tests/fixtures/data/contracts-release-baseline-v1.json",
+    "required_tests": [
+      "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
+      "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json"
+    ],
+    "upgrades": [
+      {
+        "edge": "bilibili-to-universal/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[native]",
+          "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install"
+        ]
+      },
+      {
+        "edge": "preserved-body-extension/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[preserved]",
+          "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install"
+        ]
+      },
+      {
+        "edge": "source-supplement-extension/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[supplemented]",
+          "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install"
+        ]
+      },
+      {
+        "edge": "artifact-storage-native/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-native]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-native]"
+        ]
+      },
+      {
+        "edge": "artifact-storage-preserved/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-preserved]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-preserved]"
+        ]
+      },
+      {
+        "edge": "artifact-storage-supplemented/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-supplemented]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-supplemented]"
+        ]
+      },
+      {
+        "edge": "artifact-online-native/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-native]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-native]"
+        ]
+      },
+      {
+        "edge": "artifact-online-preserved/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-preserved]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-preserved]"
+        ]
+      },
+      {
+        "edge": "artifact-online-supplemented/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-supplemented]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-supplemented]"
+        ]
+      }
+    ],
+    "transitions": []
+  }
 }

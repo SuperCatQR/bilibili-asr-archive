@@ -43,7 +43,8 @@ def _bytes(root):
             for path in root.rglob("*") if path.is_file()}
 
 
-@pytest.mark.parametrize("target_contracts", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT])
+@pytest.mark.parametrize("target_contracts", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT],
+                         ids=["native", "preserved", "supplemented"])
 def test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots(tmp_path, target_contracts):
     source, target = tmp_path / "source", tmp_path / "target"
     expected = frozen_archive(source)
@@ -105,9 +106,10 @@ def test_unknown_and_ambiguous_paths_never_guess_by_version():
         upgrade_path(CURRENT, (UNIVERSAL_V2,))
 
 
-@pytest.mark.parametrize("combination", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT])
-@pytest.mark.parametrize("native", [False, True])
-@pytest.mark.parametrize("online", [False, True])
+@pytest.mark.parametrize("combination", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT],
+                         ids=["native", "preserved", "supplemented"])
+@pytest.mark.parametrize("native", [False, True], ids=["historical", "native"])
+@pytest.mark.parametrize("online", [False, True], ids=["stored", "online"])
 def test_artifact_catalog_is_reachable_from_each_actual_universal_combination(tmp_path, combination, native, online):
     legacy, source, target = tmp_path / "legacy", tmp_path / "source", tmp_path / "target"
     if native:
