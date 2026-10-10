@@ -14,6 +14,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [契约治理与兼容边界](contract-governance.md) | 单一登记、15 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
 | [当前架构](architecture.md) | 固定提交的执行模型，以及本分支新增职责与契约入口 |
 | [全景架构图](architecture.html) | 固定提交的可交互组件、关系与源码证据；[JSON](architecture.json) |
 | [完整时序图](architecture-sequences.md) | 17 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
@@ -39,6 +40,7 @@
 | [AI 校对使用](ai-proofreading.md) | 配置、执行、失败恢复、重新渲染、数据与离线验证 |
 | [产物根目录](artifact-root.md) | workflow 产物写根、读取回退顺序、音频与派生产物路径 |
 | [归档快照与迁移](archive-snapshots.md) | 保存完整数据库与产物、离线校验、跨设备恢复与中断任务重排 |
+| [显式契约升级](archive-upgrades.md) | 登记路径、绑定源与转换器的计划、隔离转换、逐表保真和完成核验 |
 | [固定旧源迁移预检](archive-migration-preflight.md) | 停止/checkpoint 前置条件、显式源根、清点/历史身份校验与失败边界 |
 | [多平台实施方案](multi-platform-architecture-plan.md) | 历史设计计划；本分支已实现部分见 Issues 实施说明 |
 | [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |

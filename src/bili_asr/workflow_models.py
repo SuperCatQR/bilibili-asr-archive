@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
+from bili_asr.contracts.registry import ASR_PROFILE_VERSION
 
 
 class JobKind(StrEnum):
@@ -116,7 +117,7 @@ class AsrProfile:
         for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
             values[name] = float(values[name])
         return json.dumps(
-            {"schema_version": 2, **values},
+            {"schema_version": ASR_PROFILE_VERSION, **values},
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,

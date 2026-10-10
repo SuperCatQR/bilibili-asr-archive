@@ -36,6 +36,26 @@ def add_archive_parser(subparsers: argparse._SubParsersAction) -> None:
     check = actions.add_parser("migration-check", help="Verify the immutable migration report and preserved target objects")
     check.add_argument("--target-root", required=True)
     check.set_defaults(database_policy=None)
+    paths = actions.add_parser("upgrade-paths", help="List exact registered offline contract upgrade edges")
+    paths.set_defaults(database_policy=None)
+    plan = actions.add_parser("upgrade-plan", help="Bind an offline source, converter and target to a verifiable upgrade plan")
+    plan.add_argument("--source-root", required=True)
+    plan.add_argument("--source-artifact-root")
+    plan.add_argument("--target-root", required=True)
+    plan.add_argument("--target-contract", action="append", required=True)
+    plan.add_argument("--edge", action="append", help="Select every edge in order if paths are ambiguous")
+    controls = plan.add_mutually_exclusive_group()
+    controls.add_argument("--control-state", type=Path, action="append")
+    controls.add_argument("--no-external-control-state", action="store_true")
+    plan.add_argument("--output", type=Path, required=True)
+    plan.set_defaults(database_policy=None)
+    apply = actions.add_parser("upgrade-apply", help="Revalidate a saved plan and atomically install an isolated target")
+    apply.add_argument("--plan", type=Path, required=True)
+    apply.set_defaults(database_policy=None)
+    upgraded = actions.add_parser("upgrade-check", help="Verify an unchanged upgrade installation baseline")
+    upgraded.add_argument("--target-root", required=True)
+    upgraded.add_argument("--plan-id", required=True)
+    upgraded.set_defaults(database_policy=None)
 
 
 def _cmd_archive(args: argparse.Namespace) -> int:
@@ -43,7 +63,9 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     from bili_asr.services.archive_migration import initialize_archive, migrate_archive, check_migrated_archive, migrate_snapshot
 
     try:
-        if args.archive_action == "init":
+        if args.archive_action.startswith("upgrade-"):
+            report = _cmd_upgrade(args)
+        elif args.archive_action == "init":
             report = initialize_archive(Path(args.target_root))
         elif args.archive_action == "migration-check":
             report = check_migrated_archive(Path(args.target_root))
@@ -78,3 +100,30 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         print("Mode: stopped-checkpointed; conversion performed: false; target created: false")
         print("Recovery candidates: " + json.dumps(report["recovery_candidates"], sort_keys=True))
     return 0
+
+
+def _cmd_upgrade(args: argparse.Namespace) -> dict:
+    from dataclasses import asdict
+    from bili_asr.contracts.registry import UPGRADE_EDGES
+    from bili_asr.services.archive_upgrade import apply_upgrade, check_upgrade, plan_upgrade
+    if args.archive_action == "upgrade-paths":
+        return {"format_version": 1, "upgrades": [asdict(edge) for edge in UPGRADE_EDGES]}
+    if args.archive_action == "upgrade-check":
+        return check_upgrade(Path(args.target_root), expected_plan_id=args.plan_id)
+    if args.archive_action == "upgrade-apply":
+        return apply_upgrade(json.loads(args.plan.read_text(encoding="utf-8")))
+    report = plan_upgrade(Path(args.source_root), Path(args.target_root),
+        artifact_root=Path(args.source_artifact_root) if args.source_artifact_root else None,
+        target_contracts=tuple(args.target_contract), selected_path=tuple(args.edge) if args.edge else None,
+        control_state=tuple(args.control_state or ()), no_external_control_state=args.no_external_control_state)
+    from bili_asr.artifact_inventory import require_no_links
+    require_no_links(args.output.absolute())
+    # Never overwrite an earlier plan or put operational evidence into source/target.
+    output = args.output.absolute()
+    for root in (args.source_root, args.source_artifact_root, args.target_root):
+        if root and output.is_relative_to(Path(root).absolute()):
+            raise ValueError("upgrade plan output must be outside source/artifact/target roots")
+    with output.open("x", encoding="utf-8") as stream:
+        json.dump(report, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+    return report

@@ -1,5 +1,8 @@
 # AI 双稿、完整版本审核与发布架构
 
+当前输入/内容/模板和导出协议的版本矩阵见 [契约治理](contract-governance.md#支持矩阵与历史身份)。导出入口使用安装包内 Schema 做结构检查，再验证内容身份与文件关系；七文件普通审阅包、十文件迁移正文审阅包以及两种 AI 模板分别有明确布局。以下图文是其注明的历史基线。
+
+
 日期：2026-10-09（Asia/Hong_Kong）。基线 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
 入口见 [使用说明](ai-proofreading.md)；当前模块边界与跨域关系见

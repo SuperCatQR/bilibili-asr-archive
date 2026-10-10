@@ -1,0 +1,155 @@
+{
+  "format_version": 1,
+  "verified_date": "2026-10-11",
+  "timezone": "Asia/Hong_Kong",
+  "repository_revision": "6a8646a36f680705479a7669350fd8793551cc74",
+  "initial_baseline": "bab5998dd5235a7687b479e96edf16f9ed76c7ba",
+  "integrated_main": "fd5a8068f988ed1394fdb0a7c723941cbdf5221b",
+  "contract_count": 34,
+  "schema_count": 15,
+  "database_fingerprint_count": 6,
+  "diagram": {
+    "specification": "docs/contract-governance.json",
+    "artifact": "docs/contract-governance.html",
+    "specification_sha256": "a02de1938f0c709fe429fe044486529ca55d1bab179c2225041c1bcc681c9680",
+    "artifact_sha256": "75f1e6b8c432c52db75c969c7e2e28c630b70a847e93e3451d6732d417b2ae0a",
+    "gates": {
+      "validate": "pass",
+      "deliver": "pass",
+      "check": "pass",
+      "browser-check": "pass"
+    },
+    "diagnostics": [],
+    "delivery_receipt_id": "83282be5-da18-48d6-9838-a6ef5d2cb9f1",
+    "browser_viewports": [
+      {
+        "width": 1440,
+        "height": 900,
+        "theme": "light",
+        "ok": true
+      },
+      {
+        "width": 1600,
+        "height": 1000,
+        "theme": "light",
+        "ok": true
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "theme": "light",
+        "ok": true
+      },
+      {
+        "width": 2048,
+        "height": 1320,
+        "theme": "light",
+        "ok": true
+      }
+    ],
+    "visual_check": {
+      "containment": "pass",
+      "readability": "pass",
+      "viewerChrome": "pass",
+      "themeStates": "pass",
+      "captures": "pass"
+    },
+    "visual_review": {
+      "status": "passed",
+      "scope": [
+        "2048x1320 light",
+        "1440x900 dark"
+      ],
+      "layout_note": "One coherent reflow removed the blocked route. Small desktop view uses declared vertical scrolling."
+    }
+  },
+  "tests": [
+    {
+      "name": "linux-full-before-merge",
+      "passed": 2510,
+      "skipped": 11,
+      "seconds": 626.44,
+      "status": "passed"
+    },
+    {
+      "name": "clean-committed-linux-install-before-merge",
+      "passed": 40,
+      "status": "passed",
+      "repository_revision": "26eacf1690dcadcf367a7abb7024816006294fd2"
+    },
+    {
+      "name": "windows-integrated-contracts-source-supplements-import",
+      "passed": 84,
+      "seconds": 500.29,
+      "status": "passed",
+      "repository_revision": "6a8646a36f680705479a7669350fd8793551cc74"
+    },
+    {
+      "name": "windows-export-before-merge",
+      "passed": 112,
+      "skipped": 2,
+      "status": "passed"
+    },
+    {
+      "name": "windows-isolated-cli-before-merge",
+      "passed": 12,
+      "status": "passed"
+    },
+    {
+      "name": "linux-integrated-full",
+      "status": "passed",
+      "repository_revision": "6a8646a36f680705479a7669350fd8793551cc74",
+      "passed": 2533,
+      "skipped": 11,
+      "seconds": 719.71,
+      "clean_committed_archive": true
+    },
+    {
+      "name": "windows-full-attempt-before-merge",
+      "status": "interrupted",
+      "reason": "Stopped to integrate newly merged main; not full-suite pass evidence."
+    },
+    {
+      "name": "windows-rocm-baseline-reproduction",
+      "status": "baseline-failure-reproduced",
+      "failed": 3,
+      "repository_revision": "bab5998dd5235a7687b479e96edf16f9ed76c7ba"
+    }
+  ],
+  "checks": {
+    "ruff_E9": "passed",
+    "compileall": "passed",
+    "uv_lock_official_index": "passed",
+    "committed_schema_bytes": "passed",
+    "source_evidence_ranges": "passed",
+    "git_diff_check": "passed"
+  },
+  "mutation": {
+    "scope": "isolated copy; invert registered fingerprint comparison",
+    "expected_failure": "DID NOT RAISE SnapshotDatabaseError",
+    "mutant_failed": true,
+    "original_test_passed": true
+  },
+  "review": {
+    "axes": [
+      "correctness",
+      "readability",
+      "architecture",
+      "security",
+      "performance"
+    ],
+    "notes": [
+      "Registry has no service/storage runtime imports.",
+      "Packaged references resolve offline; errors omit rejected values.",
+      "Catalog structure validates once, then domain relations; validators are cached.",
+      "Preserve committed bytes, historical IDs/hashes, and independent fixture.",
+      "New source supplement policy has independent pins; four original pins remain unchanged."
+    ]
+  },
+  "not_verified": [
+    "live upstream APIs",
+    "GPU inference",
+    "paid model calls",
+    "production archive migration"
+  ]
+}

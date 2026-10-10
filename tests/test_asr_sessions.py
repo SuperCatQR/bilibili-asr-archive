@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing
+import errno
 import os
 import signal
 import subprocess
@@ -206,6 +207,39 @@ def test_mismatched_late_response_cannot_be_consumed_by_a_new_request():
         session.close()
 
 
+def _process_is_live(pid):
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except (FileNotFoundError, ProcessLookupError):
+        # procfs can return ESRCH after open succeeds but before read finishes.
+        return False
+    # A zombie no longer executes or holds GPU state; init owns reaping.
+    return state != "Z"
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError(errno.ENOENT, "gone"),
+                                  ProcessLookupError(errno.ESRCH, "gone")])
+def test_process_probe_accepts_disappearance_during_read(monkeypatch, error):
+    def disappeared(_path):
+        raise error
+    monkeypatch.setattr(Path, "read_text", disappeared)
+    assert not _process_is_live(123)
+
+
+@pytest.mark.parametrize("state,live", [("S", True), ("R", True), ("Z", False)])
+def test_process_probe_distinguishes_live_and_zombie_states(monkeypatch, state, live):
+    monkeypatch.setattr(Path, "read_text", lambda _: f"123 (worker with ) spaces) {state} 1 2 3")
+    assert _process_is_live(123) is live
+
+
+def test_process_probe_does_not_hide_permission_failures(monkeypatch):
+    def denied(_path):
+        raise PermissionError(errno.EACCES, "denied")
+    monkeypatch.setattr(Path, "read_text", denied)
+    with pytest.raises(PermissionError):
+        _process_is_live(123)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX owned process group cleanup")
 def test_crashed_session_leader_reaps_its_remaining_decoder_process(tmp_path):
     session = AsrInferenceSession(runner_factory=ProcessRunner)
@@ -216,11 +250,7 @@ def test_crashed_session_leader_reaps_its_remaining_decoder_process(tmp_path):
         decoder_pid = int(child_file.read_text())
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
-            try:
-                state = Path(f"/proc/{decoder_pid}/stat").read_text().split()[2]
-            except FileNotFoundError:
-                break
-            if state == "Z":
+            if not _process_is_live(decoder_pid):
                 break
             time.sleep(0.02)
         else:
@@ -251,12 +281,7 @@ def test_parent_sigkill_during_inference_does_not_leave_live_child():
         deadline = time.monotonic() + 5
         live = True
         while time.monotonic() < deadline:
-            try:
-                with open(f"/proc/{child_pid}/stat") as stream:
-                    # A zombie is no longer executing or holding GPU state; init owns reaping.
-                    live = stream.read().split()[2] != "Z"
-            except FileNotFoundError:
-                live = False
+            live = _process_is_live(child_pid)
             if not live:
                 break
             time.sleep(0.05)
@@ -289,11 +314,7 @@ def test_parent_sigkill_while_model_holds_gil_cleans_gpu_and_decoder(tmp_path):
         for pid in (gpu_pid, decoder_pid):
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                try:
-                    state = Path(f"/proc/{pid}/stat").read_text().split()[2]
-                except FileNotFoundError:
-                    break
-                if state == "Z":
+                if not _process_is_live(pid):
                     break
                 time.sleep(0.02)
             else:

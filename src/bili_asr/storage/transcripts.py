@@ -407,7 +407,8 @@ class TranscriptRepository:
 
         evidence_json = None
         if asr_evidence is not None:
-            if asr_evidence.get("schema_version") != 1:
+            from bili_asr.contracts.registry import ASR_EVIDENCE_VERSION
+            if asr_evidence.get("schema_version") != ASR_EVIDENCE_VERSION:
                 raise ValueError("unsupported ASR evidence schema")
             evidence_json = json.dumps(dict(asr_evidence), ensure_ascii=False, sort_keys=True, allow_nan=False)
 

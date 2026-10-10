@@ -9,3 +9,10 @@ docs/sequences/2[0-3]-*.html -text -diff -whitespace
 docs/sequences/2[0-3]-*.json -text -whitespace
 docs/issue-diagram-validation/*.json -text -whitespace
 docs/issue-diagram-validation/**/*.json -text -whitespace
+
+# Contract documentation is a byte-identical mirror of packaged resources.
+src/bili_asr/contracts/schemas/*.json -text
+docs/contracts/*.schema.json -text
+docs/contracts/registry.json -text
+docs/contract-governance.json -text
+docs/contract-governance.html -text -diff -whitespace

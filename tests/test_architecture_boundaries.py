@@ -61,3 +61,10 @@ def test_executor_and_parser_have_no_back_edge_to_their_consumers():
     assert "bili_asr.storage.workflow" not in imports(SOURCE / "workflow.py")
     assert "bili_asr.quality" not in imports(SOURCE / "cues.py")
     assert "bili_asr.asr.runner" not in imports(SOURCE / "asr" / "provenance.py")
+
+
+def test_contracts_do_not_import_database_adapters_or_application_owners():
+    forbidden = ("bili_asr.storage", "bili_asr.services", "bili_asr.sources", "bili_asr.cli",
+                 "bili_asr.workflow_runtime", "bili_asr.editorial_runtime", "sqlite3", "requests")
+    assert [(path.name, target) for path in (SOURCE / "contracts").glob("*.py")
+            for target in imports(path) if any(target == name or target.startswith(name + ".") for name in forbidden)] == []
