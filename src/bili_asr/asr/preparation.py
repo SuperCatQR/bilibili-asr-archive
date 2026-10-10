@@ -43,15 +43,35 @@ class PreparedInput:
     finished: float
 
 
+class ProcessorReuse:
+    """Hold one independent processor only inside a two-pass task scope."""
+
+    def __init__(self):
+        self.source = None
+        self.processor = None
+
+    def get(self, source: Any) -> Any:
+        return self.processor if self.source is source else None
+
+    def remember(self, source: Any, processor: Any) -> None:
+        self.source, self.processor = source, processor
+
+    def close(self) -> None:
+        self.source = self.processor = None
+
+
 class InputPrefetch:
     """The preparation thread returns data; only the caller updates evidence."""
 
-    def __init__(self, processor: Any, prepare: Callable, *, enabled: bool, budget_bytes: int):
+    def __init__(self, processor: Any, prepare: Callable, *, enabled: bool, budget_bytes: int,
+                 processor_reuse: ProcessorReuse | None = None):
         self.prepare = prepare
         self.budget = budget_bytes
         self.pool = None
         self.processor = None
         self._source_processor = processor if enabled else None
+        self._processor_reuse = processor_reuse
+        self._started = False
         self.pending = None
         self.entry = None
         self.peak_bytes = 0
@@ -62,24 +82,33 @@ class InputPrefetch:
             "first_chunk_serial": True,
             "fallback": None, "fallback_counts": {}, "input_wait_s": 0.0,
             "processor_clone_attempts": 0, "processor_clone_s": 0.0,
+            "processor_reused": False,
             "chunks": [],
             "memory_scope": "extra_prepared_input_not_total_rss_or_processor_temporaries",
         }
 
     def _start(self) -> None:
-        if self.report["processor_clone_attempts"]:
+        if self._started:
             return
+        self._started = True
         started = time.perf_counter()
-        self.report["processor_clone_attempts"] += 1
         try:
-            self.processor = copy.deepcopy(self._source_processor)
+            if self._processor_reuse is not None:
+                self.processor = self._processor_reuse.get(self._source_processor)
+            self.report["processor_reused"] = self.processor is not None
+            if self.processor is None:
+                self.report["processor_clone_attempts"] += 1
+                self.processor = copy.deepcopy(self._source_processor)
             self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="asr-cpu-input")
+            if self._processor_reuse is not None:
+                self._processor_reuse.remember(self._source_processor, self.processor)
         except Exception:  # noqa: BLE001 - unsupported processors retain serial execution.
             self.processor = None
             self.report["fallback"] = "processor_not_cloneable"
         finally:
             self._source_processor = None
-            self.report["processor_clone_s"] = time.perf_counter() - started
+            if self.report["processor_clone_attempts"]:
+                self.report["processor_clone_s"] = time.perf_counter() - started
 
     def _fallback(self, entry: dict, reason: str) -> None:
         entry["fallback"] = reason
@@ -154,6 +183,7 @@ class InputPrefetch:
 
     def close(self) -> None:
         self._source_processor = None
+        self._processor_reuse = None
         if self.pool is None:
             return
         self.pool.shutdown(wait=True, cancel_futures=True)

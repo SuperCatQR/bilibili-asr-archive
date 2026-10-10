@@ -178,6 +178,99 @@ def test_failed_lazy_clone_is_not_retried_and_budget_rejections_keep_their_reaso
     assert prefetch.pool is prefetch.processor is prefetch._source_processor is None
 
 
+def test_two_pass_prefetch_reuses_clone_and_refreshes_prompt_between_passes_and_tasks(monkeypatch):
+    import bili_asr.asr.preparation as module
+    runner, _ = _runner(monkeypatch, text="今天。", hotwords=("今天",), chunk_seconds=1)
+    runner.configure_prefetch(enabled=True)
+    clones = []
+    original_copy = module.copy.deepcopy
+    def clone(source):
+        value = original_copy(source)
+        clones.append(value)
+        return value
+    monkeypatch.setattr(module.copy, "deepcopy", clone)
+    for task in range(2):
+        result = two_pass_transcribe(runner, "/virtual/input", paired_subtitle_text=None)
+        assert result and len(clones) == task + 1
+        assert clones[-1] is not runner._get_models().processor
+        # The first pass has no admitted hotwords; the second uses fresh evidence.
+        assert [x["prompt"] for x in clones[-1].requests[-4:]] == [None, None, "Vocabulary: 今天", "Vocabulary: 今天"]
+        reports = runner.diagnostics()["passes"]
+        assert [p["prefetch"]["processor_clone_attempts"] for p in reports] == [1, 0]
+        assert [p["prefetch"]["processor_reused"] for p in reports] == [False, True]
+        assert reports[1]["prefetch"]["processor_clone_s"] == 0
+        assert runner._prefetch_processor_reuse is runner._prepared_audio is None
+    assert clones[0] is not clones[1]
+
+
+@pytest.mark.parametrize("stage", ["decode", "rebuild"])
+def test_two_pass_prefetch_failure_releases_clone_before_next_task(monkeypatch, stage):
+    import bili_asr.asr.preparation as module
+    runner, _ = _runner(monkeypatch, text="今天。", hotwords=("今天",), chunk_seconds=1)
+    runner.configure_prefetch(enabled=True)
+    scopes = []
+    remember = module.ProcessorReuse.remember
+    def observe(scope, source, processor):
+        scopes.append(scope)
+        return remember(scope, source, processor)
+    monkeypatch.setattr(module.ProcessorReuse, "remember", observe)
+    name = "_transcribe_chunk" if stage == "decode" else "rebuild_hotwords_from_first_pass"
+    original = getattr(runner, name)
+    def fail(*args, **kwargs):
+        raise RuntimeError("injected two-pass failure")
+    monkeypatch.setattr(runner, name, fail)
+    with pytest.raises(RuntimeError):
+        two_pass_transcribe(runner, "/virtual/input", paired_subtitle_text=None)
+    assert scopes and scopes[0].processor is scopes[0].source is None
+    assert runner._prefetch_processor_reuse is None
+    monkeypatch.setattr(runner, name, original)
+    two_pass_transcribe(runner, "/virtual/input", paired_subtitle_text=None)
+    assert [p["prefetch"]["processor_clone_attempts"] for p in runner.diagnostics()["passes"]] == [1, 0]
+
+
+def test_reuse_with_changed_source_clones_new_processor_and_release_clears_scope(monkeypatch):
+    import numpy as np
+    import bili_asr.asr.preparation as module
+    reuse = module.ProcessorReuse()
+    sources = [object(), object()]
+    clones = []
+    def clone(source):
+        clones.append(source)
+        return object()
+    monkeypatch.setattr(module.copy, "deepcopy", clone)
+    for source in sources:
+        prefetch = module.InputPrefetch(source, lambda _, audio: {"waveform": audio.copy()},
+            enabled=True, budget_bytes=256, processor_reuse=reuse)
+        try:
+            prefetch.submit(1, np.zeros(1, dtype=np.float32))
+            assert prefetch.consume()[0] is not None
+            assert prefetch.report["processor_reused"] is False
+        finally:
+            prefetch.close()
+    assert clones == sources
+    reuse.close()
+    assert reuse.source is reuse.processor is None
+    runner, _ = _runner(monkeypatch)
+    with runner.audio_reuse():
+        scope = runner._prefetch_processor_reuse
+        scope.remember(sources[0], object())
+        runner.release()
+        assert scope.source is scope.processor is None
+    assert runner._prefetch_processor_reuse is None
+
+
+def test_nested_two_pass_reuse_is_rejected_without_clearing_outer_scope(monkeypatch):
+    runner, _ = _runner(monkeypatch)
+    with runner.audio_reuse():
+        scope = runner._prefetch_processor_reuse
+        with pytest.raises(RuntimeError, match="already active"):
+            with runner.audio_reuse():
+                pytest.fail("nested scope must not enter")
+        assert runner._prefetch_processor_reuse is scope
+        assert runner._audio_reuse_scope is True
+    assert runner._prefetch_processor_reuse is None
+
+
 def test_uncloneable_processor_falls_back_without_changing_cues(monkeypatch):
     runner, _ = _runner(monkeypatch, text="今天。", chunk_seconds=1)
     expected = runner.transcribe("/virtual/input")

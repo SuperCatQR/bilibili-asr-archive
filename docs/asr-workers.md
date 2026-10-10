@@ -52,6 +52,8 @@ bili-asr workflow supervise --archive-root /srv/archive \
 
 `--asr-prefetch` 默认关闭，开启后只预备下一块 CPU processor 输入，深度固定为 1，当前 GPU decode/align 仍串行。准备线程使用单独复制的 processor，避免与主线程 decode/tokenizer 操作共享可变状态。无法复制时退回串行。`--asr-prefetch-bytes` 默认 64 MiB；按 waveform ×64 做保守输入预留，并检查返回 CPU tensors 的实测字节，超过预算的输入不保留为预取结果，转串行。诊断记录 decoded waveform bytes、prepared input 峰值、提交数、等待与退回原因。
 
+同一任务的两遍转写可复用该独立 processor：第一遍线程池完全退出后，第二遍才重新创建准备线程并使用 clone；每块输入及第二遍热词 prompt 仍重新构建。复用仅存在于 `two_pass_transcribe` 的任务作用域，成功、异常和 release 均清理保留引用，后续任务重新克隆。普通单遍调用按原生命周期执行；诊断 `processor_reused` 标明本遍是否命中任务内复用，命中时 `processor_clone_attempts=0`、`processor_clone_s=0`。
+
 这个预算约束额外准备的输入，不是整个进程 RSS 的硬上限。模型、完整音频、processor clone、第三方 processor 暂态分配和 RF64 解码临时文件仍须纳入真实基准资源测量；特别长音频或自定义 processor 应保持串行。没有预读未 claim 的下一条任务，跨任务 ownership 不被绕过。
 
 ### 准入与对齐诊断（#295 / #299）

@@ -21,7 +21,7 @@ import bili_asr.asr.diagnostics as _dependency_diagnostics
 import bili_asr.asr.errors as _dependency_errors
 import bili_asr.asr.hotwords as _dependency_hotwords
 from bili_asr.asr.provenance import _redact
-from bili_asr.asr.preparation import InputPrefetch
+from bili_asr.asr.preparation import InputPrefetch, ProcessorReuse
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -271,6 +271,7 @@ class ASRRunner:
         self._prepared_audio = None
         self._prefetch_enabled = False
         self._prefetch_bytes = 64 * 1024 * 1024
+        self._prefetch_processor_reuse = None
         self._trace: list[dict[str, Any]] | None = None
         self._trace_origin = 0.0
         self._trace_chunk_index = None
@@ -283,12 +284,18 @@ class ASRRunner:
 
     @contextmanager
     def audio_reuse(self):
-        """Keep decoded samples only for this two-pass task and clear on every exit."""
+        """Keep audio and an isolated CPU processor only for this two-pass task."""
+        if self._audio_reuse_scope:
+            raise RuntimeError("two-pass reuse scope is already active")
         self._audio_reuse_scope = True
         self._prepared_audio = None
+        processor_reuse = ProcessorReuse()
+        self._prefetch_processor_reuse = processor_reuse
         try:
             yield
         finally:
+            processor_reuse.close()
+            self._prefetch_processor_reuse = None
             self._prepared_audio = None
             self._audio_reuse_scope = False
 
@@ -592,7 +599,8 @@ class ASRRunner:
             languages: set[str] = set()
             prefetch = InputPrefetch(models.processor if self._prefetch_enabled else None,
                 lambda processor, audio: self._prepare_decode_inputs(processor, audio, record_trace=False),
-                enabled=self._prefetch_enabled, budget_bytes=self._prefetch_bytes)
+                enabled=self._prefetch_enabled, budget_bytes=self._prefetch_bytes,
+                processor_reuse=self._prefetch_processor_reuse)
             report["prefetch"] = prefetch.report
             report["resources"] = {"decoded_waveform_bytes": int(samples.nbytes),
                                    "prefetch_input_peak_bytes": 0, "prefetch_memory_bound": "reservation_and_observed_input"}
@@ -708,6 +716,8 @@ class ASRRunner:
 
         self._models = None
         self._prepared_audio = None
+        if self._prefetch_processor_reuse is not None:
+            self._prefetch_processor_reuse.close()
 
     def prepare(self, audio_path: str | None = None) -> dict[str, Any]:
         """Load both models and optionally run an explicit, non-business sentinel."""
