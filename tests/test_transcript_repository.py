@@ -1085,8 +1085,8 @@ def test_constructor_refuses_a_legacy_database_with_the_bounded_error(tmp_root):
             TranscriptRepository(connection)
         message = str(refused.value)
         assert "transcript schema contract missing" in message
-        assert "delete archive.db and re-run fetch-meta" in message
-        assert "discarded" in message and "recollected" in message
+        assert "preserve archive.db and its artifacts" in message
+        assert "migration-preflight" in message and "separate empty target" in message
     finally:
         connection.close()
 

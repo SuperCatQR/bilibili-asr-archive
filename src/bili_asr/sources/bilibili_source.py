@@ -17,6 +17,7 @@ from bili_asr.platform_identity import ContentRef, require_platform
 from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayShapeError,
+    SubtitleBodyRead,
     SubtitleSegment,
     SubtitleTrack,
     VideoPart,
@@ -78,6 +79,18 @@ class BilibiliSubtitleSource:
     ) -> tuple[SubtitleSegment, ...]:
         cid = self._cid(ref)
         return await self._gateway.fetch_subtitle_segments(track, ref.external_video_id, cid)
+
+    async def read_body(self, track: SubtitleTrack, ref: ContentRef) -> SubtitleBodyRead:
+        cid = self._cid(ref)
+        reader = getattr(self._gateway, "read_subtitle_body", None)
+        if reader is not None:
+            return await reader(track, ref.external_video_id, cid)
+        # Older injected gateways have a strict nonempty contract. Their empty
+        # tuple cannot prove that a raw document was legally empty.
+        segments = await self.fetch_segments(track, ref)
+        if not segments:
+            raise GatewayShapeError()
+        return SubtitleBodyRead(segments, len(segments))
 
     async def verify_access(self, ref: ContentRef) -> SourceAccessObservation:
         self._cid(ref)

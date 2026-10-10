@@ -17,25 +17,34 @@ from bili_asr.archive import archive_bundle_complete, bundle_relpaths_for_stem
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveContract, open_archive_connection
 from bili_asr.formatting import pubdate_utc
-from bili_asr.page_identity import PageIdentity, artifact_stem
+from bili_asr.platform_identity import ContentRef
+from bili_asr.source_identity import artifact_stem, display_work_id
+from bili_asr.storage.archive_contracts import UNIVERSAL_V2, runtime_contract
+from bili_asr.storage.metadata import MetadataRepository
 from bili_asr.transcript_selection import choose_transcript
 
 WORKFLOW_STATUSES = frozenset({"meta_ok", "subtitle_done", "asr_done", "archived"})
 _PART_READ_BATCH_SIZE = 256
 
 
-def _part_batches(connection: sqlite3.Connection) -> Iterator[list[sqlite3.Row]]:
+def _part_batches(connection: sqlite3.Connection, *, universal: bool) -> Iterator[list[sqlite3.Row]]:
+    query = (
+        """SELECT video_part_id, bvid, page_index, cid, title AS part_title,
+                  duration_ms, video_title, pubdate, platform, external_video_id
+           FROM v_source_parts WHERE processing_status <> 'gone' AND video_part_id > ?
+           ORDER BY video_part_id LIMIT ?"""
+        if universal else
+        """SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.cid,
+                  vp.title AS part_title, vp.duration_ms, v.title AS video_title,
+                  v.pubdate, 'bilibili' AS platform, vp.bvid AS external_video_id
+           FROM video_parts AS vp JOIN videos AS v ON v.bvid = vp.bvid
+           WHERE vp.processing_status <> 'gone' AND vp.video_part_id > ?
+           ORDER BY vp.video_part_id LIMIT ?"""
+    )
     after_id = 0
     while True:
         rows = connection.execute(
-            """
-            SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.cid,
-                   vp.title AS part_title, vp.duration_ms, v.title AS video_title,
-                   v.pubdate
-            FROM video_parts AS vp JOIN videos AS v ON v.bvid = vp.bvid
-            WHERE vp.processing_status <> 'gone' AND vp.video_part_id > ?
-            ORDER BY vp.video_part_id LIMIT ?
-            """,
+            query,
             (after_id, _PART_READ_BATCH_SIZE),
         ).fetchall()
         if not rows:
@@ -142,10 +151,14 @@ def workflow_records(
     )
     try:
         connection.execute("BEGIN")
+        universal = runtime_contract(connection) == UNIVERSAL_V2
+        metadata_repository = MetadataRepository(connection) if universal else None
         records: dict[str, dict[str, Any]] = {}
-        order: dict[str, tuple[int, str, int]] = {}
-        for parts in _part_batches(connection):
+        order: dict[str, tuple[int, str, str, int]] = {}
+        for parts in _part_batches(connection, universal=universal):
             part_ids = tuple(int(part["video_part_id"]) for part in parts)
+            metadata_snapshots = (metadata_repository.read_source_metadata_many(part_ids)
+                                  if metadata_repository is not None else {})
             preferred = _preferred_transcripts(connection, part_ids)
             publications = _latest_publications(connection, part_ids)
             publication_errors = {
@@ -164,21 +177,18 @@ def workflow_records(
             )) if with_text else {}
             for part in parts:
                 part_id = int(part["video_part_id"])
-                identity = PageIdentity(
-                    work_id=f"{part['bvid']}:p{part['page_index']}",
-                    bvid=str(part["bvid"]), page_index=int(part["page_index"]),
-                    cid=int(part["cid"]), page_label=str(part["part_title"]),
-                )
+                identity = ContentRef(str(part["platform"]), str(part["external_video_id"]), int(part["page_index"]))
+                work_id = display_work_id(identity)
                 transcript = transcripts[part_id]
                 current = preferred.get(part_id)
                 publication = publications.get(part_id)
                 publication_error = publication_errors.get(part_id)
                 entry: dict[str, Any] = {
-                    "work_id": identity.work_id, "bvid": identity.bvid,
-                    "page_index": identity.page_index, "cid": identity.cid,
+                    "work_id": work_id, "bvid": part["bvid"],
+                    "page_index": identity.part_index, "cid": part["cid"],
                     "title": str(part["part_title"]), "video_title": str(part["video_title"]),
                     "duration_s": max(0.001, int(part["duration_ms"]) / 1000),
-                    "pubdate_str": pubdate_utc(int(part["pubdate"])),
+                    "pubdate_str": "" if part["pubdate"] is None else pubdate_utc(int(part["pubdate"])),
                     **_identity_fields(transcript),
                     **_identity_fields(current, "preferred_"),
                     **_identity_fields(publication, "published_"),
@@ -188,6 +198,12 @@ def workflow_records(
                         and publication["transcript_id"] == current["transcript_id"]
                     ),
                 }
+                if identity.platform != "bilibili":
+                    entry.update(platform=identity.platform, external_video_id=identity.external_video_id)
+                if universal:
+                    metadata = metadata_snapshots[part_id].to_dict()
+                    entry.update(pubdateUnix=metadata["pubdateUnix"], sourcePublishedAt=metadata["sourcePublishedAt"],
+                                 sourceMetadata=metadata)
                 if publication_error is not None:
                     entry["publication_error"] = publication_error
                 paths = bundle_relpaths_for_stem(artifact_stem(identity))
@@ -217,8 +233,8 @@ def workflow_records(
                     entry["status"] = "archived" if published else (
                         "asr_done" if transcript["source_kind"] == "asr-local" else "subtitle_done"
                     )
-                records[identity.work_id] = entry
-                order[identity.work_id] = (-int(part["pubdate"]), identity.bvid, identity.page_index)
+                records[work_id] = entry
+                order[work_id] = (-int(part["pubdate"] or 0), identity.platform, identity.external_video_id, identity.part_index)
         return dict(sorted(records.items(), key=lambda item: order[item[0]]))
     finally:
         connection.close()

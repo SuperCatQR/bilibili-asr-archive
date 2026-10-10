@@ -113,8 +113,9 @@ def connect_database(
 
 def _rebuild_error(detail: str) -> SchemaContractError:
     return SchemaContractError(
-        f"incompatible archive database ({detail}); delete archive.db and re-run fetch-meta. "
-        "Old database data is discarded and must be recollected; migrations are not supported."
+        f"incompatible archive database ({detail}); preserve archive.db and its artifacts. "
+        "Use archive migration-preflight and explicit archive migrate into a separate empty target "
+        "for a supported legacy contract; ordinary access never upgrades or deletes an archive."
     )
 
 
@@ -459,6 +460,10 @@ def _normalize_manuscript_sql(sql: str) -> str:
 
 def require_manuscript_schema(connection: sqlite3.Connection) -> None:
     """Reject missing, legacy or altered manuscript contracts using reads only."""
+    from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
+    if runtime_contract(connection) == UNIVERSAL_V2:
+        require_universal_contract(connection)
+        return
     expected = _manuscript_schema_objects()
     actual = {
         str(row[0]): (str(row[1]), str(row[2]))
@@ -524,6 +529,10 @@ def _shipped_table_contract() -> dict[str, str]:
 
 def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     """Bootstrap fresh databases; refuse incompatible tables before any DDL."""
+    from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
+    if runtime_contract(connection) == UNIVERSAL_V2:
+        require_universal_contract(connection)
+        return connection
     accepts_manuscripts = _accepts_manuscript_script(connection)
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
@@ -544,6 +553,10 @@ def require_archive_schema(connection: sqlite3.Connection, *, allow_empty: bool 
     compatibility accepted by explicit bootstrap. Missing manuscript tables
     remain a separate command contract, not an implicit schema upgrade.
     """
+    from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
+    if runtime_contract(connection) == UNIVERSAL_V2:
+        require_universal_contract(connection)
+        return
     accepts_manuscripts = _accepts_manuscript_script(connection)
     tables = {name: _normalize_view_sql(sql) for name, sql in connection.execute(
         "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"

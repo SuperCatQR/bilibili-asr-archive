@@ -14,6 +14,8 @@ from bili_asr.manuscript_files import stage_artifact
 from bili_asr.storage.editorial import EditorialRepository
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
 from bili_asr.workflow_payloads import decode_job_payload
+from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
+from bili_asr.storage.archive_contracts import frozen_version
 
 
 class EditorialWorkflowHandlers:
@@ -64,17 +66,19 @@ class EditorialWorkflowHandlers:
         decode_job_payload(job)
         self.workflow.assert_lease(job)
         template = job.payload["template_version"]
-        if template != TEMPLATE_VERSION:
-            raise ValueError("unsupported document template version")
         revision_id = str(job.payload["revision_id"]) if "revision_id" in job.payload else self.repository.revision_for_job(
             str(job.payload["proofread_job_id"]))
         prepared, blocks = self.repository.revision(revision_id)
+        version = frozen_version(self.repository.connection, "input", prepared["input_id"])
+        expected_template = "ai-draft-v2" if version == 2 else TEMPLATE_VERSION
+        if template != expected_template:
+            raise ValueError("unsupported document template version for frozen input")
         part_id = prepared["snapshot"]["video_part_id"]
         if part_id != job.video_part_id:
             raise ValueError("revision belongs to a different part")
         metadata = prepared["snapshot"]["metadata"]
-        documents = render_documents(metadata, prepared, blocks, revision_id)
-        relative = Path("documents") / f"part-{part_id}" / revision_id / TEMPLATE_VERSION
+        documents = renderer_for(AI_RENDERERS, template)(metadata, prepared, blocks, revision_id)
+        relative = Path("documents") / f"part-{part_id}" / revision_id / template
         write_root = self.artifact_roots.write_base
         artifacts = {
             name: ((relative / name).as_posix(), hashlib.sha256(content.encode("utf-8")).hexdigest())

@@ -1890,18 +1890,10 @@ def test_all_null_observation_writes_no_row_for_a_video_that_has_none(tmp_root):
 def test_partial_observation_refreshes_only_the_values_it_carried(
     tmp_root, _ingest_clock
 ):
-    """One observed value is enough to refresh the row, NULLs included (D15).
+    """A partial source response refreshes observed fields and preserves others.
 
-    The guard's condition is "observed **at least one** of the three", not "all
-    three": an item carrying only ``pic`` is a successful observation and the
-    row is refreshed to exactly what it carried, so a field upstream really did
-    drop does not survive as a stale value.  This is the arm that keeps D15
-    from being read as "never overwrite a populated column".
-
-    The stamp is asserted too, because a partial observation is an observation
-    (D11's "a later collection overwrites it"): a guard that advanced
-    ``observed_at`` only on a *full* observation would satisfy every value
-    assertion above while leaving the row claiming the older collection.
+    Explicit empty-field observations are tested through the typed refresh
+    service. Missing optional list keys cannot retract existing metadata.
     """
 
     gateway = FakeGateway()
@@ -1934,8 +1926,8 @@ def test_partial_observation_refreshes_only_the_values_it_carried(
         assert first is not None
         assert stored[:3] == (
             "http://i1.hdslb.com/bfs/archive/new.jpg",
-            None,
-            None,
+            first[1],
+            first[2],
         )
         assert stored[3] > first[3], (
             "a partial observation is still an observation: the stamp moves"

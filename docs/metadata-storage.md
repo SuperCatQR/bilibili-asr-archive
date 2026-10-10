@@ -62,14 +62,16 @@ session 默认核对 runtime 契约，稿件操作增加 `MANUSCRIPT` 契约检�
 | `schema-workflow.sql` 的 `workflow_asr_profile_configs` | 完整有效 ASR 配置的不可变快照与 schema version。 |
 | [`schema-editorial.sql`](../src/bili_asr/storage/schema-editorial.sql) | 校对输入快照、API 调用、chunks、revision 和渲染产物等独立编辑数据；见 AI 校对指南。 |
 
-`BOOTSTRAP` 按四份 SQL 建立新数据库的完整 schema。已有数据库先从当前 SQL 推导表契约并核对产品表；旧字段或约束不符在修改 schema 前失败。当前有明确的新增观察表例外：兼容数据库缺少 `video_tag_observations` 时，只在显式 bootstrap 路径补建，不改写 tags 或稿件；其他必需表缺失仍拒绝。兼容数据库中的派生视图也只在 bootstrap 刷新，普通 READ/WRITE 的开库阶段保留原有视图定义与数据库字节。
+默认 `BOOTSTRAP` 按四份 SQL 建立 `bilibili-v1` 数据库。已有数据库先从所声明的契约推导表结构并核对产品表；旧字段或约束不符在修改 schema 前失败。兼容 v1 数据库缺少 `video_tag_observations` 时，只在显式 bootstrap 路径补建，不改写 tags 或稿件；其他必需表缺失仍拒绝。兼容数据库中的派生视图也只在 bootstrap 刷新，普通 READ/WRITE 的开库阶段保留原有视图定义与数据库字节。
 
-当前四份 schema 共 38 张持久表、8 个视图；完整字段、外键及按需创建的 FTS 虚拟表/水位表见[架构源码与覆盖清单](architecture-sources.md)。
+`archive init --target-root NEW_ROOT` 显式建立 `universal-v2`：新增真实 `source_creators/source_videos`，分 P 关联通用 source video，Bilibili 兼容字段保留，其他平台 `bvid/cid` 为 NULL；并安装内容 v2 与平台/元数据观察资源。该目标使用独立的版本契约校验，普通读取与 `fetch-meta` 不把 v1 就地升级成 v2。元数据的 `source_metadata_observations` 与 `metadata_refresh_attempts` 仅属于显式 v2 目标，不能向冻结旧源库补表后声称旧源契约未变。
+
+默认 Bilibili 四份 schema 共 38 张持久表、8 个视图；通用 v2 另有版本化扩展。完整字段、外键及按需创建的 FTS 虚拟表/水位表见[架构源码与覆盖清单](architecture-sources.md)。
 原始标签观察的 success_nonempty/success_empty/unavailable 与已存集合分别保存；不可用观察保留旧集合。
 
-当前不支持旧数据库迁移或自动 `ALTER TABLE` 补列。不兼容时提示 `delete archive.db and re-run fetch-meta`；应先停止 worker、备份数据库和必要文件，再由操作者重建。重建会丢失原数据库中的转录、任务、校对与审核历史；备份与重建步骤见 [取消指南](workflow-cancellation.md)。
+当前不对旧数据库自动 `ALTER TABLE` 补列。固定旧源可通过 `archive migration-preflight` 只读预检，再用 `archive migrate --source-root OLD_ROOT --target-root NEW_ROOT` 向独立空目标转换；迁移与 `migration-check` 校验旧权威数据、冻结内容、审核和产物。源须停止写入并 checkpoint，源和目标不得重叠。直接删除重建会丢失转录、任务、校对与审核历史，不是保真升级流程。
 
-`status`、`runs`、`workflow status`、`workflow explain` 与 `workflow asr-evidence` 使用 READ，数据库缺失时给出 bounded 诊断并退出 `1`，不创建数据库、不刷新派生视图。普通 search/export/coverage/verify 同样是数据库读者。`fetch-meta` 与 `fetch-tags` 显式选择 BOOTSTRAP；工作流规划、执行、重试、取消和重新发布使用 WRITE。`search-index` 与 `search --rebuild` 显式更新派生索引；该索引应用的建库路径在归档缺失时明确选择 BOOTSTRAP，不能推广到普通搜索。
+`status`、`runs`、`workflow status`、`workflow explain` 与 `workflow asr-evidence` 使用 READ，数据库缺失时给出 bounded 诊断并退出 `1`，不创建数据库、不刷新派生视图。普通 search/export/coverage/verify 同样是数据库读者。分页 `fetch-meta` 与 `fetch-tags` 显式选择 BOOTSTRAP；`fetch-meta --bvid/--refresh-failed` 的定向补采要求已有库并使用 WRITE。工作流规划、执行、重试、取消和重新发布使用 WRITE。`search-index` 与 `search --rebuild` 显式更新派生索引；该索引应用的建库路径在归档缺失时明确选择 BOOTSTRAP，不能推广到普通搜索。
 
 ### 稿件契约
 
@@ -85,7 +87,7 @@ AI 输入与模型证据冻结在 `editorial_inputs`、`editorial_job_inputs`、
 
 源站 P1 对应数据库 `page_index=0`。分 P 的稳定身份为 `(bvid, page_index)`；`video_part_id` 是该数据库分配的内部主键，适合 CLI 精确选择与外键关联。`work_id` 派生为 `BV…:p0`，不存储在实体表；文件目录使用 `BV….p0`，避免将冒号放进路径。公开播放链接的 `?p=` 值为 `page_index + 1`。
 
-来源接口使用纯 [`ContentRef`](../src/bili_asr/platform_identity.py) 的 `(platform, external_video_id, part_index)` 身份；当前 Bilibili adapter 将它绑定到已存 `bvid/page_index/cid`，在网络调用前校验平台及分 P 一致性。`PageIdentity.content_ref` 等是只读派生属性，不增加数据库列、不改变旧 work ID、文件 key、source JSON 或内容 hash。完整来源端口约定见 [来源适配边界](source-adapters.md)。
+来源接口使用纯 [`ContentRef`](../src/bili_asr/platform_identity.py) 的 `(platform, external_video_id, part_index)` 身份；Bilibili adapter 将它绑定到已存 `bvid/page_index/cid`，在网络调用前校验平台及分 P 一致性。`PageIdentity.content_ref` 等是只读派生属性，不改变旧 work ID、文件 key、source JSON 或内容 hash。显式 v2 的 `SourceRepository` 则返回真实通用来源记录；YouTube 单个视频为一个零基处理单元，章节不构造分 P，也不伪造 BVID/CID。完整来源端口约定见 [来源适配边界](source-adapters.md)。
 
 时间戳为 Unix 整数秒，视频时长和转录时间轴为整数毫秒。外键默认 `ON DELETE RESTRICT`，存储 API 不通过删除旧版本来覆盖历史结果。
 
@@ -101,7 +103,7 @@ AI 输入与模型证据冻结在 `editorial_inputs`、`editorial_job_inputs`、
 
 `processing_status` 仅允许 `discovered`、`metadata_collected`、`gone`，表示元数据/可处理状态。`fetch-meta` 成功获取并校验分 P 后写入 `metadata_collected`。字幕和 ASR 结果存在独立表中，不将这个字段当作任务生命周期。
 
-重采集遵循实际 upsert 范围：视频更新标题及更新时间，首次非空 `aid` 会被保留；已有 `mid`、`pubdate` 不因后续 upsert 改写。分 P 更新标题、时长、processing status 及更新时间，保留已有身份与 `cid`。上游列表中某个视频或分 P 消失，不会仅因本次未看到它就自动删除或标记 `gone`。
+重采集更新视频标题及观察时间，首次非空 `aid` 保留，已有 owner 不被改绑。普通分页可用新正值补齐旧 `pubdate=0`，已知正值只有显式 summary refresh 才修正，传入 0 不覆盖已知正值。分 P 可刷新标题、时长与 processing status；同一零基位置出现不同 CID 时返回 `metadata_part_identity_conflict`，整页不提交。显式新列表缺少已经存在的位置时返回 `metadata_part_topology_changed`，不将旧转录重新绑定到另一段内容。上游本次未见的视频不自动删除或标记 `gone`。
 
 ### 元数据采集过程
 
@@ -131,6 +133,11 @@ run outcomes 为 `running`、`complete`、`limited`、`risk_interrupted`、`fail
 
 acquisition kind 支持 `subtitle`、`audio`、`asr`；selector 为 `pending`（target 为空）或 `bvid`（target 必须非空，可保存 `BVID:pN`）。当前 workflow 的 subtitle 和 ASR handlers 使用 acquisition runs；audio handler 将下载事实写到音频对象与工作流 attempt，不创建同样的 acquisition run/attempt。表支持某种 kind，不代表每条当前执行路径都会写它。
 
+显式 `universal-v2` 另允许 `source-ref` selector；YouTube 观察保存于独立
+`source_caption_observations`，包含 platform、part、run、policy version、access context
+和受限 provenance。`youtube-public-v1` 的已验证空 inventory 可建立该平台缺字幕证据，
+不设置 Bilibili 的 credential/absence verified 标志。Bilibili 原来的认证观察条件保持独立。
+
 acquisition run 的 outcome 为 `running`、`complete`、`partial`、`failed`；attempt 为 `stored`、`unchanged`、`no-subtitle`、`failed`。stored/unchanged 必须有 transcript ID 且无 error；failed 必须有 error 且无 transcript ID；no-subtitle 没有 transcript ID，只允许空 error 或 `not_found`。同一 run 对一个分 P 最多记录一行 attempt，重新尝试使用新 run。
 
 coverage 是某次 ASR run 的事实，不是转录内容身份。同一 cue 内容可复用版本，但不同录音时长仍可产生独立 coverage attestation。当前工作流将测量写入该表；不应仅因有存储 attestation 就假定所有发布 sidecar 都携带同样测量。
@@ -150,7 +157,7 @@ job statuses 为 `queued`、`running`、`succeeded`、`failed`、`cancelled`；a
 
 ## 元数据分页与恢复
 
-`fetch-meta` 默认 `mid=23191782`，每页请求 `PAGE_SIZE=30`，没有页大小 CLI 参数。省略 `--limit-pages` 使用 `10`，不会无限扫描。起始页优先级为显式 `--start-page`、已存游标的 `next_page`、第一页。`--resume` 与 `--start-page` 互斥；前者要求现有数据库且目标 mid 有游标。即使没有显式 `--resume`，省略 start page 仍会使用已有游标。
+`fetch-meta` 默认 `mid=23191782`，每页请求 `PAGE_SIZE=30`，没有页大小 CLI 参数。省略 `--limit-pages` 使用 `10`，不会无限扫描。起始页优先级为显式 `--start-page`、已存游标的 `next_page`、第一页。`--resume` 要求现有数据库且目标 mid 有游标；省略 start page 也会使用已有游标。`--incremental` 显式从第 1 页重新发现新上传，与 resume/start-page 互斥；恢复游标仅表示上次扫描位置，不能当作发现新视频的增量水位。
 
 每个 run 先独立提交父用户与 run 起点。所有当前页的网络读取完成后，`MetadataRepository.record_page()` 在一个写组内按顺序提交用户观察、videos、parts、标签集合、details、discoveries、cursor 和 page outcome。任一写入失败会回滚整个页，前面已成功提交的页保留。同页重复 BVID 共用 detail/parts 获取，discovery 主键去重；重复行最终保留后一次 source position。
 
@@ -164,13 +171,14 @@ job statuses 为 `queued`、`running`、`succeeded`、`failed`、`cancelled`；a
 
 `observed_total` 是该页响应报告的上游总数，可为空；它不是已抓取数量或完成证明。完成只由空列表决定，即使空页恰好落在页数上限，也记录 complete。run page count 包含空页和失败页请求，video count 来自该 run 的 distinct discoveries。
 
-`--page-retries N` 允许 `0` 到 `3` 次额外的视频列表页请求，默认 `0`。只重试 `GatewayRateLimited`、`GatewayTransportError`，等待依次为 30、60、120 秒；不重试 shape/authentication/其他 response failure，不为整个 detail/parts fan-out 增加通用重试。等待期间不写当前页载荷；最终失败仍进入上述证据路径。
+`--page-retries N` 允许 `0` 到 `5` 次额外的视频列表页请求，默认 `0`。只重试 `GatewayRateLimited`、`GatewayTransportError`，等待依次为 30、60、120、240、300 秒；不重试 shape/authentication/其他 response failure，不为整个 detail/parts fan-out 增加通用重试。等待与 rate-control 冷却由同一个请求协调器安排，重试消耗同一总预算；最终失败仍进入上述证据路径。
 
 `--skip-failed-page` 在非 rate-limit failure 后额外提交 cursor=`page+1`、state=`ready`，保留 failed page 的 error 和 failed run 的终态，然后退出 `2`。它也会跳过可能恢复的 transport failure；rate control 不能跳过。显式 `--start-page` 可回到跳过页，亦可向后移动已有游标。此选项不会把失败页认定为成功。
 
 ```sh
 bili-asr fetch-meta --archive-root archive --resume --limit-pages 10 --page-retries 2
 bili-asr fetch-meta --archive-root archive --start-page 3 --limit-pages 1
+bili-asr fetch-meta --archive-root archive --incremental --refresh-mode missing
 ```
 
 内部异常打印固定 `fetch-meta: unexpected error` 并退出 `2`。最后一次已提交页保留，run 可能停在 running；先用 `runs` 和 `status` 检查现有证据。`runs` 包含 running rows，按 started_at 降序、run_id 降序稳定列出，默认不限行数，`--limit` 必须为正整数。
@@ -179,9 +187,38 @@ bili-asr fetch-meta --archive-root archive --start-page 3 --limit-pages 1
 
 每页使用第一个非空 author 刷新上传者名称；未观察到名称的页保留旧值与时间戳。只要观察到名称，该页就执行 user upsert，即使名称相同也刷新 `updated_at`；它表示最近一次名称观察，不保证名称发生变化。run 开始时的 `ensure_user()` 只建立缺失的父记录，不改写既有名称。新建用户在还未观察到名称时可先保存 mid 占位值。
 
-标签是当前集合，成功空集合会清空旧标签；网关降级返回 `None` 或不可用 shape 时不提交该视频的标签变化。tag cache 每次 run 从空开始，至多保留 256 个近期 BVID 观察，包括降级答案；缓存驱逐后会再请求，当前页有独立答案集合以免驱逐影响该页持久化。因此跨 run/resume 可以重新读取同一视频标签，既有标签不充当当前新鲜度证明。
+标签是当前集合，成功空集合会清空旧标签；`TagRead(tags=None,error_code=...)` 或不可用 shape 保留旧集合。正式服务不读取共享 `tag_error_code` 属性。run 内 LRU 至多保留 256 个近期 BVID 观察，当前页仍有独立答案集合；跨 run 的策略使用观察状态与时间，不仅检查是否存在标签行。重用 parts/tags 不刷新其观察时间，也不伪造本次网络读取。
 
-`video_details` 保存最后一次可用观察，三项全为空时不写入，也不刷新 observed_at；至少一项可用时整行替换，未观察到的其他项写为 NULL。它既不是历史表，也不是逐字段 last-known-good 合并。`pic` 为库内封面 URL；当前通用 workflow export 不包含该字段。
+当前采集服务通过逐字段 `observe_video_details()` 合并最后可用事实：present 更新该字段、明确 empty 可清除该字段，missing/unavailable/denied 保留原值。普通列表已折叠为 None 的字段不被当作明确 empty；需要明确撤回证据时用定向 detail refresh。旧 `upsert_video_details()` 仍保留完整行写入契约供已有调用方使用，不据此解释当前采集服务。
+
+`--refresh-mode` 支持 `new`（只补新视频的 expensive 操作）、`missing`（补缺失或未成功观察）、`stale`（按 `--ttl-seconds` 判断成功观察是否过期）和 `force`（重新读取），默认 force 保留既有重采行为。分页列表仍会读取并保存本页提供的 summary；这些模式不省略发现页。v1 缺少可靠 summary 逐字段 last-success 时 stale 会保守重读，不能从普通 `updated_at` 推断完整详情已成功获取。
+
+### 定向补采、预算与失败重放
+
+```sh
+bili-asr fetch-meta --archive-root archive --bvid BV... --fields summary details --refresh-mode force
+bili-asr fetch-meta --archive-root archive --bvid BV... --fields parts tags --refresh-mode stale --ttl-seconds 86400
+bili-asr fetch-meta --archive-root universal-archive --refresh-failed
+```
+
+定向 BVID 必须已经归档；summary/details 共用一次 view 元数据，parts 优先复用该响应已校验的 pages，缺少时才请求 pagelist。每个成功 operation 独立事务提交，失败保留旧事实并输出 operation/state/error_code，不改分页游标。
+
+显式 v2 的 `source_metadata_observations` 保存字段 state、当前观察、last-success 和最后成功 value；`metadata_refresh_attempts` 追加 operation 尝试。失败补采按每个 BVID/operation 的最新失败选择，不因有更老成功就忽略失败。首次新视频在 page fan-out 失败时，ledger 在页载荷外保留安全 mid/page_number；`--refresh-failed` 整页重新采集，成功后解决对应失败。已有游标若已越过该页，则保留后续游标；源页变动后找不到原 BV 时保留 `metadata_retry_context_changed`，需要重新发现或人工确认，不能当作修复成功。
+
+默认 v1 不新增上述 observation 表，`--refresh-failed` 明确拒绝；可使用已打印的 BVID/operation 和 `--start-page` 重放，或先保真迁移到独立 v2 目标。attempt details 只保存受限代码、数值和安全标识，不保存 URL、路径、Cookie、正文或原始错误。
+
+`--request-budget` 默认 10000 次 gateway operation，`--request-timeout` 默认每次 30 秒，`--run-timeout` 默认 14400 秒。预算包括应用重试及凭据验证，SDK 内部子请求不逐个计数；它是单协调器内预算，不是跨进程总流量限制。30 个带 aid 的普通视频通常为 1 次列表、30 次 parts 和 30 次 tags；缺 aid/协作核验才增加 detail，既有事实与 view pages 的复用可进一步减少调用。tags 失败仍属于可选覆盖，但会记录并提示。
+
+### 发布时间与元数据快照
+
+`videos.pubdate` 保留 Unix 秒，正值通过 `pubdate_iso()` 输出 UTC RFC3339 完整时间；0 或未知输出 NULL，不推测成 1970 年。`MetadataRepository.read_source_metadata(part_id)` 返回版本化 `SourceMetadataSnapshot`，供 v2 workflow 投影、五产物包和新稿件内容使用，包含作者、原始发布时间、观察时间、简介、分区、源标签及允许的公共封面。
+
+通用投影使用 `read_source_metadata_many(part_ids)`，每次至多 256 个正整数 ID。
+来源/作者/详情与 Bilibili 标签分别用集合查询，多个分 P 共用一个视频标签结果；
+SQLite 中间集合与参数数量有界。调用方的单个读取事务保证它们与 transcript/publication
+读取一致，任一未知 part ID 使整批失败。单条 Bilibili 读取与 v1 投影保留原契约。
+
+新稿件 edition 的 `source.metadata` 随完整内容 hash 冻结；后续 source refresh 只更新当前事实，不改旧 edition、审核、release 或历史 Markdown。旧 publish/content/render v1 保留原 JSON 与 hash 语义。外部快照解码严格检查字段、类型、长度、控制字符、重复标签与派生时间；封面只接受无 query/fragment/凭据的 HTTPS Bilibili 公共图片域，非法能力 URL 不公开。YouTube 未建模的简介、封面、分区与 tags 保持未知。
 
 ## 字幕观察、选择与凭据证据
 
@@ -191,23 +228,26 @@ bili-asr fetch-meta --archive-root archive --start-page 3 --limit-pages 1
 
 ### 轨道选择
 
-每次获取至多选择一条轨道。默认排序键为 `(language family rank, is_ai, upstream index)`：family 依次为 `zh`、`en`、其他；同 family rank 下 CC 优先 AI，最后保持上游顺序。其他语言共享同一 rank，所以不同的非中英文 family 之间，CC 也可优先于较早出现的 AI。
+每次获取至多保存一个有效轨道，但可按优先级探测多个候选。纯 `subtitle_policy.rank_candidates()` 的默认排序键为 `(language family rank, is_ai, upstream index)`：family 依次为 `zh`、`en`、其他；同 family rank 下 CC 优先 AI，最后保持上游顺序。其他语言共享同一 rank，所以不同的非中英文 family 之间，CC 也可优先于较早出现的 AI。
 
 family 由共享纯策略 `transcript_selection.language_family()` 从语言代码的小写 primary subtag 派生；机器轨道先去掉 `ai-`。因此 `zh-CN`、`zh-Hans`、`zh-Hant`、`ai-zh` 都归为 `zh`。存储 language 仍保留 trimmed 原代码，family 不替代版本身份。
 
-服务 API 的 `SubtitleSelection.languages` 可提供精确代码偏好：首个有匹配的代码获选，同代码下 CC 优先 AI，再按上游顺序。有效偏好无匹配时返回 no-subtitle。当前 workflow subtitle handler 使用默认选择；`workflow plan --language` 配置的是 ASR profile，不是字幕语言过滤参数。
+服务 API 的 `SubtitleSelection.languages` 可提供精确代码偏好：按给定代码顺序、CC/AI、上游顺序排列所有匹配候选。有效偏好无匹配时返回 no-subtitle，但不得将“过滤后没有候选”记录为凭据验证的空 inventory。当前 workflow subtitle handler 使用默认选择；`workflow plan --language` 配置的是 ASR profile，不是字幕语言过滤参数。
 
 | 实际观察 | acquisition attempt | 含义 |
 |---|---|---|
-| 列表非空、选中正文成功 | `stored` 或 `unchanged`，关联 transcript | 新 cue 内容追加版本；已存相同内容只记录新的 attempt。 |
-| 列表为空或服务语言偏好无匹配 | `no-subtitle`，error 为空 | 本次没有可用轨道；不是永久无字幕结论。存在凭据时还须验证登录。 |
+| 某个候选正文有效 | `stored` 或 `unchanged`，关联 transcript | 新 cue 内容追加版本；已存相同内容只记录新的 attempt。前面的空/失败候选不阻止有效替代轨道。 |
+| inventory 确实为空 | `no-subtitle`，error 为空 | 本次空清单；带凭据时须真实验证登录才能记录 credential_verified。 |
+| 服务语言偏好无匹配 | `no-subtitle`，error 为空、验证标志为 0 | 过滤后的空选择不证明源站没有轨道。 |
 | 列表请求明确 `GatewayNotFound` | `no-subtitle` + `not_found`，`absence_verified=1` | 本次列表缺失证据，与正文不可获取不同。 |
-| 选中轨道的正文 `not_found`/空正文 | `failed` + `subtitle_body_unavailable` | 已知轨道正文暂不可用，不证明列表缺失。 |
-| authentication/rate/transport/response/shape failure | `failed` + bounded error | 失败证据；不会把失败解释成字幕耗尽。 |
+| 某候选合法 `body=[]` 或全部文本为空 | 继续下一个候选 | `SubtitleBodyRead` 明确 empty_body/empty_text；非法时间轴或非法响应不是合法空。 |
+| 所有可选候选均已读取且合法为空 | `no-subtitle`，error=NULL、验证标志为 0 | workflow result 记录 visible_candidates_exhausted；不扩充旧可信缺失条件。 |
+| 正文 `not_found`、transport/response/shape 后仍无有效替代 | `failed` + bounded error | 已知轨道仍有读取不确定性，不证明 inventory 缺失。 |
+| authentication/rate、总预算或候选数耗尽 | `failed` + bounded error | 立即停止，保留安全候选诊断；不继续放大请求。 |
 
 服务 probe 的 listing not_found 为带 error 的失败观察；harvest 则按上表记录列表缺失。probe 结果不写入持久缺失证据。
 
-正常 acquisition run 在所有尝试无 failed 时结束 complete（空选择也 complete）；部分失败为 partial；非空选择全部失败为 failed。unexpected exception 或取消会尝试把已经打开的 run 收尾为 failed 后向上抛出；清理失败不会替换原异常，因此进程崩溃或数据库不可写时仍可能留下 running，不能将 best-effort cleanup 理解为崩溃恢复保证。
+候选数默认上限 32，总正文预算默认 120 秒，列表、验证及正文读取共享剩余期限。workflow attempt 的 result_json 保存受限候选 index/language/outcome/error/count 和 run ID，失败通过 `JobExecutionError` 保留原有 bounded error code；不保存候选标题、正文、签名 URL 或 Cookie。正常 acquisition run 在所有 part 尝试无 failed 时结束 complete；部分失败为 partial；非空 selection 全部失败为 failed。unexpected exception 或取消会尝试收尾后抛出，清理失败不替换原异常。
 
 ### 凭据与网络边界
 
@@ -217,7 +257,7 @@ SESSDATA 从 `--sessdata` 优先读取，否则使用 `BILI_SESSDATA`；显式�
 
 当前依赖声明为 `bilibili-api-python==17.4.2` 与 `curl_cffi>=0.16`。metadata user-list 使用该版本的 WBI Api，关闭 dm，始终提供字符串 w_webid；网关对部分逐视频 metadata 调用施加顺序 pacing。HTTP 412/429、API risk codes 映射 rate_limited，gone codes 映射 not_found，登录拒绝映射 authentication error，形状/传输/其他响应问题保留各自分类。
 
-网关代理按首个非空值解析：构造器 `proxy=`、`BILI_HTTP_PROXY`、`HTTPS_PROXY`、`https_proxy`、`ALL_PROXY`、`all_proxy`。空白值视为未设置，解析结果写入上游 package 的进程全局 request settings；空 `BILI_HTTP_PROXY` 不屏蔽更低优先级环境变量。未解析到代理时保持 package 默认。该事实来自代码，不表示某个代理、凭据或上游 endpoint 当前可用。
+网关代理按首个非空值解析：构造器 `proxy=`、`BILI_HTTP_PROXY`、`HTTPS_PROXY`、`https_proxy`、`ALL_PROXY`、`all_proxy`。空白值视为未设置，空 `BILI_HTTP_PROXY` 不屏蔽更低优先级环境变量。构造器只保留配置；每个 SDK 请求在跨线程、跨 event loop 的互斥 scope 内临时应用代理，异常、取消和正常退出都恢复原设置。没有代理时请求使用空代理值，避免继承另一 gateway 的临时设置。该机制不表示某个代理、凭据或上游 endpoint 当前可用。
 
 ## 不可变转录与写入事务
 
@@ -270,7 +310,7 @@ BVID/part ID 选择先一次性验证全部目标与策略参数，再创建 pro
 
 元数据搜索也使用 READ，直接查当前 title/description/tags，不建立 FTS；转录搜索 FTS 由 `search-index` 或显式 `search --rebuild` 更新。普通索引查询不创建表、不推进水位。显式索引 build 在开始时固定 transcript high-water mark，按 `(transcript_id, ordinal)` keyset 分页，每个批次单独提交 blocks 与进度；中断可从已提交的 segment cursor 恢复，同期新获取的 transcript 留待下一次 build。旧索引恢复与 Markdown fallback 将去重集合留在连接内的 keyed temporary tables，再分批读取，不把全库 key 集合加载到 Python。
 
-查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；publication export-drafts 另行输出当前且从未发布的 edition 预览。两个 catalog v2 都登记正文和配对 AI 校验参照 review.md 的路径与字节哈希；editorial export 单独输出含审核事件和请求配置的完整私有审阅包。这些导出不是数据库或队列，也不代表仓库附带前端源码。
+查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；publication export-drafts 另行输出当前且从未发布的 edition 预览。全部内容 v1 时 catalog 仍为版本 2，包含内容 v2 时为版本 3，可同时保留旧 Bilibili 条目与真实 YouTube 身份。两个导出都登记正文和配对 AI 校验参照 review.md 的路径与字节哈希；editorial export 单独输出含审核事件和请求配置的完整私有审阅包。这些导出不是数据库或队列，也不代表仓库附带前端源码。
 
 ## 五产物发布与取消保护
 
@@ -321,6 +361,7 @@ publish CLI 会在请求前解析完整 ID 集合并确认每个 part 有候选�
 以下当前测试覆盖主要离线契约，可作为进一步追踪入口：
 
 - [`test_metadata_repository.py`](../tests/test_metadata_repository.py)、[`test_metadata_ingest.py`](../tests/test_metadata_ingest.py)、[`test_metadata_page_retries.py`](../tests/test_metadata_page_retries.py)：页事务、游标、刷新与有界重试。
+- [`test_metadata_refresh.py`](../tests/test_metadata_refresh.py)、[`test_subtitle_candidates.py`](../tests/test_subtitle_candidates.py)：逐字段保留/撤回、失败页重放不回退后续游标、候选替代、预算与混合平台元数据批量查询。
 - [`test_transcript_repository.py`](../tests/test_transcript_repository.py)、[`test_subtitles.py`](../tests/test_subtitles.py)、[`test_pending_subtitles_cost.py`](../tests/test_pending_subtitles_cost.py)：版本身份、观察/凭据和 pending 查询成本。
 - [`test_workflow_control_plane.py`](../tests/test_workflow_control_plane.py)、[`test_workflow_selection.py`](../tests/test_workflow_selection.py)、[`test_workflow_lease_heartbeat.py`](../tests/test_workflow_lease_heartbeat.py)、[`test_workflow_cancellation.py`](../tests/test_workflow_cancellation.py)：独立规划、租约、精确选择、取消及真实 SQLite 连接竞态。
 - [`test_archive_sessions.py`](../tests/test_archive_sessions.py)、[`test_workflow_result_fences.py`](../tests/test_workflow_result_fences.py)：只读查询不建库、不刷新视图、连接访问租约，以及结果事务精确到期时的入口/提交前检查与回滚。

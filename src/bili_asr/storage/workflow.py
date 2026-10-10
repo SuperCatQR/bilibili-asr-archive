@@ -20,6 +20,7 @@ from bili_asr.storage.job_commit import JobCommitGuard
 from bili_asr.transcript_selection import choose_transcript
 from bili_asr.workflow_planning import JobSpec, PlanningPart, editorial_specs, plan_producers
 from bili_asr.workflow_payloads import validate_payload
+from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, frozen_version
 
 
 from bili_asr.workflow_models import (
@@ -184,6 +185,13 @@ class WorkflowRepository:
         counts: dict[JobKind, int] = {}
         for spec in specs:
             payload, dedupe_key = spec.materialize(ids)
+            if spec.kind is JobKind.RENDER_DOCUMENT and runtime_contract(self.connection) == UNIVERSAL_V2:
+                proof_id = payload["proofread_job_id"]
+                proof = self.connection.execute("SELECT payload_json FROM workflow_jobs WHERE job_id=?", (proof_id,)).fetchone()
+                input_id = json.loads(proof[0]).get("input_id")
+                version = frozen_version(self.connection, "input", input_id) if input_id else 2
+                payload["template_version"] = "ai-draft-v2" if version == 2 else "ai-draft-v1"
+                dedupe_key = f"render:{proof_id}:{payload['template_version']}"
             job_id, created = self._ensure_job(kind=spec.kind, video_part_id=spec.video_part_id,
                 profile_id=spec.profile_id, policy_key=spec.policy_key, payload=payload, dedupe_key=dedupe_key)
             ids[spec.key] = job_id
@@ -412,8 +420,10 @@ class WorkflowRepository:
     def request_document(self, *, video_part_id: int, revision_id: str, template_version: str) -> tuple[str, bool]:
         from bili_asr.editorial import TEMPLATE_VERSION
 
-        if template_version != TEMPLATE_VERSION:
+        if template_version not in {TEMPLATE_VERSION, "ai-draft-v2"}:
             raise ValueError("unsupported document template version")
+        if template_version == "ai-draft-v2" and runtime_contract(self.connection) != UNIVERSAL_V2:
+            raise ValueError("document template v2 requires universal-v2")
         self.require_cancellation_contract()
         self._require_editorial_contract()
         with self.connection:
@@ -445,6 +455,7 @@ class WorkflowRepository:
         error_code: str,
         retry_at: int | None = None,
         expected_attempt_count: int | None = None,
+        result: Mapping[str, Any] | None = None,
     ) -> None:
         if not error_code or len(error_code) > 64:
             raise ValueError("error_code must be 1-64 characters")
@@ -455,6 +466,7 @@ class WorkflowRepository:
             error_code=error_code,
             retry_at=retry_at,
             expected_attempt_count=expected_attempt_count,
+            result=result,
         )
 
     def list_jobs(self) -> list[WorkflowJob]:

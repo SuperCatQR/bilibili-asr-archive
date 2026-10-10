@@ -15,6 +15,7 @@ from bili_asr.storage.transcripts import TranscriptRepository
 from bili_asr.workflow_models import WorkflowJob
 from bili_asr.storage.job_commit import JobCommitGuard
 from bili_asr.transcript_selection import choose_transcript
+from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, frozen_version, register_frozen_version
 
 
 class EditorialRepository:
@@ -59,6 +60,11 @@ class EditorialRepository:
     def build_input(self, base_id: int, reference_id: int | None, config: EditorialConfig) -> dict[str, Any]:
         require_editorial_schema(self.connection)
         base = self.read_source(base_id)
+        if runtime_contract(self.connection) == UNIVERSAL_V2:
+            from bili_asr.publication_content_v2 import prepare_input_v2
+            from bili_asr.storage.metadata import MetadataRepository
+            return prepare_input_v2(base, self.read_source(reference_id) if reference_id else None, config,
+                                    source_metadata=MetadataRepository(self.connection).read_source_metadata(base.video_part_id))
         return prepare_input(base, self.read_source(reference_id) if reference_id else None, config,
                              metadata=self.metadata(base.video_part_id))
 
@@ -72,6 +78,13 @@ class EditorialRepository:
         self.connection.execute(
             "INSERT OR IGNORE INTO editorial_inputs VALUES (?, ?, ?, ?, ?, ?)",
             (prepared["input_id"], snapshot["video_part_id"], base_id, reference_id, canonical(prepared), int(time.time())))
+        if runtime_contract(self.connection) == UNIVERSAL_V2:
+            existing_version = self.connection.execute("SELECT version FROM editorial_input_versions WHERE input_id=?",
+                                                       (prepared["input_id"],)).fetchone()
+            version = int(existing_version[0]) if existing_version else 2
+        else:
+            version = 1
+        register_frozen_version(self.connection, "input", prepared["input_id"], version)
         stored = self.load_input(prepared["input_id"])
         if stored != prepared:
             raise RuntimeError("input identity collision")
@@ -82,6 +95,7 @@ class EditorialRepository:
         row = self.connection.execute("SELECT prepared_json FROM editorial_inputs WHERE input_id = ?", (input_id,)).fetchone()
         if row is None:
             raise ValueError("unknown editorial input")
+        frozen_version(self.connection, "input", input_id)
         try:
             prepared = json.loads(row["prepared_json"])
             if prepared["input_id"] != input_id or digest(prepared["snapshot"]) != input_id:
@@ -201,11 +215,13 @@ class EditorialRepository:
     def preflight_artifacts(self, revision_id: str, template: str, artifacts: dict[str, tuple[str, str]]) -> None:
         """Check the complete fixed pair before a renderer writes any bytes."""
         require_editorial_schema(self.connection)
-        if template != TEMPLATE_VERSION or set(artifacts) != set(ARTIFACT_ROLES):
-            raise ValueError("unsupported document artifact contract")
         prepared, _ = self.revision(revision_id)
+        version = frozen_version(self.connection, "input", prepared["input_id"])
+        expected_template = "ai-draft-v2" if version == 2 else TEMPLATE_VERSION
+        if template != expected_template or set(artifacts) != set(ARTIFACT_ROLES):
+            raise ValueError("unsupported document artifact contract")
         part_id = prepared["snapshot"]["video_part_id"]
-        prefix = f"documents/part-{part_id}/{revision_id}/{TEMPLATE_VERSION}"
+        prefix = f"documents/part-{part_id}/{revision_id}/{template}"
         for name, (path, sha256) in artifacts.items():
             if (path != f"{prefix}/{name}" or len(sha256) != 64
                     or any(c not in "0123456789abcdef" for c in sha256)):

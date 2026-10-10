@@ -66,7 +66,8 @@ def test_installed_console_script_status_rejects_empty_database_without_initiali
 
     assert proc.returncode == 1, proc.stdout
     assert "archive schema missing" in proc.stderr
-    assert "fetch-meta" in proc.stderr
+    assert "preserve archive.db" in proc.stderr
+    assert "separate empty target" in proc.stderr
     assert proc.stdout == ""
     assert_redacted(proc)
     assert database.read_bytes() == original

@@ -234,10 +234,10 @@ def test_incompatible_database_cli_fails_before_modifying_schema(tmp_path, capsy
     with sqlite3.connect(path) as old:
         old.execute("CREATE TABLE transcripts(transcript_id INTEGER PRIMARY KEY)")
     before = path.read_bytes()
-    with pytest.raises(SchemaContractError, match="discarded"):
+    with pytest.raises(SchemaContractError, match="preserve archive.db"):
         open_database(tmp_path)
     assert cli.main(["workflow", "status", "--archive-root", str(tmp_path)]) == 1
-    assert "delete archive.db" in capsys.readouterr().err
+    assert "separate empty target" in capsys.readouterr().err
     assert path.read_bytes() == before
 
 

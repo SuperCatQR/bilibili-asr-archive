@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from bili_asr.platform_identity import ContentRef
-from bili_asr.sources.models import SubtitleSegment, SubtitleTrack
+from bili_asr.sources.models import SubtitleBodyRead, SubtitleSegment, SubtitleTrack
 
 
 class ContentPart(Protocol):
@@ -72,6 +72,8 @@ class SubtitleSource(Protocol):
     async def fetch_segments(
         self, track: SubtitleTrack, ref: ContentRef
     ) -> tuple[SubtitleSegment, ...]: ...
+
+    async def read_body(self, track: SubtitleTrack, ref: ContentRef) -> SubtitleBodyRead: ...
 
     async def verify_access(self, ref: ContentRef) -> SourceAccessObservation: ...
 

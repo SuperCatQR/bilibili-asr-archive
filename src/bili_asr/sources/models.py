@@ -13,6 +13,7 @@ from typing import ClassVar, Protocol
 
 from bili_asr.error_codes import validate_error_code
 from bili_asr.platform_identity import ContentRef
+from bili_asr.metadata_policy import MetadataFieldObservation
 
 
 def _integer(value: object, field: str, *, minimum: int | None = None) -> int:
@@ -181,6 +182,24 @@ class VideoTag:
 
 
 @dataclass(frozen=True, slots=True)
+class VideoMetadataRead:
+    summary: VideoSummary
+    fields: tuple[MetadataFieldObservation, ...]
+    parts: tuple[VideoPart, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.summary, VideoSummary):
+            raise TypeError("metadata read requires a video summary")
+        if not isinstance(self.fields, tuple) or any(not isinstance(field, MetadataFieldObservation) for field in self.fields):
+            raise TypeError("metadata read requires typed field observations")
+        if len({field.field for field in self.fields}) != len(self.fields):
+            raise ValueError("metadata fields must not repeat")
+        if self.parts is not None and (not isinstance(self.parts, tuple) or any(
+                not isinstance(part, VideoPart) or part.bvid != self.summary.bvid for part in self.parts)):
+            raise ValueError("metadata parts must match their source video")
+
+
+@dataclass(frozen=True, slots=True)
 class UserVideoPage:
     """One bounded page of one user's video summaries."""
 
@@ -255,6 +274,54 @@ class SubtitleSegment:
         _caption_text(self.text, "text")
 
 
+@dataclass(frozen=True, slots=True)
+class SubtitleBodyRead:
+    """A fully read caption document, distinct from inaccessible or damaged data.
+
+    Empty evidence requires a valid body array and valid timing for every row.
+    Transport, authentication, missing tracks and malformed timelines raise a
+    bounded gateway error; they can never be represented by this empty result.
+    """
+
+    segments: tuple[SubtitleSegment, ...]
+    row_count: int
+    empty_kind: str | None = None
+
+    def __post_init__(self) -> None:
+        _integer(self.row_count, "row_count", minimum=0)
+        if not isinstance(self.segments, tuple) or any(
+            not isinstance(segment, SubtitleSegment) for segment in self.segments
+        ):
+            raise TypeError("segments must be normalized caption rows")
+        if self.row_count < len(self.segments):
+            raise ValueError("row_count cannot be below the normalized count")
+        if self.segments:
+            if self.empty_kind is not None:
+                raise ValueError("a nonempty caption body cannot attest emptiness")
+        elif self.empty_kind not in {"empty_body", "empty_text"}:
+            raise ValueError("an empty body requires an explicit verified reason")
+        elif (self.empty_kind == "empty_body") != (self.row_count == 0):
+            raise ValueError("empty reason must agree with document row count")
+
+
+@dataclass(frozen=True, slots=True)
+class TagRead:
+    """One tag observation with its own error, safe for concurrent consumers."""
+
+    tags: tuple[VideoTag, ...] | None
+    error_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.tags is None:
+            if not self.error_code:
+                raise ValueError("an unavailable tag observation requires a code")
+            validate_error_code(self.error_code)
+        elif not isinstance(self.tags, tuple) or any(not isinstance(tag, VideoTag) for tag in self.tags):
+            raise TypeError("tags must be normalized video tags")
+        elif self.error_code is not None:
+            raise ValueError("a successful tag read cannot carry a failure code")
+
+
 class BilibiliGateway(Protocol):
     """Application-owned gateway protocol for the pinned package adapter."""
 
@@ -273,6 +340,8 @@ class BilibiliGateway(Protocol):
         self, summary: VideoSummary
     ) -> VideoSummary: ...
 
+    async def get_video_metadata(self, bvid: str) -> VideoMetadataRead: ...
+
     # The tag set is a property of the VIDEO, not of a part: it is fetched
     # per distinct video, with bounded reuse of recent observations in a run.
     # A new run refreshes relisted videos. A tag fetch is
@@ -286,6 +355,8 @@ class BilibiliGateway(Protocol):
     # (compass D16).  A key present with an empty iterable is the observation
     # that clears them.
     async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None: ...
+
+    async def read_video_tags(self, bvid: str) -> TagRead: ...
 
     # A subtitle inventory is an observation, not a promise: an empty tuple
     # means nothing usable was visible with the credentials in effect, and it
@@ -305,6 +376,10 @@ class BilibiliGateway(Protocol):
     async def fetch_subtitle_segments(
         self, track: SubtitleTrack, bvid: str, cid: int
     ) -> tuple[SubtitleSegment, ...]: ...
+
+    async def read_subtitle_body(
+        self, track: SubtitleTrack, bvid: str, cid: int
+    ) -> SubtitleBodyRead: ...
 
     def get_package_version(self) -> str: ...
 
@@ -414,9 +489,12 @@ __all__ = [
     "GatewayShapeError",
     "GatewayTransportError",
     "SubtitleSegment",
+    "SubtitleBodyRead",
+    "TagRead",
     "SubtitleTrack",
     "UserVideoPage",
     "VideoPart",
+    "VideoMetadataRead",
     "VideoSummary",
     "VideoTag",
 ]

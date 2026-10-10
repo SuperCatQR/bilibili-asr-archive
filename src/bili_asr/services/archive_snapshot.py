@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import errno
 import json
@@ -314,6 +315,23 @@ def _validate_into(snapshot: Path, stage: Path, *, extract_artifacts: bool = Tru
     return manifest
 
 
+@dataclass(frozen=True)
+class VerifiedSnapshot:
+    database_path: Path
+    manifest: dict[str, object]
+
+
+@contextmanager
+def verified_snapshot_reader(snapshot: Path) -> Iterator[VerifiedSnapshot]:
+    """Own a temporary database after validating every byte in the bundle."""
+    with _snapshot_errors():
+        path = _absolute(snapshot)
+        with tempfile.TemporaryDirectory(prefix="bili-asr-snapshot-read-") as temporary:
+            stage = Path(temporary)
+            manifest = _validate_into(path, stage, extract_artifacts=False)
+            yield VerifiedSnapshot(stage / "archive.db", manifest)
+
+
 def check_snapshot(snapshot: Path) -> dict:
     """Stream and check every file, database contract and database reference."""
     with _snapshot_errors():
@@ -332,13 +350,20 @@ def _empty_destination(root: Path) -> bool:
     return True
 
 
-def restore_snapshot(snapshot: Path, archive_root: Path) -> dict:
+def restore_snapshot(snapshot: Path, archive_root: Path, *, report_path: Path | str | None = None) -> dict:
     """Validate a complete staged archive, recover interrupted work and publish it."""
     with _snapshot_errors():
         path, root = _absolute(snapshot), _absolute(archive_root)
         _no_links(root)
         if path.resolve().is_relative_to(root.resolve()):
             raise SnapshotError("restore target cannot contain the source snapshot")
+        report = None if report_path is None else _absolute(Path(report_path))
+        if report is not None:
+            _no_links(report)
+            if report == path or report.is_relative_to(root) or report.exists():
+                raise SnapshotError("recovery report must be a new file outside the archive and source snapshot")
+            if not report.parent.is_dir():
+                raise SnapshotError("recovery report parent must already exist")
         root.parent.mkdir(parents=True, exist_ok=True)
         with ArchiveSession(root, mode=ArchiveAccessMode.MAINTENANCE).access(allow_missing=True):
             _empty_destination(root)
@@ -347,17 +372,52 @@ def restore_snapshot(snapshot: Path, archive_root: Path) -> dict:
                 stage = temporary_root / "archive"
                 stage.mkdir()
                 manifest = _validate_into(path, stage)
-                recovered = recover_interrupted_jobs(stage / "archive.db", manifest["snapshot_id"])
+                audit = temporary_root / "recovery.ndjson"
+                with audit.open("x", encoding="utf-8", newline="\n") as stream:
+                    def record(change):
+                        stream.write(json.dumps({"type": "recovery_change", **change}, sort_keys=True) + "\n")
+                    recovered = recover_interrupted_jobs(stage / "archive.db", manifest["snapshot_id"],
+                                                         audit_sink=record if report is not None else None)
+                    stream.write(json.dumps({"type": "recovery_committed", "snapshot_id": manifest["snapshot_id"],
+                                             "recovered": recovered}, sort_keys=True) + "\n")
+                    _sync_file(stream)
                 validate_snapshot_database(stage / "archive.db", expected_contract=manifest["database_contract"])
                 with (stage / "archive.db").open("r+b") as database:
                     os.fsync(database.fileno())
                 for directory, _children, _files in os.walk(stage, topdown=False):
                     _sync_directory(Path(directory))
-                if _empty_destination(root):
-                    root.rmdir()
-                stage.rename(root)
-                _sync_directory(root.parent)
-                return {"operation": "restore", "archive_root": str(root), "recovered": recovered, **_summary(manifest)}
+                # Reserve and persist the audit before installation. A report
+                # collision or write failure still leaves the target untouched.
+                with (report.open("xb", buffering=0) if report is not None else nullcontext(None)) as destination:
+                    if destination is not None:
+                        with audit.open("rb") as source:
+                            for block in iter(lambda: source.read(1024 * 1024), b""):
+                                destination.write(block)
+                        _sync_file(destination)
+                    if _empty_destination(root):
+                        root.rmdir()
+                    stage.rename(root)
+                    result = {"operation": "restore", "archive_root": str(root), "installed": True,
+                              "recovered": recovered, **_summary(manifest)}
+                    warnings = []
+                    try:
+                        _sync_directory(root.parent)
+                    except OSError:
+                        warnings.append("installed_directory_sync_failed")
+                    if destination is not None:
+                        try:
+                            destination.write((json.dumps({"type": "archive_installed", "snapshot_id": manifest["snapshot_id"]},
+                                                          sort_keys=True) + "\n").encode())
+                            _sync_file(destination)
+                            _sync_directory(report.parent)
+                            result["recovery_report_written"] = True
+                        except OSError:
+                            result["recovery_report_written"] = False
+                            warnings.append("installed_recovery_report_failed")
+                    if warnings:
+                        result["warnings"] = warnings
+                    return result
 
 
-__all__ = ["SnapshotError", "save_snapshot", "check_snapshot", "restore_snapshot"]
+__all__ = ["SnapshotError", "save_snapshot", "check_snapshot", "restore_snapshot",
+           "VerifiedSnapshot", "verified_snapshot_reader"]

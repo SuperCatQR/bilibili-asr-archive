@@ -109,9 +109,11 @@ def _cmd_publication(args: argparse.Namespace) -> int:
                 count = export_publications(connection, artifact_roots=args.artifact_roots.read_bases(),
                                             output=Path(args.out))
                 result = {"manuscriptType": "publication", "count": count, "output": args.out}
-            if action == "create":
+            if action == "create" and (result["content_version"] == 1 or result["content"]["source"]["platform"] == "bilibili"):
                 from bili_asr.publication_tags import tag_coverage
-                coverage = tag_coverage(connection, result["content"]["source"]["bvid"])
+                source = result["content"]["source"]
+                bvid = source["bvid"] if result["content_version"] == 1 else source["externalVideoId"]
+                coverage = tag_coverage(connection, bvid)
                 if coverage in {"not_attempted", "unavailable"}:
                     write_stderr(f"publication create: source tag coverage {coverage}; run fetch-tags then sync-source-tags")
         print_result(result, args.format)

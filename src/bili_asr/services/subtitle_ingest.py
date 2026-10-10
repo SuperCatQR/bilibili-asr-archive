@@ -1,6 +1,6 @@
 """Bounded subtitle acquisition between source ports and transcript storage.
 
-:class:`SubtitleIngestor` owns candidate enumeration, track selection, per-part
+:class:`SubtitleIngestor` owns candidate enumeration, bounded fallback, per-part
 transactions, run records and bounded outcome mapping.  Runtime callers can
 inject the application-owned ``SubtitleSource`` port.  Existing Bilibili
 gateway callers use a compatibility adapter resolved from already-read part
@@ -11,11 +11,12 @@ event loop per operation.  ``probe`` writes no run, attempt, transcript or file.
 ``harvest`` creates one acquisition run, records one attempt per part in a
 separate transaction, and finishes with the attempts' aggregate outcome.
 
-An empty selection or a listing's bounded ``not_found`` yields ``no-subtitle``;
-only an observed credentialed verification can establish trusted absence for
-the current Bilibili policy.  A fetched body yields ``stored`` or ``unchanged``.
-Unrepresentable timelines yield one part's bounded ``shape_error`` failure.
-Other gateway failures yield ``failed`` with their scalar error code.  A body
+An empty selection, listing's bounded ``not_found``, or an exhaustively read
+set of legal empty bodies yields ``no-subtitle``. Legal empty bodies do not
+establish inventory absence or credential-verified empty-list evidence. A
+usable candidate yields ``stored`` or ``unchanged``. Failed candidates may be
+followed by a usable alternative; remaining uncertainty yields ``failed``.
+Authentication and risk-control failures stop probing immediately. A body
 that disappears after listing remains a failure rather than absence evidence.
 """
 
@@ -23,13 +24,15 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import re
 import sqlite3
 from typing import Callable
 import uuid
 
 from bili_asr.services._common import _now
-from bili_asr.transcript_selection import LANGUAGE_FAMILY_ORDER, language_family
+from bili_asr.transcript_selection import language_family
+from bili_asr.subtitle_policy import rank_candidates
 
 from bili_asr.page_identity import format_work_id
 from bili_asr.platform_identity import ContentRef
@@ -37,9 +40,13 @@ from bili_asr.sources.bilibili_source import BilibiliSubtitleSource
 from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayError,
+    GatewayAuthenticationError,
     GatewayNotFound,
     GatewayResponseError,
+    GatewayRateLimited,
     GatewayShapeError,
+    GatewayTransportError,
+    SubtitleBodyRead,
     SubtitleSegment,
     SubtitleTrack,
 )
@@ -49,6 +56,7 @@ from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
     ALLOWED_CAPTION_SOURCE_KINDS,
     AcquisitionRunRecord,
+    MAX_TIMELINE_MS,
     TranscriptSegmentRecord,
 )
 
@@ -64,8 +72,6 @@ _OUTCOME_STORED = "stored"
 _OUTCOME_UNCHANGED = "unchanged"
 _OUTCOME_NO_SUBTITLE = "no-subtitle"
 _OUTCOME_FAILED = "failed"
-#: The default language family order the selection preference ranks by.
-_DEFAULT_LANGUAGE_FAMILY_ORDER = LANGUAGE_FAMILY_ORDER
 
 
 def _choice(value: str, field: str, allowed: frozenset[str]) -> str:
@@ -92,15 +98,6 @@ def _caption_source_kind(is_ai: bool) -> str:
     )
 
 
-def _family_rank(family: str) -> int:
-    """Return one family's rank in the default order; the rest share the last."""
-
-    try:
-        return _DEFAULT_LANGUAGE_FAMILY_ORDER.index(family)
-    except ValueError:
-        return len(_DEFAULT_LANGUAGE_FAMILY_ORDER)
-
-
 def select_subtitle_track(
     tracks: tuple[SubtitleTrack, ...], languages: tuple[str, ...] = ()
 ) -> SubtitleTrack | None:
@@ -121,26 +118,8 @@ def select_subtitle_track(
     for any requested language was visible, never a failure.
     """
 
-    if not tracks:
-        return None
-    if languages:
-        for preference in languages:
-            matching = [
-                (index, track)
-                for index, track in enumerate(tracks)
-                if track.language == preference
-            ]
-            if matching:
-                return min(matching, key=lambda pair: (pair[1].is_ai, pair[0]))[1]
-        return None
-    return min(
-        enumerate(tracks),
-        key=lambda pair: (
-            _family_rank(language_family(pair[1].language, pair[1].is_ai)),
-            pair[1].is_ai,
-            pair[0],
-        ),
-    )[1]
+    ranked = rank_candidates(tracks, languages)
+    return ranked[0] if ranked else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +160,24 @@ class ProbeResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SubtitleCandidateEvidence:
+    """Safe, bounded facts about one attempted candidate; no URL or body text."""
+
+    index: int
+    language: str
+    is_ai: bool
+    outcome: str
+    error_code: str | None = None
+    row_count: int | None = None
+
+    def to_dict(self) -> dict:
+        language = self.language if re.fullmatch(r"[A-Za-z0-9-]{1,64}", self.language) else "other"
+        return {"index": self.index, "language": language, "is_ai": self.is_ai,
+                "outcome": self.outcome, "error_code": self.error_code,
+                "row_count": self.row_count}
+
+
+@dataclass(frozen=True, slots=True)
 class SubtitlePartOutcome:
     """The one outcome one attempted part produced, with its bounded evidence."""
 
@@ -190,6 +187,12 @@ class SubtitlePartOutcome:
     source_kind: str | None
     language: str | None
     version: int | None
+    availability: str | None = None
+    candidates: tuple[SubtitleCandidateEvidence, ...] = ()
+
+    def safe_details(self) -> dict:
+        return {"availability": self.availability, "candidate_count": len(self.candidates),
+                "candidates": [candidate.to_dict() for candidate in self.candidates]}
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +295,8 @@ class SubtitleIngestor:
         clock: Callable[[], int] = _now,
         checkpoint: Callable[[], None] | None = None,
         source: SubtitleSource | None = None,
+        max_candidates: int = 32,
+        body_budget_seconds: float = 120.0,
     ) -> None:
         if gateway is None and source is None:
             raise ValueError("subtitle acquisition requires a source or Bilibili gateway")
@@ -301,6 +306,12 @@ class SubtitleIngestor:
         self._credential_present = bool(credential_present)
         self._clock = clock
         self._checkpoint = checkpoint or (lambda: None)
+        if type(max_candidates) is not int or not 1 <= max_candidates <= 32:
+            raise ValueError("max_candidates must be between 1 and 32")
+        if isinstance(body_budget_seconds, bool) or not isinstance(body_budget_seconds, (int, float)) or not 0 < body_budget_seconds <= 600:
+            raise ValueError("body_budget_seconds must be between 0 and 600")
+        self._max_candidates = max_candidates
+        self._body_budget_seconds = float(body_budget_seconds)
 
     def _source_for(self, item: _SubtitleWorkItem) -> SubtitleSource:
         """Resolve existing Bilibili extensions only at the source boundary.
@@ -464,8 +475,11 @@ class SubtitleIngestor:
         self._checkpoint()
         started_at = self._clock()
         source = self._source_for(item)
+        deadline = asyncio.get_running_loop().time() + self._body_budget_seconds
         try:
-            tracks = await source.list_tracks(item.content_ref)
+            tracks = await asyncio.wait_for(source.list_tracks(item.content_ref), self._body_budget_seconds)
+        except asyncio.TimeoutError:
+            return self._record_failed_part(run_id, item, GatewayTransportError(code="subtitle_candidate_timeout"), started_at)
         except GatewayNotFound:
             return self._record_captionless_part(
                 run_id, item, "not_found", started_at, absence_verified=True
@@ -473,36 +487,82 @@ class SubtitleIngestor:
         except GatewayError as error:
             return self._record_failed_part(run_id, item, error, started_at)
         self._checkpoint()
-        track = select_subtitle_track(tracks, languages)
-        if track is None:
+        candidates = rank_candidates(tracks, languages)
+        if not candidates:
             # A cookie being present does not make this an authenticated
             # absence.  A failed login or unreadable validity check must not
             # become the empty-inventory proof used by the audio queue.
             try:
-                access = await source.verify_access(item.content_ref)
+                access = await asyncio.wait_for(source.verify_access(item.content_ref),
+                                                max(0.001, deadline - asyncio.get_running_loop().time()))
                 self._checkpoint()
+            except asyncio.TimeoutError:
+                return self._record_failed_part(run_id, item, GatewayTransportError(code="subtitle_candidate_timeout"), started_at)
             except GatewayError as error:
                 return self._record_failed_part(run_id, item, error, started_at)
-            return self._record_captionless_part(
+            return replace(self._record_captionless_part(
                 run_id, item, None, started_at,
                 credential_verified=(
+                    not tracks
+                    and
                     self._credential_present
                     and access.access_context == "credentialed"
                     and access.verified
                 ),
-            )
-        try:
-            segments = await source.fetch_segments(track, item.content_ref)
-        except GatewayNotFound:
-            # A listed track's body may disappear or be empty during retrieval.
-            # That does not attest that the player has no usable subtitles.
-            return self._record_failed_part(
-                run_id, item, GatewayResponseError(code="subtitle_body_unavailable"), started_at
-            )
-        except GatewayError as error:
-            return self._record_failed_part(run_id, item, error, started_at)
-        self._checkpoint()
-        return self._record_caption(run_id, item, track, segments, started_at)
+            ), availability="empty_inventory" if not tracks else "no_matching_language")
+        evidence: list[SubtitleCandidateEvidence] = []
+        first_error: GatewayError | None = None
+        for index, track in enumerate(candidates[:self._max_candidates]):
+            self._checkpoint()
+            try:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise GatewayTransportError(code="subtitle_candidate_timeout")
+                body = await asyncio.wait_for(self._read_body(source, track, item.content_ref), remaining)
+                if any(segment.end_ms > MAX_TIMELINE_MS for segment in body.segments):
+                    raise GatewayShapeError()
+            except (asyncio.TimeoutError, GatewayError) as failure:
+                error = (GatewayTransportError(code="subtitle_candidate_timeout")
+                         if isinstance(failure, asyncio.TimeoutError) else failure)
+                if isinstance(error, GatewayNotFound):
+                    error = GatewayResponseError(code="subtitle_body_unavailable")
+                evidence.append(SubtitleCandidateEvidence(index, track.language, track.is_ai,
+                                                           "failed", error.code))
+                first_error = first_error or error
+                if (isinstance(error, (GatewayAuthenticationError, GatewayRateLimited))
+                        or error.code in {"subtitle_candidate_timeout", "request_budget_exhausted"}):
+                    return replace(self._record_failed_part(run_id, item, error, started_at),
+                                   availability="uncertain", candidates=tuple(evidence))
+                continue
+            self._checkpoint()
+            evidence.append(SubtitleCandidateEvidence(index, track.language, track.is_ai,
+                                                       "valid" if body.segments else body.empty_kind,
+                                                       row_count=body.row_count))
+            if body.segments:
+                return replace(self._record_caption(run_id, item, track, body.segments, started_at),
+                               availability="caption", candidates=tuple(evidence))
+        if len(candidates) > self._max_candidates:
+            first_error = GatewayResponseError(code="subtitle_candidate_budget_exhausted")
+        if first_error is not None:
+            return replace(self._record_failed_part(run_id, item, first_error, started_at),
+                           availability="uncertain", candidates=tuple(evidence))
+        # This observes legally empty visible bodies, not an empty authenticated
+        # inventory. It must never set the flags that admit legacy audio gaps.
+        return replace(self._record_captionless_part(run_id, item, None, started_at),
+                       availability="visible_candidates_exhausted", candidates=tuple(evidence))
+
+    @staticmethod
+    async def _read_body(source: SubtitleSource, track: SubtitleTrack, ref: ContentRef) -> SubtitleBodyRead:
+        reader = getattr(source, "read_body", None)
+        if reader is not None:
+            body = await reader(track, ref)
+            if not isinstance(body, SubtitleBodyRead):
+                raise GatewayShapeError()
+            return body
+        segments = await source.fetch_segments(track, ref)
+        if not segments:
+            raise GatewayShapeError()
+        return SubtitleBodyRead(tuple(segments), len(segments))
 
     def _record_caption(
         self,
@@ -634,6 +694,7 @@ __all__ = [
     "HarvestResult",
     "ProbeResult",
     "SubtitleIngestor",
+    "SubtitleCandidateEvidence",
     "SubtitlePartOutcome",
     "SubtitleProbePart",
     "SubtitleSelection",

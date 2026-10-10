@@ -8,6 +8,7 @@ import sqlite3
 
 from .errors import SearchIndexMissingError, TranscriptStoreError
 from .models import MetadataSearchHit
+from bili_asr.storage.archive_contracts import UNIVERSAL_V2, runtime_contract
 
 
 _REQUIRED_COLUMNS = {
@@ -74,6 +75,10 @@ class MetadataSearchIndex:
         """
         connection = self._connect()
         try:
+            if runtime_contract(connection) == UNIVERSAL_V2:
+                from .source_store import search_metadata
+                return search_metadata(connection, query, pubdate_from=pubdate_from,
+                    pubdate_to=pubdate_to, limit=20 if limit is None else limit)
             self._validate_schema(connection)
             clean_query = (query or "").strip()
             if not clean_query or (limit is not None and limit <= 0):

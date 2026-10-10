@@ -171,8 +171,9 @@ def test_projection_queries_are_batched_and_preserve_existing_row_order(tmp_path
     assert {row["language"] for row in records.values()} == {"en-US"}
     assert {row["transcript_text"] for row in records.values()} == {"English"}
     selects = [sql for sql in statements if sql.lstrip().upper().startswith(("SELECT", "WITH"))]
-    # Three sets of 4 part/transcript/publication/text queries plus end detection.
-    assert len(selects) == 13
+    # Three sets of 4 data queries, end detection and one contract-marker read.
+    assert len(selects) == 14
+    assert sum("FROM sqlite_master WHERE type='table' AND name='archive_contract'" in sql for sql in selects) == 1
     assert sum("FROM transcripts WHERE video_part_id IN" in sql for sql in selects) == 3
     assert sum("FROM transcript_segments" in sql for sql in selects) == 3
 

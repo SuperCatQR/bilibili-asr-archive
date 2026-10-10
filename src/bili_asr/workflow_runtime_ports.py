@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol
 
 from bili_asr.workflow import JobHandler
@@ -60,7 +61,20 @@ class TimeoutTranscriber(Protocol):
     ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any] | None]: ...
 
 
+class ConfigResolver(Protocol):
+    """Relocate validated checkpoints without changing a frozen profile."""
+
+    def __call__(self, config: ASRConfig) -> tuple[ASRConfig, Mapping[str, Any]]: ...
+
+
+class InferenceSession(Protocol):
+    def transcribe(self, config: ASRConfig, audio_path: str, *, request: Any,
+                   paired_subtitle_text: str | None, timeout_seconds: float,
+                   checkpoint: Callable[[], None], diagnostics_sink: dict[str, Any]): ...
+    def close(self) -> None: ...
+
+
 __all__ = [
-    "AudioClientFactory", "GatewayFactory", "JobHandler", "RunnerFactory",
-    "TimeoutTranscriber", "WorkflowAsrRunner",
+    "AudioClientFactory", "ConfigResolver", "GatewayFactory", "InferenceSession", "JobHandler",
+    "RunnerFactory", "TimeoutTranscriber", "WorkflowAsrRunner",
 ]

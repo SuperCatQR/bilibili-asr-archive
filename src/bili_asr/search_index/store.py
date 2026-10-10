@@ -16,6 +16,8 @@ import bili_asr.search_index.constants as _dependency_constants
 import bili_asr.search_index.errors as _dependency_errors
 import bili_asr.search_index.models as _dependency_models
 import bili_asr.search_index.readers as _dependency_readers
+from bili_asr.storage.archive_contracts import UNIVERSAL_V2, runtime_contract
+from . import source_store
 
 
 class TranscriptSearchIndex:
@@ -184,6 +186,8 @@ class TranscriptSearchIndex:
         """Last fully indexed transcript id, or -1 before any is complete."""
         conn = self._connect()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.stamp(conn)
             if not self._has_index(conn):
                 return -1
             return self._store_progress(conn)[0]
@@ -196,6 +200,8 @@ class TranscriptSearchIndex:
         """Number of indexed blocks, or 0 when no index exists."""
         conn = self._connect()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.count(conn)
             if not self._has_index(conn):
                 return 0
             row = conn.execute(f"SELECT COUNT(*) FROM {_dependency_constants.STORE_FTS5_TABLE}").fetchone()
@@ -213,6 +219,8 @@ class TranscriptSearchIndex:
         """
         conn = self._connect()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.metadata(conn)
             if not self._has_index(conn):
                 return {}
             rows = conn.execute(
@@ -440,6 +448,8 @@ class TranscriptSearchIndex:
         """
         conn = self._connect_for_build()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.build(conn)
             self._ensure_schema(conn)
             completed_id, after_id, after_ordinal = self._store_progress(conn, for_build=True)
             self._write_store_progress(conn, (completed_id, after_id, after_ordinal))
@@ -566,6 +576,9 @@ class TranscriptSearchIndex:
 
         conn = self._connect()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.search_blocks(conn, clean_q, pubdate_from=pubdate_from,
+                    pubdate_to=pubdate_to, limit=limit)
             self._assert_index_shape(conn)
             where = [f"{_dependency_constants.STORE_FTS5_TABLE} MATCH ?"]
             params: list[Any] = [clean_q]

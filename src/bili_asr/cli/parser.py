@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_snapshot_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.archive import add_archive_parser
     add_archive_parser(subparsers)
+    from bili_asr.cli.source import add_source_parser
+    add_source_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 
     dedup = subparsers.add_parser("dedup", help="Inspect exact content reuse without changing the archive")
     dedup_actions = dedup.add_subparsers(dest="dedup_action", required=True)
@@ -45,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--start-page", type=int, default=None,
         help="Explicit one-based page; overrides and may rewind the stored cursor",
     )
+    cursor.add_argument("--incremental", action="store_true", help="Discover from page 1; the resume cursor is not an increment watermark")
     fetch_meta.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     fetch_meta.add_argument("--sessdata", default=None)
     fetch_meta.add_argument(
@@ -60,6 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip a failed page",
     )
     fetch_meta.epilog = "Start-page selection may move it backwards, including with --skip-failed-page."
+    fetch_meta.add_argument("--refresh-mode", choices=("new", "missing", "stale", "force"), default="force")
+    fetch_meta.add_argument("--ttl-seconds", type=int, default=86400)
+    fetch_meta.add_argument("--bvid", action="append", help="Explicitly refresh archived videos; repeat this flag")
+    fetch_meta.add_argument("--fields", nargs="+", choices=("summary", "details", "parts", "tags"), default=None)
+    fetch_meta.add_argument("--refresh-failed", action="store_true", help="Retry failed operations recorded in an explicit v2 archive")
+    fetch_meta.add_argument("--request-budget", type=int, default=10000, help="Total upstream operation attempts including retries")
+    fetch_meta.add_argument("--request-timeout", type=float, default=30)
+    fetch_meta.add_argument("--run-timeout", type=float, default=14400)
 
     fetch_tags = subparsers.add_parser("fetch-tags", help="Refresh original tags for archived videos")
     fetch_tags.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
