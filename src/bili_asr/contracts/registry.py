@@ -35,6 +35,17 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("artifact-storage-v1", "storage", ("src/bili_asr/storage/schema-artifact-storage.sql",),
+             ("storage.artifact_catalog", "services.artifact_catalog_upgrade", "storage.snapshots"),
+             ("extension", "snapshot", "explicit-upgrade")),
+    Contract("artifact-inventory-v1", "storage", ("src/bili_asr/services/artifact_inventory_service.py",),
+             ("cli.artifacts",), ("validate", "read"), (), "artifact-inventory-v1.schema.json"),
+    Contract("artifact-offload-plan-v1", "storage", ("src/bili_asr/services/artifact_inventory_service.py",),
+             ("cli.artifacts", "services.artifact_transfer"), ("validate", "read", "write"),
+             ("artifact-storage-v1", "artifact-inventory-v1"), "artifact-offload-plan-v1.schema.json"),
+    Contract("artifact-package-v1", "storage", ("src/bili_asr/artifact_packages.py",),
+             ("services.artifact_transfer", "services.artifact_access", "services.artifact_restore"),
+             ("validate", "read", "write"), ("artifact-storage-v1",), "artifact-package-v1.schema.json"),
     Contract(BILIBILI_V1, "storage", ("src/bili_asr/storage/schema.sql", "src/bili_asr/storage/schema-transcripts.sql",
              "src/bili_asr/storage/schema-workflow.sql", "src/bili_asr/storage/schema-editorial.sql"),
              ("archive_session", "storage.snapshots"), ("runtime", "snapshot")),

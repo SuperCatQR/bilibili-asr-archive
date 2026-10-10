@@ -2,6 +2,83 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "artifact-storage-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/storage/schema-artifact-storage.sql"
+      ],
+      "consumers": [
+        "storage.artifact_catalog",
+        "services.artifact_catalog_upgrade",
+        "storage.snapshots"
+      ],
+      "capabilities": [
+        "extension",
+        "snapshot",
+        "explicit-upgrade"
+      ],
+      "dependencies": [],
+      "schema": null
+    },
+    {
+      "identity": "artifact-inventory-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/services/artifact_inventory_service.py"
+      ],
+      "consumers": [
+        "cli.artifacts"
+      ],
+      "capabilities": [
+        "validate",
+        "read"
+      ],
+      "dependencies": [],
+      "schema": "artifact-inventory-v1.schema.json"
+    },
+    {
+      "identity": "artifact-offload-plan-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/services/artifact_inventory_service.py"
+      ],
+      "consumers": [
+        "cli.artifacts",
+        "services.artifact_transfer"
+      ],
+      "capabilities": [
+        "validate",
+        "read",
+        "write"
+      ],
+      "dependencies": [
+        "artifact-storage-v1",
+        "artifact-inventory-v1"
+      ],
+      "schema": "artifact-offload-plan-v1.schema.json"
+    },
+    {
+      "identity": "artifact-package-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/artifact_packages.py"
+      ],
+      "consumers": [
+        "services.artifact_transfer",
+        "services.artifact_access",
+        "services.artifact_restore"
+      ],
+      "capabilities": [
+        "validate",
+        "read",
+        "write"
+      ],
+      "dependencies": [
+        "artifact-storage-v1"
+      ],
+      "schema": "artifact-package-v1.schema.json"
+    },
+    {
       "identity": "bilibili-v1",
       "owner": "storage",
       "authority": [
