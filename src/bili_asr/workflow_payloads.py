@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import Any
 
 from bili_asr.workflow_models import JobKind, WorkflowJob
+from bili_asr.contracts.registry import WORKFLOW_PAYLOAD_VERSION
 
 
 @dataclass(frozen=True)
@@ -31,8 +32,8 @@ def validate_payload(kind: JobKind, payload: Mapping[str, Any], *,
                      part_id: int | None, profile_id: int | None = None) -> ValidatedPayload:
     if not isinstance(payload, Mapping):
         raise ValueError("workflow payload must be a JSON object")
-    version = payload.get("schema_version", 1)
-    if type(version) is not int or version != 1:
+    version = payload.get("schema_version", WORKFLOW_PAYLOAD_VERSION)
+    if type(version) is not int or version != WORKFLOW_PAYLOAD_VERSION:
         raise ValueError("unsupported workflow payload schema version")
     if kind in {JobKind.SUBTITLE, JobKind.AUDIO, JobKind.ASR, JobKind.PUBLISH}:
         if _positive_id(payload.get("video_part_id"), "video_part_id") != part_id:

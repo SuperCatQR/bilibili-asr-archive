@@ -127,6 +127,12 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -e ".[dev]"
 
+      - name: Verify packaged contract schemas and documentation mirrors
+        run: python -m bili_asr.contracts --check-docs docs/contracts
+
+      - name: Prepare offline installed-test dependencies
+        run: python -m pip download --dest .test-wheelhouse "jsonschema>=4.25,<5"
+
       - name: Run tests
         run: |
           mkdir -p test-results
@@ -188,6 +194,7 @@ jobs:
       - name: Verify installed command and packaged resources
         run: |
           .ci-venv/bin/bili-asr --help
+          .ci-venv/bin/python -m bili_asr.contracts --check-docs docs/contracts
           .ci-venv/bin/python - <<'PY'
           from importlib.resources import files
 

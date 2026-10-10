@@ -13,18 +13,14 @@ import stat
 from typing import Iterator, Mapping
 import uuid
 
+from bili_asr.contracts.json_schema import validate_json
+from bili_asr.contracts.registry import catalog_contract, manifest_contract
+
 
 class ExportSnapshotError(ValueError):
     """The output is unsafe, unmanaged, or inconsistent with its manifest."""
 
 
-_ARTICLE_FIELDS = frozenset({
-    "manuscriptType", "slug", "title", "summary", "tags", "attribution", "editorNote",
-    "releaseId", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl",
-    "contentSha256", "artifactSha256", "templateVersion", "publishedAt", "file",
-    "reviewFile", "reviewArtifactSha256",
-})
-_DRAFT_FIELDS = (_ARTICLE_FIELDS - {"releaseId", "templateVersion", "publishedAt"}) | {"reviewStatus", "createdAt"}
 _REVIEW_STATUSES = frozenset({"pending-review", "in-review", "changes-requested", "approved", "rejected"})
 _REVIEW_FILES = frozenset({"ai-draft.md", "review.md", "edition.md", "edition.json", "review.json", "differences/ai.patch", "differences/parent.patch"})
 _IMPORT_REVIEW_FILES = frozenset({"import-origin.json", "preserved-body.md", "differences/preserved.patch"})
@@ -87,26 +83,27 @@ def _allowed_file(name: str, kind: str, profile: str | None = None) -> bool:
     return name in _REVIEW_FILES | _IMPORT_REVIEW_FILES
 
 
+def _contract_json(identity: str, value: object) -> None:
+    try:
+        validate_json(identity, value)
+    except ValueError as exc:
+        raise ExportSnapshotError(str(exc)) from exc
+
+
 def _validate_article(article: object, *, draft: bool = False, catalog_version: int = 2) -> dict:
-    fields = _DRAFT_FIELDS if draft else _ARTICLE_FIELDS
+    _contract_json(catalog_contract(catalog_version, draft=draft), {
+        "schemaVersion": catalog_version, "manuscriptType": "publication-draft" if draft else "publication",
+        "articles": [article],
+    })
+    return _validate_article_semantics(article, draft=draft, catalog_version=catalog_version)
+
+
+def _validate_article_semantics(article: dict, *, draft: bool, catalog_version: int) -> dict:
+    """Check domain identities and file relations after structural validation."""
     universal = catalog_version == 3 and isinstance(article, dict) and article.get("contentVersion") == 2
-    if universal:
-        fields = (fields - {"bvid", "pageIndex"}) | {"platform", "externalVideoId", "partIndex", "sourceMetadata",
-                                                   "sourcePublishedAt", "pubdateUnix", "contentVersion"}
-    if not isinstance(article, dict) or set(article) != fields:
-        raise ExportSnapshotError("public article fields differ from the contract")
-    hashes = ("aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256") if draft else ("releaseId", "aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256")
-    for key in hashes:
-        if not isinstance(article[key], str) or not re.fullmatch(r"[0-9a-f]{64}", article[key]):
-            raise ExportSnapshotError(f"invalid public article hash: {key}")
-    if not isinstance(article["editionId"], str) or not re.fullmatch(r"[0-9a-f]{32}", article["editionId"]):
-        raise ExportSnapshotError("invalid public edition ID")
     for key, minimum in (("videoPartId", 1), ("partIndex" if universal else "pageIndex", 0), ("createdAt" if draft else "publishedAt", 0)):
         if type(article[key]) is not int or article[key] < minimum:
             raise ExportSnapshotError(f"invalid public article integer: {key}")
-    for key in ("title", "summary", "attribution", "editorNote", "externalVideoId" if universal else "bvid"):
-        if not isinstance(article[key], str):
-            raise ExportSnapshotError(f"invalid public article text: {key}")
     if not article["title"].strip() or not article["attribution"].strip():
         raise ExportSnapshotError("invalid public article title, attribution, or source")
     if universal:
@@ -189,11 +186,13 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         raise ExportSnapshotError(f"output is not a managed {kind} snapshot; legacy exports and manual files are refused")
     manifest = read_json(directory / manifest_name)
     profile = manifest.get("contractProfile") if isinstance(manifest, dict) else None
-    fields = {"schemaVersion", "manuscriptType", "snapshotId", "files"} | ({"contractProfile"} if profile is not None else set())
-    if not isinstance(manifest, dict) or set(manifest) != fields:
-        raise ExportSnapshotError("invalid export manifest fields")
-    if (type(manifest["schemaVersion"]) is not int or manifest["schemaVersion"] != (2 if profile is not None else 1)
-            or manifest["manuscriptType"] != kind or (profile is not None and (profile != "universal-origin-v1" or kind == "editorial-export"))):
+    imported = bool(actual_files & _IMPORT_REVIEW_FILES) and kind == "editorial-export"
+    try:
+        identity = manifest_contract(kind, profile, imported=imported)
+    except ValueError as exc:
+        raise ExportSnapshotError(str(exc)) from exc
+    _contract_json(identity, manifest)
+    if type(manifest["schemaVersion"]) is not int or manifest["manuscriptType"] != kind:
         raise ExportSnapshotError("unsupported export manifest contract")
     records = manifest["files"]
     if not isinstance(records, list) or not records:
@@ -224,11 +223,16 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         catalog = read_json(directory / "catalog.json")
         draft = kind == "publication-draft-export"
         manuscript_type = "publication-draft" if draft else "publication"
-        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] not in {2, 3} or catalog["manuscriptType"] != manuscript_type or not isinstance(catalog["articles"], list):
+        if not isinstance(catalog, dict):
             raise ExportSnapshotError("unsupported public catalog contract")
+        try:
+            identity = catalog_contract(catalog.get("schemaVersion"), draft=draft)
+        except ValueError as exc:
+            raise ExportSnapshotError("unsupported public catalog contract") from exc
+        _contract_json(identity, catalog)
         article_files: set[str] = set()
         for article in catalog["articles"]:
-            article = _validate_article(article, draft=draft, catalog_version=catalog["schemaVersion"])
+            article = _validate_article_semantics(article, draft=draft, catalog_version=catalog["schemaVersion"])
             for file_field, hash_field in (("file", "artifactSha256"), ("reviewFile", "reviewArtifactSha256")):
                 if article[file_field] in article_files:
                     raise ExportSnapshotError("invalid public catalog article file")
@@ -240,14 +244,22 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
             from bili_asr.publication_origins import validate_origins
             if catalog["schemaVersion"] != 3 or "origins.json" not in expected_files:
                 raise ExportSnapshotError("origin profile requires catalog v3 and origins.json")
-            validate_origins(read_json(directory / "origins.json"), catalog["articles"], manuscript_type)
+            origins = read_json(directory / "origins.json")
+            _contract_json("universal-origin-v1", origins)
+            validate_origins(origins, catalog["articles"], manuscript_type)
         if article_files != expected_files - {manifest_name, "catalog.json", "series.json", "origins.json"}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
         if "series.json" in expected_files:
             from bili_asr.publication_series import validate_public_series
-            validate_public_series(read_json(directory / "series.json"), catalog["articles"], manuscript_type)
+            series = read_json(directory / "series.json")
+            _contract_json("publication-series/v1", series)
+            validate_public_series(series, catalog["articles"], manuscript_type)
     elif expected_files not in (_REVIEW_FILES | {manifest_name}, _REVIEW_FILES | _IMPORT_REVIEW_FILES | {manifest_name}):
         raise ExportSnapshotError("private editorial snapshot is incomplete")
+    else:
+        review = read_json(directory / "review.json")
+        universal = isinstance(review, dict) and isinstance(review.get("ai"), dict) and review["ai"].get("templateVersion") == "ai-draft-v2"
+        _contract_json("editorial-review-universal/v1" if universal else "editorial-review/v1", review)
     return str(manifest["snapshotId"])
 
 

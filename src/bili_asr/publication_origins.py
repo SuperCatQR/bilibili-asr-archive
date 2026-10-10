@@ -4,8 +4,8 @@ from __future__ import annotations
 import re
 
 from bili_asr.canonical_json import digest
+from bili_asr.contracts.registry import ORIGIN_PROFILE as PROFILE
 
-PROFILE = "universal-origin-v1"
 COMMON = {"kind", "editionId", "aiRevisionId", "videoPartId", "contentSha256",
           "sourceMetadataSha256", "inputVersion", "aiTemplateVersion"}
 IMPORTED = {"importId", "policyVersion", "legacyAiRevisionId", "legacyEditionId", "legacyReleaseId",
