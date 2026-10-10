@@ -92,7 +92,13 @@ def run(args) -> dict:
                        second_pass_use_cache=args.second_pass_use_cache, hotwords=tuple(args.hotword),
                        asr_batch_size=args.asr_batch_size, aligner_batch_size=args.aligner_batch_size,
                        batch_max_audio_seconds=args.batch_max_audio_seconds,
-                       batch_max_input_bytes=args.batch_max_input_bytes, batch_max_tokens=args.batch_max_tokens)
+                       batch_max_input_bytes=args.batch_max_input_bytes, batch_max_tokens=args.batch_max_tokens,
+                       asr_attention=args.asr_attention, aligner_attention=args.aligner_attention,
+                       asr_cache_implementation=args.asr_cache_implementation,
+                       asr_compile=args.asr_compile, aligner_compile=args.aligner_compile,
+                       compile_max_buckets=args.compile_max_buckets,
+                       compile_max_input_tokens=args.compile_max_input_tokens,
+                       compile_max_output_tokens=args.compile_max_output_tokens)
     runner = ASRRunner(config)
     runner.configure_prefetch(enabled=args.prefetch, max_bytes=args.prefetch_bytes)
     args.output.mkdir(parents=True)
@@ -167,6 +173,14 @@ def main() -> int:
     parser.add_argument("--prefetch", action="store_true")
     parser.add_argument("--prefetch-bytes", type=int, default=64 * 1024**2)
     parser.add_argument("--asr-batch-size", type=int, default=1)
+    parser.add_argument("--asr-attention", choices=("default", "eager", "sdpa", "flash_attention_2"), default="default")
+    parser.add_argument("--aligner-attention", choices=("default", "eager", "sdpa", "flash_attention_2"), default="default")
+    parser.add_argument("--asr-cache-implementation", choices=("default", "dynamic", "static"), default="default")
+    parser.add_argument("--asr-compile", action="store_true")
+    parser.add_argument("--aligner-compile", action="store_true")
+    parser.add_argument("--compile-max-buckets", type=int, default=2)
+    parser.add_argument("--compile-max-input-tokens", type=int, default=4096)
+    parser.add_argument("--compile-max-output-tokens", type=int, default=2048)
     parser.add_argument("--aligner-batch-size", type=int, default=1)
     parser.add_argument("--batch-max-audio-seconds", type=float, default=360)
     parser.add_argument("--batch-max-input-bytes", type=int, default=64 * 1024**2)

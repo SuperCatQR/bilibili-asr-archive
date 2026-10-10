@@ -45,3 +45,14 @@ def test_hf_capabilities_do_not_claim_shared_abort_or_fp8():
     capabilities = HuggingFaceBackend.capabilities
     assert capabilities.quantization_scopes == ()
     assert capabilities.cancellation_scope == "owned_process"
+
+
+def test_backend_capability_schema_and_compile_are_checked_before_loading(monkeypatch):
+    runner, _ = _runner(monkeypatch)
+    backend = HuggingFaceBackend()
+    backend.capabilities = replace(backend.capabilities, compiled_alignment=False)
+    with pytest.raises(ValueError, match="runtime strategy"):
+        ASRRunner(replace(runner.config, aligner_compile=True), backend=backend)
+    backend.capabilities = replace(backend.capabilities, schema_version=2)
+    with pytest.raises(ValueError, match="capability schema"):
+        ASRRunner(runner.config, backend=backend)

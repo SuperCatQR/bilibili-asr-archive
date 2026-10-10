@@ -73,6 +73,14 @@ class AsrProfile:
     batch_max_audio_seconds: float = 360.0
     batch_max_input_bytes: int = 64 * 1024**2
     batch_max_tokens: int = 8192
+    asr_attention: str = "default"
+    aligner_attention: str = "default"
+    asr_cache_implementation: str = "default"
+    asr_compile: bool = False
+    aligner_compile: bool = False
+    compile_max_buckets: int = 2
+    compile_max_input_tokens: int = 4096
+    compile_max_output_tokens: int = 2048
 
     def asr_config(self):
         """Reconstruct the frozen configuration without consulting the environment."""
@@ -101,6 +109,10 @@ class AsrProfile:
         batching["batch_max_audio_seconds"] = float(batching["batch_max_audio_seconds"])
         if batching != batch_defaults:
             values["batching"] = {"schema_version": 1, **batching}
+        from .asr.strategies import STRATEGY_DEFAULTS
+        strategies = {name: values.pop(name) for name in STRATEGY_DEFAULTS}
+        if strategies != STRATEGY_DEFAULTS:
+            values["runtime_strategies"] = {"schema_version": 1, **strategies}
         for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
             values[name] = float(values[name])
         return json.dumps(

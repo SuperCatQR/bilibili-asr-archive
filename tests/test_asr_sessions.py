@@ -98,7 +98,7 @@ def test_real_spawn_reuses_models_with_independent_output_and_request_identity()
     assert session._process is None
 
 
-@pytest.mark.parametrize("change", ["model", "binding", "revision"])
+@pytest.mark.parametrize("change", ["model", "binding", "revision", "batch", "compile", "attention"])
 def test_full_configuration_and_runtime_identity_rebuild_session(change):
     session = AsrInferenceSession(runner_factory=ProcessRunner)
     try:
@@ -109,6 +109,12 @@ def test_full_configuration_and_runtime_identity_rebuild_session(change):
             config = replace(config, model_name="other-model")
         elif change == "revision":
             config = replace(config, aligner_revision="other-revision")
+        elif change == "batch":
+            config = replace(config, asr_batch_size=2)
+        elif change == "compile":
+            config = replace(config, asr_cache_implementation="static", asr_compile=True)
+        elif change == "attention":
+            config = replace(config, aligner_attention="sdpa")
         else:
             binding = {"manifest_sha256": "a" * 64}
         second, evidence = invoke(session, attempt=2, config=config, binding=binding)

@@ -39,7 +39,7 @@ def _dtype(model: Any) -> str | None:
 def _attention(model: Any) -> str | None:
     config = getattr(model, "config", None)
     value = getattr(config, "_attn_implementation", None)
-    return value if value in {"eager", "sdpa", "flash_attention_2", "flash_attention_3", "flex_attention"} else None
+    return value if isinstance(value, str) and value in {"eager", "sdpa", "flash_attention_2", "flash_attention_3", "flex_attention"} else None
 
 
 def _model_cache(model: Any) -> bool | None:
@@ -92,12 +92,17 @@ def execution_policy(config: Any, models: Any, *, prefetch: bool, prefetch_bytes
             "runtime_config_sha256": hashlib.sha256(encoded).hexdigest(),
             "asr_precision": {"requested": config.model_dtype, "resolved": _dtype(models.model)},
             "aligner_precision": {"requested": config.aligner_dtype, "resolved": _dtype(models.aligner)},
-            "asr_attention": {"requested": "checkpoint_default", "resolved": _attention(models.model)},
-            "aligner_attention": {"requested": "checkpoint_default", "resolved": _attention(models.aligner)},
+            "asr_attention": {"requested": "checkpoint_default" if config.asr_attention == "default" else config.asr_attention,
+                              "resolved": _attention(models.model)},
+            "aligner_attention": {"requested": "checkpoint_default" if config.aligner_attention == "default" else config.aligner_attention,
+                                  "resolved": _attention(models.aligner)},
             "generation_cache": {"first_pass": "checkpoint_default", "checkpoint_default": _model_cache(models.model),
                                  "second_pass": "checkpoint_default" if config.second_pass_use_cache else "disabled",
+                                 "implementation_requested": config.asr_cache_implementation,
                                  "cross_request_past_key_values": False},
-            "compile": {"requested": False, "runner_enabled": False},
+            "compile": {"requested": config.asr_compile or config.aligner_compile,
+                        "asr_requested": config.asr_compile, "aligner_requested": config.aligner_compile,
+                        "resolved_observation": "runtime_strategies"},
             "cuda_graph": {"requested": False, "runner_enabled": False},
             "chunk_seconds": config.chunk_seconds, "asr_batch_size": config.asr_batch_size,
             "aligner_batch_size": config.aligner_batch_size,

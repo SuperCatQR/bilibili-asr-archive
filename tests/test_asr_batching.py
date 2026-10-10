@@ -13,7 +13,7 @@ from bili_asr.asr.config import ASRConfig
 from bili_asr.asr.runner import ASRRunner, two_pass_transcribe
 from bili_asr.cli.workflow import _cmd_workflow, add_workflow_parser
 from bili_asr.storage import AsrProfile, WorkflowRepository
-from test_asr_quality_foundation import database  # noqa: F401 - shared archive fixture
+from test_asr_quality_foundation import database as database  # Shared archive fixture.
 from test_asr_qwen import _Inputs, _runner, _units
 
 

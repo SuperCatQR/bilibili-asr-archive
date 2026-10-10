@@ -242,8 +242,16 @@ class ASRRunner:
             raise TypeError("config must be an ASRConfig")
         self.config = config
         self.backend = backend if backend is not None else HuggingFaceBackend()
+        capabilities = self.backend.capabilities
+        if capabilities.schema_version != 1:
+            raise ValueError("unsupported inference backend capability schema")
         if any(dtype not in self.backend.capabilities.precisions for dtype in (config.model_dtype, config.aligner_dtype)):
             raise ValueError("selected inference backend does not support the requested precision")
+        for requested, supported in ((config.asr_compile, capabilities.compiled_generation),
+                (config.aligner_compile, capabilities.compiled_alignment),
+                (config.asr_cache_implementation == "static", capabilities.static_cache)):
+            if requested and not supported:
+                raise ValueError("selected inference backend does not support the requested runtime strategy")
         self._model_factory = model_factory
         self._models: _ModelSet | None = None
         # Monotonic, never reset by release(): a runner that released and rebuilt paid two
@@ -390,7 +398,11 @@ class ASRRunner:
                 )
             self.model_load_attempts += 1
             _progress("load")
-            self._models = factory(**kwargs)
+            models = factory(**kwargs)
+            configure = getattr(self.backend, "configure", None)
+            if callable(configure):
+                configure(self.config, models)
+            self._models = models
         except (_dependency_errors.ASRDependencyError, _dependency_errors.ASRModelError):
             raise
         # Third-party loaders expose many exception classes.  Keep their
@@ -750,6 +762,9 @@ class ASRRunner:
         finally:
             if batch_results is not None:
                 batch_results.close()
+            strategy_evidence = getattr(self.backend, "execution_evidence", None)
+            if callable(strategy_evidence):
+                report["execution_policy"]["runtime_strategies"] = strategy_evidence()
             if prefetch is not None:
                 prefetch.close()
                 report["resources"]["prefetch_input_peak_bytes"] = prefetch.peak_bytes
@@ -770,6 +785,9 @@ class ASRRunner:
     def release(self) -> None:
         """Drop the owned model pair.  The counters are monotonic and are **not** reset."""
 
+        release = getattr(self.backend, "release", None)
+        if callable(release):
+            release()
         self._models = None
         self._prepared_audio = None
         if self._prefetch_processor_reuse is not None:

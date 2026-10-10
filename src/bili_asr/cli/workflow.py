@@ -54,6 +54,14 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     plan.add_argument("--min-new-tokens", type=int, default=None)
     plan.add_argument("--second-pass-cache", action=argparse.BooleanOptionalAction, default=None)
     plan.add_argument("--asr-batch-size", type=int, default=None)
+    plan.add_argument("--asr-attention", choices=("default", "eager", "sdpa", "flash_attention_2"), default=None)
+    plan.add_argument("--aligner-attention", choices=("default", "eager", "sdpa", "flash_attention_2"), default=None)
+    plan.add_argument("--asr-cache-implementation", choices=("default", "dynamic", "static"), default=None)
+    plan.add_argument("--asr-compile", action=argparse.BooleanOptionalAction, default=None)
+    plan.add_argument("--aligner-compile", action=argparse.BooleanOptionalAction, default=None)
+    plan.add_argument("--compile-max-buckets", type=int, default=None)
+    plan.add_argument("--compile-max-input-tokens", type=int, default=None)
+    plan.add_argument("--compile-max-output-tokens", type=int, default=None)
     plan.add_argument("--aligner-batch-size", type=int, default=None)
     plan.add_argument("--batch-max-audio-seconds", type=float, default=None)
     plan.add_argument("--batch-max-input-bytes", type=int, default=None)
@@ -353,7 +361,9 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                              "hotword", "offline", "model_id", "tokens_per_second",
                              "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype",
                              "asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",
-                             "batch_max_input_bytes", "batch_max_tokens"):
+                             "batch_max_input_bytes", "batch_max_tokens", "asr_attention", "aligner_attention",
+                             "asr_cache_implementation", "asr_compile", "aligner_compile", "compile_max_buckets",
+                             "compile_max_input_tokens", "compile_max_output_tokens"):
                     value = getattr(args, name)
                     if value is not None:
                         overrides[names.get(name, name)] = tuple(value) if name == "hotword" else value

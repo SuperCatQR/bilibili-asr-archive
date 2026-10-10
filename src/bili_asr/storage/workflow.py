@@ -666,6 +666,14 @@ class WorkflowRepository:
                         or type(batching["schema_version"]) is not int or batching["schema_version"] != 1):
                     raise ValueError("unsupported ASR batching schema")
                 values.update({name: batching[name] for name in names})
+            strategies = values.pop("runtime_strategies", None)
+            if strategies is not None:
+                from ..asr.strategies import STRATEGY_DEFAULTS
+                names = set(STRATEGY_DEFAULTS)
+                if (not isinstance(strategies, dict) or set(strategies) != names | {"schema_version"}
+                        or type(strategies["schema_version"]) is not int or strategies["schema_version"] != 1):
+                    raise ValueError("unsupported ASR runtime strategies schema")
+                values.update({name: strategies[name] for name in names})
             values["hotwords"] = tuple(values["hotwords"])
             profile = AsrProfile(profile_key=str(row["profile_key"]), **values)
             if hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest() != row["config_sha256"]:
