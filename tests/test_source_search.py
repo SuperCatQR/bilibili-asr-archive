@@ -5,7 +5,7 @@ import pytest
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
 from bili_asr.platform_identity import ContentRef
-from bili_asr.search_index import TranscriptSearchIndex
+from bili_asr.search_index import MetadataSearchIndex, TranscriptSearchIndex
 from bili_asr.search_index.query import search_archive
 from bili_asr.services.archive_migration import initialize_archive
 from bili_asr.storage.sources import SourceRepository, SourceVideoMetadata
@@ -54,3 +54,24 @@ def test_corrected_publication_date_filters_existing_fts_without_reindex(tmp_pat
     # An ordinary incremental build also need not rewrite immutable text rows.
     assert index.build() == 0
     assert search_archive(root, "English", pubdate_from=1500).hits[0].pubdate == 2000
+
+
+@pytest.mark.parametrize("index_type", [MetadataSearchIndex, TranscriptSearchIndex])
+@pytest.mark.parametrize("marker", ["empty", "unsupported"])
+def test_search_schema_probe_still_rejects_an_altered_explicit_marker(tmp_path, index_type, marker):
+    root = tmp_path / "archive"
+    initialize_archive(root)
+    with ArchiveSession(root, mode=ArchiveAccessMode.WRITE) as session:
+        connection = session.connection
+        with connection:
+            if marker == "empty":
+                connection.execute("DELETE FROM archive_contract")
+            else:
+                connection.execute("PRAGMA ignore_check_constraints=ON")
+                connection.execute("UPDATE archive_contract SET contract='unsupported-v3'")
+    before = (root / "archive.db").read_bytes()
+    index = index_type(root)
+    search = index.search_metadata if index_type is MetadataSearchIndex else index.search_blocks
+    with pytest.raises(ValueError, match="unsupported or altered archive contract marker"):
+        search("needle")
+    assert (root / "archive.db").read_bytes() == before

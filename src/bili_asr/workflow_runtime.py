@@ -178,7 +178,7 @@ class ArchiveWorkflowHandlers:
             raise OSError("invalid audio path")
         existing = usable_audio_path(self.artifact_roots, [relative, relative.removesuffix(".m4a") + ".flac"])
         if existing is not None:
-            return self._store_audio(job, part, existing[2], existing[2])
+            return self.store_audio(job, part, existing[2], existing[2])
         client = self._client or self.audio_client_factory(sessdata=self.sessdata)
         self._client = client
         self.repository.assert_lease(job)
