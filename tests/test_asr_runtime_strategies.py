@@ -34,7 +34,11 @@ class Generator:
 
 
 def compiler_config(monkeypatch):
-    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(CompileConfig=lambda **kwargs: kwargs))
+    def configured(**kwargs):
+        # HF forwards to torch.compile, where mode and options are exclusive.
+        assert kwargs.get("mode") is None or kwargs.get("options") is None
+        return kwargs
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(CompileConfig=configured))
 
 
 def test_static_generation_limits_shapes_and_tokens_resets_cache_and_keeps_second_pass_rule(monkeypatch):

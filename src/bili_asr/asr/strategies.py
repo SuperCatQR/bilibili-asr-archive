@@ -133,7 +133,7 @@ class RuntimeStrategies:
                     try:
                         from transformers import CompileConfig
                         kwargs["compile_config"] = CompileConfig(dynamic=False, fullgraph=False,
-                            mode="default", options={"triton.cudagraphs": False})
+                            mode=None, options={"triton.cudagraphs": False})
                     except (ImportError, TypeError):
                         self.fallback("asr_compile_api_unavailable")
                         self.failed["asr"].add(signature)
