@@ -13,6 +13,7 @@ ASR_EVIDENCE_VERSION = 1
 BUNDLE_SCHEMA = "archive-bundle-v2"
 ORIGIN_PROFILE = "universal-origin-v1"
 IMPORT_EXTENSION = "preserved-body-import-v1"
+SOURCE_SUPPLEMENT_POLICY = "legacy-part-title-supplement-v1"
 SCHEMA_BASE_URI = "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/"
 
 
@@ -46,6 +47,10 @@ _CONTRACTS = (
     Contract(IMPORT_EXTENSION, "storage", ("src/bili_asr/storage/schema-preserved-body-import.sql",),
              ("storage.import_origins", "services.preserved_body_import", "storage.snapshots"),
              ("extension", "snapshot"), (UNIVERSAL_V2,)),
+    Contract(SOURCE_SUPPLEMENT_POLICY, "sources", ("src/bili_asr/source_supplements.py",
+             "src/bili_asr/storage/schema-source-supplements.sql"),
+             ("storage.source_supplements", "publication_origins", "storage.snapshots"),
+             ("extension", "snapshot", "export"), (IMPORT_EXTENSION,)),
     Contract("workflow-payload/v1", "workflow", ("src/bili_asr/workflow_payloads.py",),
              ("storage.workflow", "workflow"), ("read", "write")),
     Contract("asr-profile/v2", "workflow", ("src/bili_asr/workflow_models.py", "src/bili_asr/storage/schema-workflow.sql"),
@@ -85,7 +90,8 @@ _CONTRACTS = (
     _json("publication-draft-export-manifest/v1", "publication-draft-export-manifest.schema.json"),
     _json("publication-origin-manifest/v2", "publication-origin-manifest-v2.schema.json",
           dependencies=(ORIGIN_PROFILE,)),
-    _json(ORIGIN_PROFILE, "publication-origins-v1.schema.json", dependencies=("publication-content/v2",)),
+    _json(ORIGIN_PROFILE, "publication-origins-v1.schema.json",
+          dependencies=("publication-content/v2", SOURCE_SUPPLEMENT_POLICY)),
     _json("editorial-export-manifest/v1", "editorial-export-manifest.schema.json"),
     _json("editorial-import-export-manifest/v1", "editorial-import-export-manifest.schema.json",
           dependencies=(IMPORT_EXTENSION, "editorial-export-manifest/v1")),

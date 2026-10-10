@@ -5,6 +5,9 @@
     "bilibili-v1": "sha256:57a67d1adb5070339d80f9ade841a98f5d4cfea17eedcce638c600b1e9d43710",
     "bilibili-v1+preserved-body-import-v1": "sha256:749c97c24ed57d46427ec31e1b6fb17da6a4bd404bb7dab192e65c65f5e2c9d8",
     "universal-v2": "sha256:f14831799e2621867aaf5473fd544e00c81fe8997b973d54d63037b2f48f6bb6",
-    "universal-v2+preserved-body-import-v1": "sha256:fa2993c5a61e2477fa1a0de3b1e8f3f7ee154e791a04c43dbcb1625252735dae"
-  }
+    "universal-v2+preserved-body-import-v1": "sha256:fa2993c5a61e2477fa1a0de3b1e8f3f7ee154e791a04c43dbcb1625252735dae",
+    "bilibili-v1+preserved-body-import-v1+legacy-part-title-supplement-v1": "sha256:5074687cb8d1f431af89c178cff844a1e2da31647db11405bd0012e226b77540",
+    "universal-v2+preserved-body-import-v1+legacy-part-title-supplement-v1": "sha256:1b233994b03e1d006df100b78a954c5b6769e1ead14632e36688af92f6e9fbe8"
+  },
+  "extension_baseline_revision": "fd5a8068f988ed1394fdb0a7c723941cbdf5221b"
 }

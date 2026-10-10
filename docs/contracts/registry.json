@@ -82,6 +82,28 @@
       "schema": null
     },
     {
+      "identity": "legacy-part-title-supplement-v1",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/source_supplements.py",
+        "src/bili_asr/storage/schema-source-supplements.sql"
+      ],
+      "consumers": [
+        "storage.source_supplements",
+        "publication_origins",
+        "storage.snapshots"
+      ],
+      "capabilities": [
+        "extension",
+        "snapshot",
+        "export"
+      ],
+      "dependencies": [
+        "preserved-body-import-v1"
+      ],
+      "schema": null
+    },
+    {
       "identity": "workflow-payload/v1",
       "owner": "workflow",
       "authority": [
@@ -501,7 +523,8 @@
         "export"
       ],
       "dependencies": [
-        "publication-content/v2"
+        "publication-content/v2",
+        "legacy-part-title-supplement-v1"
       ],
       "schema": "publication-origins-v1.schema.json"
     },

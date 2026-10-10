@@ -101,6 +101,15 @@ def test_snapshot_identity_is_pinned_independently_of_the_current_writer(kind, i
     assert snapshots._current_contract(kind, imports)[1] == database_fingerprint(kind, imports)
 
 
+@pytest.mark.parametrize("kind", ["bilibili-v1", "universal-v2"])
+def test_source_supplement_extension_has_a_distinct_pinned_identity(kind):
+    identity = snapshots._current_contract(kind, True, True)[1]
+    assert identity == database_fingerprint(kind, True, True)
+    assert identity != database_fingerprint(kind, True)
+    with pytest.raises(ValueError, match="unsupported"):
+        database_fingerprint(kind, False, True)
+
+
 def test_shipped_ddl_drift_cannot_silently_redefine_an_existing_snapshot(monkeypatch):
     original = snapshots._schema
     def altered(connection):
