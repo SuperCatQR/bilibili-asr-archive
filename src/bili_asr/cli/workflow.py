@@ -103,6 +103,7 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
                      help="Conservative reservation budget for the prepared next chunk")
     run.add_argument("--runtime-bindings", default=None,
                      help="Verified checkpoint relocation file; frozen profiles remain unchanged")
+    run.add_argument("--storage-target", action="append", help="Restore retained inputs from TARGET_ID=DIRECTORY before claim")
     run.add_argument("--warmup-audio", default=None,
                      help="Explicit absolute sentinel audio; decode and align before claiming GPU work")
     run.add_argument("--warmup-timeout", type=float, default=300,
@@ -128,6 +129,7 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     supervise.add_argument("--asr-prefetch", action="store_true")
     supervise.add_argument("--asr-prefetch-bytes", type=int, default=64 * 1024 * 1024)
     supervise.add_argument("--runtime-bindings", default=None)
+    supervise.add_argument("--storage-target", action="append")
     supervise.add_argument("--warmup-audio", default=None)
     supervise.add_argument("--warmup-timeout", type=float, default=300)
     supervise.add_argument("--cache-root", default=None)
@@ -221,7 +223,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
             poll_interval=args.poll_interval, drain_file=args.drain_file, drain_timeout=args.drain_timeout,
             max_restarts=args.max_restarts, gpu_session=args.gpu_session,
             asr_prefetch=args.asr_prefetch, asr_prefetch_bytes=args.asr_prefetch_bytes,
-            runtime_bindings=args.runtime_bindings, warmup_audio=args.warmup_audio,
+            runtime_bindings=args.runtime_bindings, storage_targets=args.storage_target, warmup_audio=args.warmup_audio,
             warmup_timeout_seconds=args.warmup_timeout, cache_root=args.cache_root,
             cache_max_bytes=args.cache_max_bytes)
         supervisor.run()
@@ -365,6 +367,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         if args.runtime_bindings is not None:
             from bili_asr.runtime_bindings import load_runtime_bindings
             config_resolver = load_runtime_bindings(args.runtime_bindings).resolve
+        from bili_asr.services.artifact_access import parse_target_bindings
         summary = application.run(worker_id=args.worker_id, sessdata=sessdata,
             only_editorial=args.only_editorial, limit=args.limit,
             kinds=None if args.kind is None else tuple(JobKind(kind) for kind in args.kind), role=args.role,
@@ -373,9 +376,9 @@ def _execute_workflow(args: argparse.Namespace) -> int:
               asr_prefetch=args.asr_prefetch, asr_prefetch_bytes=args.asr_prefetch_bytes,
               warmup_audio=args.warmup_audio, warmup_timeout_seconds=args.warmup_timeout,
               cache_root=args.cache_root, cache_max_bytes=args.cache_max_bytes,
-              poll_interval_seconds=args.poll_interval)
+              poll_interval_seconds=args.poll_interval, storage_targets=parse_target_bindings(args.storage_target))
         print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} "
-              f"cancelled={summary.cancelled} idle={int(summary.idle)}")
+              f"cancelled={summary.cancelled} idle={int(summary.idle)} blocked={summary.blocked}")
         return 1 if summary.failed else 0
     except (ValueError, InferenceSessionError, ASRInferenceTimeoutError) as exc:
         write_stderr(f"workflow {args.workflow_action}: {exc}")

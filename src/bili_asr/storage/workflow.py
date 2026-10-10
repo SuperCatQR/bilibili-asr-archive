@@ -201,7 +201,7 @@ class WorkflowRepository:
         return ids, counts
 
     def _candidate(self, *, now: int, kinds: Iterable[JobKind] | None,
-                   expired: bool = False, job_id: str | None = None):
+                   expired: bool = False, job_id: str | None = None, exclude_job_ids: tuple[str, ...] = ()):
         selected = None if kinds is None else tuple(k.value for k in kinds)
         if selected == ():
             return None
@@ -214,6 +214,9 @@ class WorkflowRepository:
         if job_id is not None:
             filters += " AND j.job_id=?"
             parameters.append(job_id)
+        if exclude_job_ids:
+            filters += " AND j.job_id NOT IN (SELECT value FROM json_each(?))"
+            parameters.append(json.dumps(exclude_job_ids))
         return self.connection.execute(
             "SELECT j.* FROM workflow_jobs AS j WHERE " + status + """ AND j.available_at <= ?
             AND NOT EXISTS (
@@ -224,10 +227,10 @@ class WorkflowRepository:
             parameters,
         ).fetchone()
 
-    def peek_candidate(self, *, kinds: Iterable[JobKind] | None = None) -> WorkflowJob | None:
+    def peek_candidate(self, *, kinds: Iterable[JobKind] | None = None, exclude_job_ids: tuple[str, ...] = ()) -> WorkflowJob | None:
         """Read a hint for preparation; does not acquire a lease or recover attempts."""
         self.require_cancellation_contract()
-        row = self._candidate(now=_now(), kinds=kinds, expired=True)
+        row = self._candidate(now=_now(), kinds=kinds, expired=True, exclude_job_ids=exclude_job_ids)
         return None if row is None else self._job_from_row(row)
 
     def claim(self, worker_id: str, *, lease_seconds: int = 900,

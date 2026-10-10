@@ -110,7 +110,7 @@ class WorkflowApplication:
             poll_interval_seconds: float = 0, shutdown_event: threading.Event | None = None,
             source_registry=None, warmup_audio: str | None = None,
             warmup_timeout_seconds: float = 300, cache_root: str | None = None,
-            cache_max_bytes: int = 10 * 1024**3) -> ExecutionSummary:
+            cache_max_bytes: int = 10 * 1024**3, storage_targets: dict[str, Path] | None = None) -> ExecutionSummary:
         from contextlib import ExitStack
 
         from bili_asr.editorial_runtime import EditorialWorkflowHandlers
@@ -165,20 +165,27 @@ class WorkflowApplication:
                 if not only_editorial:
                     archive.prepare_candidate(candidate, checkpoint, timeout_seconds=warmup_timeout_seconds,
                                               audio_path=warmup_audio)
+            from bili_asr.services.artifact_consumer import candidate_artifact_access
+            from bili_asr.storage.artifact_online import require_artifact_online
+            access = (lambda candidate: candidate_artifact_access(self.session.connection,
+                self.repository, self.session.artifact_roots, candidate, storage_targets=storage_targets or {})) if (
+                    not only_editorial and require_artifact_online(self.session.connection)) else None
             executor = WorkflowExecutor(
                 self.repository, worker_id=worker_id, handlers=registered,
                 kinds=tuple(registered) if selected is None else tuple(dict.fromkeys(selected)),
                 drain_requested=lambda: stop.is_set() or (drain_file is not None and Path(drain_file).exists()),
                 drain_timeout_seconds=drain_timeout_seconds,
-                prepare_candidate=prepare if not only_editorial and gpu_session != "legacy" else None)
-            succeeded = failed = cancelled = 0
+                prepare_candidate=prepare if not only_editorial and gpu_session != "legacy" else None,
+                candidate_access=access)
+            succeeded = failed = cancelled = blocked = 0
             while True:
                 remaining = None if limit is None else limit - succeeded - failed - cancelled
                 summary = executor.run(limit=remaining)
                 succeeded += summary.succeeded
                 failed += summary.failed
                 cancelled += summary.cancelled
+                blocked = summary.blocked
                 if (not poll_interval_seconds or executor.drain_requested()
                         or (limit is not None and succeeded + failed + cancelled >= limit)):
-                    return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled)
+                    return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled, blocked)
                 stop.wait(poll_interval_seconds)
