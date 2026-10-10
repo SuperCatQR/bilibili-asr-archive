@@ -31,6 +31,18 @@ CREATE TABLE artifact_group_members (
     object_id TEXT NOT NULL REFERENCES artifact_objects(object_id) ON DELETE RESTRICT,
     PRIMARY KEY (group_id, role)
 );
+CREATE TABLE artifact_group_paths (
+    group_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    relative_key TEXT NOT NULL,
+    PRIMARY KEY (group_id, role),
+    UNIQUE (group_id, relative_key),
+    FOREIGN KEY (group_id, role) REFERENCES artifact_group_members(group_id, role) ON DELETE RESTRICT
+);
+CREATE TABLE artifact_publication_groups (
+    publication_id INTEGER PRIMARY KEY REFERENCES workflow_publications(publication_id) ON DELETE RESTRICT,
+    group_id TEXT NOT NULL REFERENCES artifact_groups(group_id) ON DELETE RESTRICT
+);
 CREATE TABLE artifact_targets (
     target_id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('local', 'directory')),

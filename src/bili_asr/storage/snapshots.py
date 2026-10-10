@@ -297,6 +297,10 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
             from bili_asr.storage.artifact_catalog import require_artifact_catalog
 
             if require_artifact_catalog(connection):
+                for object_id, in connection.execute("SELECT DISTINCT object_id FROM artifact_group_members"):
+                    add(f"documents/artifact-objects/{object_id}", object_id)
+                for key, sha256 in connection.execute("SELECT p.relative_key,m.object_id FROM artifact_publication_groups b JOIN workflow_publications w USING(publication_id) JOIN artifact_group_paths p USING(group_id) JOIN artifact_group_members m ON m.group_id=p.group_id AND m.role=p.role WHERE NOT EXISTS (SELECT 1 FROM workflow_publications newer WHERE newer.video_part_id=w.video_part_id AND (newer.published_at>w.published_at OR (newer.published_at=w.published_at AND newer.publication_id>w.publication_id)))"):
+                    add(key, sha256)
                 for key, digest in connection.execute("SELECT report_key,report_sha256 FROM artifact_catalog_upgrades"):
                     add(key, digest)
                 for key, digest in connection.execute("SELECT relative_key,sha256 FROM artifact_catalog_upgrade_files"):

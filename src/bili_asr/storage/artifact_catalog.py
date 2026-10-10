@@ -111,6 +111,32 @@ def require_artifact_catalog(connection: sqlite3.Connection, *, required: bool =
             storage_key_parts(relative_key)
         except ValueError as exc:
             raise SchemaContractError("artifact-storage-v1: unsafe package location") from exc
+    for relative_key, in connection.execute("SELECT relative_key FROM artifact_group_paths"):
+        try:
+            portable_artifact_parts(relative_key)
+        except ValueError as exc:
+            raise SchemaContractError("artifact-storage-v1: unsafe group path") from exc
+    if connection.execute(
+        "SELECT 1 FROM artifact_groups g WHERE EXISTS(SELECT 1 FROM artifact_group_paths p WHERE p.group_id=g.group_id) "
+        "AND g.member_count!=(SELECT COUNT(*) FROM artifact_group_paths p WHERE p.group_id=g.group_id) LIMIT 1"
+    ).fetchone():
+        raise SchemaContractError("artifact-storage-v1: incomplete group path bindings")
+    for row in connection.execute(
+        "SELECT b.publication_id,g.owner_kind,g.owner_id,g.member_count,g.group_id,w.artifact_json "
+        "FROM artifact_publication_groups b JOIN artifact_groups g USING(group_id) JOIN workflow_publications w USING(publication_id)"
+    ):
+        try:
+            from pathlib import PurePosixPath
+
+            from bili_asr.artifacts import BUNDLE_MARKER_NAME, REQUIRED_ARTIFACT_KEYS
+            declared = json.loads(row[5])
+            expected_paths = {role: declared[role] for role in REQUIRED_ARTIFACT_KEYS}
+            expected_paths["marker"] = str(PurePosixPath(declared["srt_path"]).parent / BUNDLE_MARKER_NAME)
+            actual_paths = dict(connection.execute("SELECT role,relative_key FROM artifact_group_paths WHERE group_id=?", (row[4],)))
+            if row[1] != "bundle" or row[2] != f"bundle:{row[0]}" or row[3] != 6 or actual_paths != expected_paths:
+                raise ValueError("publication group identity differs")
+        except (TypeError, ValueError, KeyError) as exc:
+            raise SchemaContractError("artifact-storage-v1: invalid publication group binding") from exc
     for upgrade_id, report_key, inventory_digest in connection.execute("SELECT upgrade_id,report_key,inventory_sha256 FROM artifact_catalog_upgrades"):
         try:
             portable_artifact_parts(report_key)

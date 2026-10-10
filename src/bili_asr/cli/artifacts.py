@@ -58,6 +58,22 @@ def add_artifacts_parser(subparsers: argparse._SubParsersAction, *, archive_root
     upgrade.add_argument("--artifact-root", default=None)
     upgrade.add_argument("--target-root", required=True, help="Separate new or empty archive directory")
     upgrade.add_argument("--dry-run", action="store_true")
+    capture = actions.add_parser("capture-groups", help="Preserve proven current transcript and immutable text groups")
+    capture.set_defaults(database_policy=None)
+    capture.add_argument("--archive-root", default=archive_root)
+    capture.add_argument("--artifact-root", default=None)
+    restore_group = actions.add_parser("restore-group", help="Restore a complete original text group")
+    restore_group.set_defaults(database_policy=None)
+    restore_group.add_argument("--archive-root", default=archive_root)
+    restore_group.add_argument("--artifact-root", default=None)
+    restore_group.add_argument("--group-id", required=True)
+    restore_group.add_argument("--storage-target", action="append")
+    status = actions.add_parser("status", help="Read independent durability, locality and readiness observations")
+    status.set_defaults(database_policy=None)
+    status.add_argument("--archive-root", default=archive_root)
+    status.add_argument("--artifact-root", default=None)
+    status.add_argument("--storage-target", action="append")
+    status.add_argument("--check-targets", action="store_true", help="Probe target identity and manifests without extracting payloads")
     for name in ("bind-target", "transfer", "restore", "reconcile", "check"):
         action = actions.add_parser(name, help=f"Artifact storage {name}")
         action.set_defaults(database_policy=None)
@@ -150,6 +166,20 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
                                               artifact_roots=roots, dry_run=args.dry_run)
         elif args.artifacts_action == "bind-target":
             report = bind_directory_target(Path(args.target_root), args.target_id, roots=roots)
+        elif args.artifacts_action == "capture-groups":
+            from bili_asr.services.artifact_groups import capture_artifact_groups
+            report = capture_artifact_groups(roots)
+        elif args.artifacts_action == "restore-group":
+            from bili_asr.services.artifact_access import parse_target_bindings
+            from bili_asr.services.artifact_groups import restore_artifact_group
+            report = restore_artifact_group(roots, args.group_id, storage_targets=parse_target_bindings(args.storage_target))
+        elif args.artifacts_action == "status":
+            from bili_asr.archive_session import ArchiveSession
+            from bili_asr.services.artifact_access import parse_target_bindings
+            from bili_asr.services.artifact_state import artifact_state
+            with ArchiveSession(roots.archive_root, mode=ArchiveAccessMode.READ, artifact_roots=roots) as session:
+                report = artifact_state(session.connection, roots, storage_targets=parse_target_bindings(args.storage_target),
+                                        check_targets=args.check_targets)
         elif args.artifacts_action == "check":
             from bili_asr.artifact_packages import check_artifact_package
             report = check_artifact_package(Path(args.package), expected_sha256=args.expected_sha256)
