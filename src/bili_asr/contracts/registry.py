@@ -38,6 +38,12 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("archive-reference-backup/v1", "archive", ("src/bili_asr/services/reference_backup.py",),
+             ("cli.remote_storage", "services.archive_recovery"), ("validate", "save", "check", "plan", "restore"),
+             ("artifact-storage-v1", "artifact-package-v1"), "archive-reference-backup-v1.schema.json"),
+    Contract("ssh-directory/v1", "storage", ("src/bili_asr/remote_storage.py", "src/bili_asr/ssh_storage_agent.py"),
+             ("services.remote_artifacts", "services.reference_backup"), ("validate", "upload", "read", "range-read"),
+             ("artifact-package-v1",), "ssh-directory-v1.schema.json"),
     Contract("artifact-state-v1", "storage", ("src/bili_asr/services/artifact_state.py",),
              ("cli.artifacts",), ("read", "validate"), ("artifact-storage-v1",), "artifact-state-v1.schema.json"),
     Contract("artifact-publication-state-v1", "storage", ("src/bili_asr/services/artifact_state.py",),

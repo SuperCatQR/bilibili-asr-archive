@@ -2,6 +2,51 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "archive-reference-backup/v1",
+      "owner": "archive",
+      "authority": [
+        "src/bili_asr/services/reference_backup.py"
+      ],
+      "consumers": [
+        "cli.remote_storage",
+        "services.archive_recovery"
+      ],
+      "capabilities": [
+        "validate",
+        "save",
+        "check",
+        "plan",
+        "restore"
+      ],
+      "dependencies": [
+        "artifact-storage-v1",
+        "artifact-package-v1"
+      ],
+      "schema": "archive-reference-backup-v1.schema.json"
+    },
+    {
+      "identity": "ssh-directory/v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/remote_storage.py",
+        "src/bili_asr/ssh_storage_agent.py"
+      ],
+      "consumers": [
+        "services.remote_artifacts",
+        "services.reference_backup"
+      ],
+      "capabilities": [
+        "validate",
+        "upload",
+        "read",
+        "range-read"
+      ],
+      "dependencies": [
+        "artifact-package-v1"
+      ],
+      "schema": "ssh-directory-v1.schema.json"
+    },
+    {
       "identity": "artifact-state-v1",
       "owner": "storage",
       "authority": [
