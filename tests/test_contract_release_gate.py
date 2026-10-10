@@ -1,5 +1,6 @@
 """Release support cannot be inferred from ignored tests or regenerated history."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -40,14 +41,19 @@ def test_actual_full_pytest_collection_covers_every_registered_upgrade(monkeypat
     assert all(report["collected_acceptance"].values())
 
 
-def test_frozen_evidence_checkout_is_byte_identical_with_autocrlf_enabled(tmp_path):
-    """A Windows-style checkout must retain the same historical bytes as Git archive."""
-    def git(*arguments):
-        return subprocess.run(["git", "-C", str(tmp_path), *arguments], check=True,
-                              capture_output=True, text=True)
+def _isolated_git(root, *arguments):
+    # -C does not override inherited GIT_DIR/WORK_TREE/INDEX_FILE or injected
+    # config. Test setup must never address the caller's actual repository.
+    environment = {name: value for name, value in os.environ.items()
+                   if not name.upper().startswith("GIT_")}
+    environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    return subprocess.run(["git", "-C", str(root), *arguments], check=True,
+                          capture_output=True, text=True, env=environment)
 
-    git("init", "-q")
-    git("config", "core.autocrlf", "true")
+
+def _verify_frozen_checkout(tmp_path):
+    _isolated_git(tmp_path, "init", "-q")
+    _isolated_git(tmp_path, "config", "core.autocrlf", "true")
     shutil.copyfile(ROOT / ".gitattributes", tmp_path / ".gitattributes")
     expected = {}
     for entry in catalog()["release_acceptance"]["frozen_files"]:
@@ -56,12 +62,50 @@ def test_frozen_evidence_checkout_is_byte_identical_with_autocrlf_enabled(tmp_pa
         destination.parent.mkdir(parents=True, exist_ok=True)
         expected[relative] = (ROOT / relative).read_bytes()
         destination.write_bytes(expected[relative])
-    git("add", ".gitattributes", *expected)
+    _isolated_git(tmp_path, "add", ".gitattributes", *expected)
     for relative in expected:
         (tmp_path / relative).unlink()
-    git("checkout-index", "--all")
+    _isolated_git(tmp_path, "checkout-index", "--all")
     for relative, original in expected.items():
         assert (tmp_path / relative).read_bytes() == original, relative
+
+
+def test_frozen_evidence_checkout_is_byte_identical_with_autocrlf_enabled(tmp_path):
+    """A Windows-style checkout must retain the same historical bytes as Git archive."""
+    _verify_frozen_checkout(tmp_path)
+
+
+def test_frozen_checkout_never_changes_an_inherited_git_repository(tmp_path, monkeypatch):
+    sentinel = tmp_path / "sentinel"
+    sentinel.mkdir()
+    _isolated_git(sentinel, "init", "-q")
+    (sentinel / "sentinel.txt").write_text("caller-owned contents\n")
+    _isolated_git(sentinel, "add", "sentinel.txt")
+    _isolated_git(sentinel, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                  "-c", "commit.gpgsign=false", "commit", "-qm", "sentinel")
+
+    def snapshot():
+        return {path.relative_to(sentinel).as_posix(): path.read_bytes()
+                for path in sentinel.rglob("*") if path.is_file()}
+
+    before = snapshot()
+    assert {".git/config", ".git/index", ".git/HEAD"} <= before.keys()
+    for name, value in {
+        "GIT_DIR": str(sentinel / ".git"), "GIT_COMMON_DIR": str(sentinel / ".git"),
+        "GIT_WORK_TREE": str(sentinel), "GIT_INDEX_FILE": str(sentinel / ".git/index"),
+        "GIT_OBJECT_DIRECTORY": str(sentinel / ".git/objects"),
+        "GIT_CONFIG_GLOBAL": str(sentinel / ".git/config"), "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "core.worktree", "GIT_CONFIG_VALUE_0": str(sentinel),
+    }.items():
+        monkeypatch.setenv(name, value)
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    try:
+        _verify_frozen_checkout(checkout)
+    finally:
+        assert snapshot() == before, "temporary Git commands changed the inherited repository"
+    assert (checkout / ".git/config").is_file()
+    assert (checkout / ".git/index").is_file()
 
 
 def test_collect_ignore_cannot_supply_release_acceptance(tmp_path):
