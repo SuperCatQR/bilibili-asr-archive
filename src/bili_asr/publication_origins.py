@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from bili_asr.canonical_json import digest
+from bili_asr.source_supplements import POLICY as SUPPLEMENT_POLICY, KIND as SUPPLEMENT_KIND, validate_supplement
 
 PROFILE = "universal-origin-v1"
 COMMON = {"kind", "editionId", "aiRevisionId", "videoPartId", "contentSha256",
@@ -43,6 +44,15 @@ def public_origin(connection, edition: dict, artifact_roots) -> dict:
         "bodyPreserved": checked["bodyPreserved"], "metadataEvidence": [
             {"field": field, "kind": evidence["kind"], "observedAt": evidence["observedAt"], "valueSha256": evidence["valueSha256"]}
             for field, evidence in sorted(baseline["metadataEvidence"].items())]})
+    from bili_asr.storage.source_supplements import edition_supplement, stored_supplement
+    link = edition_supplement(connection, edition["edition_id"])
+    if link:
+        supplement = stored_supplement(connection, link, edition["content"]["source"]["metadata"], edition["video_part_id"])
+        result["policyVersion"] = SUPPLEMENT_POLICY
+        result["metadataSupplement"] = supplement
+        for fact in result["metadataEvidence"]:
+            if fact["field"] == "partTitle":
+                fact.update(kind=SUPPLEMENT_KIND, valueSha256=digest(supplement["evidence"]["value"]))
     return result
 
 
@@ -68,7 +78,9 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
         if not isinstance(entry, dict):
             fail("origin must be an object")
         native = entry.get("kind") == "ai-generated-v2"
-        if entry.get("kind") not in {"ai-generated-v2", "preserved-legacy-body", "edited-after-preservation"} or set(entry) != (COMMON if native else COMMON | IMPORTED):
+        supplemented = not native and entry.get("policyVersion") == SUPPLEMENT_POLICY
+        expected_fields = COMMON if native else COMMON | IMPORTED | ({"metadataSupplement"} if supplemented else set())
+        if entry.get("kind") not in {"ai-generated-v2", "preserved-legacy-body", "edited-after-preservation"} or set(entry) != expected_fields:
             fail("unknown origin kind or fields")
         if not hexadecimal(entry["editionId"], 32):
             fail("invalid edition ID")
@@ -95,10 +107,15 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
         for field, size in (("legacyEditionId", 32), ("legacyReleaseId", 64)):
             if entry[field] is not None and not hexadecimal(entry[field], size):
                 fail("invalid legacy identity")
-        if (entry["legacyAiRevisionId"] != article["aiRevisionId"] or entry["policyVersion"] != "legacy-frozen-facts-v1"
+        if (entry["legacyAiRevisionId"] != article["aiRevisionId"] or entry["policyVersion"] not in {"legacy-frozen-facts-v1", SUPPLEMENT_POLICY}
                 or entry["reviewArtifactSha256"] != article["reviewArtifactSha256"]
                 or type(entry["importedAt"]) is not int or not 0 <= entry["importedAt"] <= 2**53 - 1):
             fail("invalid import binding or time")
+        if supplemented:
+            try:
+                validate_supplement(entry["metadataSupplement"], article["sourceMetadata"], article["videoPartId"])
+            except (ValueError, KeyError, TypeError) as error:
+                fail(str(error))
         preserved = entry["kind"] == "preserved-legacy-body"
         if type(entry["bodyPreserved"]) is not bool or entry["bodyPreserved"] != preserved or (entry["baselineBodySha256"] == entry["currentBodySha256"]) != preserved:
             fail("false body preservation claim")
@@ -114,10 +131,12 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
                 fail("unknown evidence field")
             fields.append(field)
             known = field in {"version", "platform", "externalVideoId", "partIndex", "title"}
-            if (fact["kind"] != ("legacy-input" if known else "unobserved") or fact["observedAt"] is not None
+            supplied = supplemented and field == "partTitle"
+            expected_kind = SUPPLEMENT_KIND if supplied else "legacy-input" if known else "unobserved"
+            if (fact["kind"] != expected_kind or fact["observedAt"] is not None
                     or fact["valueSha256"] != digest(article["sourceMetadata"][field])):
                 fail("metadata evidence differs from frozen-facts policy")
-            if not known and article["sourceMetadata"][field] != ([] if field == "tags" else None):
+            if not known and not supplied and article["sourceMetadata"][field] != ([] if field == "tags" else None):
                 fail("unobserved source value is not unknown")
         if fields != sorted(article["sourceMetadata"]) or len(set(fields)) != len(fields):
             fail("metadata evidence is duplicated or unsorted")

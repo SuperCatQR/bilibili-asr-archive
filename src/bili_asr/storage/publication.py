@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import json
 import re
 import sqlite3
@@ -311,7 +311,8 @@ def read_edition(connection: sqlite3.Connection, edition_id: str) -> dict:
     origin = import_origin(connection, edition_id)
     if version == 2 and input_version == 1:
         baseline = validate_edition_origin(connection, edition, revision)
-        source_matches = normalized["source"] == baseline["content"]["source"]
+        from bili_asr.storage.source_supplements import expected_source
+        source_matches = normalized["source"] == expected_source(connection, edition, baseline)
     elif version != input_version or origin is not None:
         raise ValueError("publication-integrity: content version or origin differs from frozen input")
     elif version == 2:
@@ -333,9 +334,9 @@ def read_edition(connection: sqlite3.Connection, edition_id: str) -> dict:
 def verify_release_identity(connection: sqlite3.Connection, release: dict) -> dict:
     """Read immutable release, approval and audit identity without artifact access."""
     edition = read_edition(connection, release["edition_id"])
-    events = connection.execute(
+    with closing(connection.execute(
         "SELECT * FROM publication_events WHERE release_id = ? ORDER BY event_id",
         (release["release_id"],),
-    )
-    validate_release_identity(release, edition, events)
+    )) as events:
+        validate_release_identity(release, edition, events)
     return edition
