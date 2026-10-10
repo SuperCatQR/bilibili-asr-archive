@@ -1,5 +1,12 @@
 # Manuscript Export Contracts
 
+Optional editor-confirmed `series.json` is described by
+[the public schema](publication-series.schema.json) and
+[private editorial schema](publication-series-editorial.schema.json).
+See [semantic validation, maintenance and export](../publication-series.md).
+Its exact byte hash belongs to the existing version-1 manifest; absent series
+preserves previous snapshots, and manuscript/catalog versions remain unchanged.
+
 The historical version-2 schemas below remain available unchanged. An export
 containing content-version 2 uses `publication-catalog-v3.schema.json` or
 `publication-draft-catalog-v3.schema.json`. Version 3 can mix exact historical

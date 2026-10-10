@@ -168,6 +168,12 @@ bili-asr publication publish --archive-root archive --edition-id EDITION_ID --ac
 bili-asr publication export --archive-root archive --out reading-site/content
 ```
 
+Editor-confirmed cross-video reading order is maintained separately with
+`publication series edit/validate/show`. Optional `--series-file` on both public
+and draft exports binds those relations to the exact category catalog and adds
+a hashed `series.json` to the existing manifest. No relation is inferred from
+titles or AI output. See [series maintenance and export](docs/publication-series.md).
+
 New drafts and pending reviews leave the existing release public. The new
 release replaces it only after explicit publication. See
 [publication.md](docs/publication.md) for editing, expected version checks,

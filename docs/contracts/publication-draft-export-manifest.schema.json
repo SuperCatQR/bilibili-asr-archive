@@ -16,7 +16,7 @@
         "additionalProperties": false,
         "required": ["path", "sha256"],
         "properties": {
-          "path": {"type": "string", "pattern": "^(catalog\\.json|drafts/edition-[0-9a-f]{32}/(preview|review)\\.md)$"},
+          "path": {"type": "string", "pattern": "^(catalog\\.json|series\\.json|drafts/edition-[0-9a-f]{32}/(preview|review)\\.md)$"},
           "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
       }
