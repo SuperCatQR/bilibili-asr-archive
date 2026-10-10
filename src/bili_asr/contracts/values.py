@@ -40,5 +40,3 @@ def caption_text(value: object, field: str = "text") -> str:
     if not value.strip():
         raise ValueError(f"{field} must not be empty")
     return value
-
-
