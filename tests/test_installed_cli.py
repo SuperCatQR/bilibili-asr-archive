@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from bili_asr.contracts import CONTRACTS
+
 from tests.support.installed_cli import (
     SENTINEL_COOKIE, _venv_scripts_dir, assert_redacted, clean_cli_env,
     provision_isolated_cli, run_installed,
@@ -39,7 +41,10 @@ def test_installed_contract_resources_resolve_offline_outside_checkout(isolated_
         capture_output=True, text=True, check=False,
     )
     assert checked.returncode == 0, checked.stderr
-    assert "15 schemas" in checked.stdout
+    expected_schemas = {entry.schema for entry in CONTRACTS.values() if entry.schema}
+    documentation_root = Path(__file__).resolve().parents[1] / "docs/contracts"
+    assert {path.name for path in documentation_root.glob("*.schema.json")} == expected_schemas
+    assert f"{len(CONTRACTS)} contracts, {len(expected_schemas)} schemas" in checked.stdout
     validated = subprocess.run(
         [isolated_cli.python, "-c", """
 from pathlib import Path
