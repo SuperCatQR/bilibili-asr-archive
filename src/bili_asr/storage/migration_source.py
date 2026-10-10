@@ -244,6 +244,18 @@ def table_fingerprint(connection: sqlite3.Connection, name: str, columns: list[s
     shape = contract["objects"].get(name)
     if shape is None or shape["kind"] != "table" or columns != shape["columns"]:
         raise MigrationSourceError("unregistered source table fingerprint")
+    return typed_table_fingerprint(connection, name, columns)
+
+
+def typed_table_fingerprint(connection: sqlite3.Connection, name: str, columns: list[str]) -> TableFingerprint:
+    """Stream exact rowid, storage types and bytes for validated source columns.
+
+    The caller validates the archive contract before choosing its authority tables.
+    Kept identical to the frozen migration digest so older receipts remain valid.
+    """
+    actual = [row[1] for row in connection.execute(f"PRAGMA table_info({_identifier(name)})")]
+    if not columns or len(set(columns)) != len(columns) or not set(columns) <= set(actual):
+        raise MigrationSourceError("invalid authority fingerprint columns")
     previous = connection.text_factory
     try:
         connection.text_factory = bytes

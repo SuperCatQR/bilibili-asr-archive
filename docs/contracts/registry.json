@@ -635,5 +635,79 @@
       "dependencies": [],
       "schema": "publication-series-editorial.schema.json"
     }
+  ],
+  "upgrades": [
+    {
+      "identity": "bilibili-to-universal/v1",
+      "source": [
+        "bilibili-v1"
+      ],
+      "target": [
+        "universal-v2"
+      ],
+      "converter": "legacy-migrate",
+      "revision": 1,
+      "authority": [
+        "services/archive_migration.py",
+        "storage/archive_contracts.py"
+      ],
+      "source_reader": "bilibili-migration-source/v1",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "neutral-source-mapping",
+        "frozen-version-registration",
+        "migration-audit"
+      ],
+      "sample": "tests/fixtures/data/bilibili-v1-frozen.zip",
+      "reversible": false
+    },
+    {
+      "identity": "preserved-body-extension/v1",
+      "source": [
+        "universal-v2"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1"
+      ],
+      "converter": "install-preserved-body",
+      "revision": 1,
+      "authority": [
+        "services/preserved_body_import.py",
+        "storage/schema-preserved-body-import.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-supplement-extension/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1"
+      ],
+      "converter": "install-source-supplement",
+      "revision": 1,
+      "authority": [
+        "services/source_supplement.py",
+        "storage/schema-source-supplements.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    }
   ]
 }
