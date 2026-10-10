@@ -14,6 +14,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [契约治理与兼容边界](contract-governance.md) | 单一登记、15 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
 | [当前架构](architecture.md) | 固定提交的执行模型，以及本分支新增职责与契约入口 |
 | [全景架构图](architecture.html) | 固定提交的可交互组件、关系与源码证据；[JSON](architecture.json) |
 | [完整时序图](architecture-sequences.md) | 17 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |

@@ -2408,5 +2408,22 @@
       ],
       "created_by": "search-index / search --rebuild"
     }
-  ]
+  ],
+  "contract_governance": {
+    "repository_revision": "6a8646a36f680705479a7669350fd8793551cc74",
+    "scope": "supplement; existing inventory retains its historical revision",
+    "contract_count": 34,
+    "schema_count": 15,
+    "registry": "docs/contracts/registry.json",
+    "diagram": "docs/contract-governance.html",
+    "modules": [
+      "src/bili_asr/contracts/__init__.py",
+      "src/bili_asr/contracts/__main__.py",
+      "src/bili_asr/contracts/fingerprints.py",
+      "src/bili_asr/contracts/json_schema.py",
+      "src/bili_asr/contracts/registry.py",
+      "src/bili_asr/contracts/values.py"
+    ],
+    "database_fingerprint_count": 6
+  }
 }

@@ -1,5 +1,8 @@
 # 架构修复与文档验证记录
 
+契约治理的新实现与专题图使用独立 [验证记录](contract-governance-validation.md)和[机器记录](contract-governance-validation.json)，绑定源码 `6a8646a36f680705479a7669350fd8793551cc74`。下列 19 张图的原始结果和哈希保留其历史身份。
+
+
 核对日期：2026-10-09（Asia/Hong_Kong）。固定源码：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`，独立工作树起点为 main `6544eb85ea3e95e5b9571930fefaf35bde6b7dc1`。本轮同时完成实现修复、行为回归和文档更新。逐项修复见 [边界修复与验收](architecture-refactoring.md)，全部流程见 [17 份时序索引](architecture-sequences.md)。
 
 ## 完整 WSL 验证

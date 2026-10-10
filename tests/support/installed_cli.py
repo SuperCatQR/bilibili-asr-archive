@@ -61,6 +61,8 @@ Required:
   - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)
   - local pip, setuptools>=69 and wheel in the test interpreter (for an
     offline wheel build when the isolated backend is absent)
+  - contract validator wheels prepared in .test-wheelhouse (or the directory
+    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies
   - a local, offline install of this package that provides the `bili-asr`
     console script inside that virtualenv
 
@@ -69,6 +71,7 @@ This check does not skip. Isolated verification (no live HTTP / model download):
   uv venv --python 3.12 .venv
   uv pip install --python .venv/bin/python -e ".[dev]"
   uv pip install --python .venv/bin/python pip "setuptools>=69" wheel
+  .venv/bin/python -m pip download --dest .test-wheelhouse "jsonschema>=4.25,<5"
   .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py
 
 The tests themselves provision a separate temporary virtualenv; a `bili-asr`
@@ -370,6 +373,21 @@ def _assert_isolated_script(venv_dir: str, executable: str) -> None:
         )
 
 
+def _install_contract_dependencies(venv_dir: str, uv: str | None) -> None:
+    wheelhouse = os.environ.get("BILI_ASR_TEST_WHEELHOUSE", os.path.join(PACKAGE_ROOT, ".test-wheelhouse"))
+    if not os.path.isdir(wheelhouse):
+        _fail_prereq("missing offline contract dependency wheelhouse; prepare .test-wheelhouse before testing")
+    python = _venv_python(venv_dir)
+    command = ([uv, "pip", "install", "--python", python, "--offline"] if uv else
+               [python, "-m", "pip", "install"])
+    installed = _run_checked(
+        [*command, "--no-index", "--find-links", wheelhouse, "jsonschema>=4.25,<5"],
+        env=_offline_tool_env(),
+    )
+    if installed.returncode != 0:
+        _fail_prereq(f"offline contract dependency installation failed ({_summarize(installed)})")
+
+
 def provision_isolated_cli(venv_dir: str) -> InstalledCLI:
     """Install this package into ``venv_dir`` and return the console script.
 
@@ -392,6 +410,7 @@ def provision_isolated_cli(venv_dir: str) -> InstalledCLI:
             _provision_with_uv(uv, venv_dir, staged_pkg)
         else:
             _provision_with_stdlib_venv(venv_dir, staged_pkg)
+        _install_contract_dependencies(venv_dir, uv)
 
         python = _venv_python(venv_dir)
         if not os.path.isfile(python):

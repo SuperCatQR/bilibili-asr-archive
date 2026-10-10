@@ -11,55 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
+from bili_asr.contracts.values import integer as _integer, text as _text, caption_text as _caption_text
+
 from bili_asr.error_codes import validate_error_code
 from bili_asr.platform_identity import ContentRef
 from bili_asr.metadata_policy import MetadataFieldObservation
-
-
-def _integer(value: object, field: str, *, minimum: int | None = None) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"{field} must be an integer")
-    if minimum is not None and value < minimum:
-        raise ValueError(f"{field} must be at least {minimum}")
-    return value
-
-
-def _text(value: object, field: str) -> str:
-    """Validate one printable, non-empty text field of a DTO.
-
-    The rule is the storage contract's own (``storage.models._text``): a
-    non-empty string after stripping that carries no control character.  A
-    control character is rejected rather than kept because these fields are
-    operator-facing — the CLI prints them verbatim, one line per record — so a
-    value carrying ``\\x00``, ``\\r``, or ``\\n`` would split a locked output
-    shape instead of being displayed.  Caption body text is the one documented
-    exception and goes through :func:`_caption_text` instead, mirroring the
-    storage contract's own split.
-    """
-    if not isinstance(value, str):
-        raise TypeError(f"{field} must be a string")
-    if not value.strip():
-        raise ValueError(f"{field} must not be empty")
-    if "\x00" in value or "\r" in value or "\n" in value:
-        raise ValueError(f"{field} contains invalid control characters")
-    return value
-
-
-def _caption_text(value: object, field: str) -> str:
-    """Validate one caption body row: a string non-empty after stripping.
-
-    The mirror of ``storage.models._caption_text``, which the storage contract
-    states explicitly: unlike :func:`_text`, control characters inside a
-    caption body are *kept*, because a stored caption is verbatim apart from
-    trimming.  A cue may legitimately span two lines, so rejecting ``\\n`` here
-    would turn a real caption into a document-level shape error — and the store
-    is the boundary that decides what it can hold, not this DTO.
-    """
-    if not isinstance(value, str):
-        raise TypeError(f"{field} must be a string")
-    if not value.strip():
-        raise ValueError(f"{field} must not be empty")
-    return value
 
 
 @dataclass(frozen=True, slots=True)

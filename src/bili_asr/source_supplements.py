@@ -4,7 +4,7 @@ from __future__ import annotations
 from bili_asr.canonical_json import digest
 from bili_asr.source_metadata import valid_source_text
 
-POLICY = "legacy-part-title-supplement-v1"
+from bili_asr.contracts.registry import SOURCE_SUPPLEMENT_POLICY as POLICY
 KIND = "archive-part-projection"
 FIELDS = {"version", "platform", "externalVideoId", "partIndex", "videoPartId",
           "cid", "field", "value", "sourceKind", "observedAt"}
