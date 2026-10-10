@@ -47,6 +47,27 @@
       "schema": "ssh-directory-v1.schema.json"
     },
     {
+      "identity": "artifact-online-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/storage/schema-artifact-online.sql"
+      ],
+      "consumers": [
+        "services.artifact_policy",
+        "services.artifact_consumer",
+        "storage.snapshots"
+      ],
+      "capabilities": [
+        "extension",
+        "snapshot",
+        "explicit-upgrade"
+      ],
+      "dependencies": [
+        "artifact-storage-v1"
+      ],
+      "schema": null
+    },
+    {
       "identity": "artifact-state-v1",
       "owner": "storage",
       "authority": [
