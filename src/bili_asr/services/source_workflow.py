@@ -46,15 +46,19 @@ class SourceWorkflowHandlers:
             self.workflow.assert_lease(job)
             captions = source.captions(part["content_ref"])
             preferred_language = part.get("original_language")
-            ordered = sorted(captions, key=lambda caption: (
-                caption.track.is_ai, caption.translated is True,
+            # Automatic translations are visible inventory, but are not a
+            # substitute for original captions or evidence of no subtitles.
+            ordered = sorted((caption for caption in captions if caption.translated is not True), key=lambda caption: (
+                caption.track.is_ai,
                 not bool(preferred_language and caption.language.split("-", 1)[0] == preferred_language.split("-", 1)[0]),
                 caption.language))
             chosen, segments = None, ()
             failures = []
-            if len(ordered) > 32:
-                raise GatewayResponseError(code="youtube_caption_candidate_budget")
-            for caption in ordered:
+            if tracks and not ordered:
+                raise GatewayResponseError(code="youtube_caption_translation_only")
+            attempted = 0
+            for caption in ordered[:32]:
+                attempted += 1
                 try:
                     segments = asyncio.run(source.read_body(caption.track, part["content_ref"])).segments
                 except GatewayError as exc:
@@ -70,6 +74,8 @@ class SourceWorkflowHandlers:
             # Successful metadata/listing provides anonymous visibility facts;
             # empty caption bodies after listing remain unavailable, not absence.
             if chosen is None and tracks:
+                if len(ordered) > attempted:
+                    raise GatewayResponseError(code="youtube_caption_candidate_budget")
                 raise GatewayResponseError(code=failures[0] if failures else "youtube_caption_body_unavailable")
             if chosen is None:
                 if not access.verified:
@@ -89,7 +95,9 @@ class SourceWorkflowHandlers:
                     with self.workflow.owned_transaction(job):
                         yield
                         self._observation(job, run_id, "tracks", access.access_context,
-                                          {**chosen.provenance(), "candidate_count": len(ordered), "failed_candidates": failures})
+                                          {**chosen.provenance(), "candidate_count": len(ordered),
+                                           "attempted_candidates": attempted, "failed_candidates": failures,
+                                           "selection_policy": "youtube-original-captions-v1"})
                 result_repository = TranscriptRepository(self.connection, write_transaction=result_context)
                 written = result_repository.record_acquired_transcript(run_id=run_id, video_part_id=job.video_part_id,
                     source_kind="subtitle-ai" if chosen.track.is_ai else "subtitle-cc", language=chosen.language,

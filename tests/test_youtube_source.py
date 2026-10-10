@@ -158,6 +158,46 @@ def test_date_only_upload_does_not_fabricate_midnight_precision():
     assert source.metadata(REF).published_at is None
 
 
+@pytest.mark.parametrize("video_language", [None, "en"])
+def test_caption_translation_uses_extractor_url_evidence(video_language):
+    source = YoutubeSource()
+    source._information[REF] = {
+        "language": video_language,
+        "automatic_captions": {
+            "en-orig": [{"ext": "json3", "url": "https://example.invalid/captions?lang=en"}],
+            "en": [{"ext": "json3", "url": "https://example.invalid/captions?lang=fr&tlang=en&sig=SECRET"}],
+        },
+    }
+    captions = {caption.language: caption for caption in source.captions(REF)}
+    assert captions["en-orig"].translated is False
+    assert captions["en-orig"].original_language == "en"
+    assert captions["en"].translated is True
+    assert captions["en"].original_language == "fr"
+    assert "SECRET" not in json.dumps([caption.provenance() for caption in captions.values()])
+
+
+@pytest.mark.parametrize("inventory", [[], False, "", 0])
+def test_malformed_empty_caption_inventory_is_not_absence(inventory):
+    source = YoutubeSource()
+    source._information[REF] = {"subtitles": inventory}
+    with pytest.raises(GatewayError) as error:
+        source.captions(REF)
+    assert error.value.code == "youtube_caption_inventory_shape"
+
+
+@pytest.mark.parametrize("language,name,url", [
+    ("", "Caption", None), ("en", "bad\nlabel", None),
+    ("en", "Caption", "https://[invalid"),
+    ("en", "Caption", "https://example.invalid/?lang=bad%0Alanguage"),
+])
+def test_invalid_caption_fields_produce_bounded_gateway_error(language, name, url):
+    source = YoutubeSource()
+    source._information[REF] = {"subtitles": {language: [{"ext": "json3", "name": name, "url": url}]}}
+    with pytest.raises(GatewayShapeError) as error:
+        source.captions(REF)
+    assert error.value.code == "youtube_caption_inventory_shape"
+
+
 @pytest.mark.parametrize("field,value", [
     ("title", "x" * 513), ("title", "bad\u0085title"), ("title", "bad\ud800title"),
     ("channel", "x" * 513), ("channel", "bad\u0085creator"),
