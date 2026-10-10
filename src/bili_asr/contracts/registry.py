@@ -133,4 +133,70 @@ def manifest_contract(kind: str, profile: str | None, *, imported: bool = False)
 
 
 def catalog() -> dict:
-    return {"format_version": 1, "contracts": [asdict(entry) for entry in _CONTRACTS]}
+    return {"format_version": 1, "contracts": [asdict(entry) for entry in _CONTRACTS],
+            "upgrades": [asdict(entry) for entry in UPGRADE_EDGES]}
+
+
+@dataclass(frozen=True)
+class UpgradeEdge:
+    """An explicit directed conversion, independent of executable services."""
+
+    identity: str
+    source: tuple[str, ...]
+    target: tuple[str, ...]
+    converter: str
+    revision: int
+    authority: tuple[str, ...]
+    source_reader: str
+    target_validator: str
+    allowed_changes: tuple[str, ...]
+    sample: str
+    reversible: bool = False
+
+
+UPGRADE_EDGES = (
+    UpgradeEdge("bilibili-to-universal/v1", (BILIBILI_V1,), (UNIVERSAL_V2,),
+                "legacy-migrate", 1, ("services/archive_migration.py", "storage/archive_contracts.py"),
+                "bilibili-migration-source/v1", "snapshot-database",
+                ("neutral-source-mapping", "frozen-version-registration", "migration-audit"),
+                "tests/fixtures/data/bilibili-v1-frozen.zip"),
+    UpgradeEdge("preserved-body-extension/v1", (UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION),
+                "install-preserved-body", 1,
+                ("services/preserved_body_import.py", "storage/schema-preserved-body-import.sql"),
+                "snapshot-database", "snapshot-database", ("empty-extension-tables",),
+                "tests/test_archive_upgrade.py"),
+    UpgradeEdge("source-supplement-extension/v1", (UNIVERSAL_V2, IMPORT_EXTENSION),
+                (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY),
+                "install-source-supplement", 1,
+                ("services/source_supplement.py", "storage/schema-source-supplements.sql"),
+                "snapshot-database", "snapshot-database", ("empty-extension-tables",),
+                "tests/test_archive_upgrade.py"),
+)
+
+
+def upgrade_path(source: tuple[str, ...], target: tuple[str, ...], *,
+                 selected: tuple[str, ...] | None = None,
+                 edges: tuple[UpgradeEdge, ...] = UPGRADE_EDGES) -> tuple[UpgradeEdge, ...]:
+    """Select only registered paths; ambiguity requires an exact edge sequence."""
+    for identity in (*source, *target):
+        contract(identity)
+    if source == target:
+        raise ValueError("source already has the requested contracts; use snapshot for a copy")
+    paths = []
+
+    def visit(current, trail, seen):
+        if current == target:
+            paths.append(trail)
+            return
+        for edge in edges:
+            if edge.source == current and edge.target not in seen:
+                visit(edge.target, (*trail, edge), seen | {edge.target})
+
+    visit(source, (), {source})
+    if selected is not None:
+        paths = [path for path in paths if tuple(edge.identity for edge in path) == selected]
+    if not paths:
+        raise ValueError("no registered upgrade path for the exact contract combination")
+    if len(paths) != 1:
+        raise ValueError("ambiguous upgrade path; select the complete edge sequence explicitly")
+    return paths[0]

@@ -57,16 +57,65 @@ class EditorialRepository:
         with self.connection:
             return self.store_input(prepared)
 
-    def build_input(self, base_id: int, reference_id: int | None, config: EditorialConfig) -> dict[str, Any]:
+    def build_input(self, base_id: int, reference_id: int | None, config: EditorialConfig, *,
+                    reuse_existing: bool = False) -> dict[str, Any]:
         require_editorial_schema(self.connection)
         base = self.read_source(base_id)
+        reference = self.read_source(reference_id) if reference_id is not None else None
+        if reuse_existing:
+            existing = self._reusable_input(base, reference, config)
+            if existing is not None:
+                return existing
         if runtime_contract(self.connection) == UNIVERSAL_V2:
             from bili_asr.publication_content_v2 import prepare_input_v2
             from bili_asr.storage.metadata import MetadataRepository
-            return prepare_input_v2(base, self.read_source(reference_id) if reference_id else None, config,
+            return prepare_input_v2(base, reference, config,
                                     source_metadata=MetadataRepository(self.connection).read_source_metadata(base.video_part_id))
-        return prepare_input(base, self.read_source(reference_id) if reference_id else None, config,
+        return prepare_input(base, reference, config,
                              metadata=self.metadata(base.video_part_id))
+
+    def _reusable_input(self, base, reference, config: EditorialConfig) -> dict[str, Any] | None:
+        """Prefer verified persisted work independently of the current encoding.
+
+        Later metadata observations and a newly installed prompt do not silently
+        request paid recomputation. Explicit refresh/repair still builds current
+        input. Terminal job status is preserved by the original dedupe identity.
+        """
+        from bili_asr.editorial import segments
+
+        def source(record):
+            if record is None:
+                return None
+            return {"transcript_id": record.transcript_id, "content_sha256": record.content_sha256,
+                    "source_kind": record.source_kind, "language": record.language, "segments": segments(record)}
+
+        expected_base, expected_reference = source(base), source(reference)
+        rows = self.connection.execute(
+            "SELECT input_id FROM editorial_inputs WHERE video_part_id=? AND base_transcript_id=? "
+            "AND reference_transcript_id IS ? ORDER BY created_at DESC,rowid DESC",
+            (base.video_part_id, base.transcript_id, None if reference is None else reference.transcript_id))
+        for row in rows:
+            prepared = self.load_input(row["input_id"])
+            snapshot = prepared["snapshot"]
+            stored_config = snapshot.get("config")
+            if not isinstance(stored_config, dict):
+                raise ValueError("invalid persisted editorial configuration")
+            # These scheduling limits were absent from historical frozen inputs.
+            # Default replanning retains their already prepared chunks. Only this
+            # comparison supplies the fixed compatibility defaults; neither the
+            # historical JSON nor its identity is rewritten.
+            comparison_config = dict(stored_config)
+            comparison_config.setdefault("max_chunk_segments", 256)
+            comparison_config.setdefault("max_chunk_chars", 20_000)
+            if comparison_config != config.to_dict():
+                continue
+            if (snapshot.get("video_part_id") != base.video_part_id or snapshot.get("base") != expected_base
+                    or snapshot.get("reference") != expected_reference
+                    or not isinstance(snapshot.get("system_prompt"), str)
+                    or snapshot.get("prompt_sha256") != digest(snapshot["system_prompt"])):
+                raise ValueError("persisted editorial input does not match its transcript evidence")
+            return prepared
+        return None
 
     def store_input(self, prepared: dict[str, Any]) -> dict[str, Any]:
         """Persist an already prepared immutable input in the caller's transaction."""
@@ -121,7 +170,8 @@ class EditorialRepository:
             base_id = int(json.loads(prerequisite["result_json"])["transcript_id"])
             base = self.read_source(base_id)
             reference_id = self.latest_reference(base.video_part_id, base.language)
-            prepared = self.build_input(base_id, reference_id, EditorialConfig(**job.payload["editorial_config"]))
+            prepared = self.build_input(base_id, reference_id, EditorialConfig(**job.payload["editorial_config"]),
+                                        reuse_existing=True)
         if prepared["snapshot"]["video_part_id"] != job.video_part_id:
             raise ValueError("editorial input belongs to another video part")
         with self.owned_transaction(job):
