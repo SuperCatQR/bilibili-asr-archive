@@ -16,6 +16,7 @@ IMPORT_EXTENSION = "preserved-body-import-v1"
 LEGACY_FACTS_POLICY = "legacy-frozen-facts-v1"
 STORED_VTT_POLICY = "stored-segments-webvtt/v1"
 SOURCE_SUPPLEMENT_POLICY = "legacy-part-title-supplement-v1"
+ARTIFACT_STORAGE = "artifact-storage-v1"
 SCHEMA_BASE_URI = "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/"
 
 
@@ -196,6 +197,15 @@ UPGRADE_EDGES = (
                 ("services/source_supplement.py", "storage/schema-source-supplements.sql"),
                 "snapshot-database", "snapshot-database", ("empty-extension-tables",),
                 "tests/test_archive_upgrade.py"),
+    *(UpgradeEdge("artifact-storage-" + suffix + "/v1", combination, (*combination, ARTIFACT_STORAGE),
+                  "install-artifact-storage", 1,
+                  ("services/artifact_catalog_upgrade.py", "storage/schema-artifact-storage.sql"),
+                  "snapshot-database", "snapshot-database", ("artifact-object-and-replica-backfill",),
+                  "tests/test_archive_upgrade.py")
+      for suffix, combination in (
+          ("native", (UNIVERSAL_V2,)),
+          ("preserved", (UNIVERSAL_V2, IMPORT_EXTENSION)),
+          ("supplemented", (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY)))),
 )
 
 

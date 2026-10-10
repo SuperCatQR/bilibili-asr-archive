@@ -38,7 +38,11 @@ def source_evidence(database: Path) -> dict:
     """Reject unknown schema objects and unfinished executions before copying."""
     with closing(readonly(database)) as connection:
         kind = runtime_contract(connection)
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog, EXTENSION as ARTIFACT_EXTENSION
+        artifacts = require_artifact_catalog(connection)
         if kind == BILIBILI_V1:
+            if artifacts:
+                raise ValueError("artifact-extended legacy source requires an explicitly registered conversion")
             inspect_migration_source(database)
             required = {name: value for name, value in legacy_source_contract()["objects"].items()}
             extensions = ()
@@ -46,8 +50,9 @@ def source_evidence(database: Path) -> dict:
             imports = require_import_extension(connection)
             supplements = require_supplement_extension(connection)
             validate_snapshot_database(database)
-            required, _ = _current_contract(kind, imports, supplements)
-            extensions = ((IMPORT_EXTENSION,) if imports else ()) + ((SOURCE_SUPPLEMENT_POLICY,) if supplements else ())
+            required, _ = _current_contract(kind, imports, supplements, artifacts)
+            extensions = (((IMPORT_EXTENSION,) if imports else ()) + ((SOURCE_SUPPLEMENT_POLICY,) if supplements else ())
+                          + ((ARTIFACT_EXTENSION,) if artifacts else ()))
         actual = _schema(connection)
         extras = set(actual) - set(required)
         # Search indexes are derived but must still match a registered definition.

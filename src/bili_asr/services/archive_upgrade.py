@@ -152,12 +152,15 @@ def plan_upgrade(source_root: Path, target_root: Path, *, target_contracts: tupl
         control = _control_handoff(control_state, source, declared_none=no_external_control_state)
     code = _build_digest()
     file_bytes = sum(item["size"] for item in inventory["files"])
+    alternate_files = _alternate_files(inventory)
+    file_bytes += sum(item["size"] for item in alternate_files)
     plan = {"operation": "archive-upgrade-plan", "format_version": 1, "source": inventory,
             "target_root": str(target), "target_contracts": list(target_contracts),
             "path": [{**asdict(edge), "build_sha256": code} for edge in path],
             "control_state": control,
             "actions": {"preserve_tables": [item["name"] for item in inventory["tables"]],
-                        "preserve_files": len(inventory["files"]), "copy_bytes": file_bytes,
+                        "preserve_files": len(inventory["files"]) + len(alternate_files), "copy_bytes": file_bytes,
+                        "preserve_shadowed": alternate_files,
                         "new_representations": 0, "expensive_recomputation": [],
                         "review_and_heads": "preserve-exactly", "workflow_recovery": "separate-explicit-operation"},
             "required_free_bytes": file_bytes + inventory["database"]["size"] * 4 + 32 * 1024 * 1024}
@@ -186,6 +189,19 @@ def _copy_source(inventory: dict, stage: Path) -> None:
         _copy_file(Path(item["base"]).joinpath(*parts), stage.joinpath(*parts), item)
 
 
+def _alternate_files(inventory: dict) -> list[dict]:
+    """Retain different shadowed bytes without changing authoritative paths."""
+    selected = {item["path"]: item for item in inventory["files"]}
+    result = []
+    for item in inventory["shadowed"]:
+        original = selected[item["path"]]
+        if (item["size"], item["sha256"]) == (original["size"], original["sha256"]):
+            continue
+        path = f"documents/upgrade-source-copies/{digest(item)}/{item['path']}.preserved"
+        result.append({**item, "source_path": item["path"], "path": path})
+    return result
+
+
 def _verify_file_inventory(actual: list[dict], protected: list[dict]) -> None:
     by_path = {}
     for item in actual:
@@ -209,6 +225,16 @@ def _convert(edge, stage: Path) -> None:
             install_source_supplement_extension,
         )
         install_source_supplement_extension(stage)
+    elif edge.converter == "install-artifact-storage":
+        from bili_asr.services.artifact_catalog_upgrade import install_catalog_in_staged_copy
+        from bili_asr.storage.database import connect_database
+        files = {}
+        for relative, path in collect_artifacts((stage,)).items():
+            size, sha256, _ = _hash_file(path)
+            files[relative] = {"path": relative, "size": size, "sha256": sha256}
+        with closing(connect_database(stage / "archive.db")) as connection:
+            install_catalog_in_staged_copy(connection, files, now=int(time.time()))
+        validate_snapshot_database(stage / "archive.db")
     else:
         raise ValueError("unsupported upgrade converter")
 
@@ -249,6 +275,9 @@ def apply_upgrade(plan: dict) -> dict:
             else:
                 _copy_source(plan["source"], stage)
                 remaining = edges
+            for item in _alternate_files(plan["source"]):
+                _copy_file(Path(item["base"]).joinpath(*portable_artifact_parts(item["source_path"])),
+                           stage.joinpath(*portable_artifact_parts(item["path"])), item)
             verify_preserved_tables(stage / "archive.db", plan["source"]["tables"])
             for edge in remaining:
                 if source_evidence(stage / "archive.db")["contracts"] != list(edge.source):
@@ -259,6 +288,7 @@ def apply_upgrade(plan: dict) -> dict:
                 verify_preserved_tables(stage / "archive.db", plan["source"]["tables"])
             installed = _inventory(stage, stage)
             _verify_file_inventory(installed["files"], plan["source"]["files"])
+            _verify_file_inventory(installed["files"], _alternate_files(plan["source"]))
             if installed["contracts"] != plan["target_contracts"]:
                 raise ValueError("upgrade did not produce the requested contract combination")
             if _inventory(source, Path(plan["source"]["artifact_root"])) != plan["source"]:
@@ -318,6 +348,7 @@ def check_upgrade(target_root: Path, *, expected_plan_id: str) -> dict:
             raise ValueError("completed upgrade contract mismatch")
         verify_preserved_tables(target / "archive.db", plan["source"]["tables"])
         _verify_file_inventory(receipt["files"], plan["source"]["files"])
+        _verify_file_inventory(receipt["files"], _alternate_files(plan["source"]))
         expected_paths = {item["path"] for item in receipt["files"]} | {path.relative_to(target).as_posix()}
         if set(collect_artifacts((target,))) != expected_paths:
             raise ValueError("upgrade installation file set changed")
