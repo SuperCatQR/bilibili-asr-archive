@@ -1,5 +1,8 @@
 # 源码与覆盖清单
 
+契约治理补充清单绑定 `6a8646a36f680705479a7669350fd8793551cc74`：新增 `contracts/{registry,json_schema,fingerprints,values,__main__}.py`、固定数据库指纹和 15 份入包 Schema；导出、快照与模型消费者见 [登记镜像](contracts/registry.json)。[契约图](contract-governance.html)仅覆盖这些边界，下列 122 模块统计仍是历史基线。
+
+
 固定基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（起点 main `6544eb85ea3e95e5b9571930fefaf35bde6b7dc1`）；2026-10-09。
 
 清单包含 16 个顶层命令及 35 个实际命令路径、122 个 Python 产品模块、4 个 SQL schema 的全部表/视图，以及部署/评测脚本。源码中的函数能力与当前已注册运行路径分别说明；历史 docstring 不作为命令存在证据。

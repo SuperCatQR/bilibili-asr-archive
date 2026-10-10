@@ -9,6 +9,7 @@ description = "Bilibili ASR transcript archival CLI (AI/CC subtitles first, loca
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "jsonschema>=4.25,<5",
     "requests>=2.32",
     "bilibili-api-python==17.4.2",
     "curl_cffi>=0.16",
@@ -74,10 +75,16 @@ asr = [
 # removes packages absent from the lock, so existing GPU environments must use --inexact.
 exclude-dependencies = ["torch"]
 
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
+"bili_asr.contracts" = ["schemas/*.json", "database-fingerprints.json"]
 "bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "schema-content-v2.sql", "schema-observations.sql", "schema-source-sync.sql", "schema-preserved-body-import.sql", "schema-source-supplements.sql", "schema-artifact-storage.sql", "migration-source-bilibili-v1.json"]
 
 [tool.pytest.ini_options]

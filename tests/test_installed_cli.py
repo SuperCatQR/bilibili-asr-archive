@@ -31,6 +31,31 @@ def test_installed_console_script_help(isolated_cli) -> None:
         assert command in proc.stdout
     assert_redacted(proc)
 
+def test_installed_contract_resources_resolve_offline_outside_checkout(isolated_cli) -> None:
+    checked = subprocess.run(
+        [isolated_cli.python, "-m", "bili_asr.contracts", "--check-docs",
+         str(Path(__file__).resolve().parents[1] / "docs/contracts")],
+        cwd=isolated_cli.venv_dir, env=clean_cli_env(),
+        capture_output=True, text=True, check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
+    assert "15 schemas" in checked.stdout
+    validated = subprocess.run(
+        [isolated_cli.python, "-c", """
+from pathlib import Path
+import sys
+import bili_asr.contracts
+from bili_asr.contracts.json_schema import validate_json
+assert Path(bili_asr.contracts.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+validate_json('publication-catalog/v3', {
+    'schemaVersion': 3, 'manuscriptType': 'publication', 'articles': []})
+"""],
+        cwd=isolated_cli.venv_dir, env=clean_cli_env(),
+        capture_output=True, text=True, check=False,
+    )
+    assert validated.returncode == 0, validated.stderr
+
+
 def test_installed_console_script_status_fails_without_database(isolated_cli, tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     proc = run_installed(isolated_cli, ["status", "--archive-root", str(archive_root)])

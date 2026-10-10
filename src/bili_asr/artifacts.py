@@ -3,11 +3,11 @@
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 from types import MappingProxyType
+from bili_asr.contracts.registry import BUNDLE_SCHEMA
 
 REQUIRED_ARTIFACT_KEYS = ("srt_path", "vtt_path", "txt_path", "md_path", "raw_path")
 
 # A v2 bundle always carries WebVTT; four-product bundles need republishing.
-BUNDLE_SCHEMA = "archive-bundle-v2"
 
 BUNDLE_MARKER_NAME = ".bundle-ready"
 BUNDLE_BASENAMES = MappingProxyType({

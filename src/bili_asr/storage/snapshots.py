@@ -144,6 +144,8 @@ def _schema(connection: sqlite3.Connection) -> dict[str, Any]:
 @lru_cache(maxsize=16)
 def _current_contract(kind: str = "bilibili-v1", imports: bool = False, supplements: bool = False,
                       artifacts: bool = False) -> tuple[dict[str, Any], str]:
+    from bili_asr.contracts.fingerprints import database_fingerprint
+    registered = database_fingerprint(kind, imports, supplements, artifacts)
     from bili_asr.storage.archive_contracts import BILIBILI_V1, bootstrap_contract
     with closing(sqlite3.connect(":memory:")) as connection:
         if kind == BILIBILI_V1:
@@ -160,7 +162,10 @@ def _current_contract(kind: str = "bilibili-v1", imports: bool = False, suppleme
             connection.executescript(_resource("schema-artifact-storage.sql"))
         required = _schema(connection)
     canonical = json.dumps(required, sort_keys=True, separators=(",", ":"))
-    return required, "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    computed = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if computed != registered:
+        raise SnapshotDatabaseError(f"registered snapshot schema has drifted: {kind}; define a new contract")
+    return required, registered
 
 
 def validate_snapshot_database(database_path: Path, expected_contract: str | None = None) -> str:

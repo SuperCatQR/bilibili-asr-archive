@@ -11,9 +11,9 @@ from importlib import resources
 import re
 import sqlite3
 
-BILIBILI_V1 = "bilibili-v1"
-UNIVERSAL_V2 = "universal-v2"
-SUPPORTED_RUNTIME_CONTRACTS = (BILIBILI_V1, UNIVERSAL_V2)
+from bili_asr.contracts.registry import BILIBILI_V1, UNIVERSAL_V2, RUNTIME_CONTRACTS
+
+SUPPORTED_RUNTIME_CONTRACTS = RUNTIME_CONTRACTS
 _BASE = ("schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql")
 
 

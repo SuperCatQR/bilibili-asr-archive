@@ -14,6 +14,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [契约治理与兼容边界](contract-governance.md) | 单一登记、15 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
 | [当前架构](architecture.md) | 固定提交的执行模型，以及本分支新增职责与契约入口 |
 | [音频分层与手动迁出](artifact-storage.md) | 只读盘点、保真 catalog 升级、目标封包核验、条件释放和同 SHA 恢复；生产状态独立延续 |
 | [全景架构图](architecture.html) | 固定提交的可交互组件、关系与源码证据；[JSON](architecture.json) |

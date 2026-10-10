@@ -1,0 +1,19 @@
+{
+  "algorithm": "snapshot-schema-v1",
+  "baseline_revision": "bab5998dd5235a7687b479e96edf16f9ed76c7ba",
+  "contracts": {
+    "bilibili-v1": "sha256:57a67d1adb5070339d80f9ade841a98f5d4cfea17eedcce638c600b1e9d43710",
+    "bilibili-v1+preserved-body-import-v1": "sha256:749c97c24ed57d46427ec31e1b6fb17da6a4bd404bb7dab192e65c65f5e2c9d8",
+    "universal-v2": "sha256:f14831799e2621867aaf5473fd544e00c81fe8997b973d54d63037b2f48f6bb6",
+    "universal-v2+preserved-body-import-v1": "sha256:fa2993c5a61e2477fa1a0de3b1e8f3f7ee154e791a04c43dbcb1625252735dae",
+    "bilibili-v1+preserved-body-import-v1+legacy-part-title-supplement-v1": "sha256:5074687cb8d1f431af89c178cff844a1e2da31647db11405bd0012e226b77540",
+    "universal-v2+preserved-body-import-v1+legacy-part-title-supplement-v1": "sha256:1b233994b03e1d006df100b78a954c5b6769e1ead14632e36688af92f6e9fbe8",
+    "bilibili-v1+artifact-storage-v1": "sha256:ee1b16363a427b350ae11c528fd54e674f5f974d094dd35b33d062680e3a999c",
+    "bilibili-v1+preserved-body-import-v1+artifact-storage-v1": "sha256:4d108e887b421185cf271702ce3db7b2530c3e4aaab25111d98cb189d944e329",
+    "bilibili-v1+preserved-body-import-v1+legacy-part-title-supplement-v1+artifact-storage-v1": "sha256:296dd84f71fc21a84c2f9537b197b251950e5920d048bd9fc335e9902404b3a4",
+    "universal-v2+artifact-storage-v1": "sha256:9dab2de083eb3ebcb2417ffb4eee16cb674ee6d861ddbecb8314875fff1c6cf8",
+    "universal-v2+preserved-body-import-v1+artifact-storage-v1": "sha256:75dd9c0cbc94d62161a18333a614e495f49966c298b96d3b6982f887208d62ee",
+    "universal-v2+preserved-body-import-v1+legacy-part-title-supplement-v1+artifact-storage-v1": "sha256:d3ac640395e7b1132a4b4963f53a0e55a5a7d4abdce958dc7951c5aee4d42ebf"
+  },
+  "extension_baseline_revision": "fd5a8068f988ed1394fdb0a7c723941cbdf5221b"
+}

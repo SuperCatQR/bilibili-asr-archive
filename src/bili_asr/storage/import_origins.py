@@ -8,8 +8,8 @@ import sqlite3
 
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.storage.archive_contracts import _resource, frozen_version
+from bili_asr.contracts.registry import IMPORT_EXTENSION as EXTENSION
 
-EXTENSION = "preserved-body-import-v1"
 POLICY = "legacy-frozen-facts-v1"
 
 
