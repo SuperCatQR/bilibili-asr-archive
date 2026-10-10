@@ -1,5 +1,14 @@
 # Manuscript Export Contracts
 
+The explicit `universal-origin-v1` profile uses catalog v3 with universal
+articles only, [origins v1](publication-origins-v1.schema.json) and
+[manifest v2](publication-origin-manifest-v2.schema.json). It permits verified
+legacy-body imports while retaining their real v1 input/revision/template
+identities. See [installation, policy, review and retry semantics](../preserved-body-import.md).
+Existing manifest v1 exports do not accept imported editions. A consumer must
+implement the new profile before serving these snapshots; the sections below
+describe the existing interfaces without changing their version-1 algorithm.
+
 Optional editor-confirmed `series.json` is described by
 [the public schema](publication-series.schema.json) and
 [private editorial schema](publication-series-editorial.schema.json).

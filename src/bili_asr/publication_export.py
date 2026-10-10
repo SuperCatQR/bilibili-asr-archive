@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import difflib
 import hashlib
 import json
+import re
 from pathlib import Path
 import sqlite3
 from typing import Iterator
@@ -14,6 +15,8 @@ from bili_asr.export_snapshot import ExportSnapshotError, checked_path, guard_ou
 from bili_asr.publication import content_from_ai, get_ai_artifacts, get_edition, render_publication, verify_release
 from bili_asr.storage.database import require_manuscript_schema
 from bili_asr.publication_content_v2 import content_from_ai_v2, render_publish_v2
+from bili_asr.publication_origins import PROFILE, public_origin
+from bili_asr.storage.import_origins import import_origin, read_baseline
 
 
 def _source_fields(edition: dict) -> dict:
@@ -71,12 +74,28 @@ def _public_entry(release: dict, edition: dict, review_document: bytes) -> dict:
     }
 
 
+def _select_heads(heads: list, identities: list[str] | None, key: str) -> list:
+    if identities is None:
+        return heads
+    size = 32 if key == "current_edition_id" else 64
+    if (not isinstance(identities, list) or any(not isinstance(identity, str) or not re.fullmatch(rf"[0-9a-f]{{{size}}}", identity) for identity in identities)
+            or len(set(identities)) != len(identities)):
+        raise ExportSnapshotError("export-scope: select unique, valid current version IDs")
+    requested = set(identities)
+    available = {head[key] for head in heads}
+    if requested - available:
+        raise ExportSnapshotError("export-scope: selected version is unknown or no longer current")
+    return [head for head in heads if head[key] in requested]
+
+
 def export_publications(
     connection: sqlite3.Connection,
     *,
     artifact_roots: tuple[Path, ...],
     output: Path,
     series_file: Path | None = None,
+    contract_profile: str | None = None,
+    release_ids: list[str] | None = None,
 ) -> int:
     """Export only valid current releases, failing the whole export on corruption."""
     require_manuscript_schema(connection)
@@ -84,6 +103,7 @@ def export_publications(
     series = _read_series_source(series_file, output)
     files: dict[str, bytes] = {}
     articles = []
+    origins = []
     with _read_snapshot(connection):
         broken_release = connection.execute(
             "SELECT r.release_id FROM publication_releases r "
@@ -98,11 +118,13 @@ def export_publications(
             "SELECT video_part_id, current_release_id FROM publication_heads "
             "WHERE current_release_id IS NOT NULL ORDER BY video_part_id"
         ).fetchall()
+        heads = _select_heads(heads, release_ids, "current_release_id")
         for head in heads:
             release, edition, document = verify_release(connection, str(head["current_release_id"]), artifact_roots)
             if release["status"] != "published" or release["video_part_id"] != head["video_part_id"]:
                 raise ExportSnapshotError("publication head does not identify a valid current release")
             artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
+            _collect_origin(connection, edition, artifact_roots, contract_profile, origins)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
             entry = _public_entry(release, edition, review_document)
@@ -115,10 +137,11 @@ def export_publications(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["publishedAt"], entry["videoPartId"]))
-    version = 3 if any(entry.get("contentVersion") == 2 for entry in articles) else 2
+    version = 3 if contract_profile or any(entry.get("contentVersion") == 2 for entry in articles) else 2
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication", "articles": articles})
     _add_series(files, series, articles, "publication")
-    replace_snapshot(output, kind="publication-export", files=files)
+    _add_origins(files, origins, "publication", contract_profile)
+    replace_snapshot(output, kind="publication-export", files=files, profile=contract_profile)
     return len(articles)
 
 
@@ -128,6 +151,8 @@ def export_publication_drafts(
     artifact_roots: tuple[Path, ...],
     output: Path,
     series_file: Path | None = None,
+    contract_profile: str | None = None,
+    edition_ids: list[str] | None = None,
 ) -> int:
     """Export current reader drafts that have never had a release of any status."""
     require_manuscript_schema(connection)
@@ -135,6 +160,7 @@ def export_publication_drafts(
     series = _read_series_source(series_file, output)
     files: dict[str, bytes] = {}
     articles = []
+    origins = []
     with _read_snapshot(connection):
         missing_head = connection.execute(
             "SELECT e.video_part_id FROM publication_editions e "
@@ -155,6 +181,7 @@ def export_publication_drafts(
         heads = connection.execute(
             "SELECT video_part_id, current_edition_id FROM publication_heads ORDER BY video_part_id"
         ).fetchall()
+        heads = _select_heads(heads, edition_ids, "current_edition_id")
         for head in heads:
             edition = get_edition(connection, head["current_edition_id"])
             if (edition["video_part_id"] != head["video_part_id"]
@@ -165,10 +192,13 @@ def export_publication_drafts(
                 (edition["edition_id"],),
             ).fetchone()
             if released is not None:
+                if edition_ids is not None:
+                    raise ExportSnapshotError("export-scope: selected draft edition has already had a release")
                 continue
             # Verify both immutable AI artifacts before exporting the original
             # review reference. Model-call audits remain outside the snapshot.
             artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
+            _collect_origin(connection, edition, artifact_roots, contract_profile, origins)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
             content = edition["content"]
@@ -193,11 +223,29 @@ def export_publication_drafts(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["createdAt"], entry["videoPartId"], entry["editionId"]))
-    version = 3 if any(entry.get("contentVersion") == 2 for entry in articles) else 2
+    version = 3 if contract_profile or any(entry.get("contentVersion") == 2 for entry in articles) else 2
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication-draft", "articles": articles})
     _add_series(files, series, articles, "publication-draft")
-    replace_snapshot(output, kind="publication-draft-export", files=files)
+    _add_origins(files, origins, "publication-draft", contract_profile)
+    replace_snapshot(output, kind="publication-draft-export", files=files, profile=contract_profile)
     return len(articles)
+
+
+def _collect_origin(connection, edition, roots, profile, origins) -> None:
+    if profile is not None and profile != PROFILE:
+        raise ExportSnapshotError("unsupported export origin profile")
+    if profile:
+        origins.append(public_origin(connection, edition, roots))
+    elif import_origin(connection, edition["edition_id"]) is not None:
+        raise ExportSnapshotError("imported editions require universal-origin-v1 export profile")
+
+
+def _add_origins(files, origins, manuscript_type, profile) -> None:
+    if profile is not None:
+        if profile != PROFILE:
+            raise ExportSnapshotError("unsupported export origin profile")
+        files["origins.json"] = json_bytes({"schemaVersion": 1, "manuscriptType": manuscript_type,
+            "contractProfile": profile, "entries": sorted(origins, key=lambda entry: entry["editionId"])})
 
 
 def _read_series_source(series_file: Path | None, output: Path) -> dict | None:
@@ -264,7 +312,8 @@ def export_editorial(
         if row is None:
             raise ExportSnapshotError("selected AI revision has no fixed input")
         prepared = json.loads(row["prepared_json"])
-        version = edition["content_version"]
+        from bili_asr.storage.archive_contracts import frozen_version
+        version = frozen_version(connection, "input", prepared["input_id"])
         ai_content = (content_from_ai_v2 if version == 2 else content_from_ai)(prepared, baseline)
         ai_metadata = {
             "revisionId": revision_id,
@@ -303,5 +352,14 @@ def export_editorial(
             ) if parent else _difference(json_bytes(ai_content).decode("utf-8"), json_bytes(content).decode("utf-8"),
                                          "ai-baseline.json", "edition.json"),
         }
+        origin = import_origin(connection, edition_id)
+        if origin is not None:
+            from bili_asr.manuscript_files import read_artifact
+            evidence = read_baseline(connection, origin["import_id"])
+            public = public_origin(connection, edition, artifact_roots)
+            preserved = read_artifact(evidence["body_path"], evidence["body_sha256"], artifact_roots)
+            files.update({"import-origin.json": json_bytes({"origin": public, "baseline": evidence["baseline"]}),
+                "preserved-body.md": preserved,
+                "differences/preserved.patch": _difference(preserved.decode("utf-8"), content["markdown"], "preserved-body.md", "edition-body.md")})
     snapshot_id = replace_snapshot(output, kind="editorial-export", files=files)
     return {"revision_id": revision_id, "edition_id": edition_id, "content_sha256": edition["content_sha256"], "snapshot_id": snapshot_id, "output": str(output)}

@@ -140,6 +140,10 @@ def verify_release(connection: sqlite3.Connection, release_id: str,
     repository = PublicationRepository(connection)
     release = repository.release(release_id)
     edition = _verify_release_identity(connection, release)
+    from bili_asr.storage.import_origins import import_origin
+    if import_origin(connection, edition["edition_id"]) is not None:
+        from bili_asr.services.preserved_body_import import check_preserved_body_import
+        check_preserved_body_import(connection, edition_id=edition["edition_id"], artifact_roots=artifact_roots)
     data = read_artifact(release["relative_path"], release["artifact_sha256"], _roots(artifact_roots))
     return release, edition, data
 
@@ -155,6 +159,10 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
         release, _, _ = verify_release(connection, existing["release_id"], roots)
         return {**release, "idempotent": True}
     edition = get_edition(connection, edition_id)
+    from bili_asr.storage.import_origins import import_origin
+    if import_origin(connection, edition_id) is not None:
+        from bili_asr.services.preserved_body_import import check_preserved_body_import
+        check_preserved_body_import(connection, edition_id=edition_id, artifact_roots=roots)
     if edition["review_status"] != "approved":
         raise ValueError("publication-approval: edition has not been approved")
     if edition["current_release_id"] != expected_release_id:

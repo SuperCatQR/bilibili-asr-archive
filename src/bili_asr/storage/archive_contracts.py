@@ -101,6 +101,8 @@ def require_universal_contract(connection: sqlite3.Connection) -> None:
             raise SchemaContractError(f"universal-v2 schema missing or altered object: {name}")
     if connection.execute("SELECT 1 FROM video_parts WHERE source_video_id IS NULL LIMIT 1").fetchone():
         raise SchemaContractError("universal-v2 part is missing its neutral source identity")
+    from bili_asr.storage.import_origins import require_import_extension
+    require_import_extension(connection)
 
 
 def frozen_version(connection: sqlite3.Connection, entity: str, identity: str) -> int:
