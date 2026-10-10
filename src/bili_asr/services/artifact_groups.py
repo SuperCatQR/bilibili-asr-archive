@@ -173,14 +173,18 @@ def restore_artifact_group(roots: ArtifactRoots, group_id: str, *, storage_targe
         if shutil.disk_usage(roots.write_base).free < sum(member["byte_size"] for member in members) + 16 * 1024**2:
             raise ValueError("insufficient local space to stage the complete artifact group")
         access = ArtifactAccess(session.connection, roots, storage_targets)
-        for member in members:
-            path = roots.write_base.joinpath(*portable_artifact_parts(member["relative_key"]))
-            require_safe_path(path)
-            if path.exists():
-                require_regular_file(path)
-                with path.open("rb") as source:
-                    if stream_hash(source) != (member["byte_size"], member["object_id"]):
-                        raise ValueError("group restore refuses a different current version")
+        def verify_destinations(*, require_present=False, include_marker=True):
+            for member in members:
+                if not include_marker and member["role"] == "marker":
+                    continue
+                path = roots.write_base.joinpath(*portable_artifact_parts(member["relative_key"]))
+                require_safe_path(path)
+                if require_present or path.exists():
+                    require_regular_file(path)
+                    with path.open("rb") as source:
+                        if stream_hash(source) != (member["byte_size"], member["object_id"]):
+                            raise ValueError("group restore refuses a different current version")
+        verify_destinations()
         with tempfile.TemporaryDirectory(prefix=".artifact-group-restore-", dir=roots.write_base) as temporary:
             stage = Path(temporary)
             for member in members:
@@ -204,19 +208,43 @@ def restore_artifact_group(roots: ArtifactRoots, group_id: str, *, storage_targe
                     raise ValueError("restored transcript group has a mismatched marker")
             restored = 0
             target_id = "local-artifacts" if roots.configured else "local"
-            with session.connection:
-                catalog.register_target(target_id, kind="local")
+            # External retrieval can be slow. Never treat a newly appeared file
+            # as our staged object merely because its name now exists.
+            verify_destinations()
+            installed_marker = None
+            try:
                 for member in members:
                     path = roots.write_base / member["relative_key"]
                     path.parent.mkdir(parents=True, exist_ok=True)
                     require_safe_path(path)
+                    if member["role"] == "marker":
+                        verify_destinations(require_present=True, include_marker=False)
                     if not path.exists():
                         if os.name == "nt":
                             os.rename(stage / member["relative_key"], path)
                         else:
                             os.link(stage / member["relative_key"], path)
+                        if member["role"] == "marker":
+                            installed_marker = (path, path.stat())
                         sync_directory(path.parent)
                         restored += member["byte_size"]
+                verify_destinations(require_present=True)
+                if group["owner_kind"] == "bundle" and not archive_bundle_complete(roots.write_base, paths):
+                    raise ValueError("installed transcript group changed before registration")
+            except BaseException:
+                if installed_marker is not None:
+                    path, created = installed_marker
+                    try:
+                        current = path.lstat()
+                        if (current.st_dev, current.st_ino, current.st_mtime_ns) == (created.st_dev, created.st_ino, created.st_mtime_ns):
+                            path.unlink()
+                            sync_directory(path.parent)
+                    except FileNotFoundError:
+                        pass
+                raise
+            with session.connection:
+                catalog.register_target(target_id, kind="local")
+                for member in members:
                     previous = session.connection.execute("SELECT MAX(generation) FROM artifact_replicas WHERE target_id=? AND relative_key=? AND member_key=''", (target_id, member["relative_key"])).fetchone()[0]
                     catalog.record_verified_replica(member["object_id"], target_id, member["relative_key"], sha256=member["object_id"], byte_size=member["byte_size"], generation=int(previous or 0) + 1)
         return {"operation": "artifact-restore-group", "group_id": group_id, "members": len(members), "restored_bytes": restored}

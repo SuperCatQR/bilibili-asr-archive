@@ -129,6 +129,25 @@ def test_corrupt_external_member_never_installs_completion_marker(archive):
     assert not any((archive.root / path).exists() for path in archive.paths.values())
 
 
+def test_file_appearing_during_group_retrieval_is_not_registered_or_marked_complete(archive, monkeypatch):
+    from bili_asr.services.artifact_access import PackagedArtifact
+    group = capture_artifact_groups(archive.roots)["groups"][0]
+    transfer(archive, text_plan(archive), mode="offload")
+    original = PackagedArtifact.copy_to
+    changed = archive.root / archive.paths["txt_path"]
+    def inject(packaged, destination):
+        result = original(packaged, destination)
+        changed.write_bytes(b"a different publication appeared during restore")
+        return result
+    monkeypatch.setattr(PackagedArtifact, "copy_to", inject)
+    with pytest.raises(ValueError, match="different current version"):
+        restore_artifact_group(archive.roots, group, storage_targets={"cold": archive.target})
+    assert changed.read_bytes() == b"a different publication appeared during restore"
+    assert not (changed.parent / BUNDLE_MARKER_NAME).exists()
+    with sqlite3.connect(archive.root / "archive.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM artifact_replicas WHERE relative_key=? AND presence='present'", (archive.paths["txt_path"],)).fetchone()[0] == 0
+
+
 def test_offloaded_publication_stays_complete_and_reports_unavailable_storage(archive, tmp_path, monkeypatch):
     from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
     from bili_asr.coverage_report import CoverageReport
