@@ -14,7 +14,8 @@ def probe_gpu(backend: str, *, device: str = "cuda", dtypes: tuple[str, ...] = (
         raise ValueError("unsupported backend or precision")
     if re.fullmatch(r"cuda(?::[0-9]+)?", device) is None or not torch.cuda.is_available():
         raise RuntimeError("selected GPU device is unavailable")
-    index = int(device.split(":", 1)[1]) if ":" in device else 0
+    index = int(device.split(":", 1)[1]) if ":" in device else torch.cuda.current_device()
+    device = f"cuda:{index}"
     name = torch.cuda.get_device_name(index)
     runtime = "rocm" if torch.version.hip else "cuda" if torch.version.cuda else "unknown"
     is_hcu = bool(re.search(r"hygon|海光|bw1000|k100|hcu", name, re.I))
