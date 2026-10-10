@@ -12,8 +12,8 @@ from bili_asr.storage_targets import require_safe_path, sync_directory
 
 
 @contextmanager
-def _audio_directory(root: Path):
-    directory = root / "audio"
+def _artifact_directory(root: Path, parent: tuple[str, ...]):
+    directory = root.joinpath(*parent)
     require_safe_path(directory)
     descriptor = None
     if os.name == "posix":
@@ -93,9 +93,10 @@ def release_copy(root: Path, source_key: str, quarantine_key: str, object_id: st
     distinguishable and replayable. Windows rename already refuses replacement.
     """
     source, quarantine = portable_artifact_parts(source_key), portable_artifact_parts(quarantine_key)
-    if len(source) != 2 or source[0] != "audio" or len(quarantine) != 2 or quarantine[0] != "audio" or source == quarantine or not quarantine[1].startswith(".artifact-release-"):
-        raise ValueError("release intent must name two distinct confined audio entries")
-    with _audio_directory(root) as (directory, descriptor):
+    if len(source) < 2 or source[:-1] != quarantine[:-1] or source == quarantine or not quarantine[-1].startswith(".artifact-release-"):
+        raise ValueError("release intent must name two distinct confined artifact entries")
+    with _artifact_directory(root, source[:-1]) as (directory, descriptor):
+        source, quarantine = (source[0], source[-1]), (quarantine[0], quarantine[-1])
         options = {"dir_fd": descriptor} if descriptor is not None else {}
         src = _info(directory, descriptor, source[1])
         held = _info(directory, descriptor, quarantine[1])

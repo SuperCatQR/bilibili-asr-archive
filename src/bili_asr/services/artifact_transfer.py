@@ -5,7 +5,7 @@ import json
 import shutil
 import sqlite3
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from bili_asr.archive_maintenance import archive_access
 from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
@@ -14,8 +14,8 @@ from bili_asr.artifact_packages import (
     PackageSource,
     capture_source_generation,
     check_artifact_package,
-    create_artifact_package,
     copy_package_object,
+    create_artifact_package,
     package_batches,
     package_manifest,
 )
@@ -38,6 +38,10 @@ def _local_target(roots: ArtifactRoots, root: Path) -> str:
 
 def _selection(plan: dict) -> ArtifactSelection:
     return ArtifactSelection(**{key: tuple(value) for key, value in plan["selection"].items()})
+
+
+def _quarantine_key(path, operation_id, copy_id):
+    return str(PurePosixPath(path).parent / f".artifact-release-{operation_id}-{copy_id}")
 
 
 def _inventory(roots, plan, external_holds):
@@ -66,6 +70,23 @@ def _local_replica(catalog, roots, item):
     generation = row[2] if row and row[1] == item["sha256"] and row[3] == "present" else (row[2] + 1 if row else 1)
     return catalog.record_verified_replica(item["sha256"], target_id, item["path"], sha256=item["sha256"],
                                            byte_size=item["size"], generation=generation)
+
+
+def _require_complete_text_groups(catalog, items):
+    identities = {item["sha256"] for item in items}
+    for item in items:
+        if item["path"].startswith("audio/"):
+            continue
+        groups = [row[0] for row in catalog.connection.execute(
+            "SELECT p.group_id FROM artifact_group_paths p JOIN artifact_group_members m USING(group_id,role) "
+            "WHERE m.object_id=? AND (p.relative_key=? OR ?='documents/artifact-objects/'||m.object_id)",
+            (item["sha256"], item["path"], item["path"]))]
+        if not groups:
+            raise ValueError("text artifact requires a captured immutable group before transfer")
+        for group in groups:
+            members = {row[0] for row in catalog.connection.execute("SELECT object_id FROM artifact_group_members WHERE group_id=?", (group,))}
+            if not members <= identities:
+                raise ValueError("text transfer must include every member of its complete group")
 
 
 def _register_package(catalog, target, checked, operation_id, roots, items):
@@ -159,21 +180,26 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
         if intent["state"] == "released":
             continue
         item = planned.get(intent["copy_id"])
-        if item is None or intent["object_id"] != item["sha256"] or intent["source_key"] != item["path"] or intent["quarantine_key"] != f"audio/.artifact-release-{operation_id}-{intent['copy_id']}":
+        if item is None or intent["object_id"] != item["sha256"] or intent["source_key"] != item["path"] or intent["quarantine_key"] != _quarantine_key(item["path"], operation_id, intent["copy_id"]):
             raise ValueError("release intent differs from frozen plan")
         root = Path(item["root"])
         if _local_target(roots, root) != intent["source_target_id"] or intent["object_id"] not in identities:
             raise ValueError("release intent lacks verified target evidence")
         copy = copies.get(intent["copy_id"])
+        reasons = set(retention.get(intent["object_id"], ()))
+        if "complete_group_unverified" in reasons:
+            groups = [row[0] for row in catalog.connection.execute("SELECT group_id FROM artifact_group_members WHERE object_id=?", (intent["object_id"],))]
+            if groups and all({row[0] for row in catalog.connection.execute("SELECT object_id FROM artifact_group_members WHERE group_id=?", (group,))} <= identities for group in groups):
+                reasons.discard("complete_group_unverified")
         held = (external_holds is None or intent["object_id"] not in retention
-                or bool(retention.get(intent["object_id"])) or catalog.pinned(intent["object_id"]))
+                or bool(reasons) or catalog.pinned(intent["object_id"]))
         if copy and copy["state"] not in {"missing", "verified"}:
             held = True
         if copy and copy["state"] == "verified" and copy["sha256"] != intent["object_id"]:
             raise ValueError("release source was replaced; preserve source and quarantine for inspection")
         target.check()
 
-        def isolated(copy_id=intent["copy_id"]):
+        def isolated(copy_id=intent["copy_id"], identity=intent["object_id"]):
             with catalog.connection:
                 catalog.connection.execute("UPDATE artifact_release_intents SET state='isolated',updated_at=? WHERE transfer_id=? AND copy_id=?", (int(time.time()), operation_id, copy_id))
 
@@ -209,9 +235,7 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
         raise ValueError("transfer mode must be copy or offload")
     for item in plan["items"]:
         _local_target(roots, Path(item["root"]))
-        parts = portable_artifact_parts(item["path"])
-        if len(parts) != 2 or parts[0] != "audio":
-            raise ValueError("manual transfer currently requires an audio-only plan")
+        portable_artifact_parts(item["path"])
     if not plan["items"]:
         raise ValueError("plan contains no eligible audio copies")
     target = open_directory_target(target_root, plan["target_id"], roots=roots)
@@ -220,6 +244,7 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
         connection = open_archive_connection(roots.archive_root, mode=ArchiveAccessMode.WRITE, artifact_roots=roots)
         try:
             catalog = ArtifactCatalog(connection)
+            _require_complete_text_groups(catalog, plan["items"])
             existing = connection.execute("SELECT state FROM artifact_transfers WHERE transfer_id=?", (operation_id,)).fetchone()
             if existing and existing[0] == "complete":
                 _package_evidence(catalog, target, operation_id)
@@ -265,7 +290,7 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                         now = int(time.time())
                         connection.execute("INSERT INTO artifact_release_intents VALUES (?,?,?,?,?,?,?,?, 'planned',?,?)",
                                            (operation_id, item["copy_id"], item["sha256"], _local_target(roots, Path(item["root"])),
-                                            item["path"], f"audio/.artifact-release-{operation_id}-{item['copy_id']}", source_id,
+                                            item["path"], _quarantine_key(item["path"], operation_id, item["copy_id"]), source_id,
                                             json.dumps(capture_source_generation(Path(item["root"]) / item["path"]), sort_keys=True), now, now))
                     catalog.set_transfer_state(operation_id, "releasing")
                 return _release_intents(catalog, roots, target, plan, operation_id, external_holds, current_inventory=current)

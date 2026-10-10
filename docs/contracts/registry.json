@@ -47,6 +47,44 @@
       "schema": "ssh-directory-v1.schema.json"
     },
     {
+      "identity": "artifact-state-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/services/artifact_state.py"
+      ],
+      "consumers": [
+        "cli.artifacts"
+      ],
+      "capabilities": [
+        "read",
+        "validate"
+      ],
+      "dependencies": [
+        "artifact-storage-v1"
+      ],
+      "schema": "artifact-state-v1.schema.json"
+    },
+    {
+      "identity": "artifact-publication-state-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/services/artifact_state.py"
+      ],
+      "consumers": [
+        "coverage_report",
+        "integrity",
+        "services.workflow_projection"
+      ],
+      "capabilities": [
+        "read",
+        "validate"
+      ],
+      "dependencies": [
+        "artifact-storage-v1"
+      ],
+      "schema": "artifact-publication-state-v1.schema.json"
+    },
+    {
       "identity": "artifact-storage-v1",
       "owner": "storage",
       "authority": [

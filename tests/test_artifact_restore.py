@@ -182,7 +182,7 @@ def test_restore_refuses_other_existing_bytes_and_unretained_audio_paths(tmp_pat
     with pytest.raises(restore_service.ArtifactRestoreError, match="retained audio reference"):
         restore_service.restore_artifact(roots, audio["sha256"], target_id="cold", target_root=target,
                                          storage_key="audio/other.m4a")
-    with pytest.raises(restore_service.ArtifactRestoreError, match="only retained audio"):
+    with pytest.raises(restore_service.ArtifactRestoreError, match="retained artifact reference"):
         restore_service.restore_artifact(roots, audio["sha256"], target_id="cold", target_root=target,
                                          storage_key="documents/other.md")
 

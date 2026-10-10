@@ -179,10 +179,16 @@ def _read_facts(database_path: Path) -> tuple[list[dict], list[dict], list[dict]
                 continue
             # Current mutable files cannot certify a historic transcript version.
             version = f"transcript:{row['transcript_id']}"
+            frozen = {}
+            if "artifact_publication_groups" in tables:
+                frozen = dict(connection.execute("SELECT m.role,m.object_id FROM artifact_publication_groups p JOIN artifact_group_members m USING(group_id) WHERE p.publication_id=?", (row["publication_id"],)))
+            current = connection.execute("SELECT publication_id FROM workflow_publications WHERE video_part_id=? ORDER BY published_at DESC,publication_id DESC LIMIT 1", (row["video_part_id"],)).fetchone()
+            if frozen and current[0] != row["publication_id"]:
+                continue  # Its immutable object group is enumerated below.
             for key in REQUIRED_ARTIFACT_KEYS:
-                add(f"{identity}:{key}", "bundle", value[key], part=row["video_part_id"], version=version, group=identity, binding=False)
+                add(f"{identity}:{key}", "bundle", value[key], frozen.get(key), part=row["video_part_id"], version=version, group=identity, binding=bool(frozen))
             marker = str(PurePosixPath(value["srt_path"]).parent / BUNDLE_MARKER_NAME)
-            add(f"{identity}:marker", "bundle", marker, part=row["video_part_id"], version=version, group=identity, binding=False)
+            add(f"{identity}:marker", "bundle", marker, frozen.get("marker"), part=row["video_part_id"], version=version, group=identity, binding=bool(frozen))
         for row in connection.execute(
             "SELECT d.relative_path,d.content_sha256,d.revision_id,d.artifact_name,i.video_part_id "
             "FROM document_artifacts d JOIN editorial_revisions r ON r.revision_id=d.revision_id "
@@ -215,6 +221,18 @@ def _read_facts(database_path: Path) -> tuple[list[dict], list[dict], list[dict]
                 for role in ("body", "review"):
                     add(f"source-evidence:{row['import_id']}:{role}", "source-evidence", row[f"{role}_path"],
                         row[f"{role}_sha256"], part=row["video_part_id"], version=row["import_id"], group=f"source-evidence:{row['import_id']}")
+        if "artifact_group_paths" in tables:
+            original = {ref["group_id"]: ref for ref in references}
+            for row in connection.execute("SELECT g.*,m.role AS member_role,m.object_id,o.byte_size FROM artifact_groups g JOIN artifact_group_members m USING(group_id) JOIN artifact_objects o USING(object_id) ORDER BY g.group_id,m.role"):
+                owner = original.get(row["owner_id"])
+                part = None if owner is None else owner["part_id"]
+                if row["owner_kind"] == "bundle":
+                    publication = connection.execute("SELECT video_part_id FROM workflow_publications WHERE publication_id=?", (row["owner_id"].split(":")[-1],)).fetchone()
+                    part = publication[0] if publication else None
+                if row["owner_kind"] in {"bundle", "document", "release", "source-evidence", "migration"}:
+                    add(f"group:{row['group_id']}:{row['member_role']}", row["owner_kind"],
+                        f"documents/artifact-objects/{row['object_id']}", row["object_id"], row["byte_size"],
+                        part=part, version=row["version"], group=f"group:{row['group_id']}")
         jobs = [dict(row) for row in connection.execute(
             "SELECT j.job_id,j.kind,j.video_part_id,j.profile_id,j.status,"
             "EXISTS(SELECT 1 FROM workflow_attempts a WHERE a.job_id=j.job_id AND a.outcome='running') AS running_attempt "

@@ -1,8 +1,8 @@
-# 音频分层、手动迁出与恢复
+# 产物分层、手动迁出与恢复
 
 本轮实现 [#319](https://github.com/SuperCatQR/bilibili-asr-archive/issues/319)、
 [#320](https://github.com/SuperCatQR/bilibili-asr-archive/issues/320) 和
-[#321](https://github.com/SuperCatQR/bilibili-asr-archive/issues/321) 的首版闭环。
+[#321](https://github.com/SuperCatQR/bilibili-asr-archive/issues/321) 的闭环，并扩展到 #322 完整文本组和 #323 外部产物快照。
 生产状态继续由现有 `archive.db` 中的业务表管理；外部音频包与本地工作副本由可选的
 `artifact-storage-v1` catalog 登记。迁出不会将已成功任务改成未完成，也不会清空失败次数、重试记录、审核或发布历史。
 
@@ -24,7 +24,7 @@
 | 本地访问 | 本次 invocation 的 archive/artifact root、本地路径、显式恢复 | 严格查找已登记音频身份；缺失时要求预恢复 |
 
 本次没有启用生产在线自动迁出。自动策略、消费租约和容量背压在
-[#324](https://github.com/SuperCatQR/bilibili-asr-archive/issues/324)；非音频版本绑定在
+[#324](https://github.com/SuperCatQR/bilibili-asr-archive/issues/324)；非音频版本绑定已实现
 [#322](https://github.com/SuperCatQR/bilibili-asr-archive/issues/322)。
 
 ## 维护窗口与显式升级
@@ -66,7 +66,7 @@ bili-asr artifacts plan --archive-root D:/archives/catalog --kind audio --target
 默认 quick 只观察路径及可读性，不读取音频载荷；deep 才核对 SHA-256 和大小。
 支持重复的 `--kind`、`--platform`、`--creator-id`、`--video-id`、`--part-id` 和 `--version` 筛选，以及深度扫描的 `--max-bytes-per-second` 限速。
 `kind` 包括 `audio`、`bundle`、`document`、`release`、`source-evidence` 和 `migration`。
-当前 transfer 执行器接受音频计划；其他类型的盘点不代表已支持迁出。
+文本类型必须先捕获为不可变完整组，transfer 才接受对应计划。
 报告输出必须在两个源 root 之外，且不覆盖已有文件；也可以直接取 stdout JSON。
 
 占用指标分别描述路径内容、按 device/inode 去重的物理内容、平台可提供的分配空间、已登记逻辑字节、候选释放内容、目标载荷和单对象恢复工作空间。
@@ -100,6 +100,28 @@ active persistent pin、共享音频的其他 profile、选择范围外消费者
 计划包含源 root/path、指纹、SHA-256、大小、逻辑版本、暂留理由和摘要。
 源绝对路径只属于本次机器的计划，不进入副本 catalog。移动工作目录后应重新盘点和生成计划。
 历史 bundle 路径目前会被覆盖，盘点会报告 `mutable_bundle_version_unverified`，不会把当前文件当成旧版本副本。
+
+## 完整文本组和历史版本
+
+```powershell
+bili-asr artifacts capture-groups --archive-root D:/archives/catalog
+bili-asr artifacts plan --archive-root D:/archives/catalog --kind bundle --kind document --kind release --kind source-evidence --target-id cold-audio --no-external-holds --out C:/plans/text-offload.json
+bili-asr artifacts transfer --archive-root D:/archives/catalog --plan C:/plans/text-offload.json --target-root E:/audio-store --mode offload --no-external-holds
+bili-asr artifacts restore-group --archive-root D:/archives/catalog --group-id GROUP_SHA256 --storage-target cold-audio=E:/audio-store
+bili-asr artifacts status --archive-root D:/archives/catalog --check-targets --storage-target cold-audio=E:/audio-store
+```
+
+`capture-groups` 验证当前 transcript bundle 的五个文件和完成 marker，并将 raw segments 与数据库中实际发布的 transcript 对应；无法证明的旧版只报告阻碍，不制造历史字节。
+AI 成稿和审阅稿、来源正文和审阅证据各自成对；所有 published/superseded/withdrawn release、迁移证据均按原身份保留。
+确认的组先保存到 `documents/artifact-objects/<SHA256>`，再登记不可变成员及原始路径。
+启用 catalog 后的 workflow publish 在覆盖旧槽位前保存可验证的旧组，并在发布提交中登记新组。
+计划同时覆盖原始位置和不可变对象副本；任何组缺失成员或摘要不符都阻止迁出。
+
+`restore-group` 先在目标工作盘暂存并校验完整组，最后才安装完成 marker。已有不同版本拒绝覆盖；损坏包不会产生部分完成标记。
+完整 snapshot 同时携带当前发布槽位与已保留的所有历史对象，从外部包直接流式读取，恢复后不依赖原 target。
+生产完成、历史核验证据、本地驻留和消费 readiness 分别报告。状态和 coverage 不会因正常外置变回未生产；默认状态不探测远端。
+`--check-targets` 只检查目标身份和包清单，显示 `storage_unavailable`；不会展开音频或文本，也不会启动模型。
+`verified_at` 是历史校验时间，`target_availability=unchecked` 不承诺该目标此刻在线。
 
 ## 目标身份与 copy/offload
 
@@ -193,3 +215,4 @@ bili-asr snapshot restore --file F:/backup/full.zip --archive-root D:/archives/r
 CLI 闭环与复制/核验/登记/隔离/删除故障注入检查没有外部有效副本时不释放，以及恢复同一字节后可继续新 profile。
 Windows 和 POSIX 分别验证 filesystem 原语；模型和下载使用离线替身，不触发生产任务。
 独立审查覆盖正确性、可读性、架构、安全与 I/O；SHA 校验 mutation 证明坏成员和坏输入测试会在保护被移除时失败。
+

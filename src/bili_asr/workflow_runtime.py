@@ -483,6 +483,20 @@ class ArchiveWorkflowHandlers:
                     (int(part["video_part_id"]), transcript_id, published_at,
                      json.dumps(paths, ensure_ascii=False, separators=(",", ":"))),
                 )
+                from bili_asr.storage.artifact_catalog import require_artifact_catalog
+                if require_artifact_catalog(self.connection):
+                    from bili_asr.services.artifact_groups import preserve_transcript_bundle
+                    publication_id = self.connection.execute("SELECT publication_id FROM workflow_publications WHERE video_part_id=? AND transcript_id=?",
+                                                             (int(part["video_part_id"]), transcript_id)).fetchone()[0]
+                    preserve_transcript_bundle(self.connection, self.artifact_roots, publication_id, paths)
+
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        if require_artifact_catalog(self.connection):
+            from bili_asr.services.artifact_groups import preserve_existing_publication
+            previous_publication = self.connection.execute("SELECT p.* FROM workflow_publications p LEFT JOIN artifact_publication_groups g USING(publication_id) WHERE p.video_part_id=? ORDER BY p.published_at DESC,p.publication_id DESC LIMIT 1", (int(part["video_part_id"]),)).fetchone()
+            if previous_publication is not None and self.connection.execute("SELECT 1 FROM artifact_publication_groups WHERE publication_id=?", (previous_publication["publication_id"],)).fetchone() is None:
+                with self.repository.owned_transaction(job):
+                    preserve_existing_publication(self.connection, self.artifact_roots, previous_publication)
 
         paths = archive.write_archive(
             self.artifact_roots.write_base,
