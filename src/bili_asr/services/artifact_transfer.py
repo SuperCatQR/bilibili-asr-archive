@@ -175,11 +175,15 @@ def _recheck_target_object(catalog, target, operation_id, identity):
     if row is None or row["target_id"] != target.target_id:
         raise ValueError("release requires a current verified external object")
     target.check()
-    copy_package_object(target.root / row["relative_key"], identity, Discard(),
+    path = target.root / row["relative_key"]
+    generation = capture_source_generation(path)
+    copy_package_object(path, identity, Discard(),
                         expected_size=row["verified_byte_size"], package_id=row["package_id"],
                         manifest_sha256=row["manifest_sha256"])
     target.check()
-    return target.root / row["relative_key"], capture_source_generation(target.root / row["relative_key"])
+    if capture_source_generation(path) != generation:
+        raise ValueError("target generation changed during release verification")
+    return path, generation
 
 
 def _release_intents(catalog, roots, target, plan, operation_id, external_holds, *, current_inventory=None, policy_guard=None):
