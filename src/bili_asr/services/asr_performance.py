@@ -49,6 +49,7 @@ def _percentile(values: list[float], fraction: float) -> float | None:
 class _Totals:
     def __init__(self):
         self.outcomes = Counter()
+        self.jobs = {}
         self.audio = {}
         self.latencies = []
         self.retry_attempts = 0
@@ -67,6 +68,7 @@ class _Totals:
     def add(self, row, start: int, end: int, evidence: dict, invalid: bool):
         outcome = row["outcome"]
         self.outcomes[outcome] += 1
+        self.jobs[row["job_id"]] = row["job_status"]
         finish = row["finished_at"]
         overlap = max(0, min(end, finish if finish is not None else end) - max(start, row["started_at"]))
         self.attempt_wall_s += overlap
@@ -118,10 +120,14 @@ class _Totals:
 
     def report(self, window_s: int) -> dict:
         terminal = sum(self.outcomes[k] for k in ("succeeded", "failed", "cancelled"))
+        jobs = Counter(self.jobs.values())
+        terminal_jobs = sum(jobs[k] for k in ("succeeded", "failed", "cancelled"))
         audio_s = sum(self.audio.values())
         return {
             "attempt_outcomes": {k: self.outcomes[k] for k in ("running", "succeeded", "failed", "cancelled")},
             "terminal_attempt_success_rate": self.outcomes["succeeded"] / terminal if terminal else None,
+            "unique_asr_job_status_at_snapshot": {k: jobs[k] for k in ("queued", "running", "succeeded", "failed", "cancelled")},
+            "terminal_asr_job_success_rate_at_snapshot": jobs["succeeded"] / terminal_jobs if terminal_jobs else None,
             "retry_attempts": self.retry_attempts,
             "overlapping_attempt_wall_s": self.attempt_wall_s,
             "failure_cancelled_attempt_wall_s": self.failure_wall_s,
@@ -194,6 +200,7 @@ def _read_report(connection, start: int, end: int, max_attempts: int) -> dict:
             "scope": "workflow_asr_attempts; standalone_acquisition_runs_are_counts_only",
             "latency": "successful_fully_contained_attempts_seconds_resolution",
             "outcomes": "stored_outcomes_at_report_time_for_overlapping_attempts_not_as_of_window_end",
+            "jobs": "unique_asr_jobs_with_overlapping_attempts; current_snapshot_status_not_as_of_window_end",
             "group_costs": "missing_binding_or_policy_stays_in_unknown_group_not_assigned_to_successful_configuration",
             "retry_order": "started_at_then_insertion_order_for_same_second",
             "prefetch_scope": "evidence_for_successful_fully_contained_attempts_only",

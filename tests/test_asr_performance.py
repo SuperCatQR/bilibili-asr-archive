@@ -14,7 +14,7 @@ def _database(tmp_path):
     connection.row_factory = sqlite3.Row
     connection.executescript("""
         CREATE TABLE workflow_asr_profiles(profile_id INTEGER PRIMARY KEY, config_sha256 TEXT);
-        CREATE TABLE workflow_jobs(job_id TEXT PRIMARY KEY, kind TEXT, profile_id INTEGER, video_part_id INTEGER);
+        CREATE TABLE workflow_jobs(job_id TEXT PRIMARY KEY, kind TEXT, profile_id INTEGER, video_part_id INTEGER, status TEXT);
         CREATE TABLE workflow_attempts(
             attempt_id TEXT PRIMARY KEY, job_id TEXT, started_at INTEGER, finished_at INTEGER,
             outcome TEXT, result_json TEXT
@@ -25,7 +25,7 @@ def _database(tmp_path):
         CREATE TABLE acquisition_runs(run_id TEXT, kind TEXT, outcome TEXT, started_at INTEGER, finished_at INTEGER);
     """)
     connection.execute("INSERT INTO workflow_asr_profiles VALUES (1, ?)", ("a" * 64,))
-    connection.execute("INSERT INTO workflow_jobs VALUES ('j1', 'asr', 1, 1)")
+    connection.execute("INSERT INTO workflow_jobs VALUES ('j1', 'asr', 1, 1, 'succeeded')")
     evidence = {
         "schema_version": 1,
         "audio": {"sha256": "b" * 64, "duration_ms": 10000},
@@ -55,7 +55,7 @@ def test_report_counts_unique_audio_and_prefetch_without_writing(tmp_path):
 
 def test_report_marks_missing_and_boundary_evidence_unknown(tmp_path):
     connection = _database(tmp_path)
-    connection.execute("INSERT INTO workflow_jobs VALUES ('j2', 'asr', 1, 2)")
+    connection.execute("INSERT INTO workflow_jobs VALUES ('j2', 'asr', 1, 2, 'succeeded')")
     connection.execute("INSERT INTO workflow_attempts VALUES ('a2', 'j2', 90, 130, 'succeeded', '{}')")
     connection.commit()
     report = asr_performance_report(connection, start=100, end=120)
@@ -80,7 +80,7 @@ def test_parallel_two_pass_and_retry_cost_use_common_window_and_unique_audio(tmp
     connection.execute("INSERT INTO workflow_attempts VALUES ('failed', 'j1', 95, 100, 'failed', '{}')")
     connection.execute("INSERT INTO workflow_attempts VALUES ('retry', 'j1', 113, 119, 'succeeded', ?)",
                        (json.dumps({"run_id": "r1"}),))
-    connection.execute("INSERT INTO workflow_jobs VALUES ('j2', 'asr', 1, 2)")
+    connection.execute("INSERT INTO workflow_jobs VALUES ('j2', 'asr', 1, 2, 'succeeded')")
     evidence = {"schema_version": 1, "audio": {"sha256": "c" * 64, "duration_ms": 20000},
                 "diagnostics": {"passes": [{}, {}]}}
     connection.execute("INSERT INTO acquisition_runs VALUES ('r2', 'asr', 'complete', 103, 116)")
@@ -101,12 +101,26 @@ def test_parallel_two_pass_and_retry_cost_use_common_window_and_unique_audio(tmp
 
 def test_missing_success_audio_is_unknown_not_zero_throughput(tmp_path):
     connection = _database(tmp_path)
-    connection.execute("INSERT INTO workflow_jobs VALUES ('j2', 'asr', 1, 2)")
+    connection.execute("INSERT INTO workflow_jobs VALUES ('j2', 'asr', 1, 2, 'succeeded')")
     connection.execute("INSERT INTO workflow_attempts VALUES ('a2', 'j2', 105, 115, 'succeeded', '{}')")
     totals = asr_performance_report(connection, start=100, end=120)["totals"]
     assert totals["audio_s_per_wall_s"] is None
     assert totals["known_audio_s_per_wall_s_lower_bound"] == 0.5
     assert totals["unknown_success_audio_attempts"] == 1
+
+
+def test_job_success_rate_counts_a_retry_chain_once_and_keeps_queued_nonterminal(tmp_path):
+    connection = _database(tmp_path)
+    connection.execute("INSERT INTO workflow_attempts VALUES ('prior', 'j1', 100, 101, 'failed', '{}')")
+    connection.execute("INSERT INTO workflow_jobs VALUES ('j2', 'asr', 1, 2, 'queued')")
+    connection.execute("INSERT INTO workflow_attempts VALUES ('deferred', 'j2', 101, 103, 'failed', '{}')")
+    connection.execute("INSERT INTO workflow_jobs VALUES ('j3', 'asr', 1, 3, 'failed')")
+    connection.execute("INSERT INTO workflow_attempts VALUES ('terminal', 'j3', 101, 105, 'failed', '{}')")
+    totals = asr_performance_report(connection, start=100, end=120)["totals"]
+    assert totals["terminal_attempt_success_rate"] == 0.25
+    assert totals["terminal_asr_job_success_rate_at_snapshot"] == 0.5
+    assert totals["unique_asr_job_status_at_snapshot"] == {
+        "queued": 1, "running": 0, "succeeded": 1, "failed": 1, "cancelled": 0}
 
 
 def test_projection_does_not_copy_transcript_or_credentials_and_legacy_reason_stays_unknown(tmp_path):

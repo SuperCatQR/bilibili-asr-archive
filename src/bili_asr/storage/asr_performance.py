@@ -8,7 +8,7 @@ import sqlite3
 def performance_attempts(connection: sqlite3.Connection, start: int, end: int, limit: int):
     rows = connection.execute("""
         SELECT a.attempt_id, a.job_id, a.started_at, a.finished_at, a.outcome,
-               p.config_sha256,
+               p.config_sha256, j.status AS job_status,
                CASE WHEN e.run_id IS NULL THEN NULL
                     WHEN NOT json_valid(e.evidence_json) THEN '{}'
                     WHEN json_type(e.evidence_json, '$.schema_version') IS NOT 'integer' THEN '{}'

@@ -21,6 +21,8 @@ bili-asr workflow asr-performance --archive-root /srv/archive \
 | `retry_attempt_wall_s` | retry attempt 在窗口内的耗时，可能与失败耗时重叠，二者不相加当总成本。 |
 | `retry_attempts` | 同 job 已有更早开始的 attempt；同秒以插入顺序消歧。更早 attempt 可在窗口外。 |
 | `terminal_attempt_success_rate` | 重叠样本中成功 /（成功+失败+取消）。它是 attempt 成功率，不是唯一任务成功率。 |
+| `unique_asr_job_status_at_snapshot` | 有重叠 attempt 的唯一 ASR job，按报告快照中的 queued/running/succeeded/failed/cancelled 分类；同 job 多次重试只计一次。 |
+| `terminal_asr_job_success_rate_at_snapshot` | 上述唯一 ASR job 中 succeeded /（succeeded+failed+cancelled）；queued/running 不算终态，也不等于整个发布链路成功率。 |
 | `successful_attempt_latency_s` | 完整在窗内成功 attempt 的耗时 P50/P95（线性插值），附样本数。历史时间仅精确到秒，零秒样本照实保留。 |
 | `excluded_boundary_success_attempts` | 开始在窗口前或结束在窗口后、无法完整归因音频的成功 attempt 数。不会按耗时比例猜测处理音频量。 |
 | `pass_counts` | 完整在窗内成功 evidence 的单遍、多遍和未知数量。 |
