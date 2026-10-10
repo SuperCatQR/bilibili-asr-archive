@@ -84,7 +84,7 @@ def _latest_publications(
                 ) AS recency
                 FROM workflow_publications WHERE video_part_id IN ({marks})
             )
-            SELECT p.video_part_id, p.transcript_id, p.artifact_json,
+            SELECT p.publication_id, p.video_part_id, p.transcript_id, p.artifact_json,
                    p.published_at, t.source_kind, t.language, t.version,
                    t.transcript_id AS stored_transcript_id,
                    t.video_part_id AS transcript_part_id
@@ -223,8 +223,16 @@ def workflow_records(
                                 raise ValueError("publication paths must contain every bundle artifact")
                             paths = {key: stored_paths[key] for key in paths}
                             entry.update(paths)
+                            from bili_asr.services.artifact_state import publication_artifact_state
+                            local_complete = verify_artifacts and publication_error is None and any(
+                                archive_bundle_complete(base, paths) for base in roots.read_bases())
+                            storage_state = publication_artifact_state(
+                                connection, roots, publication["publication_id"], local_complete=local_complete)
+                            if storage_state is not None:
+                                entry["artifact_state"] = storage_state
                             if verify_artifacts and publication_error is None:
-                                published = any(archive_bundle_complete(base, paths) for base in roots.read_bases())
+                                published = local_complete or (storage_state is not None and
+                                    storage_state["durability"] == "verified_group_recorded")
                         except (OSError, TypeError, ValueError):
                             # Keep the declaration when another verifier owns
                             # diagnosis, even if the recorded paths are malformed.

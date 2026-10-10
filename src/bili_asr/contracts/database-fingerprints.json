@@ -7,7 +7,13 @@
     "universal-v2": "sha256:f14831799e2621867aaf5473fd544e00c81fe8997b973d54d63037b2f48f6bb6",
     "universal-v2+preserved-body-import-v1": "sha256:fa2993c5a61e2477fa1a0de3b1e8f3f7ee154e791a04c43dbcb1625252735dae",
     "bilibili-v1+preserved-body-import-v1+legacy-part-title-supplement-v1": "sha256:5074687cb8d1f431af89c178cff844a1e2da31647db11405bd0012e226b77540",
-    "universal-v2+preserved-body-import-v1+legacy-part-title-supplement-v1": "sha256:1b233994b03e1d006df100b78a954c5b6769e1ead14632e36688af92f6e9fbe8"
+    "universal-v2+preserved-body-import-v1+legacy-part-title-supplement-v1": "sha256:1b233994b03e1d006df100b78a954c5b6769e1ead14632e36688af92f6e9fbe8",
+    "bilibili-v1+artifact-storage-v1": "sha256:926771ebb6ebe56cfc2423def27c9b42a8d05cd70846f7658a4aaf9da200760c",
+    "bilibili-v1+preserved-body-import-v1+artifact-storage-v1": "sha256:fecb933e5c4fb3c6f735c4709825eec9b3564cfc9335bac789c3796a2aaf7d42",
+    "bilibili-v1+preserved-body-import-v1+legacy-part-title-supplement-v1+artifact-storage-v1": "sha256:7d144085c0ed022a011b188797099a4a969d596bd4c2b03c4569d689ca073303",
+    "universal-v2+artifact-storage-v1": "sha256:79424dad4794dba3d6c1974364f43f2a8e0235f0080cf53ddc7b1e904181c4bc",
+    "universal-v2+preserved-body-import-v1+artifact-storage-v1": "sha256:d91585a8d7d6ff012637fa11f6876832b3f137e71c55a63c92aa3a9c7fb02413",
+    "universal-v2+preserved-body-import-v1+legacy-part-title-supplement-v1+artifact-storage-v1": "sha256:e1953d13e35913782657ce9831f52140d8c88f8766464a01b9458baea7fe19c5"
   },
   "extension_baseline_revision": "fd5a8068f988ed1394fdb0a7c723941cbdf5221b"
 }

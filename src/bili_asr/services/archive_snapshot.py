@@ -2,43 +2,55 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import errno
 import json
 import lzma
 import os
-from pathlib import Path
 import re
+import shutil
 import sqlite3
 import stat
 import tempfile
 import time
-from typing import BinaryIO, Iterator
 import uuid
 import zipfile
 import zlib
+from collections.abc import Iterator
+from contextlib import closing, contextmanager, nullcontext
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import BinaryIO
 
 from bili_asr import __version__
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.artifact_inventory import (
+    check_artifact_collisions as _check_path_collisions,
+)
+from bili_asr.artifact_inventory import (
+    collect_artifacts as _collect_artifacts,
+)
+from bili_asr.artifact_inventory import (
+    portable_artifact_parts as _path_key,
+)
 from bili_asr.artifact_inventory import (
     require_no_links as _no_links,
-    portable_artifact_parts as _path_key,
-    check_artifact_collisions as _check_path_collisions,
+)
+from bili_asr.artifact_inventory import (
     require_regular_file as _regular_file,
-    collect_artifacts as _collect_artifacts,
+)
+from bili_asr.artifact_inventory import (
     stream_hash as _stream_hash,
 )
-from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.artifacts import BUNDLE_BASENAMES as _BUNDLE_NAMES
+from bili_asr.artifacts import BUNDLE_MARKER_NAME, BUNDLE_SCHEMA
 from bili_asr.storage.database import connect_database
-from bili_asr.artifacts import BUNDLE_SCHEMA, BUNDLE_MARKER_NAME, BUNDLE_BASENAMES as _BUNDLE_NAMES
 from bili_asr.storage.snapshots import (
     create_database_snapshot,
     recover_interrupted_jobs,
     required_artifacts,
     validate_snapshot_database,
 )
-
 
 _FORMAT = "bili-asr-snapshot"
 _FORMAT_VERSION = 1
@@ -155,7 +167,8 @@ def _summary(manifest: dict[str, object]) -> dict[str, object]:
     }
 
 
-def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None = None) -> dict:
+def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None = None,
+                  storage_targets: dict[str, Path] | None = None) -> dict:
     """Save one consistent portable ZIP without changing its source archive."""
     with _snapshot_errors():
         root, output = _absolute(archive_root), _absolute(out)
@@ -179,6 +192,19 @@ def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None =
                 database = stage / "archive.db"
                 contract = create_database_snapshot(source_database, database)
                 _refuse_active_jobs(database)
+                external = {}
+                if storage_targets:
+                    from bili_asr.artifact_root import ArtifactRoots
+                    from bili_asr.services.artifact_access import ArtifactAccess
+                    with closing(connect_database(database, readonly=True)) as connection:
+                        access = ArtifactAccess(connection, ArtifactRoots.of(root, artifact_root), storage_targets)
+                        for key, expected in required_artifacts(database).items():
+                            if key not in artifacts and expected is not None:
+                                external[key] = access.locate_external(expected)
+                if external:
+                    needed = database.stat().st_size + sum(path.stat().st_size for path in artifacts.values()) + sum(item.size for item in external.values())
+                    if shutil.disk_usage(stage).free < needed + 64 * 1024**2:
+                        raise SnapshotError("snapshot target lacks space for the complete archive and container overhead")
                 archive = stage / "snapshot.zip"
                 files: list[dict[str, object]] = []
                 with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as bundle:
@@ -195,12 +221,16 @@ def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None =
                                 or before.st_mtime_ns != after.st_mtime_ns or before.st_ino != after.st_ino):
                             raise SnapshotError(f"artifact changed while saving: {source_path}")
                         files.append({"path": key, "size": size, "sha256": digest})
+                    for key, retained in sorted(external.items()):
+                        with bundle.open(key, "w", force_zip64=True) as destination:
+                            verified = retained.copy_to(destination)
+                        files.append({"path": key, **verified})
                     _check_references(database, {file["path"]: file for file in files})
                     manifest: dict[str, object] = {
                         "format": _FORMAT,
                         "format_version": _FORMAT_VERSION,
                         "snapshot_id": str(uuid.uuid4()),
-                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "created_at": datetime.now(UTC).isoformat(),
                         "producer_version": __version__,
                         "database_contract": contract,
                         "files": files,
@@ -419,5 +449,11 @@ def restore_snapshot(snapshot: Path, archive_root: Path, *, report_path: Path | 
                     return result
 
 
-__all__ = ["SnapshotError", "save_snapshot", "check_snapshot", "restore_snapshot",
-           "VerifiedSnapshot", "verified_snapshot_reader"]
+__all__ = [
+    "SnapshotError",
+    "VerifiedSnapshot",
+    "check_snapshot",
+    "restore_snapshot",
+    "save_snapshot",
+    "verified_snapshot_reader",
+]

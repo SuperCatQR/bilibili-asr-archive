@@ -34,14 +34,14 @@ def test_snapshot_save_passes_resolved_artifact_root(tmp_path, monkeypatch, caps
     monkeypatch.setenv("BILI_ARTIFACT_ROOT", str(artifacts))
     calls = []
 
-    def save(root, out, *, artifact_root):
-        calls.append((root, out, artifact_root))
+    def save(root, out, *, artifact_root, storage_targets):
+        calls.append((root, out, artifact_root, storage_targets))
         return {"snapshot_id": "saved"}
 
     monkeypatch.setattr(archive_snapshot, "save_snapshot", save)
     assert cli.main(["snapshot", "save", "--archive-root", str(tmp_path),
                      "--out", str(tmp_path / "backup.zip")]) == 0
-    assert calls == [(tmp_path, tmp_path / "backup.zip", artifacts)]
+    assert calls == [(tmp_path, tmp_path / "backup.zip", artifacts, {})]
     assert json.loads(capsys.readouterr().out)["snapshot_id"] == "saved"
 
 

@@ -354,10 +354,10 @@ def export_editorial(
         }
         origin = import_origin(connection, edition_id)
         if origin is not None:
-            from bili_asr.manuscript_files import read_artifact
+            from bili_asr.services.artifact_readers import read_retained_text
             evidence = read_baseline(connection, origin["import_id"])
             public = public_origin(connection, edition, artifact_roots)
-            preserved = read_artifact(evidence["body_path"], evidence["body_sha256"], artifact_roots)
+            preserved = read_retained_text(connection, evidence["body_path"], evidence["body_sha256"], artifact_roots)
             files.update({"import-origin.json": json_bytes({"origin": public, "baseline": evidence["baseline"]}),
                 "preserved-body.md": preserved,
                 "differences/preserved.patch": _difference(preserved.decode("utf-8"), content["markdown"], "preserved-body.md", "edition-body.md")})
