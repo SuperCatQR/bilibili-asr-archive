@@ -21,10 +21,12 @@ import sys
 import tempfile
 import time
 from typing import Callable
+from urllib.parse import parse_qs, urlsplit
 
 from bili_asr.artifact_inventory import require_no_links, require_regular_file
 from bili_asr.platform_identity import ContentRef, require_platform
 from bili_asr.source_identity import source_url
+from bili_asr.source_metadata import valid_source_text
 from bili_asr.sources.models import GatewayError, GatewayResponseError, GatewayShapeError, SubtitleTrack, SubtitleSegment, SubtitleBodyRead
 from bili_asr.sources.protocols import SourceAccessObservation
 from bili_asr.source_video import SourceVideoMetadata
@@ -245,7 +247,9 @@ class YoutubeSource:
             information = self._info(ref)
             result = []
             for key, is_ai in (("subtitles", False), ("automatic_captions", True)):
-                languages = information.get(key) or {}
+                languages = information.get(key)
+                if languages is None:
+                    languages = {}
                 if not isinstance(languages, dict) or len(languages) > 512:
                     raise GatewayResponseError(code="youtube_caption_inventory_shape")
                 for language, formats in languages.items():
@@ -256,11 +260,31 @@ class YoutubeSource:
                         if formats:
                             raise GatewayResponseError(code="youtube_caption_format_unsupported")
                         continue
-                    track = SubtitleTrack(language, str(candidate.get("name") or language), is_ai,
-                                          ("automatic:" if is_ai else "manual:") + language)
-                    original_language = information.get("language")
-                    translated = (None if original_language is None else
-                                  language.split("-", 1)[0] != original_language.split("-", 1)[0])
+                    try:
+                        track = SubtitleTrack(language, str(candidate.get("name") or language), is_ai,
+                                              ("automatic:" if is_ai else "manual:") + language)
+                        # yt-dlp marks automatic translations with tlang and the
+                        # source language with lang, even when video.language is
+                        # absent or differs from the caption's original language.
+                        # Signed URLs are inspected here and never enter evidence.
+                        url = candidate.get("url")
+                        query = parse_qs(urlsplit(url).query) if isinstance(url, str) else {}
+                        original_language = next(iter(query.get("lang", ())), None) or information.get("language")
+                        if original_language is not None and (
+                            not valid_source_text(original_language, limit=512) or not original_language.strip()
+                        ):
+                            raise ValueError("invalid caption language")
+                        if query.get("tlang"):
+                            translated = True
+                        elif query.get("lang") or (is_ai and language.endswith("-orig")):
+                            translated = False
+                            if is_ai and language.endswith("-orig") and not query.get("lang"):
+                                original_language = language.removesuffix("-orig")
+                        else:
+                            translated = (None if original_language is None else
+                                          language.split("-", 1)[0] != original_language.split("-", 1)[0])
+                    except (ValueError, TypeError):
+                        raise GatewayShapeError(code="youtube_caption_inventory_shape") from None
                     result.append(YoutubeCaption(track, language, original_language, translated))
             self._captions[ref] = tuple(sorted(result, key=lambda item: (item.track.is_ai, item.translated is True, item.language)))
         return self._captions[ref]

@@ -156,6 +156,13 @@ YouTube 发布时间只接受 extractor 提供的合法精确 `release_timestamp
 YouTube 字幕有单独的 `youtube-public-v1` 观察与候选策略，保留原语言、翻译状态和
 json3 规范化 provenance。正文使用 `read_body` 明确区分非空与合法空数据，兼容
 `fetch_segments` 只是该读取的包装；handler 遍历候选，有成功正文才存转录。
+adapter 在进程内读取字幕 URL 的 `lang/tlang` 和 yt-dlp 的 `-orig` 标记，以区分原始轨道与
+自动翻译；URL 本身不写入 provenance。明确的自动翻译默认不参与选轨，原始人工字幕优先于
+原始自动字幕。只有翻译轨道时记录 `youtube_caption_translation_only` 的 unavailable 观察，
+不制造可信无字幕证据。候选读取最多尝试 32 条，而不是因完整清单超过 32 条直接失败；
+预算内读取到有效正文即成功，耗尽且仍有未尝试候选时返回 `youtube_caption_candidate_budget`。
+成功观察记录 `youtube-original-captions-v1` 选轨策略及实际尝试数；无字幕资格策略仍为
+`youtube-public-v1`。不符合结构的空清单值（例如 `[]/false`）按结构错误处理。
 候选有正文不可用或全部合法为空时记录 unavailable，而可信空轨道列表使用专属
 `youtube-public-v1` 观察。匿名可见性、没有轨道与正文不可用分别记录，不能借用
 Bilibili 已认证空列表规则。通过离线测试不表示当前 YouTube 网络、账号或 JS runtime 已实测可用。

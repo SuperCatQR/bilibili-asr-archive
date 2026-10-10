@@ -117,3 +117,69 @@ def test_youtube_body_failure_never_attests_absence(tmp_path,monkeypatch,extract
         observation = connection.execute("SELECT * FROM source_caption_observations").fetchone()
         assert observation["state"] == "unavailable" and observation["error_code"] == code
         assert "secret provider" not in json.dumps(dict(observation))
+
+
+@pytest.mark.parametrize("scenario", ["large-inventory", "many-originals", "translated-only", "original-auto", "exhausted-budget"])
+def test_caption_selection_excludes_translation_and_bounds_fetches(tmp_path, scenario):
+    from bili_asr.sources.models import SubtitleBodyRead, SubtitleSegment, SubtitleTrack
+    from bili_asr.sources.youtube_source import YoutubeCaption
+
+    source = YoutubeSource()
+    source._information[REF] = {"title": "Source", "duration": 2, "language": "en"}
+    original = YoutubeCaption(SubtitleTrack("en", "English", False, "manual:en"), "en", "en", False)
+    translated = [YoutubeCaption(SubtitleTrack(f"x{i}", "Translated", False, f"manual:x{i}"),
+                                f"x{i}", "en", True) for i in range(50)]
+    automatic = YoutubeCaption(SubtitleTrack("en-orig", "English", True, "automatic:en-orig"),
+                               "en-orig", "en", False)
+    if scenario == "large-inventory":
+        captions = [original, *translated]
+    elif scenario == "many-originals":
+        captions = [original, *[YoutubeCaption(SubtitleTrack(f"x{i}", "Caption", False, f"manual:x{i}"),
+                                              f"x{i}", None, None) for i in range(50)]]
+    elif scenario == "translated-only":
+        captions = translated
+    elif scenario == "original-auto":
+        captions = [*translated, automatic]
+    else:
+        captions = [YoutubeCaption(SubtitleTrack(f"x{i}", "Caption", False, f"manual:x{i}"),
+                                   f"x{i}", None, None) for i in range(33)]
+    source._captions[REF] = tuple(captions)
+    calls = []
+    async def read_body(track, ref):
+        calls.append(track)
+        if scenario == "exhausted-budget":
+            return SubtitleBodyRead((), 0, "empty_body")
+        return SubtitleBodyRead((SubtitleSegment(0, 2000, "Original speech"),), 1)
+    source.read_body = read_body
+    root = tmp_path / "archive"
+    initialize_archive(root)
+    with ArchiveSession(root, mode=ArchiveAccessMode.WRITE) as session:
+        connection = session.connection
+        with connection:
+            part_id = SourceRepository(connection).upsert_video(source.metadata(REF))
+        workflow = WorkflowRepository(connection)
+        workflow.plan(part_ids=[part_id], policy=AsrPolicy.BELOW_THRESHOLD,
+                      profile_id=_profile(workflow), quality_threshold=.5)
+        runtime = ArchiveWorkflowHandlers(connection, workflow, archive_root=root, sessdata=None)
+        try:
+            handlers = compose_source_handlers(runtime, SourceRegistry(youtube_factory=lambda **kwargs: source))
+            result = WorkflowExecutor(workflow, worker_id="youtube-test", handlers=handlers).run(limit=1)
+            if scenario in {"large-inventory", "many-originals", "original-auto"}:
+                assert result.failed == 0 and result.succeeded == 1
+                assert calls == [automatic.track if scenario == "original-auto" else original.track]
+                transcript = connection.execute("SELECT * FROM transcripts").fetchone()
+                assert transcript["language"] == ("en-orig" if scenario == "original-auto" else "en")
+                provenance = json.loads(connection.execute("SELECT provenance_json FROM source_caption_observations").fetchone()[0])
+                assert provenance["attempted_candidates"] == 1
+                assert provenance["selection_policy"] == "youtube-original-captions-v1"
+            else:
+                assert result.failed == 1
+                code = "youtube_caption_translation_only" if scenario == "translated-only" else "youtube_caption_candidate_budget"
+                assert connection.execute("SELECT last_error_code FROM workflow_jobs WHERE kind='subtitle'").fetchone()[0] == code
+                assert len(calls) == (0 if scenario == "translated-only" else 32)
+                assert not connection.execute("SELECT 1 FROM transcripts").fetchone()
+                assert not connection.execute("SELECT 1 FROM v_missing_audio").fetchone()
+                observation = connection.execute("SELECT * FROM source_caption_observations").fetchone()
+                assert observation["state"] == "unavailable" and observation["error_code"] == code
+        finally:
+            runtime.close()
