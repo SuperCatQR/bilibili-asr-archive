@@ -12,7 +12,7 @@ import time
 
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.manuscript_files import read_artifact, stage_artifact
-from bili_asr.publication import get_ai_artifacts, get_edition, verify_release
+from bili_asr.manuscript_artifacts import get_ai_artifacts
 from bili_asr.publication_content import content_from_ai, normalize_actor
 from bili_asr.publication_content_v2 import normalize_content_v2
 from bili_asr.source_identity import source_url
@@ -20,7 +20,10 @@ from bili_asr.storage.archive_contracts import _resource, frozen_version, requir
 from bili_asr.storage.import_origins import (
     EXTENSION, POLICY, body_digest, import_origin, read_baseline, require_import_extension, frozen_legacy_source,
 )
-from bili_asr.storage.publication import PublicationConflictError, PublicationRepository, read_revision
+from bili_asr.storage.publication import (
+    PublicationConflictError, PublicationRepository, read_revision,
+    read_edition as get_edition, verify_release_identity,
+)
 from bili_asr.storage.sources import SourceRepository
 
 MAX_BATCH = 100
@@ -106,7 +109,8 @@ def _selected_baseline(connection, selector: dict, artifact_roots) -> tuple[dict
         raise ValueError("body_not_canonical: import would alter the selected UTF-8 body")
     release = PublicationRepository(connection).release_for_edition(old_edition["edition_id"]) if old_edition else None
     if release:
-        verify_release(connection, release["release_id"], artifact_roots)
+        verify_release_identity(connection, release)
+        read_artifact(release["relative_path"], release["artifact_sha256"], artifact_roots)
     baseline = {
         "policyVersion": POLICY, "selector": selector, "videoPartId": part_id,
         "revisionId": revision_id, "inputId": revision["input_id"],

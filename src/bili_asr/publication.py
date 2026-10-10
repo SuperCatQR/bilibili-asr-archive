@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
-import json
 from pathlib import Path
 import re
 import sqlite3
@@ -13,7 +12,8 @@ from typing import Iterable
 from urllib.parse import urlparse
 
 from bili_asr.canonical_json import digest
-from bili_asr.manuscript_templates import AI_RENDERERS, PUBLISH_RENDERERS, renderer_for
+from bili_asr.manuscript_templates import PUBLISH_RENDERERS, renderer_for
+from bili_asr.manuscript_artifacts import get_ai_artifacts
 from bili_asr.manuscript_files import atomic_write_artifact, read_artifact
 from bili_asr.storage.publication import (
     PublicationConflictError, PublicationRepository, read_edition as get_edition,
@@ -41,35 +41,6 @@ def _roots(artifact_roots: Iterable[Path]) -> tuple[Path, ...]:
     if not roots:
         raise ValueError("manuscript-path: at least one artifact root is required")
     return roots
-
-
-def get_ai_artifacts(connection: sqlite3.Connection, revision_id: str,
-                     artifact_roots: Iterable[Path]) -> dict[str, bytes]:
-    PublicationRepository(connection)
-    revision, prepared = _revision(connection, revision_id)
-    input_version = frozen_version(connection, "input", prepared["input_id"])
-    rows = connection.execute(
-        "SELECT * FROM document_artifacts WHERE revision_id = ?", (revision_id,)
-    ).fetchall()
-    expected = {"ai-draft.md": "ai-draft", "review.md": "review-reference"}
-    if len(rows) != 2 or {r["artifact_name"] for r in rows} != expected.keys():
-        raise ValueError("publication-integrity: complete paired AI artifacts are required")
-    roots = _roots(artifact_roots)
-    artifacts = {}
-    for row in rows:
-        name = row["artifact_name"]
-        version = row["template_version"]
-        if version != ("ai-draft-v2" if input_version == 2 else "ai-draft-v1"):
-            raise ValueError("publication-integrity: AI template differs from frozen input version")
-        documents = renderer_for(AI_RENDERERS, version)(prepared["snapshot"]["metadata"], prepared,
-                                                       json.loads(revision["blocks_json"]), revision_id)
-        path = f"documents/part-{revision['video_part_id']}/{revision_id}/{version}/{name}"
-        if (row["manuscript_role"] != expected[name]
-                or row["relative_path"] != path or not _SHA256.fullmatch(row["content_sha256"])
-                or row["content_sha256"] != hashlib.sha256(documents[name].encode("utf-8")).hexdigest()):
-            raise ValueError("publication-integrity: AI artifact identity does not match revision")
-        artifacts[name] = read_artifact(path, row["content_sha256"], roots)
-    return artifacts
 
 
 def create_edition(connection: sqlite3.Connection, *, revision_id: str,
