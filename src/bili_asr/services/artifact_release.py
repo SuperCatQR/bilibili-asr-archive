@@ -85,7 +85,7 @@ def _unchanged(directory: Path, descriptor: int | None, name: str, verified):
 
 
 def release_copy(root: Path, source_key: str, quarantine_key: str, object_id: str, generation: dict,
-                 *, allow_delete: bool, isolated=None) -> dict:
+                 *, allow_delete: bool, isolated=None, before_delete=None) -> dict:
     """Replay a persisted intent; never remove a replaced source or quarantine.
 
     The quarantine is on the same anchored audio directory. On POSIX, link plus
@@ -138,6 +138,8 @@ def release_copy(root: Path, source_key: str, quarantine_key: str, object_id: st
         # journal callback is an observable interruption boundary, so metadata
         # alone cannot prove the bytes still match after control returns.
         verified_quarantine = _verify(directory, descriptor, quarantine[1], object_id, generation)
+        if before_delete is not None:
+            before_delete()
         _unchanged(directory, descriptor, quarantine[1], verified_quarantine)
         if source_present:
             _unchanged(directory, descriptor, source[1], verified_quarantine)

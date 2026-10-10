@@ -15,6 +15,7 @@ from bili_asr.artifact_packages import (
     capture_source_generation,
     check_artifact_package,
     create_artifact_package,
+    copy_package_object,
     package_batches,
     package_manifest,
 )
@@ -117,10 +118,40 @@ def _result(connection, operation_id, *, released_bytes=0):
             "released_copies": connection.execute("SELECT COUNT(*) FROM artifact_release_intents WHERE transfer_id=? AND state='released'", (operation_id,)).fetchone()[0]}
 
 
+def _live_hold(connection, obj, external_holds):
+    holds = external_holds() if callable(external_holds) else external_holds
+    if holds is None:
+        return True
+    parts = {ref["part_id"] for ref in obj["references"] if ref["part_id"] is not None}
+    keys = {obj["object_id"], *(f"part:{part}" for part in parts),
+            *(f"path:{ref['path']}" for ref in obj["references"])}
+    for part in parts:
+        keys.update(row[0] for row in connection.execute("SELECT job_id FROM workflow_jobs WHERE video_part_id=? UNION SELECT d.job_id FROM workflow_job_dependencies d JOIN workflow_jobs j ON j.job_id=d.prerequisite_job_id WHERE j.video_part_id=?", (part, part)))
+    return any(holds.get(key) for key in keys)
+
+
+def _recheck_target_object(catalog, target, operation_id, identity):
+    class Discard:
+        def write(self, block):
+            return len(block)
+    row = catalog.connection.execute(
+        "SELECT r.*,p.manifest_sha256 FROM artifact_transfer_items i JOIN artifact_replicas r ON r.replica_id=i.target_replica_id "
+        "JOIN artifact_packages p ON p.package_id=r.package_id AND p.target_id=r.target_id AND p.relative_key=r.relative_key "
+        "WHERE i.transfer_id=? AND i.object_id=?", (operation_id, identity)).fetchone()
+    if row is None or row["target_id"] != target.target_id:
+        raise ValueError("release requires a current verified external object")
+    target.check()
+    copy_package_object(target.root / row["relative_key"], identity, Discard(),
+                        expected_size=row["verified_byte_size"], package_id=row["package_id"],
+                        manifest_sha256=row["manifest_sha256"])
+    target.check()
+
+
 def _release_intents(catalog, roots, target, plan, operation_id, external_holds, *, current_inventory=None):
     identities = _package_evidence(catalog, target, operation_id)
     current = current_inventory if current_inventory is not None else _inventory(roots, plan, external_holds)
     retention = {obj["sha256"]: obj["retention_reasons"] for obj in current["objects"] if obj["sha256"]}
+    object_facts = {obj["sha256"]: obj for obj in current["objects"] if obj["sha256"]}
     copies = {copy["copy_id"]: copy for copy in current["copies"]}
     planned = {item["copy_id"]: item for item in plan["items"]}
     released_bytes = 0
@@ -143,12 +174,17 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
         target.check()
 
         def isolated(copy_id=intent["copy_id"]):
-            target.check()
             with catalog.connection:
                 catalog.connection.execute("UPDATE artifact_release_intents SET state='isolated',updated_at=? WHERE transfer_id=? AND copy_id=?", (int(time.time()), operation_id, copy_id))
 
+        def before_delete(identity=intent["object_id"]):
+            _recheck_target_object(catalog, target, operation_id, identity)
+            if catalog.pinned(identity) or _live_hold(catalog.connection, object_facts[identity], external_holds):
+                raise ValueError("release acquired a retention guard after isolation")
+
         outcome = release_copy(root, intent["source_key"], intent["quarantine_key"], intent["object_id"],
-                               json.loads(intent["source_generation_json"]), allow_delete=not held, isolated=isolated)
+                               json.loads(intent["source_generation_json"]), allow_delete=not held,
+                               isolated=isolated, before_delete=before_delete)
         released_bytes += outcome["released_bytes"]
         with catalog.connection:
             catalog.connection.execute("UPDATE artifact_release_intents SET state=?,updated_at=? WHERE transfer_id=? AND copy_id=?",
