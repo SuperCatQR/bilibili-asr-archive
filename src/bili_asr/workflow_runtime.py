@@ -73,6 +73,8 @@ class ArchiveWorkflowHandlers:
         config_resolver: ConfigResolver | None = None,
         asr_prefetch: bool = False,
         asr_prefetch_bytes: int = 64 * 1024 * 1024,
+        cache_root: str | None = None,
+        cache_max_bytes: int = 10 * 1024**3,
     ) -> None:
         self.connection = connection
         self.repository = repository
@@ -89,7 +91,8 @@ class ArchiveWorkflowHandlers:
         self.config_resolver = config_resolver or (lambda config: (config, {}))
         self.inference_session = inference_session or (
             AsrInferenceSession(persistent=gpu_session == "persistent", prefetch=asr_prefetch,
-                                prefetch_bytes=asr_prefetch_bytes) if gpu_session != "legacy" else None)
+                                prefetch_bytes=asr_prefetch_bytes, cache_root=cache_root,
+                                cache_max_bytes=cache_max_bytes) if gpu_session != "legacy" else None)
         self.asr_prefetch, self.asr_prefetch_bytes = asr_prefetch, asr_prefetch_bytes
         self._client: bili_client.BiliClient | None = None
         self._runners: dict[int, WorkflowAsrRunner] = {}
@@ -116,6 +119,19 @@ class ArchiveWorkflowHandlers:
         # distinguishes a cancelled job from a lease reclaimed by another attempt.
         self.repository.assert_lease(job)
         attempt_checkpoint(job)
+
+    def prepare_candidate(self, job: WorkflowJob, checkpoint, *, timeout_seconds: float,
+                          audio_path: str | None = None) -> None:
+        """Prepare the candidate's exact GPU configuration before the executor claims it."""
+        if job.kind != JobKind.ASR or self.inference_session is None:
+            return
+        config, binding = self.config_resolver(self.repository.profile(job.profile_id).asr_config())
+        if not config.device.casefold().startswith(("cuda", "rocm")):
+            return
+        request = InferenceRequest(job.job_id, "", job.attempt_count,
+                                   self.repository.profile_digest(job.profile_id), binding)
+        self.inference_session.prepare(config, request=request, timeout_seconds=timeout_seconds,
+                                       audio_path=audio_path, checkpoint=checkpoint)
 
     def subtitle(self, job: WorkflowJob) -> Mapping[str, Any]:
         from bili_asr.workflow_errors import JobExecutionError

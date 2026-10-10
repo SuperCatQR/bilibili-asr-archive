@@ -17,6 +17,8 @@ from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
 from bili_asr.services.workflow_application import WORKER_ROLES, WorkflowApplication
 from bili_asr.storage.database import SchemaContractError
 from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind
+from bili_asr.asr.session import InferenceSessionError
+from bili_asr.asr.runner import ASRInferenceTimeoutError
 
 
 def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -39,6 +41,8 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     plan.add_argument("--model-revision", default=None)
     plan.add_argument("--aligner", default=None)
     plan.add_argument("--aligner-revision", default=None)
+    plan.add_argument("--model-dtype", choices=("bfloat16", "float16"), default=None)
+    plan.add_argument("--aligner-dtype", choices=("bfloat16", "float16"), default=None)
     plan.add_argument("--device", default=None)
     plan.add_argument("--language", default=None)
     plan.add_argument("--chunk-seconds", type=float, default=None)
@@ -90,6 +94,13 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
                      help="Conservative reservation budget for the prepared next chunk")
     run.add_argument("--runtime-bindings", default=None,
                      help="Verified checkpoint relocation file; frozen profiles remain unchanged")
+    run.add_argument("--warmup-audio", default=None,
+                     help="Explicit absolute sentinel audio; decode and align before claiming GPU work")
+    run.add_argument("--warmup-timeout", type=float, default=300,
+                     help="Independent deadline for model preparation before a business attempt")
+    run.add_argument("--cache-root", default=None, help="Explicit persistent cache root; does not enable compilation")
+    run.add_argument("--cache-max-bytes", type=int, default=10 * 1024**3,
+                     help="Cache startup admission limit; use a filesystem quota for runtime writes")
     run.add_argument("--poll-interval", type=float, default=0,
                      help="Keep this worker alive and poll idle queues; zero runs until idle once")
 
@@ -108,6 +119,10 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     supervise.add_argument("--asr-prefetch", action="store_true")
     supervise.add_argument("--asr-prefetch-bytes", type=int, default=64 * 1024 * 1024)
     supervise.add_argument("--runtime-bindings", default=None)
+    supervise.add_argument("--warmup-audio", default=None)
+    supervise.add_argument("--warmup-timeout", type=float, default=300)
+    supervise.add_argument("--cache-root", default=None)
+    supervise.add_argument("--cache-max-bytes", type=int, default=10 * 1024**3)
     run.add_argument("--artifact-root", default=None, help="Write products here; falls back to BILI_ARTIFACT_ROOT")
 
     status = actions.add_parser("status", help="Print workflow job counts from SQLite")
@@ -194,7 +209,9 @@ def _execute_workflow(args: argparse.Namespace) -> int:
             poll_interval=args.poll_interval, drain_file=args.drain_file, drain_timeout=args.drain_timeout,
             max_restarts=args.max_restarts, gpu_session=args.gpu_session,
             asr_prefetch=args.asr_prefetch, asr_prefetch_bytes=args.asr_prefetch_bytes,
-            runtime_bindings=args.runtime_bindings)
+            runtime_bindings=args.runtime_bindings, warmup_audio=args.warmup_audio,
+            warmup_timeout_seconds=args.warmup_timeout, cache_root=args.cache_root,
+            cache_max_bytes=args.cache_max_bytes)
         supervisor.run()
         return 0
     artifact_roots = None
@@ -293,7 +310,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 for name in ("model", "model_revision", "aligner", "aligner_revision",
                              "device", "language", "chunk_seconds", "inference_timeout",
                              "hotword", "offline", "model_id", "tokens_per_second",
-                             "min_new_tokens", "second_pass_cache"):
+                             "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype"):
                     value = getattr(args, name)
                     if value is not None:
                         overrides[names.get(name, name)] = tuple(value) if name == "hotword" else value
@@ -330,12 +347,14 @@ def _execute_workflow(args: argparse.Namespace) -> int:
             kinds=None if args.kind is None else tuple(JobKind(kind) for kind in args.kind), role=args.role,
             drain_file=args.drain_file, drain_timeout_seconds=args.drain_timeout,
             gpu_session=args.gpu_session, config_resolver=config_resolver,
-            asr_prefetch=args.asr_prefetch, asr_prefetch_bytes=args.asr_prefetch_bytes,
-            poll_interval_seconds=args.poll_interval)
+              asr_prefetch=args.asr_prefetch, asr_prefetch_bytes=args.asr_prefetch_bytes,
+              warmup_audio=args.warmup_audio, warmup_timeout_seconds=args.warmup_timeout,
+              cache_root=args.cache_root, cache_max_bytes=args.cache_max_bytes,
+              poll_interval_seconds=args.poll_interval)
         print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} "
               f"cancelled={summary.cancelled} idle={int(summary.idle)}")
         return 1 if summary.failed else 0
-    except ValueError as exc:
+    except (ValueError, InferenceSessionError, ASRInferenceTimeoutError) as exc:
         write_stderr(f"workflow {args.workflow_action}: {exc}")
         return 1
     finally:

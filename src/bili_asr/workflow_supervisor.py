@@ -36,7 +36,7 @@ def _slot_lock(root: Path):
         if os.name == "nt":
             import msvcrt
             handle.seek(0)
-            if not handle.read(1):
+            if os.fstat(handle.fileno()).st_size == 0:
                 handle.write(b"\0")
                 handle.flush()
             handle.seek(0)
@@ -83,7 +83,9 @@ def _controller(options: dict, role: str, worker_id: str):
                 poll_interval_seconds=options["poll_interval"], shutdown_event=stop,
                 drain_file=options["drain_file"], drain_timeout_seconds=options["drain_timeout"],
                 gpu_session=options["gpu_session"], config_resolver=None if bindings is None else bindings.resolve,
-                asr_prefetch=options["asr_prefetch"], asr_prefetch_bytes=options["asr_prefetch_bytes"])
+                asr_prefetch=options["asr_prefetch"], asr_prefetch_bytes=options["asr_prefetch_bytes"],
+                warmup_audio=options["warmup_audio"], warmup_timeout_seconds=options["warmup_timeout_seconds"],
+                cache_root=options["cache_root"], cache_max_bytes=options["cache_max_bytes"])
     except Exception as exc:  # noqa: BLE001 - bounded supervisor diagnostics contain no exception text.
         write_stderr(f"workflow worker startup/exit: role={role} error={type(exc).__name__}")
         raise SystemExit(70) from None
@@ -114,6 +116,8 @@ class WorkerSupervisor:
                  poll_interval: float = 5, drain_file=None, drain_timeout: float = 60,
                  max_restarts: int = 8, gpu_session: str = "persistent", asr_prefetch: bool = False,
                  asr_prefetch_bytes: int = 64 * 1024 * 1024, runtime_bindings=None,
+                 warmup_audio: str | None = None, warmup_timeout_seconds: float = 300,
+                 cache_root: str | None = None, cache_max_bytes: int = 10 * 1024**3,
                  context=None, controller: Callable = _controller):
         root = Path(archive_root).resolve(strict=True)
         if any(role not in {"asr", "cpu", "editorial", "acquisition"} for role in slots):
@@ -128,10 +132,20 @@ class WorkerSupervisor:
             raise ValueError("unknown GPU session mode")
         if type(asr_prefetch_bytes) is not int or asr_prefetch_bytes < 1:
             raise ValueError("asr_prefetch_bytes must be positive")
+        if not math.isfinite(warmup_timeout_seconds) or warmup_timeout_seconds <= 0:
+            raise ValueError("warmup timeout must be finite and positive")
+        if warmup_audio is not None and (not Path(warmup_audio).is_absolute() or not Path(warmup_audio).is_file()):
+            raise ValueError("warmup audio must be an existing absolute file")
+        if cache_root is not None and not Path(cache_root).is_absolute():
+            raise ValueError("cache root must be absolute")
+        if type(cache_max_bytes) is not int or cache_max_bytes < 1:
+            raise ValueError("cache startup byte limit must be positive")
         self.options = {"archive_root": str(root), "artifact_root": artifact_root,
             "poll_interval": poll_interval, "drain_file": drain_file, "drain_timeout": drain_timeout,
             "gpu_session": gpu_session, "asr_prefetch": asr_prefetch,
-            "asr_prefetch_bytes": asr_prefetch_bytes, "runtime_bindings": runtime_bindings}
+            "asr_prefetch_bytes": asr_prefetch_bytes, "runtime_bindings": runtime_bindings,
+            "warmup_audio": warmup_audio, "warmup_timeout_seconds": warmup_timeout_seconds,
+            "cache_root": cache_root, "cache_max_bytes": cache_max_bytes}
         self.root, self.max_restarts = root, max_restarts
         self.context = context or multiprocessing.get_context("spawn")
         self.controller = controller
