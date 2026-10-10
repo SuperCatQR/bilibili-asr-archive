@@ -117,7 +117,7 @@ def _collect_once(
             for index in range(part_count)
         ],
     )
-    argv = ["fetch-meta", "--archive-root", tmp_root]
+    argv = ["fetch-meta", "--archive-root", tmp_root, "--incremental"]
     if limit_pages is not None:
         argv += ["--limit-pages", str(limit_pages)]
     if sessdata is not None:
@@ -429,14 +429,14 @@ def test_fetch_meta_without_flags_resumes_from_stored_cursor(
 
     _script_upstream(
         bilibili_api_seam,
-        pages={2: [make_vlist_item(bvid="BV1CURSORPG2", aid=333)]},
+        pages={1: [make_vlist_item(bvid="BV1CURSORPG1")],
+               2: [make_vlist_item(bvid="BV1CURSORPG2", aid=333)]},
         parts=[make_part_item(cid=4444)],
     )
     assert main(["fetch-meta", "--archive-root", tmp_root]) == 0
 
-    # Page 1 was not refetched: the run resumed at the cursor's page 2,
-    # while run 1's own completion check already touched page 2.
-    assert bilibili_api_seam.calls.count("space.arc.search(pn=1, ps=30)") == 1
+    # Page 1 was verified without repeating its parts/tags fan-out.
+    assert bilibili_api_seam.calls.count("space.arc.search(pn=1, ps=30)") == 2
     connection = open_database(tmp_root)
     try:
         start_pages = [

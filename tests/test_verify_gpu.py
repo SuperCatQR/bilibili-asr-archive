@@ -14,19 +14,28 @@ def fake_torch(monkeypatch, *, backend="cuda", bf16=True):
         def __matmul__(self, other):
             return self
 
+        def __mul__(self, value):
+            return self
+
         def all(self):
             return self
 
         def item(self):
             return True
 
+    def ones(*args, **kwargs):
+        if kwargs.get("dtype") == "bf16" and not bf16:
+            raise RuntimeError("BF16 allocation unavailable")
+        return Tensor()
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(
-        __version__="test-runtime", bfloat16="bf16",
+        __version__="test-runtime", bfloat16="bf16", float16="fp16",
         version=SimpleNamespace(hip="test" if backend == "rocm" else None,
                                 cuda="test" if backend == "cuda" else None),
         cuda=SimpleNamespace(is_available=lambda: True, is_bf16_supported=lambda: bf16,
-                             synchronize=lambda: None, get_device_name=lambda index: "test-device"),
-        ones=lambda *args, **kwargs: Tensor(), isfinite=lambda value: value,
+                             current_device=lambda: 0,
+                             synchronize=lambda *args: None, get_device_name=lambda index: "test-device"),
+        ones=ones, isfinite=lambda value: value,
+        allclose=lambda left, right: True,
     ))
 
 
@@ -37,6 +46,23 @@ def test_preflight_does_not_claim_inference(monkeypatch, capsys):
     report = json.loads(capsys.readouterr().out)
     assert report["bf16"] is True
     assert report["real_inference"] == "not_run"
+
+
+def test_implicit_device_uses_current_gpu_for_identity_allocation_and_sync(monkeypatch):
+    from bili_asr.asr.device_probe import probe_gpu
+    fake_torch(monkeypatch)
+    torch = sys.modules["torch"]
+    torch.cuda.current_device = lambda: 2
+    torch.cuda.get_device_name = lambda index: "current-gpu" if index == 2 else pytest.fail("wrong GPU identity")
+    synchronized, allocations = [], []
+    torch.cuda.synchronize = synchronized.append
+    original = torch.ones
+    def ones(*args, **kwargs):
+        allocations.append(kwargs["device"])
+        return original(*args, **kwargs)
+    torch.ones = ones
+    assert probe_gpu("cuda")["device"] == "current-gpu"
+    assert synchronized == [2] and allocations == ["cuda:2"]
 
 
 @pytest.mark.parametrize("backend,bf16", [("rocm", True), ("cuda", False)])

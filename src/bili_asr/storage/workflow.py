@@ -200,15 +200,46 @@ class WorkflowRepository:
                 self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies VALUES (?, ?)", (job_id, ids[key]))
         return ids, counts
 
-    def claim(self, worker_id: str, *, lease_seconds: int = 900,
-              kinds: Iterable[JobKind] | None = None) -> WorkflowJob | None:
-        self.require_cancellation_contract()
-        if not worker_id.strip() or lease_seconds < 1:
-            raise ValueError("worker_id and lease_seconds must be valid")
+    def _candidate(self, *, now: int, kinds: Iterable[JobKind] | None,
+                   expired: bool = False, job_id: str | None = None):
         selected = None if kinds is None else tuple(k.value for k in kinds)
         if selected == ():
             return None
-        kind_filter = "" if selected is None else " AND j.kind IN (" + ",".join("?" for _ in selected) + ")"
+        status = "(j.status='queued' OR (j.status='running' AND j.lease_expires_at <= ?))" if expired else "j.status='queued'"
+        parameters = [now, now] if expired else [now]
+        filters = ""
+        if selected is not None:
+            filters += " AND j.kind IN (" + ",".join("?" for _ in selected) + ")"
+            parameters.extend(selected)
+        if job_id is not None:
+            filters += " AND j.job_id=?"
+            parameters.append(job_id)
+        return self.connection.execute(
+            "SELECT j.* FROM workflow_jobs AS j WHERE " + status + """ AND j.available_at <= ?
+            AND NOT EXISTS (
+                SELECT 1 FROM workflow_job_dependencies AS d
+                JOIN workflow_jobs AS prerequisite ON prerequisite.job_id = d.prerequisite_job_id
+                WHERE d.job_id = j.job_id AND prerequisite.status <> 'succeeded'
+            )""" + filters + " ORDER BY j.priority DESC,j.created_at,j.job_id LIMIT 1",
+            parameters,
+        ).fetchone()
+
+    def peek_candidate(self, *, kinds: Iterable[JobKind] | None = None) -> WorkflowJob | None:
+        """Read a hint for preparation; does not acquire a lease or recover attempts."""
+        self.require_cancellation_contract()
+        row = self._candidate(now=_now(), kinds=kinds, expired=True)
+        return None if row is None else self._job_from_row(row)
+
+    def claim(self, worker_id: str, *, lease_seconds: int = 900,
+              kinds: Iterable[JobKind] | None = None,
+              expected_candidate: WorkflowJob | None = None) -> WorkflowJob | None:
+        self.require_cancellation_contract()
+        if not worker_id.strip() or lease_seconds < 1:
+            raise ValueError("worker_id and lease_seconds must be valid")
+        kinds = None if kinds is None else tuple(kinds)
+        selected = None if kinds is None else tuple(k.value for k in kinds)
+        if selected == ():
+            return None
         with self.commit_guard.transaction():
             now = _now()
             self.connection.execute(
@@ -227,23 +258,14 @@ class WorkflowRepository:
                    WHERE status = 'running' AND lease_expires_at <= ?""",
                 (now, now),
             )
-            row = self.connection.execute(
-                """
-                SELECT j.* FROM workflow_jobs AS j
-                WHERE j.status = 'queued' AND j.available_at <= ?
-                  AND NOT EXISTS (
-                    SELECT 1 FROM workflow_job_dependencies AS d
-                    JOIN workflow_jobs AS prerequisite ON prerequisite.job_id = d.prerequisite_job_id
-                    WHERE d.job_id = j.job_id AND prerequisite.status <> 'succeeded'
-                  )
-                """ + kind_filter + """
-                ORDER BY j.priority DESC, j.created_at, j.job_id
-                LIMIT 1
-                """,
-                (now, *(selected or ())),
-            ).fetchone()
+            row = self._candidate(now=now, kinds=kinds,
+                                  job_id=None if expected_candidate is None else expected_candidate.job_id)
             if row is None:
                 return None
+            if expected_candidate is not None:
+                from dataclasses import replace
+                if self._job_from_row(row) != replace(expected_candidate, status=JobStatus.QUEUED, lease_owner=None):
+                    return None
             attempt_id = str(uuid4())
             self.connection.execute(
                 """UPDATE workflow_jobs
@@ -624,6 +646,14 @@ class WorkflowRepository:
             values = json.loads(snapshot["config_json"])
             if values.pop("schema_version") != 2:
                 raise ValueError("unsupported ASR profile schema")
+            precision = values.pop("precision", None)
+            if precision is not None:
+                if (not isinstance(precision, dict)
+                        or set(precision) != {"schema_version", "model_dtype", "aligner_dtype"}
+                        or type(precision["schema_version"]) is not int
+                        or precision["schema_version"] != 1):
+                    raise ValueError("unsupported ASR precision schema")
+                values.update({name: precision[name] for name in ("model_dtype", "aligner_dtype")})
             values["hotwords"] = tuple(values["hotwords"])
             profile = AsrProfile(profile_key=str(row["profile_key"]), **values)
             if hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest() != row["config_sha256"]:

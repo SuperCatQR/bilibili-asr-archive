@@ -66,6 +66,8 @@ class AsrProfile:
     tokens_per_second: float = 8.0
     min_new_tokens: int = 256
     second_pass_use_cache: bool = False
+    model_dtype: str = "bfloat16"
+    aligner_dtype: str = "bfloat16"
 
     def asr_config(self):
         """Reconstruct the frozen configuration without consulting the environment."""
@@ -83,6 +85,11 @@ class AsrProfile:
         self.asr_config()  # Validate before hashing or persisting a profile.
         values = asdict(self)
         values.pop("profile_key")
+        # Default profiles retain their exact v2 bytes and digest. Explicit
+        # precision is a versioned extension inside the existing v2 envelope.
+        precision = {name: values.pop(name) for name in ("model_dtype", "aligner_dtype")}
+        if any(value != "bfloat16" for value in precision.values()):
+            values["precision"] = {"schema_version": 1, **precision}
         for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
             values[name] = float(values[name])
         return json.dumps(

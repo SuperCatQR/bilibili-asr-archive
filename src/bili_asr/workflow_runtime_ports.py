@@ -68,6 +68,8 @@ class ConfigResolver(Protocol):
 
 
 class InferenceSession(Protocol):
+    def prepare(self, config: ASRConfig, *, request: Any, timeout_seconds: float,
+                audio_path: str | None, checkpoint: Callable[[], None]) -> Mapping[str, Any]: ...
     def transcribe(self, config: ASRConfig, audio_path: str, *, request: Any,
                    paired_subtitle_text: str | None, timeout_seconds: float,
                    checkpoint: Callable[[], None], diagnostics_sink: dict[str, Any]): ...

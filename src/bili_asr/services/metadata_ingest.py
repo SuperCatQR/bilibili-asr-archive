@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 import uuid
 from dataclasses import dataclass, replace
 
@@ -59,6 +61,7 @@ from bili_asr.storage.models import (
 )
 
 TAG_CACHE_SIZE = 256
+_ReadResult = TypeVar("_ReadResult")
 SOURCE_PACKAGE = "bilibili-api-python"
 #: Shipped page size of the user-video page call.  Upstream answers ``ps=100``
 #: with its bounded ``-400``/HTTP 412 rejection while 30 — the pinned
@@ -255,6 +258,7 @@ class MetadataIngestor:
         *,
         skip_failed_page: bool = False,
         page_retries: int = 0,
+        operation_retries: int = 0,
         incremental: bool = False,
         refresh_policy: MetadataRefreshPolicy | None = None,
     ) -> IngestionRunResult:
@@ -271,6 +275,11 @@ class MetadataIngestor:
         a page or retries malformed/authentication responses.  The default
         remains a single attempt per page.
 
+        ``operation_retries`` independently retries necessary detail/parts
+        transport failures, with the same capped cooldowns and shared gateway
+        budget. Implicit resume verifies all prior list-page identities first;
+        changed or missing evidence requires explicit homepage enumeration.
+
         Any exception that is not a bounded gateway failure (for example a
         caller-argument ``ValueError`` raised by the gateway) propagates
         unchanged: those are programming or contract errors, not collection
@@ -278,6 +287,8 @@ class MetadataIngestor:
         """
 
         self._validate_arguments(mid, start_page, page_limit, page_retries)
+        if type(operation_retries) is not int or not 0 <= operation_retries <= MAX_PAGE_RETRIES:
+            raise ValueError("operation_retries must be an integer between 0 and 5")
         if incremental and start_page is not None:
             raise ValueError("incremental and explicit start_page are mutually exclusive")
         return asyncio.run(
@@ -287,6 +298,7 @@ class MetadataIngestor:
                 page_limit=page_limit,
                 skip_failed_page=skip_failed_page,
                 page_retries=page_retries,
+                operation_retries=operation_retries,
                 refresh_policy=refresh_policy or MetadataRefreshPolicy(),
             )
         )
@@ -330,6 +342,7 @@ class MetadataIngestor:
         page_limit: int | None,
         skip_failed_page: bool = False,
         page_retries: int = 0,
+        operation_retries: int = 0,
         refresh_policy: MetadataRefreshPolicy | None = None,
     ) -> IngestionRunResult:
         """Fetch and persist pages until completion, a limit, or a failure."""
@@ -371,9 +384,15 @@ class MetadataIngestor:
         tag_errors: dict[str, str | None] = {}
         tag_cache: OrderedDict[str, tuple[VideoTag, ...] | None] = OrderedDict()
         page_number = first_page
+        verify_resume = start_page is None and first_page > 1
         while True:
             page_started_at = _now()
             try:
+                if verify_resume:
+                    operation_name = "resume_prefix"
+                    await self._verify_resume_prefix(mid, first_page, page_retries)
+                    verify_resume = False
+                    operation_name = "summary"
                 page = await self._fetch_user_page(mid, page_number, page_retries)
                 cached_facts = self._stored_facts(tuple(summary.bvid for summary in page.videos))
                 completed_by_video: dict[str, VideoSummary] = {}
@@ -390,7 +409,8 @@ class MetadataIngestor:
                                 summary = replace(summary, aid=known_aid)
                                 reused_count += 1
                         completed_by_video[summary.bvid] = (
-                            await self._completed_summary(summary, mid)
+                            await self._retry_operation(
+                                lambda: self._completed_summary(summary, mid), operation_retries)
                         )
                     summaries.append(completed_by_video[summary.bvid])
                 observed_author = next(
@@ -416,8 +436,10 @@ class MetadataIngestor:
                             reused_parts.add(summary.bvid)
                             reused_count += 1
                         else:
-                            parts_by_video[summary.bvid] = await self._source.get_parts(
-                                summary.content_ref, video_title_fallback=summary.title)
+                            parts_by_video[summary.bvid] = await self._retry_operation(
+                                lambda: self._source.get_parts(
+                                    summary.content_ref, video_title_fallback=summary.title),
+                                operation_retries)
                             old_cids = {part.page_index: part.cid for part in stored_parts}
                             current = parts_by_video[summary.bvid]
                             if any(part.page_index in old_cids and old_cids[part.page_index] != part.cid for part in current):
@@ -486,7 +508,7 @@ class MetadataIngestor:
                 error_code = error.code
                 error_diagnostic = error.diagnostic
                 page_count += 1
-                if skip_failed_page and page_outcome == "failed":
+                if skip_failed_page and page_outcome == "failed" and operation_name != "resume_prefix":
                     # The escape hatch (D-3).  A page whose outcome mapped to
                     # 'failed' is skipped: for the shape errors that motivated
                     # this flag the failure is deterministic and resuming at it
@@ -634,16 +656,53 @@ class MetadataIngestor:
                 return await self._gateway.get_user_video_page(
                     mid, page_number, PAGE_SIZE
                 )
-            except (GatewayRateLimited, GatewayTransportError):
-                if attempt == page_retries:
+            except (GatewayRateLimited, GatewayTransportError) as error:
+                if attempt == page_retries or error.code == "request_budget_exhausted":
                     raise
-                delay = min(PAGE_RETRY_BACKOFF_SECONDS * 2**attempt, PAGE_RETRY_BACKOFF_MAX_SECONDS)
-                scheduler = getattr(self._gateway, "request_scheduler", None)
-                if scheduler is not None:
-                    await scheduler.pause(delay)
-                else:
-                    await asyncio.sleep(delay)
+                await self._retry_pause(attempt)
         raise AssertionError("validated page retry bound must permit an attempt")
+
+    async def _verify_resume_prefix(self, mid: int, next_page: int, page_retries: int) -> None:
+        """Verify all preceding offsets without refreshing entities or cursors.
+
+        A last-page anchor alone misses arbitrary moves within the prefix.
+        This list-only scan checks every page, subject to the gateway budget.
+        It is not a server snapshot: mutations after verification still require
+        periodic incremental enumeration from page one.
+        """
+        prefix = self._repository.read_resume_prefix(mid, next_page)
+        if len(prefix) != next_page - 1:
+            raise GatewayShapeError(code="metadata_resume_requires_reenumeration")
+        for number in range(1, next_page):
+            scheduler = getattr(self._gateway, "request_scheduler", None)
+            if scheduler is not None:
+                await scheduler.pause(1.0)
+            page = await self._fetch_user_page(mid, number, page_retries)
+            positions = {summary.bvid: index for index, summary in enumerate(page.videos)}
+            identities = tuple(sorted(positions, key=positions.__getitem__))
+            if identities != prefix[number]:
+                raise GatewayShapeError(code="metadata_resume_requires_reenumeration")
+
+    async def _retry_operation(
+        self, call: Callable[[], Awaitable[_ReadResult]], retries: int,
+    ) -> _ReadResult:
+        """Retry a necessary read, never the surrounding successful page work."""
+        for attempt in range(retries + 1):
+            try:
+                return await call()
+            except GatewayTransportError as error:
+                if attempt == retries or error.code == "request_budget_exhausted":
+                    raise
+                await self._retry_pause(attempt)
+        raise AssertionError("validated operation retry bound must permit an attempt")
+
+    async def _retry_pause(self, attempt: int) -> None:
+        delay = min(PAGE_RETRY_BACKOFF_SECONDS * 2**attempt, PAGE_RETRY_BACKOFF_MAX_SECONDS)
+        scheduler = getattr(self._gateway, "request_scheduler", None)
+        if scheduler is not None:
+            await scheduler.pause(delay)
+        else:
+            await asyncio.sleep(delay)
 
     async def _completed_summary(self, summary: VideoSummary, mid: int) -> VideoSummary:
         """Return the summary with its aid filled when the page omitted it.
