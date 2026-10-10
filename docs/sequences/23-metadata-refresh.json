@@ -1,0 +1,426 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "增量发现、字段刷新与失败重放",
+    "locale": "zh-CN",
+    "output": "docs/sequences/23-metadata-refresh.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "采集命令",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/parser.py",
+          "line": 38,
+          "end_line": 73,
+          "label": "增量、字段和预算参数"
+        },
+        {
+          "path": "src/bili_asr/cli/meta.py",
+          "line": 14,
+          "end_line": 141,
+          "label": "分页及定向刷新入口"
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "label": "元数据服务",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/metadata_ingest.py",
+          "line": 240,
+          "end_line": 583,
+          "label": "起点、页 fan-out、失败及提交"
+        },
+        {
+          "path": "src/bili_asr/services/metadata_refresh.py",
+          "line": 30,
+          "end_line": 151,
+          "label": "选中操作与失败恢复"
+        },
+        {
+          "path": "src/bili_asr/services/metadata_refresh.py",
+          "line": 153,
+          "end_line": 202,
+          "label": "成功时间和字段写入"
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "label": "字段刷新策略",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/metadata_policy.py",
+          "line": 9,
+          "end_line": 45,
+          "label": "new/missing/stale/force 与观察"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "label": "平台网关",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 915,
+          "end_line": 948,
+          "label": "元数据字段和复用 pages"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 956,
+          "end_line": 1026,
+          "label": "typed TagRead 与受控错误"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 1276,
+          "end_line": 1295,
+          "label": "请求范围与共享协调器"
+        }
+      ]
+    },
+    {
+      "id": "budget",
+      "label": "共享请求预算",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/request_budget.py",
+          "line": 14,
+          "end_line": 79,
+          "label": "计数、超时、冷却与重试等待"
+        }
+      ]
+    },
+    {
+      "id": "repo",
+      "label": "事实与观察库",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 365,
+          "end_line": 420,
+          "label": "字段保留与观察账本"
+        },
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 545,
+          "end_line": 720,
+          "label": "整页原子提交与失败证据"
+        },
+        {
+          "path": "src/bili_asr/storage/schema-observations.sql",
+          "line": 1,
+          "end_line": 22,
+          "label": "显式 v2 观察与 attempts"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 475,
+      "label": "分页增量或恢复扫描"
+    },
+    {
+      "from": 512,
+      "to": 935,
+      "label": "按操作决定读取或复用"
+    },
+    {
+      "from": 972,
+      "to": 1341,
+      "label": "指定 BVID 与字段刷新"
+    },
+    {
+      "from": 1378,
+      "to": 1639,
+      "label": "显式 v2 失败补采"
+    }
+  ],
+  "messages": [
+    {
+      "id": "collect",
+      "from": "cli",
+      "to": "service",
+      "label": "选择分页扫描",
+      "variant": "default",
+      "note": "incremental→第 1 页",
+      "y": 180
+    },
+    {
+      "id": "cursor",
+      "from": "service",
+      "to": "repo",
+      "label": "读取已有游标",
+      "variant": "default",
+      "note": "resume 仅恢复旧扫描位置",
+      "y": 234
+    },
+    {
+      "id": "start",
+      "from": "service",
+      "to": "repo",
+      "label": "确定起页并建 run",
+      "variant": "emphasis",
+      "note": "显式 start 可覆盖；新用户先建立",
+      "y": 288
+    },
+    {
+      "id": "list",
+      "from": "service",
+      "to": "gateway",
+      "label": "请求本页列表",
+      "variant": "default",
+      "note": "列表始终读取，不用游标证明增量",
+      "y": 342
+    },
+    {
+      "id": "budget-page",
+      "from": "gateway",
+      "to": "budget",
+      "label": "消耗统一请求预算",
+      "variant": "security",
+      "note": "计数含应用重试；SDK 子请求不单计",
+      "y": 396
+    },
+    {
+      "id": "response",
+      "from": "gateway",
+      "to": "service",
+      "label": "返回视频摘要",
+      "variant": "return",
+      "note": "同页重复 BVID 共用答案",
+      "y": 450
+    },
+    {
+      "id": "facts",
+      "from": "service",
+      "to": "repo",
+      "label": "批取当前事实",
+      "variant": "default",
+      "note": "已有 parts、aid、标签观察及时间",
+      "y": 532
+    },
+    {
+      "id": "decision",
+      "from": "service",
+      "to": "policy",
+      "label": "计算读取策略",
+      "variant": "default",
+      "note": "new/missing/stale/force",
+      "y": 586
+    },
+    {
+      "id": "reuse",
+      "from": "policy",
+      "to": "service",
+      "label": "读取或复用结果",
+      "variant": "return",
+      "note": "复用不刷新观察时间",
+      "y": 640
+    },
+    {
+      "id": "detail",
+      "from": "service",
+      "to": "gateway",
+      "label": "补详情或 parts",
+      "variant": "default",
+      "note": "有效 view pages 直接复用",
+      "y": 694
+    },
+    {
+      "id": "scope",
+      "from": "gateway",
+      "to": "budget",
+      "label": "共享超时与冷却",
+      "variant": "security",
+      "note": "单次 deadline 受总 deadline 限制",
+      "y": 748
+    },
+    {
+      "id": "dto",
+      "from": "gateway",
+      "to": "service",
+      "label": "返回字段及 TagRead",
+      "variant": "return",
+      "note": "present/empty 与 unavailable 分开",
+      "y": 802
+    },
+    {
+      "id": "page-commit",
+      "from": "service",
+      "to": "repo",
+      "label": "整页事实原子提交",
+      "variant": "emphasis",
+      "note": "载荷、发现、页与游标同时成功",
+      "y": 856
+    },
+    {
+      "id": "page-error",
+      "from": "service",
+      "to": "repo",
+      "label": "失败页只记证据",
+      "variant": "security",
+      "note": "不提交该页载荷；旧成功页保留",
+      "y": 910
+    },
+    {
+      "id": "target",
+      "from": "cli",
+      "to": "service",
+      "label": "指定 BVID 与操作",
+      "variant": "default",
+      "note": "summary/details/parts/tags",
+      "y": 992
+    },
+    {
+      "id": "check-target",
+      "from": "service",
+      "to": "repo",
+      "label": "校验全部归档目标",
+      "variant": "security",
+      "note": "WRITE；不改分页游标",
+      "y": 1046
+    },
+    {
+      "id": "target-policy",
+      "from": "service",
+      "to": "policy",
+      "label": "检查成功时间与 TTL",
+      "variant": "default",
+      "note": "缺字段或旧观察则读取",
+      "y": 1100
+    },
+    {
+      "id": "target-read",
+      "from": "service",
+      "to": "gateway",
+      "label": "读取所需操作",
+      "variant": "default",
+      "note": "summary/details 共用一次 view",
+      "y": 1154
+    },
+    {
+      "id": "target-budget",
+      "from": "gateway",
+      "to": "budget",
+      "label": "沿用同一协调器",
+      "variant": "security",
+      "note": "auth/rate/budget 失败停止",
+      "y": 1208
+    },
+    {
+      "id": "fields",
+      "from": "service",
+      "to": "repo",
+      "label": "按观察状态写字段",
+      "variant": "emphasis",
+      "note": "present 更新；明确 empty 撤回",
+      "y": 1262
+    },
+    {
+      "id": "retain",
+      "from": "service",
+      "to": "repo",
+      "label": "失败保留成功事实",
+      "variant": "default",
+      "note": "不清空 tags；追加 operation attempt",
+      "y": 1316
+    },
+    {
+      "id": "retry",
+      "from": "cli",
+      "to": "service",
+      "label": "请求 refresh-failed",
+      "variant": "default",
+      "note": "旧 v1 明确拒绝账本恢复",
+      "y": 1398
+    },
+    {
+      "id": "latest",
+      "from": "service",
+      "to": "repo",
+      "label": "按最新失败选操作",
+      "variant": "default",
+      "note": "已归档重抓对应 operation",
+      "y": 1452
+    },
+    {
+      "id": "replay",
+      "from": "service",
+      "to": "gateway",
+      "label": "新视频失败→重抓页",
+      "variant": "emphasis",
+      "note": "持久 mid/page；同页合并一次",
+      "y": 1506
+    },
+    {
+      "id": "safe-cursor",
+      "from": "service",
+      "to": "repo",
+      "label": "保留更后成功游标",
+      "variant": "security",
+      "note": "成功补实体；未找到原 BV 仍失败",
+      "y": 1560
+    },
+    {
+      "id": "result",
+      "from": "service",
+      "to": "cli",
+      "label": "返回结果与请求计数",
+      "variant": "return",
+      "note": "operation/state/error_code",
+      "y": 1614
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "起点与当前事实",
+      "items": [
+        "incremental 从 head 发现；resume 是扫描恢复游标；两者不能同时指定。",
+        "常规分页补 pubdate=0；已知正值由显式 summary refresh 修正，0 不覆盖已知时间。",
+        "元数据刷新更新当前事实；已冻结的 input、edition、审核与 release 不重写。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "观察与预算边界",
+      "items": [
+        "present 或明确 empty 可以更新字段；missing/unavailable/denied 保留最后成功事实。",
+        "成功空 tags 才清空集合；typed TagRead 随本次调用携带错误，服务不读共享错误属性。",
+        "预算按一个协调器的 gateway operation 计量，跨 worker 不构成全局限流。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "失败恢复与事务",
+      "items": [
+        "页 fan-out 失败时 v2 ledger 单独保存安全 mid/page；失败页无实体载荷。",
+        "重放成功不回退已经越过该页的游标；上游页已变且 BV 不再存在时保留 metadata_retry_context_changed。",
+        "新旧 schema 与恢复入口显式分开；源码基线 857906d3b3c54b31fd9bc0ba94b84618f68cd6f3。"
+      ]
+    }
+  ]
+}

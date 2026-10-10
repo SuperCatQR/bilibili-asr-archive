@@ -13,6 +13,7 @@ from bili_asr.canonical_json import canonical, digest
 from bili_asr.publication_content import normalize_content
 from bili_asr.publication_identity import validate_release_identity
 from bili_asr.storage.database import _validate_connection, require_manuscript_schema
+from bili_asr.storage.archive_contracts import frozen_version, register_frozen_version
 
 
 class PublicationConflictError(ValueError):
@@ -54,6 +55,7 @@ class PublicationRepository:
         if row is None:
             raise ValueError("publication-edition: unknown edition ID or missing review")
         edition = dict(row)
+        edition["content_version"] = frozen_version(self.connection, "content", edition_id)
         try:
             edition["content"] = json.loads(edition["content_json"])
         except (TypeError, json.JSONDecodeError) as exc:
@@ -125,7 +127,7 @@ class PublicationRepository:
 
     def insert_edition(self, *, part_id: int, revision_id: str,
                        content: dict, parent_edition_id: str | None,
-                       actor: str, note: str, event_type: str) -> dict:
+                       actor: str, note: str, event_type: str, content_version: int = 1) -> dict:
         """Caller holds the transaction and has verified frozen source identity."""
         head = self.head(part_id)
         current = head["current_edition_id"] if head else None
@@ -141,6 +143,7 @@ class PublicationRepository:
             (edition_id, part_id, revision_id, parent_edition_id, canonical(content),
              digest(content), now, actor, note),
         )
+        register_frozen_version(self.connection, "content", edition_id, content_version)
         self.connection.execute(
             "INSERT INTO publication_edition_reviews VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (edition_id, review_id, digest(content), "pending-review", actor, "", None, now),
@@ -272,10 +275,16 @@ def read_revision(connection: sqlite3.Connection, revision_id: str) -> tuple[dic
         ).fetchone()
         if job is None or job[0] != row["video_part_id"]:
             raise ValueError("publication-integrity: frozen revision job belongs to another part")
-        live = connection.execute(
-            "SELECT bvid, page_index FROM video_parts WHERE video_part_id = ?", (row["video_part_id"],)
-        ).fetchone()
-        if live is None or tuple(live) != (metadata["bvid"], metadata["page_index"]):
+        from bili_asr.storage.sources import SourceRepository
+        live = SourceRepository(connection).part(row["video_part_id"])
+        version = frozen_version(connection, "input", row["input_id"])
+        if version == 2:
+            from bili_asr.source_metadata import SourceMetadataSnapshot
+            ref = SourceMetadataSnapshot.from_dict(metadata["source_metadata"]).ref
+            matches = live["content_ref"] == ref
+        else:
+            matches = (live["bvid"], live["page_index"]) == (metadata["bvid"], metadata["page_index"])
+        if not matches:
             raise ValueError("publication-integrity: frozen revision belongs to another video part")
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         raise ValueError("publication-integrity: invalid frozen revision") from exc
@@ -286,12 +295,23 @@ def read_edition(connection: sqlite3.Connection, edition_id: str) -> dict:
     repository = PublicationRepository(connection)
     edition = repository.edition(edition_id)
     revision, prepared = read_revision(connection, edition["revision_id"])
-    normalized = normalize_content(edition["content"])
+    version = edition["content_version"]
+    if version == 2:
+        from bili_asr.publication_content_v2 import normalize_content_v2
+        normalized = normalize_content_v2(edition["content"])
+    else:
+        normalized = normalize_content(edition["content"])
     metadata = prepared["snapshot"]["metadata"]
+    if version != frozen_version(connection, "input", revision["input_id"]):
+        raise ValueError("publication-integrity: content version differs from frozen input")
+    if version == 2:
+        source_matches = normalized["source"]["metadata"] == metadata["source_metadata"]
+    else:
+        source_matches = (normalized["source"]["bvid"] == metadata["bvid"]
+                          and normalized["source"]["pageIndex"] == metadata["page_index"])
     if (normalized != edition["content"] or edition["video_part_id"] != revision["video_part_id"]
             or normalized["source"]["videoPartId"] != edition["video_part_id"]
-            or normalized["source"]["bvid"] != metadata["bvid"]
-            or normalized["source"]["pageIndex"] != metadata["page_index"]):
+            or not source_matches):
         raise ValueError("publication-integrity: edition content or source identity mismatch")
     if edition["parent_edition_id"]:
         parent = repository.edition(edition["parent_edition_id"])

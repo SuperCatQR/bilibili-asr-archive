@@ -1,8 +1,14 @@
 # 当前架构
 
+本分支新增实现见 [Issues 实现与架构边界](issues-implementation.md)：显式 `universal-v2` 与 YouTube 来源、输入/内容版本 2、候选字幕、观察驱动元数据刷新、恢复检查/模型绑定，以及持久 GPU 会话与 worker supervision。以下 19 张既有图仍描述原固定代码提交，不自动随本分支代码更新。
+
+新增能力的交互视图见 [多平台归档的控制与持久化边界](issues-architecture.html)、
+[新增七张时序图](architecture-sequences.md#本轮新增流程)。固定源码和自动检查的实际范围见
+[本轮图表凭据](issue-diagram-validation/README.md)，代码验证见 [WSL 验证记录](issues-validation.md)。
+
 本页、[全景架构图](architecture.html)、[AI 与出版专题图](ai-proofreading-architecture.html)和 [17 个完整时序流程](architecture-sequences.md)统一描述本次架构边界修复的固定代码提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`，共 19 张图，核对日期为 2026-10-09（Asia/Hong_Kong）。各 JSON 的 `meta.repository.revision` 绑定同一源码身份；这是从 main 开始的本地修复提交，不代表远端 main 已包含修复。全部命令、源码模块、SQL 表/视图见 [源码与覆盖清单](architecture-sources.md)，图的源码证据、自动检查与文件身份见 [验证记录](architecture-validation.md)。
 
-图中 SQLite 节点表示同一个 archive.db 内的逻辑表组。后续变化需按 [维护指南](architecture-maintenance.md)重新核对；固定提交身份不自动代表未来版本。其他平台落库与迁移转换仍为后续实施范围。
+图中 SQLite 节点表示同一个 archive.db 内的逻辑表组。后续变化需按 [维护指南](architecture-maintenance.md)重新核对；固定提交身份不自动代表未来版本。在该历史提交中，其他平台落库与迁移转换仍为后续范围；本分支的实现见本页开头所链接的新说明与图表。
 
 ## 系统边界与模块责任
 

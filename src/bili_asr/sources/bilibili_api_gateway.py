@@ -41,6 +41,9 @@ from bilibili_api.utils.network import Api
 from bilibili_api.video import API as VIDEO_API, Video
 
 from bili_asr.config import resolve_proxy
+from bili_asr.request_budget import RequestScheduler
+from bili_asr.metadata_policy import MetadataFieldObservation
+from bili_asr.sources.request_scope import sdk_settings_scope
 from bili_asr.bili_client import NAV_URL
 from bili_asr.sources.models import (
     GatewayAuthenticationError,
@@ -51,10 +54,13 @@ from bili_asr.sources.models import (
     GatewayResponseError,
     GatewayShapeError,
     GatewayTransportError,
+    SubtitleBodyRead,
     SubtitleSegment,
     SubtitleTrack,
+    TagRead,
     UserVideoPage,
     VideoPart,
+    VideoMetadataRead,
     VideoSummary,
     VideoTag,
 )
@@ -636,6 +642,20 @@ def _normalize_subtitle_segment(entry: object) -> SubtitleSegment | None:
     return SubtitleSegment(start_ms=start_ms, end_ms=end_ms, text=text)
 
 
+def _read_subtitle_document(document: object) -> SubtitleBodyRead:
+    """Preserve legal empty-body evidence without treating damaged timing as empty."""
+    segments = _normalize_subtitle_document(document)
+    body = document["body"]
+    if segments:
+        return SubtitleBodyRead(segments, len(body))
+    for entry in body:
+        start = _read_caption_milliseconds(entry, "from")
+        end = _read_caption_milliseconds(entry, "to")
+        if start < 0 or end <= start:
+            raise GatewayShapeError(code="subtitle_timeline_invalid")
+    return SubtitleBodyRead((), len(body), "empty_text" if body else "empty_body")
+
+
 def _read_caption_milliseconds(entry: Mapping, field: str) -> int:
     """Read one caption timestamp as milliseconds, using ``floor``.
 
@@ -714,8 +734,9 @@ class BilibiliApiGateway:
         *,
         _sleeper: Callable[[float], Awaitable[object]] | None = None,
         _jitter: Callable[[], float] | None = None,
+        request_scheduler: RequestScheduler | None = None,
     ) -> None:
-        """Build the package credential and apply one resolved proxy.
+        """Build the package credential and retain request-scoped proxy config.
 
         The optional SESSDATA value is passed to the package ``Credential``
         object only.  It is never written to DTOs, logs, exception messages,
@@ -724,25 +745,20 @@ class BilibiliApiGateway:
         ``proxy`` is an explicit programmatic override; when it is blank or
         omitted the locked chain in :mod:`bili_asr.config` decides
         (``BILI_HTTP_PROXY`` first, then the conventional host variables).
-        A resolved proxy is applied here, once, through the package's
-        request settings: that is the value the pinned ``CurlCFFIClient``
-        reads when it builds its session, and its own default
-        (``proxies={"all": ""}``) would otherwise defeat ``trust_env`` and
-        ignore environment proxies.  ``Credential(proxy=...)`` is
-        deliberately not used — it swaps that same global setting around
-        every call instead of configuring it.  When nothing resolves, the
-        library default is left untouched.  The resolved value is
-        configuration, not a credential, and still never appears in DTOs,
-        logs, exception messages, or persistent records.
+        Construction does not mutate the SDK's process-global settings.
+        Each upstream request owns those settings under a loop-neutral,
+        cross-thread lock and restores the previous value on every exit.
+        The pinned client applies the setting when it creates or updates
+        its event-loop session. The resolved value never appears in DTOs,
+        logs, exception messages or persistent records.
         """
 
         self._credential = Credential(sessdata=sessdata) if sessdata else Credential()
         self.tag_error_code: str | None = None
         self._metadata_credential_checked = not bool(sessdata)
         self.resolved_proxy = resolve_proxy(proxy, os.environ)
-        if self.resolved_proxy is not None:
-            request_settings.set_proxy(self.resolved_proxy)
         self._w_webid_by_mid: dict[int, str] = {}
+        self.request_scheduler = request_scheduler or RequestScheduler(sleeper=_sleeper or asyncio.sleep)
         # Pacing seams, mirroring the legacy page-fetch path's sleeper/jitter
         # injection: tests substitute non-blocking fakes so the pacing sleep
         # is asserted without slowing the suite.  The default sleeper is
@@ -761,8 +777,10 @@ class BilibiliApiGateway:
 
         The single pacing primitive shared by the three per-row getters
         (``get_completed_video_summary`` / ``get_video_parts`` /
-        ``get_video_tags``): a full-corpus ``fetch-meta`` page otherwise
-        fires ~90 unpaced sequential upstream calls.  The delay matches the
+        ``get_video_tags``): a 30-video page normally needs 61 business
+        operations when every summary already carries aid, with extra
+        detail operations only for missing aid or verified collaboration.
+        The delay matches the
         documented inter-page range used by ``fetch_pages`` and the run
         stays strictly sequential.  The sleep itself is awaited (the default
         sleeper is ``asyncio.sleep``), so the event loop is yielded rather
@@ -894,7 +912,48 @@ class BilibiliApiGateway:
         )
         return _complete_summary_from_detail(summary, detail)
 
+    async def get_video_metadata(self, bvid: str) -> VideoMetadataRead:
+        """Read a full source observation for explicit historical refresh.
+
+        Parts in a verified view response can be reused. Missing pages do not
+        imply no parts; the application falls back to the dedicated endpoint.
+        """
+        if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
+            raise ValueError("bvid must be a BV-prefixed 10-character id")
+        await self._pace()
+        detail = await self._await_upstream("get_completed_video_summary", lambda: Video(
+            bvid=bvid, credential=self._credential).get_info())
+        if not isinstance(detail, Mapping) or detail.get("bvid") != bvid or not isinstance(detail.get("owner"), Mapping):
+            raise GatewayShapeError()
+        owner = detail["owner"]
+        item = {"bvid": bvid, "aid": detail.get("aid"), "title": detail.get("title"),
+                "mid": owner.get("mid"), "author": owner.get("name"),
+                "pubdate": detail.get("pubdate"), "pic": detail.get("pic"),
+                "description": detail.get("desc"), "typeid": detail.get("tid")}
+        summary = _normalize_video_summary_item(item, owner.get("mid"))
+        fields = []
+        for field, key in (("title", "title"), ("pubdate", "pubdate"), ("aid", "aid"),
+                           ("pic", "pic"), ("desc", "desc"), ("tid", "tid")):
+            value = detail.get(key)
+            if key not in detail or value is None:
+                state, value = "missing", None
+            elif isinstance(value, str) and not value.strip():
+                state, value = "empty", None
+            else:
+                value = getattr(summary, field)
+                state = "present" if value is not None else "missing"
+            fields.append(MetadataFieldObservation(field, state, value))
+        parts = (_normalize_video_parts(detail["pages"], bvid, summary.title)
+                 if "pages" in detail else None)
+        return VideoMetadataRead(summary, tuple(fields), parts)
+
     async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None:
+        """Compatibility surface; acquisition uses the independent typed read."""
+        read = await self.read_video_tags(bvid)
+        self.tag_error_code = read.error_code
+        return read.tags
+
+    async def read_video_tags(self, bvid: str) -> TagRead:
         """List the tags one video carries right now.
 
         One unsigned, WBI-free call: the endpoint's description declares
@@ -941,7 +1000,6 @@ class BilibiliApiGateway:
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
-        self.tag_error_code = None
         await self._pace()
         try:
             response = await self._await_upstream(
@@ -958,15 +1016,14 @@ class BilibiliApiGateway:
                 .result,
             )
         except GatewayError as error:
-            self.tag_error_code = error.code
             # Best-effort call, and *not* an observation: ``None`` tells the
             # caller the tags could not be read, which is what keeps
             # ``record_page`` from clearing rows a previous run stored
             # (compass D16).  ``()`` here would be a lie about what upstream
             # said. Only the bounded category is retained for caller-owned
             # observation evidence; the original exception is not re-raised.
-            return None
-        return _normalize_video_tags(response)
+            return TagRead(None, error.code)
+        return TagRead(_normalize_video_tags(response))
 
     async def get_subtitle_tracks(
         self, bvid: str, cid: int
@@ -1014,7 +1071,21 @@ class BilibiliApiGateway:
     async def fetch_subtitle_segments(
         self, track: SubtitleTrack, bvid: str, cid: int
     ) -> tuple[SubtitleSegment, ...]:
-        """Fetch and normalize one requested track's caption document.
+        """Retain the strict nonempty API for existing callers."""
+        document = await self._fetch_caption_document(track, bvid, cid)
+        segments = _normalize_subtitle_document(document)
+        if not segments:
+            raise GatewayNotFound(detail="fetch_subtitle_segments")
+        return segments
+
+    async def read_subtitle_body(
+        self, track: SubtitleTrack, bvid: str, cid: int
+    ) -> SubtitleBodyRead:
+        document = await self._fetch_caption_document(track, bvid, cid)
+        return _read_subtitle_document(document)
+
+    async def _fetch_caption_document(self, track: SubtitleTrack, bvid: str, cid: int) -> object:
+        """Read one document; signed URL refresh remains bounded to one retry.
 
         The signed URL never crosses the boundary, so the requested track is
         resolved through a fresh listing of the part.  A body fetch that fails
@@ -1037,7 +1108,6 @@ class BilibiliApiGateway:
             document = await self._fetch_subtitle_document(
                 _resolve_subtitle_document_url(track, entries)
             )
-            segments = _normalize_subtitle_document(document)
         except GatewayTransportError:
             # A signature that no longer works is the one failure class worth a
             # second attempt: re-list once for a fresh URL and fetch once more.
@@ -1048,10 +1118,7 @@ class BilibiliApiGateway:
             document = await self._fetch_subtitle_document(
                 _resolve_subtitle_document_url(track, entries)
             )
-            segments = _normalize_subtitle_document(document)
-        if not segments:
-            raise GatewayNotFound(detail="fetch_subtitle_segments")
-        return segments
+        return document
 
     def get_package_version(self) -> str:
         """Return the pinned package version for run metadata."""
@@ -1221,6 +1288,15 @@ class BilibiliApiGateway:
         or a fixed reason. Upstream text, URLs and payload content stay local.
         """
 
+        async def scoped_call():
+            async with sdk_settings_scope(request_settings, self.resolved_proxy):
+                return await self._mapped_call(operation, call, not_found_api_codes=not_found_api_codes,
+                                               authentication_api_codes=authentication_api_codes)
+        return await self.request_scheduler.run(operation, scoped_call)
+
+    async def _mapped_call(self, operation: str, call: Callable[[], Awaitable[Any]], *,
+                           not_found_api_codes: frozenset[int],
+                           authentication_api_codes: frozenset[int]) -> Any:
         try:
             return await call()
         except NetworkException as exc:

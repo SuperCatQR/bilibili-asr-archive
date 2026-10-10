@@ -1,0 +1,522 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "YouTube 单视频：统一任务、租约与归档消费链",
+    "locale": "zh-CN",
+    "output": "docs/sequences/21-youtube-workflow.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "CLI 入口",
+      "sublabel": "import / plan",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/source.py",
+          "line": 20,
+          "end_line": 45,
+          "label": "单视频导入"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 43,
+          "end_line": 51,
+          "label": "统一计划"
+        }
+      ]
+    },
+    {
+      "id": "source",
+      "type": "backend",
+      "label": "源适配器",
+      "sublabel": "有界 yt-dlp",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/youtube_source.py",
+          "line": 147,
+          "end_line": 234,
+          "label": "进程与元数据"
+        },
+        {
+          "path": "src/bili_asr/sources/youtube_source.py",
+          "line": 243,
+          "end_line": 320,
+          "label": "字幕与音频"
+        },
+        {
+          "path": "src/bili_asr/sources/registry.py",
+          "line": 1,
+          "end_line": 33,
+          "label": "源解析与私有凭据"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "统一工作流",
+      "sublabel": "claim / heartbeat",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 103,
+          "end_line": 156,
+          "label": "执行与续租"
+        },
+        {
+          "path": "src/bili_asr/services/source_workflow.py",
+          "line": 32,
+          "end_line": 157,
+          "label": "源采集结果提交"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 357,
+          "end_line": 461,
+          "label": "通用 bundle 发布"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "archive.db",
+      "sublabel": "v2 权威事实",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/sources.py",
+          "line": 17,
+          "end_line": 66,
+          "label": "真实平台与 part"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 203,
+          "end_line": 299,
+          "label": "租约与提交围栏"
+        },
+        {
+          "path": "src/bili_asr/workflow_planning.py",
+          "line": 60,
+          "end_line": 90,
+          "label": "独立 producer 计划"
+        }
+      ]
+    },
+    {
+      "id": "asr",
+      "type": "backend",
+      "label": "ASR 会话",
+      "sublabel": "现有推理路径",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 241,
+          "end_line": 355,
+          "label": "输入、推理和写入"
+        },
+        {
+          "path": "src/bili_asr/asr/session.py",
+          "line": 1,
+          "end_line": 195,
+          "label": "有身份隔离的 GPU 子进程"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "type": "cloud",
+      "label": "归档产物",
+      "sublabel": "音频与完整 bundle",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 203,
+          "end_line": 238,
+          "label": "公共音频入库"
+        },
+        {
+          "path": "src/bili_asr/archive.py",
+          "line": 430,
+          "end_line": 486,
+          "label": "五文件与 marker 安装"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 425,
+          "end_line": 451,
+          "label": "提交失败使 marker 无效"
+        }
+      ]
+    },
+    {
+      "id": "consumer",
+      "type": "frontend",
+      "label": "搜索与导出",
+      "sublabel": "真实 source 身份",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/source_store.py",
+          "line": 94,
+          "end_line": 164,
+          "label": "增量 neutral FTS"
+        },
+        {
+          "path": "src/bili_asr/export.py",
+          "line": 396,
+          "end_line": 449,
+          "label": "只读 JSON / CSV"
+        },
+        {
+          "path": "tests/test_youtube_workflow.py",
+          "line": 30,
+          "end_line": 87,
+          "label": "完整实际链路回归"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 165,
+      "to": 450,
+      "label": "显式创建 v2 后导入单视频与规划"
+    },
+    {
+      "from": 465,
+      "to": 780,
+      "label": "字幕路径：原语言、候选与访问证据"
+    },
+    {
+      "from": 795,
+      "to": 1120,
+      "label": "独立 audio → ASR 路径；是否创建由策略决定"
+    },
+    {
+      "from": 1135,
+      "to": 1530,
+      "label": "当前偏好转录 → 完整 bundle → neutral 消费"
+    }
+  ],
+  "messages": [
+    {
+      "id": "metadata",
+      "from": "cli",
+      "to": "source",
+      "y": 180,
+      "label": "单视频 metadata",
+      "variant": "emphasis"
+    },
+    {
+      "id": "typed-metadata",
+      "from": "source",
+      "to": "cli",
+      "y": 220,
+      "label": "ContentRef + 已知元数据",
+      "variant": "return"
+    },
+    {
+      "id": "import-part",
+      "from": "cli",
+      "to": "db",
+      "y": 260,
+      "label": "真实 source_video / part",
+      "variant": "emphasis"
+    },
+    {
+      "id": "part-result",
+      "from": "db",
+      "to": "cli",
+      "y": 300,
+      "label": "内部 video_part_id",
+      "variant": "return"
+    },
+    {
+      "id": "plan",
+      "from": "cli",
+      "to": "worker",
+      "y": 340,
+      "label": "选择 part 与 ASR 策略",
+      "variant": "default"
+    },
+    {
+      "id": "plan-jobs",
+      "from": "worker",
+      "to": "db",
+      "y": 380,
+      "label": "subtitle；按策略 audio / asr",
+      "variant": "emphasis"
+    },
+    {
+      "id": "claim-subtitle",
+      "from": "worker",
+      "to": "db",
+      "y": 420,
+      "label": "claim 与 attempt 身份",
+      "variant": "security"
+    },
+    {
+      "id": "caption-list",
+      "from": "worker",
+      "to": "source",
+      "y": 485,
+      "label": "字幕清单 + 可见性核验",
+      "variant": "default"
+    },
+    {
+      "id": "caption-candidates",
+      "from": "source",
+      "to": "worker",
+      "y": 525,
+      "label": "原语言与候选 provenance",
+      "variant": "return"
+    },
+    {
+      "id": "caption-body",
+      "from": "worker",
+      "to": "source",
+      "y": 565,
+      "label": "有界候选读取 json3",
+      "variant": "default"
+    },
+    {
+      "id": "caption-data",
+      "from": "source",
+      "to": "worker",
+      "y": 605,
+      "label": "原文 segments 或有界错误",
+      "variant": "return"
+    },
+    {
+      "id": "subtitle-commit",
+      "from": "worker",
+      "to": "db",
+      "y": 645,
+      "label": "围栏提交 transcript / 观察",
+      "variant": "security"
+    },
+    {
+      "id": "subtitle-publish",
+      "from": "worker",
+      "to": "db",
+      "y": 685,
+      "label": "请求 publish；语言不翻译",
+      "variant": "emphasis"
+    },
+    {
+      "id": "caption-failure",
+      "from": "worker",
+      "to": "db",
+      "y": 725,
+      "label": "失败仅 unavailable 证据",
+      "variant": "security"
+    },
+    {
+      "id": "claim-audio",
+      "from": "worker",
+      "to": "db",
+      "y": 810,
+      "label": "若已规划：claim audio",
+      "variant": "security"
+    },
+    {
+      "id": "audio-get",
+      "from": "worker",
+      "to": "source",
+      "y": 850,
+      "label": "独立下载；字幕非其前置",
+      "variant": "default"
+    },
+    {
+      "id": "audio-bytes",
+      "from": "source",
+      "to": "worker",
+      "y": 890,
+      "label": "仅 staging 内普通音频文件",
+      "variant": "return"
+    },
+    {
+      "id": "audio-install",
+      "from": "worker",
+      "to": "files",
+      "y": 930,
+      "label": "lease 核验后安装音频",
+      "variant": "security"
+    },
+    {
+      "id": "audio-object",
+      "from": "worker",
+      "to": "db",
+      "y": 970,
+      "label": "audio hash + 成功事实",
+      "variant": "emphasis"
+    },
+    {
+      "id": "asr-claim",
+      "from": "worker",
+      "to": "db",
+      "y": 1010,
+      "label": "audio 成功后 claim ASR",
+      "variant": "security"
+    },
+    {
+      "id": "asr-run",
+      "from": "worker",
+      "to": "asr",
+      "y": 1050,
+      "label": "profile / binding / attempt",
+      "variant": "emphasis"
+    },
+    {
+      "id": "asr-result",
+      "from": "asr",
+      "to": "worker",
+      "y": 1090,
+      "label": "原语言 + coverage / 诊断",
+      "variant": "return"
+    },
+    {
+      "id": "asr-commit",
+      "from": "worker",
+      "to": "db",
+      "y": 1150,
+      "label": "围栏提交本地转录与 publish",
+      "variant": "security"
+    },
+    {
+      "id": "preferred",
+      "from": "worker",
+      "to": "db",
+      "y": 1190,
+      "label": "publish 读当前偏好转录",
+      "variant": "default"
+    },
+    {
+      "id": "publish-stage",
+      "from": "worker",
+      "to": "files",
+      "y": 1230,
+      "label": "准备五文件；marker 最后",
+      "variant": "emphasis"
+    },
+    {
+      "id": "publish-fact",
+      "from": "worker",
+      "to": "db",
+      "y": 1270,
+      "label": "围栏内提交 publication fact",
+      "variant": "security"
+    },
+    {
+      "id": "publish-valid",
+      "from": "worker",
+      "to": "files",
+      "y": 1310,
+      "label": "失败则撤销完整 marker",
+      "variant": "security"
+    },
+    {
+      "id": "index-build",
+      "from": "consumer",
+      "to": "db",
+      "y": 1350,
+      "label": "显式增量 neutral FTS 构建",
+      "variant": "default"
+    },
+    {
+      "id": "queries",
+      "from": "consumer",
+      "to": "db",
+      "y": 1390,
+      "label": "只读 metadata / FTS / 投影",
+      "variant": "default"
+    },
+    {
+      "id": "bundle-read",
+      "from": "consumer",
+      "to": "files",
+      "y": 1430,
+      "label": "校验完整 bundle 与路径",
+      "variant": "security"
+    },
+    {
+      "id": "export",
+      "from": "consumer",
+      "to": "cli",
+      "y": 1470,
+      "label": "source URL + JSON / CSV",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "source",
+      "from": 175,
+      "to": 225,
+      "type": "backend"
+    },
+    {
+      "participant": "worker",
+      "from": 415,
+      "to": 735,
+      "type": "backend"
+    },
+    {
+      "participant": "worker",
+      "from": 805,
+      "to": 1320,
+      "type": "backend"
+    },
+    {
+      "participant": "asr",
+      "from": 1045,
+      "to": 1095,
+      "type": "backend"
+    },
+    {
+      "participant": "consumer",
+      "from": 1345,
+      "to": 1480,
+      "type": "frontend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "平台身份与数据边界",
+      "items": [
+        "仅单视频；播放列表、直播及不可信 URL 被拒绝。v2 存真实 platform / externalVideoId，YouTube 的 bvid/cid 为 NULL。",
+        "发布日期只用明确 timestamp；只有 upload_date 时保持未知，不捏造午夜时间。",
+        "yt-dlp/Deno 使用锁定依赖、有界进程、输出预算和 checkpoint；私有 cookie 路径只在运行环境，错误内容脱敏。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "两条 producer 路径",
+      "items": [
+        "字幕优先考虑人工、非翻译、原语言候选；最多 32 项，保留 provenance，不自动翻译。",
+        "ALL 直接建立 audio → ASR；BELOW_THRESHOLD 仅明确低质量才建立。字幕没有成为 audio 的依赖。",
+        "匿名可见性、空正文与未知错误均不授予 Bilibili 的 credential_verified / absence_verified 权威。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "复用控制面与消费端",
+      "items": [
+        "采集、推理、publish 复用相同 job/attempt/lease 与心跳，长 I/O 不占权威写事务；陈旧 owner 无法提交。",
+        "GPU 会话在隔离子进程执行；数据库与最终文件写入由父工作流持有围栏，CPU 保留现有路径。",
+        "publish 是可变 transcript bundle；它不替代另行审核的 publication edition/release。",
+        "neutral FTS 显式构建，metadata 查询和 JSON/CSV 保留真实源身份；快照保存数据库、五文件及 marker。"
+      ]
+    }
+  ]
+}

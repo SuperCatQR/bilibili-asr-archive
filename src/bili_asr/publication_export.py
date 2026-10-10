@@ -13,6 +13,21 @@ from typing import Iterator
 from bili_asr.export_snapshot import ExportSnapshotError, guard_output, json_bytes, replace_snapshot
 from bili_asr.publication import content_from_ai, get_ai_artifacts, get_edition, render_publication, verify_release
 from bili_asr.storage.database import require_manuscript_schema
+from bili_asr.publication_content_v2 import content_from_ai_v2, render_publish_v2
+
+
+def _source_fields(edition: dict) -> dict:
+    source = edition["content"]["source"]
+    if edition["content_version"] == 1:
+        return {"bvid": source["bvid"], "pageIndex": source["pageIndex"], "sourceUrl": source["url"]}
+    return {"platform": source["platform"], "externalVideoId": source["externalVideoId"],
+            "partIndex": source["partIndex"], "sourceUrl": source["url"],
+            "sourceMetadata": source["metadata"], "sourcePublishedAt": source["metadata"]["sourcePublishedAt"],
+            "pubdateUnix": source["metadata"]["pubdateUnix"], "contentVersion": 2}
+
+
+def _render_edition(edition: dict) -> bytes:
+    return (render_publish_v2 if edition["content_version"] == 2 else render_publication)(edition["content"])
 
 
 @contextmanager
@@ -45,9 +60,7 @@ def _public_entry(release: dict, edition: dict, review_document: bytes) -> dict:
         "editionId": edition["edition_id"],
         "aiRevisionId": edition["revision_id"],
         "videoPartId": part_id,
-        "bvid": source["bvid"],
-        "pageIndex": source["pageIndex"],
-        "sourceUrl": source["url"],
+        **_source_fields(edition),
         "contentSha256": edition["content_sha256"],
         "artifactSha256": release["artifact_sha256"],
         "templateVersion": release["template_version"],
@@ -100,7 +113,8 @@ def export_publications(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["publishedAt"], entry["videoPartId"]))
-    files["catalog.json"] = json_bytes({"schemaVersion": 2, "manuscriptType": "publication", "articles": articles})
+    version = 3 if any(entry.get("contentVersion") == 2 for entry in articles) else 2
+    files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication", "articles": articles})
     replace_snapshot(output, kind="publication-export", files=files)
     return len(articles)
 
@@ -153,16 +167,14 @@ def export_publication_drafts(
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
             content = edition["content"]
-            source = content["source"]
-            document = render_publication(content)
+            document = _render_edition(edition)
             slug = f"edition-{edition['edition_id']}"
             entry = {
                 "manuscriptType": "publication-draft", "slug": slug,
                 "title": content["title"], "summary": content["summary"], "tags": content["tags"],
                 "attribution": content["attribution"], "editorNote": content["editorNote"],
                 "editionId": edition["edition_id"], "aiRevisionId": edition["revision_id"],
-                "videoPartId": edition["video_part_id"], "bvid": source["bvid"],
-                "pageIndex": source["pageIndex"], "sourceUrl": source["url"],
+                "videoPartId": edition["video_part_id"], **_source_fields(edition),
                 "contentSha256": edition["content_sha256"],
                 "artifactSha256": hashlib.sha256(document).hexdigest(),
                 "reviewStatus": edition["review_status"], "createdAt": edition["created_at"],
@@ -176,7 +188,8 @@ def export_publication_drafts(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["createdAt"], entry["videoPartId"], entry["editionId"]))
-    files["catalog.json"] = json_bytes({"schemaVersion": 2, "manuscriptType": "publication-draft", "articles": articles})
+    version = 3 if any(entry.get("contentVersion") == 2 for entry in articles) else 2
+    files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication-draft", "articles": articles})
     replace_snapshot(output, kind="publication-draft-export", files=files)
     return len(articles)
 
@@ -229,10 +242,11 @@ def export_editorial(
         if row is None:
             raise ExportSnapshotError("selected AI revision has no fixed input")
         prepared = json.loads(row["prepared_json"])
-        ai_content = content_from_ai(prepared, baseline)
+        version = edition["content_version"]
+        ai_content = (content_from_ai_v2 if version == 2 else content_from_ai)(prepared, baseline)
         ai_metadata = {
             "revisionId": revision_id,
-            "templateVersion": "ai-draft-v1",
+            "templateVersion": "ai-draft-v2" if version == 2 else "ai-draft-v1",
             "qualityStatus": row["quality_status"],
             "createdAt": row["created_at"],
             "config": prepared["snapshot"]["config"],
@@ -256,7 +270,7 @@ def export_editorial(
         # Full-object parent patches also show reader-visible metadata changes.
         files = {
             **artifacts,
-            "edition.md": render_publication(content),
+            "edition.md": _render_edition(edition),
             "edition.json": json_bytes(content),
             "review.json": json_bytes(review_document),
             "differences/ai.patch": _difference(json_bytes(ai_content).decode("utf-8"), json_bytes(content).decode("utf-8"),

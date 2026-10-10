@@ -1105,10 +1105,12 @@ def fake_gateway_seam(monkeypatch) -> FakeGateway:
     gateway_module = importlib.import_module(GATEWAY_ADAPTER_MODULE)
 
     def factory(
-        sessdata: str | None = None, proxy: str | None = None
+        sessdata: str | None = None, proxy: str | None = None, request_scheduler=None
     ) -> FakeGateway:
         del proxy
         gateway.sessdata = sessdata
+        if request_scheduler is not None:
+            gateway.request_scheduler = request_scheduler
         return gateway
 
     monkeypatch.setattr(gateway_module, "BilibiliApiGateway", factory)

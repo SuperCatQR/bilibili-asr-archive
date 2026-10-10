@@ -32,7 +32,7 @@ _ALLOWED_ACQUISITION_KINDS = frozenset({"subtitle", "audio", "asr"})
 _ALLOWED_ACQUISITION_OUTCOMES = frozenset({"running", "complete", "partial", "failed"})
 _ALLOWED_ATTEMPT_OUTCOMES = frozenset({"stored", "unchanged", "no-subtitle", "failed"})
 _ALLOWED_SOURCE_KINDS = frozenset({"subtitle-ai", "subtitle-cc", "asr-local"})
-_ALLOWED_SELECTOR_KINDS = frozenset({"pending", "bvid"})
+_ALLOWED_SELECTOR_KINDS = frozenset({"pending", "bvid", "source-ref"})
 # The two outcomes a transcript write can report; the other attempt outcomes
 # record an acquisition that produced no transcript at all.
 _ALLOWED_TRANSCRIPT_WRITE_OUTCOMES = frozenset({"stored", "unchanged"})
@@ -464,7 +464,7 @@ class AcquisitionRunRecord:
             if self.selector_target is not None:
                 raise ValueError("a pending selector carries no selector_target")
         elif self.selector_target is None:
-            raise ValueError("a bvid selector requires a selector_target")
+            raise ValueError("an explicit source selector requires a selector_target")
         else:
             _text(self.selector_target, "selector_target")
         if self.requested_limit is not None:

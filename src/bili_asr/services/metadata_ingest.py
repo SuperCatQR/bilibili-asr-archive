@@ -24,10 +24,11 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from bili_asr.services._common import _now
-from bili_asr.services.video_tags import bounded_tag_error
+from bili_asr.services.video_tags import bounded_tag_error, read_tags
+from bili_asr.metadata_policy import MetadataRefreshPolicy
 
 from bili_asr.sources.bilibili_source import BilibiliMetadataSource
 from bili_asr.sources.models import (
@@ -212,6 +213,10 @@ class IngestionRunResult:
     tag_attempt_count: int = 0
     tag_success_count: int = 0
     tag_failure_count: int = 0
+    reused_operation_count: int = 0
+    failure_bvid: str | None = None
+    failure_operation: str | None = None
+    request_metrics: dict | None = None
 
 
 class MetadataIngestor:
@@ -230,6 +235,17 @@ class MetadataIngestor:
         self._gateway = gateway
         self._source = BilibiliMetadataSource(gateway)
         self._repository = repository
+        self._preserve_cursor = False
+
+    def replay_page(self, *, mid: int, page_number: int) -> IngestionRunResult:
+        """Re-read one failed page as a whole; never rewind a later cursor."""
+        self._validate_arguments(mid, page_number, 1, 0)
+        old_cursor = self._repository.read_cursor(mid)
+        self._preserve_cursor = old_cursor is not None and old_cursor.next_page > page_number
+        try:
+            return self.collect_user_pages(mid, start_page=page_number, page_limit=1)
+        finally:
+            self._preserve_cursor = False
 
     def collect_user_pages(
         self,
@@ -239,6 +255,8 @@ class MetadataIngestor:
         *,
         skip_failed_page: bool = False,
         page_retries: int = 0,
+        incremental: bool = False,
+        refresh_policy: MetadataRefreshPolicy | None = None,
     ) -> IngestionRunResult:
         """Run one resumable metadata collection for ``mid``.
 
@@ -260,13 +278,16 @@ class MetadataIngestor:
         """
 
         self._validate_arguments(mid, start_page, page_limit, page_retries)
+        if incremental and start_page is not None:
+            raise ValueError("incremental and explicit start_page are mutually exclusive")
         return asyncio.run(
             self._collect(
                 mid=mid,
-                start_page=start_page,
+                start_page=1 if incremental else start_page,
                 page_limit=page_limit,
                 skip_failed_page=skip_failed_page,
                 page_retries=page_retries,
+                refresh_policy=refresh_policy or MetadataRefreshPolicy(),
             )
         )
 
@@ -309,6 +330,7 @@ class MetadataIngestor:
         page_limit: int | None,
         skip_failed_page: bool = False,
         page_retries: int = 0,
+        refresh_policy: MetadataRefreshPolicy | None = None,
     ) -> IngestionRunResult:
         """Fetch and persist pages until completion, a limit, or a failure."""
 
@@ -337,6 +359,11 @@ class MetadataIngestor:
         outcome: RunOutcome = "complete"
         error_code: str | None = None
         error_diagnostic: GatewayDiagnostic | None = None
+        failure_bvid = failure_operation = None
+        operation_bvid = None
+        operation_name = "summary"
+        policy = refresh_policy or MetadataRefreshPolicy()
+        reused_count = 0
         # Recent observations avoid repeated calls without growing with the
         # archive. A new run (including resume) starts fresh: persisted tags
         # are the last successful observation, not evidence of today's tags.
@@ -348,6 +375,7 @@ class MetadataIngestor:
             page_started_at = _now()
             try:
                 page = await self._fetch_user_page(mid, page_number, page_retries)
+                cached_facts = self._stored_facts(tuple(summary.bvid for summary in page.videos))
                 completed_by_video: dict[str, VideoSummary] = {}
                 summaries: list[VideoSummary] = []
                 for summary in page.videos:
@@ -355,6 +383,12 @@ class MetadataIngestor:
                     # entry is the same video, so the identical fetch would
                     # only repeat upstream work.
                     if summary.bvid not in completed_by_video:
+                        operation_bvid, operation_name = summary.bvid, "summary"
+                        if summary.aid is None and policy.mode != "force":
+                            known_aid = cached_facts.get(summary.bvid, {}).get("aid")
+                            if known_aid is not None:
+                                summary = replace(summary, aid=known_aid)
+                                reused_count += 1
                         completed_by_video[summary.bvid] = (
                             await self._completed_summary(summary, mid)
                         )
@@ -367,16 +401,29 @@ class MetadataIngestor:
                     None,
                 )
                 parts_by_video: dict[str, tuple[VideoPart, ...]] = {}
+                reused_parts: set[str] = set()
                 for summary in summaries:
                     # One parts fetch per distinct video: a duplicated page
                     # entry is the same video, so the identical fetch would
                     # only repeat upstream work.
                     if summary.bvid not in parts_by_video:
-                        parts_by_video[summary.bvid] = (
-                            await self._source.get_parts(
-                                summary.content_ref, video_title_fallback=summary.title
-                            )
-                        )
+                        operation_bvid, operation_name = summary.bvid, "parts"
+                        facts = cached_facts.get(summary.bvid, {})
+                        stored_parts = facts.get("parts", ())
+                        if not policy.needs_read(known_video=summary.bvid in cached_facts, present=bool(stored_parts),
+                                                 observed_at=facts.get("parts_observed_at"), now=_now()):
+                            parts_by_video[summary.bvid] = stored_parts
+                            reused_parts.add(summary.bvid)
+                            reused_count += 1
+                        else:
+                            parts_by_video[summary.bvid] = await self._source.get_parts(
+                                summary.content_ref, video_title_fallback=summary.title)
+                            old_cids = {part.page_index: part.cid for part in stored_parts}
+                            current = parts_by_video[summary.bvid]
+                            if any(part.page_index in old_cids and old_cids[part.page_index] != part.cid for part in current):
+                                raise GatewayShapeError(code="metadata_part_identity_conflict")
+                            if any(index not in {part.page_index for part in current} for index in old_cids):
+                                raise GatewayShapeError(code="metadata_part_topology_changed")
                 # Keep this page's answers independently of LRU eviction,
                 # so even a page larger than the cache persists every answer.
                 tags_by_video: dict[str, tuple[VideoTag, ...] | None] = {}
@@ -389,11 +436,20 @@ class MetadataIngestor:
                         tags_by_video[bvid] = tag_cache[bvid]
                         page_tag_errors[bvid] = tag_errors.get(bvid)
                         tag_cache.move_to_end(bvid)
+                        reused_count += 1
+                        continue
+                    facts = cached_facts.get(bvid, {})
+                    if not policy.needs_read(known_video=bvid in cached_facts, present=facts.get("tags_success", False),
+                                             observed_at=facts.get("tags_observed_at"), now=_now()):
+                        # Reuse means no fresh observation, so it does not stamp
+                        # last-success or masquerade as an authenticated fetch.
+                        reused_count += 1
                         continue
                     tag_attempt_count += 1
+                    operation_bvid, operation_name = bvid, "tags"
                     try:
-                        tags_by_video[bvid] = await self._gateway.get_video_tags(bvid)
-                        tag_errors[bvid] = getattr(self._gateway, "tag_error_code", None)
+                        read = await read_tags(self._gateway, bvid)
+                        tags_by_video[bvid], tag_errors[bvid] = read.tags, read.error_code
                     except GatewayError as error:
                         # Optional tag failures preserve the last stored set.
                         tags_by_video[bvid] = None
@@ -409,6 +465,12 @@ class MetadataIngestor:
                         evicted, _ = tag_cache.popitem(last=False)
                         tag_errors.pop(evicted, None)
             except GatewayError as error:
+                failure_bvid, failure_operation = operation_bvid, operation_name
+                if operation_bvid is not None:
+                    with self._repository.transaction():
+                        self._repository.record_metadata_attempt(operation_bvid, operation_name,
+                            "denied" if error.code == "auth_error" else "unavailable", page_started_at, _now(), error.code,
+                            details={"mid": mid, "page_number": page_number})
                 page_outcome, run_outcome = _page_and_run_outcomes(error)
                 self._repository.record_page(
                     IngestionPageRecord(
@@ -483,7 +545,7 @@ class MetadataIngestor:
                 mid,
                 page_number,
                 summaries,
-                parts_by_video,
+                {bvid: parts for bvid, parts in parts_by_video.items() if bvid not in reused_parts},
                 page_started_at,
                 page_finished_at,
                 page.observed_total,
@@ -505,6 +567,7 @@ class MetadataIngestor:
                 outcome = "limited"
                 break
             page_number += 1
+            operation_bvid, operation_name = None, "summary"
 
         if outcome != "failed":
             # The failed run already finished atomically inside record_page.
@@ -534,7 +597,27 @@ class MetadataIngestor:
             error_diagnostic=error_diagnostic,
             tag_attempt_count=tag_attempt_count, tag_success_count=tag_success_count,
             tag_failure_count=tag_failure_count,
+            reused_operation_count=reused_count, failure_bvid=failure_bvid,
+            failure_operation=failure_operation,
+            request_metrics=(self._gateway.request_scheduler.metrics() if hasattr(self._gateway, "request_scheduler") else None),
         )
+
+    def _stored_facts(self, bvids: tuple[str, ...]) -> dict:
+        """Read a bounded page's existing coverage in bulk, outside writes."""
+        if not bvids:
+            return {}
+        placeholders = ",".join("?" for _ in bvids)
+        connection = self._repository.connection
+        facts = {row[0]: {"aid": row[1]} for row in connection.execute(f"SELECT bvid,aid FROM videos WHERE bvid IN ({placeholders})", bvids)}
+        for row in connection.execute(f"SELECT bvid,page_index,cid,title,duration_ms,updated_at FROM video_parts WHERE bvid IN ({placeholders}) ORDER BY bvid,page_index", bvids):
+            item = facts[row[0]]
+            item.setdefault("parts", []).append(VideoPart(row[0], row[1], row[2], row[3], row[4]))
+            item["parts_observed_at"] = min(item.get("parts_observed_at", row[5]), row[5])
+        for item in facts.values():
+            item["parts"] = tuple(item.get("parts", ()))
+        for row in connection.execute(f"SELECT bvid,state,observed_at FROM video_tag_observations WHERE bvid IN ({placeholders})", bvids):
+            facts[row[0]].update(tags_success=row[1] != "unavailable", tags_observed_at=row[2])
+        return facts
 
     async def _fetch_user_page(
         self, mid: int, page_number: int, page_retries: int
@@ -554,12 +637,12 @@ class MetadataIngestor:
             except (GatewayRateLimited, GatewayTransportError):
                 if attempt == page_retries:
                     raise
-                await asyncio.sleep(
-                    min(
-                        PAGE_RETRY_BACKOFF_SECONDS * 2**attempt,
-                        PAGE_RETRY_BACKOFF_MAX_SECONDS,
-                    )
-                )
+                delay = min(PAGE_RETRY_BACKOFF_SECONDS * 2**attempt, PAGE_RETRY_BACKOFF_MAX_SECONDS)
+                scheduler = getattr(self._gateway, "request_scheduler", None)
+                if scheduler is not None:
+                    await scheduler.pause(delay)
+                else:
+                    await asyncio.sleep(delay)
         raise AssertionError("validated page retry bound must permit an attempt")
 
     async def _completed_summary(self, summary: VideoSummary, mid: int) -> VideoSummary:
@@ -603,7 +686,7 @@ class MetadataIngestor:
                 started_at=started_at,
                 finished_at=finished_at,
             ),
-            cursor=CursorRecord(
+            cursor=None if self._preserve_cursor else CursorRecord(
                 mid=mid,
                 next_page=page_number,
                 observed_total=observed_total,
@@ -737,7 +820,8 @@ class MetadataIngestor:
             tags=tags,
             tag_observations=tag_observations,
             details=detail_records,
-            cursor=CursorRecord(
+            preserve_unobserved_details=True,
+            cursor=None if self._preserve_cursor else CursorRecord(
                 mid=mid,
                 next_page=page_number + 1,
                 observed_total=observed_total,

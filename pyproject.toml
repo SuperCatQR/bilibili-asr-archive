@@ -22,6 +22,10 @@ classifiers = [
 bili-asr = "bili_asr.cli:main"
 
 [project.optional-dependencies]
+youtube = [
+    "yt-dlp[default]==2026.8.19",
+    "yt-dlp-ejs==0.8.0",
+]
 dev = [
     # The light members of the ASR stack.  The test double exercises the real audio path,
     # which calls numpy/soundfile/soxr directly; of the three, only soundfile and soxr are
@@ -74,7 +78,7 @@ exclude-dependencies = ["torch"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "migration-source-bilibili-v1.json"]
+"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "schema-content-v2.sql", "schema-observations.sql", "schema-source-sync.sql", "migration-source-bilibili-v1.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

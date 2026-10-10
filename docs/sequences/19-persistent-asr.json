@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "持久 GPU 会话：租约、热模型与故障回收",
+    "locale": "zh-CN",
+    "output": "docs/sequences/19-persistent-asr.html",
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "repository": {"url": "https://github.com/SuperCatQR/bilibili-asr-archive.git", "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3", "provider": "github", "link_mode": "web"}
+  },
+  "participants": [
+    {"id": "worker", "type": "backend", "label": "Worker", "sublabel": "父进程调度器", "sources": [{"path": "src/bili_asr/services/workflow_application.py", "line": 102, "end_line": 168}, {"path": "src/bili_asr/workflow.py", "line": 103, "end_line": 155}, {"path": "src/bili_asr/workflow_supervisor.py", "line": 90, "end_line": 225}]},
+    {"id": "database", "type": "database", "label": "SQLite", "sublabel": "任务与尝试权威", "sources": [{"path": "src/bili_asr/storage/job_commit.py", "line": 23, "end_line": 62}, {"path": "src/bili_asr/storage/workflow.py", "line": 203, "end_line": 294}, {"path": "src/bili_asr/storage/workflow.py", "line": 687, "end_line": 748}]},
+    {"id": "handler", "type": "backend", "label": "ASR Handler", "sublabel": "父进程结果写入", "sources": [{"path": "src/bili_asr/workflow_runtime.py", "line": 114, "end_line": 120}, {"path": "src/bili_asr/workflow_runtime.py", "line": 241, "end_line": 350}, {"path": "src/bili_asr/runtime_bindings.py", "line": 95, "end_line": 179}]},
+    {"id": "session", "type": "backend", "label": "Session 父端", "sublabel": "串行 IPC 与期限", "sources": [{"path": "src/bili_asr/asr/session.py", "line": 128, "end_line": 267}]},
+    {"id": "gpu", "type": "backend", "label": "GPU 子进程", "sublabel": "模型与双轮推理", "sources": [{"path": "src/bili_asr/asr/session.py", "line": 60, "end_line": 111}, {"path": "src/bili_asr/asr/runner.py", "line": 473, "end_line": 713}, {"path": "src/bili_asr/asr/runner.py", "line": 831, "end_line": 864}]},
+    {"id": "guardian", "type": "security", "label": "清理守护", "sublabel": "Linux / 进程组", "sources": [{"path": "src/bili_asr/asr/session.py", "line": 43, "end_line": 94}, {"path": "src/bili_asr/asr/session.py", "line": 220, "end_line": 259}]}
+  ],
+  "segments": [
+    {"from": 150, "to": 415, "label": "准入：父进程持有租约，冻结执行身份"},
+    {"from": 425, "to": 1110, "label": "正常路径：热模型推理，结果提交仍受租约约束"},
+    {"from": 1120, "to": 1455, "label": "异常替代路径：丢弃结果，终止后重建"}
+  ],
+  "messages": [
+    {"id": "claim-asr", "from": "worker", "to": "database", "y": 170, "label": "仅 claim 可执行 ASR", "variant": "emphasis"},
+    {"id": "claim-identity", "from": "database", "to": "worker", "y": 205, "label": "owner + attempt", "variant": "return"},
+    {"id": "invoke-handler", "from": "worker", "to": "handler", "y": 240, "label": "local_asr(job)", "variant": "default"},
+    {"id": "profile-audio", "from": "handler", "to": "database", "y": 275, "label": "读取冻结配置与音频", "variant": "default"},
+    {"id": "frozen-facts", "from": "database", "to": "handler", "y": 310, "label": "profile / 音频身份", "variant": "return"},
+    {"id": "start-acquisition", "from": "handler", "to": "database", "y": 345, "label": "租约内登记本次运行", "variant": "security"},
+    {"id": "submit-inference", "from": "handler", "to": "session", "y": 380, "label": "完整请求身份与期限", "variant": "emphasis"},
+    {"id": "configuration-spawn", "from": "session", "to": "gpu", "y": 450, "label": "首次/配置变更才启动", "variant": "default"},
+    {"id": "setup-parent-death", "from": "gpu", "to": "guardian", "y": 490, "label": "建立 EOF 清理守护", "variant": "security"},
+    {"id": "send-request", "from": "session", "to": "gpu", "y": 530, "label": "IPC：身份 + 音频", "variant": "emphasis"},
+    {"id": "checkpoint-callback", "from": "session", "to": "handler", "y": 570, "label": "轮询 checkpoint", "variant": "security"},
+    {"id": "checkpoint-db", "from": "handler", "to": "database", "y": 610, "label": "校验租约与取消状态", "variant": "security"},
+    {"id": "lease-heartbeat", "from": "worker", "to": "database", "y": 650, "label": "独立线程续约同一尝试", "variant": "dashed"},
+    {"id": "current-attempt", "from": "database", "to": "handler", "y": 690, "label": "仍持有当前尝试", "variant": "return"},
+    {"id": "checkpoint-ok", "from": "handler", "to": "session", "y": 730, "label": "继续等候有界响应", "variant": "return"},
+    {"id": "inference-response", "from": "gpu", "to": "session", "y": 770, "label": "身份 + 分段 + 证据", "variant": "return"},
+    {"id": "checked-response", "from": "session", "to": "handler", "y": 810, "label": "身份/期限检查通过", "variant": "security"},
+    {"id": "fenced-transcript", "from": "handler", "to": "database", "y": 850, "label": "围栏事务保存转录与证据", "variant": "security"},
+    {"id": "enqueue-publication", "from": "handler", "to": "database", "y": 890, "label": "持有租约才排入发布", "variant": "security"},
+    {"id": "handler-result", "from": "handler", "to": "worker", "y": 930, "label": "transcript / publish job", "variant": "return"},
+    {"id": "finish-attempt", "from": "worker", "to": "database", "y": 970, "label": "同 owner/attempt 才 finish", "variant": "security"},
+    {"id": "reuse-session", "from": "handler", "to": "session", "y": 1010, "label": "下一任务：相同配置", "variant": "default"},
+    {"id": "warm-request", "from": "session", "to": "gpu", "y": 1050, "label": "保留模型，重置任务态", "variant": "emphasis"},
+    {"id": "abort-process", "from": "session", "to": "gpu", "y": 1150, "label": "超时/取消/失租：终止", "variant": "security"},
+    {"id": "discard-mismatched", "from": "session", "to": "handler", "y": 1200, "label": "迟到/身份错：拒绝结果", "variant": "return"},
+    {"id": "failed-execution", "from": "handler", "to": "worker", "y": 1250, "label": "失败；Session 下次重建", "variant": "return"},
+    {"id": "fenced-failure", "from": "worker", "to": "database", "y": 1300, "label": "失败写入仍校验当前尝试", "variant": "security"},
+    {"id": "gpu-death-eof", "from": "gpu", "to": "guardian", "y": 1350, "label": "GPU 退出后管道 EOF", "variant": "dashed"},
+    {"id": "kill-decoder-group", "from": "guardian", "to": "gpu", "y": 1400, "label": "清理同组解码后代", "variant": "security"}
+  ],
+  "activations": [
+    {"participant": "worker", "from": 165, "to": 985, "type": "backend"},
+    {"participant": "handler", "from": 235, "to": 945, "type": "backend"},
+    {"participant": "session", "from": 375, "to": 1080, "type": "backend"},
+    {"participant": "gpu", "from": 445, "to": 1080, "type": "backend"},
+    {"participant": "guardian", "from": 485, "to": 1415, "type": "security"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "执行身份与写入权限", "items": ["仅父进程持有 SQLite、续约和提交权限；GPU 子进程不连接数据库。", "IPC 比较 protocol、generation、request_id、job_id、owner、attempt、profile_digest 与 runtime_binding。", "超时、迟到响应、取消、失租和子进程错误均丢弃本次结果，并终止 Session 后重建。"]},
+    {"dot": "emerald", "title": "热模型与有界准备", "items": ["会话按完整 ASR 配置与运行时模型绑定复用；配置或绑定改变先销毁旧会话。", "双轮推理重置任务热词与诊断；仅本次音频复用解码波形，不复用另一任务的 KV cache。", "CPU 预取默认关闭；开启后仅单层队列、独立 processor 与输入预算，失败回退串行。", "阶段 wall-time、父端等待和任务间隙是诊断证据，不能当作实测 GPU kernel 利用率。"]},
+    {"dot": "rose", "title": "退出与平台范围", "items": ["Linux GPU 子进程建立新进程组并设置 prctl 父死信号；独立 EOF Guardian 清理解码后代。", "drain 停止领取新任务，活动任务继续续约；宽限期到达后 checkpoint 中止本次推理。", "oneshot 为回退方式；图示持久 GPU 分支，CPU 与 legacy 路径见实现文档。", "本地 WSL 故障测试支持这些控制语义；图不代表真实 GPU 性能或 Windows 全进程树已经验收。"]}
+  ]
+}

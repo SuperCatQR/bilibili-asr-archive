@@ -8,15 +8,15 @@ import os
 from dataclasses import asdict
 from uuid import uuid4
 
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.artifact_root import roots_for
 from bili_asr.asr import default_config
 from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
 from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
-from bili_asr.artifact_root import roots_for
-from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
-from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind
-from bili_asr.services.workflow_application import WorkflowApplication
+from bili_asr.services.workflow_application import WORKER_ROLES, WorkflowApplication
 from bili_asr.storage.database import SchemaContractError
+from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind
 
 
 def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -65,7 +65,7 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     render = actions.add_parser("render", help="Queue deterministic Markdown rendering without calling AI")
     render.add_argument("--archive-root", default=archive_root)
     render.add_argument("--revision-id", required=True)
-    render.add_argument("--template-version", choices=[TEMPLATE_VERSION], default=TEMPLATE_VERSION)
+    render.add_argument("--template-version", choices=[TEMPLATE_VERSION, "ai-draft-v2"], default=TEMPLATE_VERSION)
     render.add_argument("--artifact-root", default=None, help="Product root used by subsequent workflow run invocations")
 
     run = actions.add_parser("run", help="Claim and execute ready SQLite jobs")
@@ -74,6 +74,40 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     run.add_argument("--worker-id", default=f"cli-{os.getpid()}-{uuid4().hex[:8]}")
     run.add_argument("--sessdata", default=None)
     run.add_argument("--only-editorial", action="store_true", help="Execute only proofreading/rendering jobs")
+    worker_selection = run.add_mutually_exclusive_group()
+    worker_selection.add_argument("--kind", choices=[kind.value for kind in JobKind], action="append",
+                                  help="Claim only this job kind; repeat to select more")
+    worker_selection.add_argument("--role", choices=tuple(WORKER_ROLES),
+                                  help="Select the fixed ASR/acquisition/editorial/CPU handler set")
+    run.add_argument("--drain-file", default=None, help="Stop claiming when this file exists")
+    run.add_argument("--drain-timeout", type=float, default=None,
+                     help="Grace period after drain; GPU inference is terminated on expiry")
+    run.add_argument("--gpu-session", choices=("persistent", "oneshot"), default="persistent",
+                     help="Reuse one killable model session or restart for each GPU task")
+    run.add_argument("--asr-prefetch", action="store_true",
+                     help="Experimental depth-one CPU preparation using a separate processor")
+    run.add_argument("--asr-prefetch-bytes", type=int, default=64 * 1024 * 1024,
+                     help="Conservative reservation budget for the prepared next chunk")
+    run.add_argument("--runtime-bindings", default=None,
+                     help="Verified checkpoint relocation file; frozen profiles remain unchanged")
+    run.add_argument("--poll-interval", type=float, default=0,
+                     help="Keep this worker alive and poll idle queues; zero runs until idle once")
+
+    supervise = actions.add_parser("supervise", help="Own fixed worker slots, restart with backoff and drain on exit")
+    supervise.set_defaults(database_policy=None)
+    supervise.add_argument("--archive-root", default=archive_root)
+    supervise.add_argument("--artifact-root", default=None)
+    supervise.add_argument("--asr-slots", type=int, default=1)
+    supervise.add_argument("--cpu-slots", type=int, default=1)
+    supervise.add_argument("--editorial-slots", type=int, default=1)
+    supervise.add_argument("--poll-interval", type=float, default=5)
+    supervise.add_argument("--drain-file", default=None)
+    supervise.add_argument("--drain-timeout", type=float, default=60)
+    supervise.add_argument("--max-restarts", type=int, default=8)
+    supervise.add_argument("--gpu-session", choices=("persistent", "oneshot"), default="persistent")
+    supervise.add_argument("--asr-prefetch", action="store_true")
+    supervise.add_argument("--asr-prefetch-bytes", type=int, default=64 * 1024 * 1024)
+    supervise.add_argument("--runtime-bindings", default=None)
     run.add_argument("--artifact-root", default=None, help="Write products here; falls back to BILI_ARTIFACT_ROOT")
 
     status = actions.add_parser("status", help="Print workflow job counts from SQLite")
@@ -105,6 +139,14 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     retry.add_argument("--part-id", type=int, action="append", default=None)
     retry.add_argument("--job-id", action="append", default=None)
     retry.add_argument("--kind", choices=[kind.value for kind in JobKind], action="append", default=None)
+
+    repair = actions.add_parser("repair-dependencies", help="Plan or apply a fenced repair of legacy producer edges")
+    repair.set_defaults(database_policy=ArchiveAccessMode.READ)
+    repair.add_argument("--archive-root", default=archive_root)
+    repair.add_argument("--part-id", type=int, action="append", required=True)
+    repair.add_argument("--apply", action="store_true", help="Apply the exact inspected plan")
+    repair.add_argument("--expected-plan-id", default=None, help="Required inspected plan identity for --apply")
+    repair.add_argument("--retry-failed", action="store_true", help="Requeue failed audio and ASR producers, preserving attempts")
 
 
 def _nonnegative_page_index(value: str) -> int:
@@ -145,11 +187,23 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
 
 
 def _execute_workflow(args: argparse.Namespace) -> int:
+    if args.workflow_action == "supervise":
+        from bili_asr.workflow_supervisor import WorkerSupervisor
+        supervisor = WorkerSupervisor(archive_root=args.archive_root, artifact_root=args.artifact_root,
+            slots={"asr": args.asr_slots, "cpu": args.cpu_slots, "editorial": args.editorial_slots},
+            poll_interval=args.poll_interval, drain_file=args.drain_file, drain_timeout=args.drain_timeout,
+            max_restarts=args.max_restarts, gpu_session=args.gpu_session,
+            asr_prefetch=args.asr_prefetch, asr_prefetch_bytes=args.asr_prefetch_bytes,
+            runtime_bindings=args.runtime_bindings)
+        supervisor.run()
+        return 0
     artifact_roots = None
     if args.workflow_action in {"run", "render"}:
         artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
                                    require_writable=args.workflow_action == "run")
-    mode = ArchiveAccessMode.READ if args.workflow_action in {"status", "explain", "asr-evidence"} else ArchiveAccessMode.WRITE
+    readonly = args.workflow_action in {"status", "explain", "asr-evidence"} or (
+        args.workflow_action == "repair-dependencies" and not args.apply)
+    mode = ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE
     session = ArchiveSession(args.archive_root, mode=mode, artifact_roots=artifact_roots).open()
     connection = session.connection
     try:
@@ -157,6 +211,14 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         repository = application.repository
         if args.workflow_action != "status":
             repository.require_cancellation_contract()
+        if args.workflow_action == "repair-dependencies":
+            if args.apply and args.expected_plan_id is None:
+                raise ValueError("--apply requires --expected-plan-id from the inspected plan")
+            from bili_asr.storage.workflow_dependency_repair import repair_producer_dependencies
+            report = repair_producer_dependencies(connection, args.part_id, apply=args.apply,
+                expected_plan_id=args.expected_plan_id, retry_failed=args.retry_failed)
+            print(json.dumps(report, ensure_ascii=False, sort_keys=True, allow_nan=False))
+            return 0
         if args.workflow_action == "asr-evidence":
             from bili_asr.storage import TranscriptRepository
 
@@ -259,8 +321,17 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                       f"video_part_id={target.video_part_id} work_id={target.work_id}")
             return 0
         sessdata = resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
+        config_resolver = None
+        if args.runtime_bindings is not None:
+            from bili_asr.runtime_bindings import load_runtime_bindings
+            config_resolver = load_runtime_bindings(args.runtime_bindings).resolve
         summary = application.run(worker_id=args.worker_id, sessdata=sessdata,
-                                  only_editorial=args.only_editorial, limit=args.limit)
+            only_editorial=args.only_editorial, limit=args.limit,
+            kinds=None if args.kind is None else tuple(JobKind(kind) for kind in args.kind), role=args.role,
+            drain_file=args.drain_file, drain_timeout_seconds=args.drain_timeout,
+            gpu_session=args.gpu_session, config_resolver=config_resolver,
+            asr_prefetch=args.asr_prefetch, asr_prefetch_bytes=args.asr_prefetch_bytes,
+            poll_interval_seconds=args.poll_interval)
         print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} "
               f"cancelled={summary.cancelled} idle={int(summary.idle)}")
         return 1 if summary.failed else 0

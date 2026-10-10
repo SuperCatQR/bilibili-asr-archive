@@ -2,6 +2,12 @@
 
 A local pipeline that collects Bilibili video metadata, acquires subtitle or audio evidence, runs local ASR when planned, and publishes transcript bundles. SQLite is the operational source of truth; transcript and audio files are derived products.
 
+The explicit `universal-v2` archive adds single-video YouTube ingestion and
+versioned source metadata without rewriting historical Bilibili editions.
+See [Issues implementation and architecture](docs/issues-implementation.md),
+[source adapters](docs/source-adapters.md), and [ASR workers](docs/asr-workers.md)
+for migration, optional dependencies, worker roles and recovery checks.
+
 ## Architecture
 
 ```text

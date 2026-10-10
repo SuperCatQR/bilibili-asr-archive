@@ -1,0 +1,11 @@
+# Architecture receipts bind exact exported bytes across Windows and WSL.
+docs/issues-architecture.html -text -diff -whitespace
+docs/issues-architecture.json -text -whitespace
+docs/issues-publication-sequence.html -text -diff -whitespace
+docs/issues-publication-sequence.json -text -whitespace
+docs/sequences/1[89]-*.html -text -diff -whitespace
+docs/sequences/1[89]-*.json -text -whitespace
+docs/sequences/2[0-3]-*.html -text -diff -whitespace
+docs/sequences/2[0-3]-*.json -text -whitespace
+docs/issue-diagram-validation/*.json -text -whitespace
+docs/issue-diagram-validation/**/*.json -text -whitespace

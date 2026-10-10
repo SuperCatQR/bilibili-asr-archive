@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+import signal
+import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,12 +13,19 @@ from typing import Any
 from bili_asr.archive_session import ArchiveSession
 from bili_asr.editorial import EditorialConfig
 from bili_asr.storage.editorial import EditorialRepository
-from bili_asr.storage.transcripts import TranscriptRepository
 from bili_asr.storage.workflow import WorkflowRepository
 from bili_asr.storage.workflow_selection import WorkflowSelection, resolve_workflow_selection
 from bili_asr.transcript_selection import choose_transcript
 from bili_asr.workflow import ExecutionSummary, WorkflowExecutor
 from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind, WorkflowPlan
+
+
+WORKER_ROLES = {
+    "asr": (JobKind.ASR,),
+    "acquisition": (JobKind.SUBTITLE, JobKind.AUDIO),
+    "editorial": (JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT),
+    "cpu": (JobKind.SUBTITLE, JobKind.AUDIO, JobKind.PUBLISH),
+}
 
 
 @dataclass(frozen=True)
@@ -42,11 +52,13 @@ class WorkflowApplication:
 
     def publish(self, part_ids: Iterable[int]) -> list[dict[str, Any]]:
         selection = resolve_workflow_selection(self.session.connection, part_ids=part_ids)
-        transcripts = TranscriptRepository(self.session.connection)
         selected = []
         for target in selection.targets:
-            candidate = choose_transcript(transcripts.list_stored_transcripts(
-                bvid=target.bvid, page_index=target.page_index))
+            # The processing unit ID is authoritative for every platform. BVID is
+            # a compatibility field and is absent for a YouTube unit.
+            candidate = choose_transcript(self.session.connection.execute(
+                "SELECT transcript_id,source_kind,language,version FROM transcripts WHERE video_part_id=?",
+                (target.video_part_id,)).fetchall())
             if candidate is None:
                 raise ValueError(f"no stored transcript for {target.work_id}")
             selected.append((target, int(candidate["transcript_id"])))
@@ -90,11 +102,28 @@ class WorkflowApplication:
         return job_id
 
     def run(self, *, worker_id: str, sessdata: str | None,
-            only_editorial: bool, limit: int | None) -> ExecutionSummary:
+            only_editorial: bool = False, limit: int | None = None,
+            kinds: tuple[JobKind, ...] | None = None, role: str | None = None,
+            drain_file: str | None = None, drain_timeout_seconds: float | None = None,
+            gpu_session: str = "persistent", config_resolver=None,
+            asr_prefetch: bool = False, asr_prefetch_bytes: int = 64 * 1024 * 1024,
+            poll_interval_seconds: float = 0, shutdown_event: threading.Event | None = None,
+            source_registry=None) -> ExecutionSummary:
         from contextlib import ExitStack
+
         from bili_asr.editorial_runtime import EditorialWorkflowHandlers
         from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
 
+        if role is not None and role not in WORKER_ROLES:
+            raise ValueError("unknown worker role")
+        if sum((bool(only_editorial), kinds is not None, role is not None)) > 1:
+            raise ValueError("choose only one of only-editorial, role or kind")
+        if not math.isfinite(poll_interval_seconds) or poll_interval_seconds < 0:
+            raise ValueError("poll_interval_seconds must be finite and nonnegative")
+        if limit is not None and (type(limit) is not int or limit < 1):
+            raise ValueError("limit must be positive")
+        selected = WORKER_ROLES[role] if role is not None else (
+            WORKER_ROLES["editorial"] if only_editorial else kinds)
         registered = {}
         with ExitStack() as resources:
             if self.repository.has_manuscript_contract() or only_editorial:
@@ -107,9 +136,33 @@ class WorkflowApplication:
             if not only_editorial:
                 archive = ArchiveWorkflowHandlers(
                     self.session.connection, self.repository, archive_root=self.session.archive_root,
-                    sessdata=sessdata, artifact_roots=self.session.artifact_roots)
+                    sessdata=sessdata, artifact_roots=self.session.artifact_roots,
+                    gpu_session=gpu_session, config_resolver=config_resolver,
+                    asr_prefetch=asr_prefetch, asr_prefetch_bytes=asr_prefetch_bytes)
                 resources.callback(archive.close)
                 registered.update(archive.handlers())
-            return WorkflowExecutor(
+                from bili_asr.services.source_workflow import compose_source_handlers
+                registered.update(compose_source_handlers(archive, source_registry))
+            stop = shutdown_event or threading.Event()
+            if threading.current_thread() is threading.main_thread():
+                def request_drain(_signum, _frame):
+                    stop.set()
+                for signum in (signal.SIGINT, signal.SIGTERM):
+                    previous = signal.signal(signum, request_drain)
+                    resources.callback(signal.signal, signum, previous)
+            executor = WorkflowExecutor(
                 self.repository, worker_id=worker_id, handlers=registered,
-                kinds=(JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT) if only_editorial else None).run(limit=limit)
+                kinds=tuple(registered) if selected is None else tuple(dict.fromkeys(selected)),
+                drain_requested=lambda: stop.is_set() or (drain_file is not None and Path(drain_file).exists()),
+                drain_timeout_seconds=drain_timeout_seconds)
+            succeeded = failed = cancelled = 0
+            while True:
+                remaining = None if limit is None else limit - succeeded - failed - cancelled
+                summary = executor.run(limit=remaining)
+                succeeded += summary.succeeded
+                failed += summary.failed
+                cancelled += summary.cancelled
+                if (not poll_interval_seconds or executor.drain_requested()
+                        or (limit is not None and succeeded + failed + cancelled >= limit)):
+                    return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled)
+                stop.wait(poll_interval_seconds)

@@ -6,6 +6,7 @@ import sqlite3
 
 from bili_asr.storage.publication import PublicationRepository, read_edition
 from bili_asr.publication_content import normalize_actor, normalize_text, normalize_content
+from bili_asr.publication_content_v2 import normalize_content_v2
 
 
 def source_tags(connection: sqlite3.Connection, bvid: str) -> list[str]:
@@ -28,7 +29,14 @@ def sync_source_tags(connection: sqlite3.Connection, *, edition_id: str, actor: 
     repository = PublicationRepository(connection)
     with repository.transaction():
         parent = read_edition(connection, edition_id)
-        bvid = parent["content"]["source"]["bvid"]
+        version = parent["content_version"]
+        source = parent["content"]["source"]
+        if version == 2:
+            if source["platform"] != "bilibili":
+                raise ValueError("publication-tags: source has no verified tag observation to sync")
+            bvid = source["externalVideoId"]
+        else:
+            bvid = source["bvid"]
         coverage = tag_coverage(connection, bvid)
         if coverage in {"not_attempted", "unavailable"}:
             raise ValueError("publication-tags: source tag coverage incomplete; run fetch-tags before syncing")
@@ -36,6 +44,6 @@ def sync_source_tags(connection: sqlite3.Connection, *, edition_id: str, actor: 
         content["tags"] = source_tags(connection, bvid)
         return repository.insert_edition(
             part_id=parent["video_part_id"], revision_id=parent["revision_id"],
-            content=normalize_content(content), parent_edition_id=edition_id,
-            actor=actor, note="Source video_tags sync: " + note, event_type="edited",
+            content=(normalize_content_v2 if version == 2 else normalize_content)(content), parent_edition_id=edition_id,
+            actor=actor, note="Source video_tags sync: " + note, event_type="edited", content_version=version,
         )

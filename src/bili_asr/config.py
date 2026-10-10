@@ -82,6 +82,9 @@ class MetadataConfig:
     skip_failed_page: bool
     sessdata: str | None = field(repr=False)
     page_retries: int = 0
+    incremental: bool = False
+    refresh_mode: str = "force"
+    ttl_seconds: int = 86400
 
 
 def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
@@ -101,6 +104,13 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
     resume = bool(args.resume)
     skip_failed_page = bool(getattr(args, "skip_failed_page", False))
     page_retries = getattr(args, "page_retries", 0)
+    incremental = bool(getattr(args, "incremental", False))
+    refresh_mode = getattr(args, "refresh_mode", "force")
+    ttl_seconds = getattr(args, "ttl_seconds", 86400)
+    if incremental and (resume or start_page is not None):
+        raise MetadataConfigError("--incremental cannot be combined with --resume or --start-page")
+    if refresh_mode not in {"new", "missing", "stale", "force"} or type(ttl_seconds) is not int or ttl_seconds < 0:
+        raise MetadataConfigError("invalid metadata refresh mode or TTL")
 
     if isinstance(mid, bool) or not isinstance(mid, int) or mid < 1:
         raise MetadataConfigError("--mid must be a positive integer")
@@ -131,6 +141,7 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
         resume=resume,
         skip_failed_page=skip_failed_page,
         page_retries=page_retries,
+        incremental=incremental, refresh_mode=refresh_mode, ttl_seconds=ttl_seconds,
         sessdata=resolve_sessdata(
             getattr(args, "sessdata", None), os.environ.get(SESSDATA_ENV_VAR)
         ),

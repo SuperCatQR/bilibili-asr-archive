@@ -1249,9 +1249,9 @@ def test_bootstrap_refuses_a_pre_iteration_database_without_modifying_it(tmp_roo
     database_path = Path(tmp_root) / "archive.db"
     _write_pre_iteration_database(database_path)
     before = database_path.read_bytes()
-    with pytest.raises(SchemaContractError, match="delete archive.db") as refused:
+    with pytest.raises(SchemaContractError, match="preserve archive.db") as refused:
         open_database(database_path)
-    assert "discarded" in str(refused.value)
+    assert "separate empty target" in str(refused.value)
     assert database_path.read_bytes() == before
 
 def test_require_subtitle_schema_requires_the_process_record_objects(tmp_root):

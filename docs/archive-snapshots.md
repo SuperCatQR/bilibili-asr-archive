@@ -1,5 +1,14 @@
 # Portable Archive Snapshots
 
+Snapshot format version 1 now supports both validated `bilibili-v1` and
+`universal-v2` database contracts. Restore retains the saved contract; the
+explicit archive migration command performs contract conversion. Read-only
+`snapshot inspect`, `snapshot plan`, and `snapshot doctor` distinguish data
+completeness from runtime readiness, including verified model relocation.
+`snapshot restore --report PATH` writes a separate recovery audit. See
+[Issues implementation](issues-implementation.md)
+for command examples and installation/audit failure semantics.
+
 `snapshot save`, `snapshot check`, and `snapshot restore` transfer one complete
 archive between devices. SQLite remains the source of metadata, transcripts,
 workflow progress, and editorial history. The snapshot inventory describes
@@ -91,8 +100,8 @@ The stable coordination file lives beside the archive root as
 `.<root-name>.archive-maintenance.lock`. Keep this file in place; replacing or
 deleting it during an invocation would split coordination between processes.
 
-Status and runs currently initialize shipped database objects when they open
-an existing store, so those commands also participate in shared coordination.
+Status and runs use read-only archive sessions without schema initialization;
+ordinary writers also participate in shared coordination.
 Programmatic callers performing writes must use
 `bili_asr.archive_maintenance.archive_access(root)` for their whole operation.
 Processes from older versions and direct SQLite/file modifications do not
@@ -144,7 +153,7 @@ Existing immutable ASR profiles are preserved rather than edited to fit a new
 host. Inspect pending profiles before running on a device with different GPU
 support; use the workflow planner to create a new profile when needed.
 
-This first format supports the current database contract, including the same
+This format supports both declared database contracts, including the same
 normalized core table definitions required by ordinary application opens.
 It does not upgrade
 older contracts, merge independently modified archives, provide bidirectional

@@ -72,8 +72,10 @@ def render_publish_v1(content: dict[str, Any]) -> bytes:
     return ("\n\n".join(parts) + "\n").encode("utf-8")
 
 
-AI_RENDERERS = {"ai-draft-v1": render_ai_v1}
-PUBLISH_RENDERERS = {"publish-v1": render_publish_v1}
+from bili_asr.publication_content_v2 import render_ai_v2, render_publish_v2
+
+AI_RENDERERS = {"ai-draft-v1": render_ai_v1, "ai-draft-v2": render_ai_v2}
+PUBLISH_RENDERERS = {"publish-v1": render_publish_v1, "publish-v2": render_publish_v2}
 
 
 Renderer = TypeVar("Renderer", bound=Callable)

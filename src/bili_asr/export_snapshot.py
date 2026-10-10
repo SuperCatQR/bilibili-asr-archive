@@ -84,8 +84,12 @@ def _allowed_file(name: str, kind: str) -> bool:
     return name in _REVIEW_FILES
 
 
-def _validate_article(article: object, *, draft: bool = False) -> dict:
+def _validate_article(article: object, *, draft: bool = False, catalog_version: int = 2) -> dict:
     fields = _DRAFT_FIELDS if draft else _ARTICLE_FIELDS
+    universal = catalog_version == 3 and isinstance(article, dict) and article.get("contentVersion") == 2
+    if universal:
+        fields = (fields - {"bvid", "pageIndex"}) | {"platform", "externalVideoId", "partIndex", "sourceMetadata",
+                                                   "sourcePublishedAt", "pubdateUnix", "contentVersion"}
     if not isinstance(article, dict) or set(article) != fields:
         raise ExportSnapshotError("public article fields differ from the contract")
     hashes = ("aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256") if draft else ("releaseId", "aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256")
@@ -94,14 +98,32 @@ def _validate_article(article: object, *, draft: bool = False) -> dict:
             raise ExportSnapshotError(f"invalid public article hash: {key}")
     if not isinstance(article["editionId"], str) or not re.fullmatch(r"[0-9a-f]{32}", article["editionId"]):
         raise ExportSnapshotError("invalid public edition ID")
-    for key, minimum in (("videoPartId", 1), ("pageIndex", 0), ("createdAt" if draft else "publishedAt", 0)):
+    for key, minimum in (("videoPartId", 1), ("partIndex" if universal else "pageIndex", 0), ("createdAt" if draft else "publishedAt", 0)):
         if type(article[key]) is not int or article[key] < minimum:
             raise ExportSnapshotError(f"invalid public article integer: {key}")
-    for key in ("title", "summary", "attribution", "editorNote", "bvid"):
+    for key in ("title", "summary", "attribution", "editorNote", "externalVideoId" if universal else "bvid"):
         if not isinstance(article[key], str):
             raise ExportSnapshotError(f"invalid public article text: {key}")
-    if not article["title"].strip() or not article["attribution"].strip() or not re.fullmatch(r"[A-Za-z0-9_-]+", article["bvid"]):
+    if not article["title"].strip() or not article["attribution"].strip():
         raise ExportSnapshotError("invalid public article title, attribution, or source")
+    if universal:
+        from bili_asr.platform_identity import ContentRef
+        from bili_asr.source_identity import source_url
+        from bili_asr.source_metadata import SourceMetadataSnapshot
+        try:
+            ref = ContentRef(article["platform"], article["externalVideoId"], article["partIndex"])
+            metadata = SourceMetadataSnapshot.from_dict(article["sourceMetadata"])
+            if (type(article["contentVersion"]) is not int or metadata.ref != ref
+                    or article["sourcePublishedAt"] != metadata.to_dict()["sourcePublishedAt"]
+                    or article["pubdateUnix"] != metadata.pubdate):
+                raise ValueError("source snapshot mismatch")
+            expected_url = source_url(ref)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ExportSnapshotError("invalid universal public source") from exc
+    else:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", article["bvid"]):
+            raise ExportSnapshotError("invalid public article source")
+        expected_url = f"https://www.bilibili.com/video/{article['bvid']}/?p={article['pageIndex'] + 1}"
     tags = article["tags"]
     if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag.strip() for tag in tags) or len(set(tags)) != len(tags):
         raise ExportSnapshotError("invalid public article tags")
@@ -112,11 +134,11 @@ def _validate_article(article: object, *, draft: bool = False) -> dict:
     if draft:
         if not isinstance(article["reviewStatus"], str) or article["reviewStatus"] not in _REVIEW_STATUSES:
             raise ExportSnapshotError("invalid draft review status")
-    elif article["templateVersion"] != "publish-v1":
+    elif article["templateVersion"] != ("publish-v2" if universal else "publish-v1"):
         raise ExportSnapshotError("invalid public article template")
     if (article["manuscriptType"] != manuscript_type
             or article["slug"] != slug or article["file"] != filename or article["reviewFile"] != review_filename
-            or article["sourceUrl"] != f"https://www.bilibili.com/video/{article['bvid']}/?p={article['pageIndex'] + 1}"):
+            or article["sourceUrl"] != expected_url):
         raise ExportSnapshotError("public article identity or source URL mismatch")
     return article
 
@@ -195,11 +217,11 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         catalog = read_json(directory / "catalog.json")
         draft = kind == "publication-draft-export"
         manuscript_type = "publication-draft" if draft else "publication"
-        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] != 2 or catalog["manuscriptType"] != manuscript_type or not isinstance(catalog["articles"], list):
+        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] not in {2, 3} or catalog["manuscriptType"] != manuscript_type or not isinstance(catalog["articles"], list):
             raise ExportSnapshotError("unsupported public catalog contract")
         article_files: set[str] = set()
         for article in catalog["articles"]:
-            article = _validate_article(article, draft=draft)
+            article = _validate_article(article, draft=draft, catalog_version=catalog["schemaVersion"])
             for file_field, hash_field in (("file", "artifactSha256"), ("reviewFile", "reviewArtifactSha256")):
                 if article[file_field] in article_files:
                     raise ExportSnapshotError("invalid public catalog article file")

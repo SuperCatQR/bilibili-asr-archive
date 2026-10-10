@@ -16,6 +16,8 @@ import bili_asr.search_index.constants as _dependency_constants
 import bili_asr.search_index.errors as _dependency_errors
 import bili_asr.search_index.models as _dependency_models
 import bili_asr.search_index.readers as _dependency_readers
+from bili_asr.storage.archive_contracts import BILIBILI_V1, UNIVERSAL_V2, runtime_contract
+from . import source_store
 
 
 class TranscriptSearchIndex:
@@ -152,17 +154,19 @@ class TranscriptSearchIndex:
         ).fetchone()
         return row is not None
 
-    def _assert_index_shape(self, conn: sqlite3.Connection) -> None:
-        """Distinguish an incompatible/damaged index from a bad FTS query."""
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+    def _assert_index_shape(self, conn: sqlite3.Connection) -> str:
+        """Dispatch marked archives and validate legacy FTS in one schema read."""
+        objects = dict(conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name IN (?, 'archive_contract')",
             (_dependency_constants.STORE_FTS5_TABLE,),
-        ).fetchone()
-        if row is None:
+        ))
+        if "archive_contract" in objects:
+            return runtime_contract(conn)
+        if _dependency_constants.STORE_FTS5_TABLE not in objects:
             raise _dependency_errors.SearchIndexMissingError(
                 "index missing — run `bili-asr search-index` to build it"
             )
-        if not re.search(r"\bUSING\s+fts5\s*\(", str(row[0]), re.IGNORECASE):
+        if not re.search(r"\bUSING\s+fts5\s*\(", str(objects[_dependency_constants.STORE_FTS5_TABLE]), re.IGNORECASE):
             raise _dependency_errors.TranscriptStoreError("transcript index corrupt: expected an FTS5 table")
         try:
             columns = {
@@ -179,11 +183,14 @@ class TranscriptSearchIndex:
             raise _dependency_errors.TranscriptStoreError(
                 "transcript index corrupt: missing required columns " + ", ".join(sorted(required - columns))
             )
+        return BILIBILI_V1
 
     def stamp(self) -> int:
         """Last fully indexed transcript id, or -1 before any is complete."""
         conn = self._connect()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.stamp(conn)
             if not self._has_index(conn):
                 return -1
             return self._store_progress(conn)[0]
@@ -196,6 +203,8 @@ class TranscriptSearchIndex:
         """Number of indexed blocks, or 0 when no index exists."""
         conn = self._connect()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.count(conn)
             if not self._has_index(conn):
                 return 0
             row = conn.execute(f"SELECT COUNT(*) FROM {_dependency_constants.STORE_FTS5_TABLE}").fetchone()
@@ -213,6 +222,8 @@ class TranscriptSearchIndex:
         """
         conn = self._connect()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.metadata(conn)
             if not self._has_index(conn):
                 return {}
             rows = conn.execute(
@@ -440,6 +451,8 @@ class TranscriptSearchIndex:
         """
         conn = self._connect_for_build()
         try:
+            if runtime_contract(conn) == UNIVERSAL_V2:
+                return source_store.build(conn)
             self._ensure_schema(conn)
             completed_id, after_id, after_ordinal = self._store_progress(conn, for_build=True)
             self._write_store_progress(conn, (completed_id, after_id, after_ordinal))
@@ -566,7 +579,9 @@ class TranscriptSearchIndex:
 
         conn = self._connect()
         try:
-            self._assert_index_shape(conn)
+            if self._assert_index_shape(conn) == UNIVERSAL_V2:
+                return source_store.search_blocks(conn, clean_q, pubdate_from=pubdate_from,
+                    pubdate_to=pubdate_to, limit=limit)
             where = [f"{_dependency_constants.STORE_FTS5_TABLE} MATCH ?"]
             params: list[Any] = [clean_q]
             if pubdate_from is not None:

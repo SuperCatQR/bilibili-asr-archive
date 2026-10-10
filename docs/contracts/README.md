@@ -1,5 +1,25 @@
 # Manuscript Export Contracts
 
+The historical version-2 schemas below remain available unchanged. An export
+containing content-version 2 uses `publication-catalog-v3.schema.json` or
+`publication-draft-catalog-v3.schema.json`. Version 3 can mix exact historical
+Bilibili article shapes with universal articles. Universal articles explicitly
+declare `contentVersion: 2`, platform, external video ID, part index and the
+complete immutable `source-metadata-v1` snapshot. They never manufacture BVIDs.
+Their release template is `publish-v2`; draft catalogs still have no template or
+release fields. The manifest envelope remains version 1.
+
+The JSON Schemas describe field shapes. A consumer must also validate provider
+IDs, canonical URLs, metadata/source identity equality, derived publication
+time, slug and file identity, file hashes and exact manifest membership. Source
+time can be null when unknown; collection and release times cannot replace it.
+Current database metadata cannot alter either historical or universal editions.
+See [implementation boundaries](../issues-implementation.md) for version
+registration and migration. The independent reading-site delivery must adopt
+catalog version 3 before serving new universal entries.
+
+The remaining paragraphs describe the historical version-2 reader contract.
+
 The public reader consumes `catalog.json` matching
 `publication-catalog.schema.json`. The root is an object with
 `schemaVersion: 2`, `manuscriptType: "publication"`, and `articles`. A legacy

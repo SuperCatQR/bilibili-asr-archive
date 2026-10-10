@@ -226,3 +226,67 @@ def inspect_migration_source(database_path: Path) -> MigrationSourceReport:
     return MigrationSourceReport(
         contract["contract_id"], contract["source_revision"], fingerprints, derived, expired_running,
     )
+
+
+def legacy_source_contract() -> dict:
+    """Load the frozen source resource, never the active runtime initializer."""
+    return _contract()
+
+
+def table_fingerprint(connection: sqlite3.Connection, name: str, columns: list[str]) -> TableFingerprint:
+    """Fingerprint original columns of a source or explicitly converted target.
+
+    A target may add mapping columns, but caller-supplied identifiers must name
+    columns of a registered authority table. SQLite storage types remain part
+    of the digest; TEXT is read as UTF-8 bytes rather than normalized strings.
+    """
+    contract = _contract()
+    shape = contract["objects"].get(name)
+    if shape is None or shape["kind"] != "table" or columns != shape["columns"]:
+        raise MigrationSourceError("unregistered source table fingerprint")
+    previous = connection.text_factory
+    try:
+        connection.text_factory = bytes
+        return _fingerprint(connection, name, columns)
+    finally:
+        connection.text_factory = previous
+
+
+def iter_legacy_rows(connection: sqlite3.Connection, name: str):
+    """Stream (rowid, ((storage_type, raw_value), ...)) in source order.
+
+    This is the materializer contract. A converter must bind TEXT through a
+    CAST to retain its SQLite storage class, including undecodable UTF-8 bytes.
+    """
+    shape = _contract()["objects"].get(name)
+    if shape is None or shape["kind"] != "table":
+        raise MigrationSourceError("unregistered source table reader")
+    expressions = ["rowid"]
+    for column in shape["columns"]:
+        expressions.extend((f"typeof({_identifier(column)})", _identifier(column)))
+    previous = connection.text_factory
+    try:
+        connection.text_factory = bytes
+        for row in connection.execute(f"SELECT {','.join(expressions)} FROM {_identifier(name)} ORDER BY rowid"):
+            yield row[0], tuple((row[index].decode("ascii"), row[index + 1]) for index in range(1, len(row), 2))
+    finally:
+        connection.text_factory = previous
+
+
+def typed_row_digest(name: str, rowid: int, cells, *, columns: list[str] | None = None) -> str:
+    """Hash effective rowid, names, storage classes and exact raw cell bytes."""
+    shape = _contract()["objects"].get(name)
+    if shape is None or shape["kind"] != "table" or len(cells) != len(shape["columns"]):
+        raise MigrationSourceError("unregistered typed source row")
+    selected = shape["columns"] if columns is None else columns
+    if any(column not in shape["columns"] for column in selected):
+        raise MigrationSourceError("unregistered typed source column")
+    digest = hashlib.sha256(b"bili-asr-imported-row-v1\x00" + struct.pack(">q",rowid))
+    digest.update(json.dumps([name, selected],separators=(",",":")).encode("utf-8"))
+    for column,(kind,value) in zip(shape["columns"],cells):
+        if column not in selected:
+            continue
+        payload = (b"" if kind=="null" else struct.pack(">q",value) if kind=="integer"
+                   else struct.pack(">d",value) if kind=="real" else value)
+        digest.update(kind.encode("ascii") + b"\x00" + struct.pack(">Q",len(payload)) + payload)
+    return digest.hexdigest()

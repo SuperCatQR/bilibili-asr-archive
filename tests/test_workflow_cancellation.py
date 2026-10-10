@@ -518,7 +518,7 @@ def test_cancel_cli_unknown_selection_is_atomic_and_legacy_schema_error_is_reada
     assert cli.main(["workflow", "cancel", "--archive-root", str(tmp_path), "--job-id", job.job_id]) == 1
     output = capsys.readouterr()
     assert "incompatible archive database" in output.err and "workflow_attempts" in output.err
-    assert "delete archive.db and re-run fetch-meta" in output.err
+    assert "preserve archive.db and its artifacts" in output.err
     assert not output.out and _job_row(database, job.job_id)["status"] == "running"
 
 

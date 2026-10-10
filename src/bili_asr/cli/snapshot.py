@@ -21,13 +21,29 @@ def add_snapshot_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     check = actions.add_parser("check", help="Verify snapshot hashes, database contract, and file references offline")
     check.set_defaults(database_policy=None)
     check.add_argument("--file", required=True, help="Snapshot ZIP to verify")
+    inspect = actions.add_parser("inspect", help="Inspect verified data and derived recovery readiness")
+    inspect.set_defaults(database_policy=None)
+    inspect.add_argument("--file", required=True)
+    inspect.add_argument("--runtime-bindings", default=None)
+    plan = actions.add_parser("plan", help="Validate a restore target without creating or changing it")
+    plan.set_defaults(database_policy=None)
+    plan.add_argument("--file", required=True)
+    plan.add_argument("--archive-root", required=True)
+    plan.add_argument("--runtime-bindings", default=None)
+    doctor = actions.add_parser("doctor", help="Read-only archive, artifact and runtime checks")
+    doctor.set_defaults(database_policy=None)
+    doctor.add_argument("--archive-root", default=archive_root)
+    doctor.add_argument("--artifact-root", default=None)
+    doctor.add_argument("--runtime-bindings", default=None)
     restore = actions.add_parser("restore", help="Restore a verified snapshot into a new or empty archive root")
     restore.add_argument("--file", required=True, help="Snapshot ZIP to restore")
     restore.add_argument("--archive-root", required=True, help="New or empty target directory")
+    restore.add_argument("--report", default=None, help="New NDJSON recovery audit outside the archive roots")
 
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
     from bili_asr.services.archive_snapshot import check_snapshot, restore_snapshot, save_snapshot
+    from bili_asr.services.archive_recovery import inspect_snapshot, plan_restore, doctor_archive
 
     try:
         if args.snapshot_action == "save":
@@ -38,10 +54,19 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
             )
         elif args.snapshot_action == "check":
             report = check_snapshot(Path(args.file))
+        elif args.snapshot_action == "inspect":
+            report = inspect_snapshot(Path(args.file), runtime_bindings=args.runtime_bindings)
+        elif args.snapshot_action == "plan":
+            report = plan_restore(Path(args.file), Path(args.archive_root), runtime_bindings=args.runtime_bindings)
+        elif args.snapshot_action == "doctor":
+            roots = roots_for(args.archive_root, flag_value=args.artifact_root, require_writable=False)
+            report = doctor_archive(Path(args.archive_root), artifact_roots=roots, runtime_bindings=args.runtime_bindings)
         else:
-            report = restore_snapshot(Path(args.file), Path(args.archive_root))
+            report = restore_snapshot(Path(args.file), Path(args.archive_root), report_path=args.report)
     except (ValueError, OSError, sqlite3.Error) as exc:
         write_stderr(f"snapshot {args.snapshot_action}: {exc}")
         return 1
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+    if report.get("data_complete") is False or report.get("target_ready") is False:
+        return 1
     return 0

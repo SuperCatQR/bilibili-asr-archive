@@ -6,7 +6,7 @@ from collections.abc import Iterable
 import sqlite3
 import time
 
-from bili_asr.sources.models import BilibiliGateway, GatewayError
+from bili_asr.sources.models import BilibiliGateway, GatewayError, TagRead
 from bili_asr.storage import MetadataRepository, VideoTagRecord
 
 ERROR_CODES = frozenset({"auth_error", "rate_limited", "not_found", "transport_error",
@@ -15,6 +15,18 @@ ERROR_CODES = frozenset({"auth_error", "rate_limited", "not_found", "transport_e
 
 def bounded_tag_error(code: str | None) -> str:
     return code if code in ERROR_CODES else "unavailable"
+
+
+async def read_tags(gateway: BilibiliGateway, bvid: str) -> TagRead:
+    """Use typed reads; old injected gateways retain their sequential seam."""
+    reader = getattr(gateway, "read_video_tags", None)
+    try:
+        if reader is not None:
+            return await reader(bvid)
+        tags = await gateway.get_video_tags(bvid)
+        return TagRead(tags, bounded_tag_error(getattr(gateway, "tag_error_code", None)) if tags is None else None)
+    except GatewayError as error:
+        return TagRead(None, bounded_tag_error(error.code))
 
 
 def refresh_video_tags(connection: sqlite3.Connection, gateway: BilibiliGateway,
@@ -31,9 +43,8 @@ def refresh_video_tags(connection: sqlite3.Connection, gateway: BilibiliGateway,
         for bvid in selected:
             error = None
             try:
-                tags = await gateway.get_video_tags(bvid)
-                if tags is None:
-                    error = bounded_tag_error(getattr(gateway, "tag_error_code", None))
+                observation = await read_tags(gateway, bvid)
+                tags, error = observation.tags, observation.error_code
             except GatewayError as exc:
                 tags, error = None, bounded_tag_error(exc.code)
             state = "unavailable" if tags is None else "success_nonempty" if tags else "success_empty"

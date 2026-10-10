@@ -48,6 +48,10 @@ def _bundle_lock(root: Path) -> threading.RLock:
 
 
 def archive_stem(entry: dict[str, Any]) -> str:
+    if entry.get("platform", "bilibili") != "bilibili":
+        from bili_asr.platform_identity import ContentRef
+        from bili_asr.source_identity import artifact_stem as source_artifact_stem
+        return source_artifact_stem(ContentRef(entry["platform"], entry["external_video_id"], int(entry["page_index"])))
     bvid = str(entry["bvid"])
     if entry.get("unresolved") or not entry.get("work_id") or entry.get("cid") is None:
         return bvid
@@ -55,6 +59,10 @@ def archive_stem(entry: dict[str, Any]) -> str:
 
 
 def archive_url(entry: dict[str, Any]) -> str:
+    if entry.get("platform", "bilibili") != "bilibili":
+        from bili_asr.platform_identity import ContentRef
+        from bili_asr.source_identity import source_url
+        return source_url(ContentRef(entry["platform"], entry["external_video_id"], int(entry["page_index"])))
     url = f"https://www.bilibili.com/video/{entry['bvid']}"
     if not entry.get("unresolved") and entry.get("work_id") and int(entry.get("page_index") or 0) > 0:
         url += f"?p={page_query_index(int(entry['page_index']))}"
@@ -846,9 +854,15 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         root = _lexical_archive_root(archive_root)
     except OSError as exc:
         raise OSError("archive publication path is unsafe") from exc
-    bvid = str(entry["bvid"])
+    bvid = str(entry["bvid"]) if entry.get("platform", "bilibili") == "bilibili" else None
     finals = bundle_paths(root, entry)
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "video_title": entry.get("video_title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
+    if entry.get("platform", "bilibili") != "bilibili":
+        frontmatter.pop("bvid")
+        frontmatter.update(platform=entry["platform"], external_video_id=entry["external_video_id"])
+    if "sourceMetadata" in entry:
+        frontmatter.update(pubdateUnix=entry["pubdateUnix"], sourcePublishedAt=entry["sourcePublishedAt"],
+                           sourceMetadata=entry["sourceMetadata"])
     if source == "asr":
         frontmatter.update(_capture_summary(segments, frontmatter["duration_s"]))
     frontmatter.update(_confidence_summary(segments))
@@ -861,6 +875,8 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         frontmatter.update({f"coverage_{key}": value for key, value in coverage.items()})
     if entry.get("work_id") and not entry.get("unresolved"):
         frontmatter.update({"work_id": entry["work_id"], "page_index": entry.get("page_index"), "cid": entry.get("cid")})
+        if entry.get("platform", "bilibili") != "bilibili":
+            frontmatter.pop("cid")
     md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in frontmatter.items()) + "---\n\n" + segments_to_txt(segments) + "\n").encode("utf-8")
     if raw is None:
         raw = {"segments": segments, "source": source}
@@ -868,6 +884,9 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
             raw["provenance"] = dict(asr_provenance)
         if coverage:
             raw["coverage"] = dict(coverage)
+        if "sourceMetadata" in entry:
+            raw.update(pubdateUnix=entry["pubdateUnix"], sourcePublishedAt=entry["sourcePublishedAt"],
+                       sourceMetadata=entry["sourceMetadata"])
     # The character-level record rides only on the ASR path: a subtitle-derived raw has no
     # character timings, and inventing them would be a claim about audio nobody aligned.
     block = characters_for(segments, characters) if source == "asr" else {}
