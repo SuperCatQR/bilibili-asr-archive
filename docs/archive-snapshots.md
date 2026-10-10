@@ -1,5 +1,12 @@
 # Portable Archive Snapshots
 
+Database schema fingerprints are now pinned independently of the current DDL in
+`src/bili_asr/contracts/database-fingerprints.json`. A change to a registered
+schema fails validation rather than redefining an existing snapshot contract.
+Runtime, snapshot and fixed migration-source policies remain distinct; see
+[contract governance](contract-governance.md).
+
+
 Snapshot format version 1 now supports both validated `bilibili-v1` and
 `universal-v2` database contracts. Restore retains the saved contract; the
 explicit archive migration command performs contract conversion. Read-only

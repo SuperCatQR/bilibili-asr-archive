@@ -1,5 +1,22 @@
 # 当前架构
 
+当前契约治理实现见 [契约治理与兼容边界](contract-governance.md)、[交互图](contract-governance.html)和[验证记录](contract-governance-validation.md)。新增登记与离线 Schema 校验绑定源码 `6a8646a36f680705479a7669350fd8793551cc74`；下列既有图保留原始历史基线。
+
+
+## 当前契约治理增量
+
+契约登记位于纯 `contracts` 包，记录 34 项主要稳定边界的所有者、权威定义、消费者、能力与依赖。
+15 份 JSON Schema 随 wheel 发布；公开、预览及私有导出先按明确版本/布局做离线结构校验，
+再在业务边界检查来源、模板、引用、文件集合、真实哈希与快照身份。
+`docs/contracts/` 是原字节发布镜像，测试与独立安装 lane 都校验其一致性。
+
+运行数据库、完整快照和固定旧迁移源保留不同的严格程度；六个数据库快照组合使用固定指纹，
+DDL 漂移会拒绝已有契约。历史样本直接展开已提交 ZIP/清单；来源标题补充是有显式策略、
+依赖和指纹的独立扩展。source/storage 模型共用纯标量规则，字幕正文的写入规范化仍由存储边界执行。
+完整 [版本矩阵和变更流程](contract-governance.md)供新增持久化及对外格式遵循。
+
+## 既有系统架构快照
+
 本分支新增实现见 [Issues 实现与架构边界](issues-implementation.md)：显式 `universal-v2` 与 YouTube 来源、输入/内容版本 2、候选字幕、观察驱动元数据刷新、恢复检查/模型绑定，以及持久 GPU 会话与 worker supervision。以下 19 张既有图仍描述原固定代码提交，不自动随本分支代码更新。
 
 新增能力的交互视图见 [多平台归档的控制与持久化边界](issues-architecture.html)、
