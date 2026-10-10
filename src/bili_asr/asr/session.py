@@ -134,8 +134,10 @@ def _session_worker(config, commands, responses, generation, runner_factory, pre
                         evidence["cache"] = cache_evidence
                     responses.put({**envelope, "ok": True, "preparation": evidence})
                     continue
-                segments = two_pass_transcribe(runner, command["audio_path"],
-                                              paired_subtitle_text=command["paired_subtitle_text"])
+                from bili_asr.services.artifact_child import child_artifact_access
+                with child_artifact_access(command.get("artifact_context"), command["audio_path"]):
+                    segments = two_pass_transcribe(runner, command["audio_path"],
+                                                  paired_subtitle_text=command["paired_subtitle_text"])
                 responses.put({**envelope, "ok": True, "segments": segments,
                                "provenance": runner.provenance(), "coverage": runner.transcribed_coverage(),
                                "diagnostics": runner.diagnostics()})
@@ -268,7 +270,7 @@ class AsrInferenceSession:
     def transcribe(self, config: ASRConfig, audio_path: str, *, request: InferenceRequest,
                    paired_subtitle_text: str | None, timeout_seconds: float,
                    checkpoint: Callable[[], None] = lambda: None,
-                   diagnostics_sink: dict[str, Any] | None = None):
+                   diagnostics_sink: dict[str, Any] | None = None, artifact_context: dict | None = None):
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be finite and positive")
         if not self._lock.acquire(blocking=False):
@@ -292,6 +294,7 @@ class AsrInferenceSession:
             start = time.monotonic()
             deadline = start + timeout_seconds
             self._commands.put({**envelope, "audio_path": audio_path,
+                                "artifact_context": artifact_context,
                                 "paired_subtitle_text": paired_subtitle_text}, timeout=min(1, timeout_seconds))
             result = self._receive(envelope, deadline, checkpoint)
             diagnostics = dict(result.get("diagnostics") or {})

@@ -33,14 +33,16 @@ class ASRInferenceTimeoutError(TimeoutError):
     error_code = "inference_timeout"
 
 
-def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_text: str | None, result_queue: Any) -> None:
+def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_text: str | None, result_queue: Any, artifact_context=None) -> None:
     """Run model loading, decoding, and forced alignment outside the worker process."""
 
     try:
         runner = ASRRunner(config)
-        segments = two_pass_transcribe(
-            runner, audio_path, paired_subtitle_text=paired_subtitle_text
-        )
+        from bili_asr.services.artifact_child import child_artifact_access
+        with child_artifact_access(artifact_context, audio_path):
+            segments = two_pass_transcribe(
+                runner, audio_path, paired_subtitle_text=paired_subtitle_text
+            )
         result_queue.put(
             {
                 "ok": True,
@@ -65,6 +67,7 @@ def transcribe_with_timeout(
     paired_subtitle_text: str | None,
     timeout_seconds: float,
     diagnostics_sink: dict[str, Any] | None = None,
+    artifact_context: dict | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any] | None]:
     """Run one ASR attempt in a killable child process.
 
@@ -80,7 +83,7 @@ def transcribe_with_timeout(
     result_queue = context.Queue(maxsize=1)
     process = context.Process(
         target=_isolated_transcribe_worker,
-        args=(config, audio_path, paired_subtitle_text, result_queue),
+        args=(config, audio_path, paired_subtitle_text, result_queue, artifact_context),
         name="bili-asr-inference",
     )
     process.start()
