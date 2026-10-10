@@ -97,6 +97,87 @@ def test_small_budget_falls_back_to_serial_without_losing_chunks(monkeypatch):
     assert report["prefetch"]["fallback"] == "input_budget"
 
 
+@pytest.mark.parametrize("enabled,chunk_seconds,budget", [
+    (False, 1, 64 * 1024 * 1024),
+    (True, 180, 64 * 1024 * 1024),
+    (True, 1, 1),
+])
+def test_no_admitted_next_chunk_does_not_clone_or_create_pool(monkeypatch, enabled, chunk_seconds, budget):
+    import bili_asr.asr.preparation as module
+    runner, _ = _runner(monkeypatch, text="today", chunk_seconds=chunk_seconds)
+    expected = runner.transcribe("/virtual/input")
+    def unexpected(*args, **kwargs):
+        pytest.fail("No admitted candidate should allocate a processor clone or pool")
+    monkeypatch.setattr(module.copy, "deepcopy", unexpected)
+    monkeypatch.setattr(module, "ThreadPoolExecutor", unexpected)
+    runner.configure_prefetch(enabled=enabled, max_bytes=budget)
+    assert runner.transcribe("/virtual/input") == expected
+    report = runner.diagnostics()["passes"][0]["prefetch"]
+    assert report["processor_clone_attempts"] == 0
+    assert report["processor_clone_s"] == 0
+    assert report["submitted"] == 0
+
+
+def test_admitted_chunks_share_one_lazy_clone_until_close(monkeypatch):
+    import numpy as np
+    import bili_asr.asr.preparation as module
+    source = object()
+    clone = object()
+    clone_calls = []
+    prepared_by = []
+    def copy_processor(value):
+        clone_calls.append(value)
+        return clone
+    def prepare(processor, audio):
+        prepared_by.append(processor)
+        return {"waveform": audio.copy()}
+    monkeypatch.setattr(module.copy, "deepcopy", copy_processor)
+    prefetch = module.InputPrefetch(source, prepare, enabled=True, budget_bytes=256)
+    assert clone_calls == []
+    try:
+        prefetch.submit(1, np.zeros(2, dtype=np.float32))
+        assert clone_calls == []
+        assert prefetch.report["fallback_counts"] == {"input_budget": 1}
+        for index in (2, 3):
+            prefetch.submit(index, np.zeros(1, dtype=np.float32))
+            inputs, _ = prefetch.consume()
+            assert inputs["waveform"].shape == (1,)
+        assert clone_calls == [source]
+        assert prepared_by == [clone, clone]
+        assert prefetch.report["processor_clone_attempts"] == 1
+        assert prefetch.report["processor_clone_s"] >= 0
+        assert prefetch.report["submitted"] == prefetch.report["consumed"] == 2
+    finally:
+        prefetch.close()
+    assert prefetch.pool is prefetch.processor is prefetch._source_processor is None
+
+
+def test_failed_lazy_clone_is_not_retried_and_budget_rejections_keep_their_reason(monkeypatch):
+    import numpy as np
+    import bili_asr.asr.preparation as module
+    calls = []
+    def cannot_clone(value):
+        calls.append(value)
+        raise TypeError("uncloneable")
+    monkeypatch.setattr(module.copy, "deepcopy", cannot_clone)
+    source = object()
+    prefetch = module.InputPrefetch(source, lambda *_: pytest.fail("No inputs can be prepared"),
+                                    enabled=True, budget_bytes=256)
+    try:
+        prefetch.submit(1, np.zeros(2, dtype=np.float32))
+        assert calls == []
+        for index in (2, 3):
+            prefetch.submit(index, np.zeros(1, dtype=np.float32))
+        prefetch.submit(4, np.zeros(2, dtype=np.float32))
+        assert calls == [source]
+        assert prefetch.report["processor_clone_attempts"] == 1
+        assert prefetch.report["submitted"] == 0
+        assert prefetch.report["fallback_counts"] == {"input_budget": 2, "processor_not_cloneable": 2}
+    finally:
+        prefetch.close()
+    assert prefetch.pool is prefetch.processor is prefetch._source_processor is None
+
+
 def test_uncloneable_processor_falls_back_without_changing_cues(monkeypatch):
     runner, _ = _runner(monkeypatch, text="今天。", chunk_seconds=1)
     expected = runner.transcribe("/virtual/input")

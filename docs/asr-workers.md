@@ -60,6 +60,8 @@ bili-asr workflow supervise --archive-root /srv/archive \
 
 估算策略仍为 `waveform_x64_v1`，未调高默认预算。16 kHz 单声道 180 秒 float32 块是 11,520,000 bytes，预留为 737,280,000 bytes（703.125 MiB）；64 MiB 默认预算会拒绝该候选并串行准备，短尾块可能通过。开关开启不等于所有块实现重叠。处理器输入大小不能确定时记录 `prepared_input_size_unknown` 并回退；返回输入实测超限记录 `prepared_input_budget`，释放预取引用后按原串行路径重建。实测发生在分配之后，不能限制第三方处理器暂态峰值。
 
+processor 副本与线程池在第一个通过预算准入的下一块出现时才创建。只有一个块、所有下一块超预算或关闭预取时不会复制 processor。每遍最多尝试一次复制，失败后可准入候选仍以 `processor_not_cloneable` 回退，超预算候选保持 `input_budget` 原因；清理同时释放未复制的原 processor 引用。报告新增 `processor_clone_attempts` 和 `processor_clone_s`，后者是包含副本/线程池初始化的 wall 时间。副本仍限定于该遍，不跨任务复用。
+
 准备线程只返回输入和计时元数据，主线程负责合并诊断；异常退出仍取消未开始的准备、等候已运行的准备并清理资源。硬取消/超时仍由可终止 session 边界保障；线程等待自身不提供新的硬期限。
 
 对齐新增 `align_prepare`、`align_transfer`、`align_forward`、`align_postprocess`，均带 chunk index，沿用 `measurement=wall`。父事件 `align` 仍保留，不将父子事件相加充当 GPU 时间，也不引入每块 GPU synchronize。batch 和对齐编译仍未启用。
