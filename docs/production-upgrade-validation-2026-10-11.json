@@ -1,0 +1,271 @@
+{
+  "capture-receipt.json": {
+    "sha256": "7fb2200de689ff621c7721dae065cc891568701523c9c21512608459b932df4c",
+    "result": {
+      "valid": true,
+      "source_root": "/root/autodl-tmp/archive",
+      "copy_root": "/dev/shm/bili-issues-20261011-source",
+      "captured_at": 1791655129,
+      "elapsed_seconds": 44.425250594038516,
+      "file_count": 18236,
+      "file_bytes": 32807760386,
+      "database_sha256": "3a589f285607e4697345136eab52f698ebb9598969247f9cf0ec0788ee4318f9",
+      "control_state_sha256": "3646a9cf6e976c38bca5050535cbe1468a7c0c056001cd53f41dc31e836280bf",
+      "excluded_operational_entries": [
+        ".preserved-body-import.export.lock"
+      ],
+      "writers_stopped": [
+        401958,
+        401959,
+        401960,
+        401961,
+        401962,
+        401963,
+        401971,
+        401973,
+        401974,
+        401975,
+        427625
+      ],
+      "source_database_unchanged": true
+    }
+  },
+  "upgrade-receipt.json": {
+    "sha256": "455c93a6df31316666fcd3be9c76f2af86eaa43c56b48938f86542a8f19a92f5",
+    "result": {
+      "operation": "archive-upgrade",
+      "valid": true,
+      "plan_id": "ce8c03b855c144b2c102f9a28c2ba54a07cfb58ee0cb6472f14fe88d637a0df5",
+      "target_root": "/dev/shm/bili-issues-20261011-upgraded",
+      "reused": false,
+      "receipt_id": "2f4494a67ef7f6f258d3af560358bce563eca66aa3528904fba8002819b94b74",
+      "control_state": {
+        "continuation_allowed": false,
+        "declaration": "external",
+        "handoff_required": true,
+        "records": [
+          {
+            "held_job_ids": [
+              "01ae2045-56f2-4c80-8d9d-78ccf24346a1",
+              "0fb2c544-66c5-4da2-b44c-0824f25c9574",
+              "56caab93-992b-464a-a4dd-7a1d5683ddef",
+              "bed24eff-e982-4731-8d78-a2e13ef6245f"
+            ],
+            "mapping": "identity",
+            "path": "/root/bili-issues-20261011-evidence/production-ops-state.json",
+            "sha256": "3646a9cf6e976c38bca5050535cbe1468a7c0c056001cd53f41dc31e836280bf",
+            "size": 104654
+          }
+        ]
+      },
+      "warnings": []
+    }
+  },
+  "upgrade-check.json": {
+    "sha256": "950c6e18cb253da21e5a23c1bb8c916274cdccf64d878644ab51daa950071729",
+    "result": {
+      "operation": "archive-upgrade-check",
+      "valid": true,
+      "plan_id": "ce8c03b855c144b2c102f9a28c2ba54a07cfb58ee0cb6472f14fe88d637a0df5",
+      "receipt_id": "2f4494a67ef7f6f258d3af560358bce563eca66aa3528904fba8002819b94b74",
+      "target_contracts": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1"
+      ],
+      "control_state": {
+        "continuation_allowed": false,
+        "declaration": "external",
+        "handoff_required": true,
+        "records": [
+          {
+            "held_job_ids": [
+              "01ae2045-56f2-4c80-8d9d-78ccf24346a1",
+              "0fb2c544-66c5-4da2-b44c-0824f25c9574",
+              "56caab93-992b-464a-a4dd-7a1d5683ddef",
+              "bed24eff-e982-4731-8d78-a2e13ef6245f"
+            ],
+            "mapping": "identity",
+            "path": "/root/bili-issues-20261011-evidence/production-ops-state.json",
+            "sha256": "3646a9cf6e976c38bca5050535cbe1468a7c0c056001cd53f41dc31e836280bf",
+            "size": 104654
+          }
+        ]
+      },
+      "installation_baseline_matches": true
+    }
+  },
+  "upgrade-cost.json": {
+    "sha256": "f112f52a4c4357054906ec3345a7947238b196c06dc2b6d540c665ea397eda85",
+    "result": {
+      "seconds": 669.0384588241577,
+      "max_rss_kib": 141644
+    }
+  },
+  "production-business-checks.json": {
+    "sha256": "538f4ca1c7afd8ed93d12fcd838f44f0dd4578f3e8ca7dc0985c59de95e81f1a",
+    "result": {
+      "published": 0,
+      "drafts": 1485,
+      "all_historical_releases_verified": 0,
+      "seconds": 263.47631549835205,
+      "max_rss_kib": 298608,
+      "download_calls": 0,
+      "asr_calls": 0,
+      "ai_calls": 0,
+      "source_original_mutated": false
+    }
+  },
+  "supplement-selected-checks.json": {
+    "sha256": "1f5ab0a1a361a76bd10bbf6bd666dd40e05643d573ebb168412611d972986c11",
+    "result": [
+      {
+        "video_part_id": 1771,
+        "before_edition": "05345f952a504f8d8e348e8f522c14ca",
+        "after_edition": "3e34b4e71a2f4415a45952620c328b93",
+        "partTitle": "\u6982\u8981",
+        "body_sha256": "010e5c7796c89b85e930b42d193c72015c8fb5e15f092218e9419f29051df6af",
+        "review_status": "pending-review",
+        "release_id": null
+      },
+      {
+        "video_part_id": 1772,
+        "before_edition": "96ceab2b733149c7a071fc7998d04cb3",
+        "after_edition": "96ceab2b733149c7a071fc7998d04cb3",
+        "partTitle": "\u5982\u4f55\u7834\u9664\u5eb8\u4fd7\u7684\u4eba\u6587\u4e3b\u4e49",
+        "body_sha256": "365fcd7629700d9190b13a974a65d6d44722b8894ec64a6311abbbe993a91539",
+        "review_status": "pending-review",
+        "release_id": null
+      },
+      {
+        "video_part_id": 1773,
+        "before_edition": "a6982441a2dd4fb69519192bb72110c2",
+        "after_edition": "67fac83464bf45d0bf82fcc82a93ed21",
+        "partTitle": "\u5982\u4f55\u8fdb\u884c\u771f\u6b63\u7684\u54f2\u5b66\u53cd\u601d",
+        "body_sha256": "20f11a3dfdaed3e581ad82371a18030b830a5b156ce8c1e71b0887deecf86c78",
+        "review_status": "pending-review",
+        "release_id": null
+      }
+    ]
+  },
+  "supplement-protected-tables.json": {
+    "sha256": "a033954978dd931d75013523eb4b7cc1c4e590803ebcf08a2e6e56f116345d1e",
+    "result": {
+      "editorial_inputs": {
+        "name": "editorial_inputs",
+        "row_count": 1507,
+        "sha256": "32445824f66076dbf9d67c4e98da8a1f4e53971574b6db62403f613facd5a006",
+        "includes_rowid": true
+      },
+      "editorial_revisions": {
+        "name": "editorial_revisions",
+        "row_count": 1488,
+        "sha256": "6f11d6a7d94b4422e190bb4f654ac3435f20e856fd83c442e36db27fbd95b235",
+        "includes_rowid": true
+      },
+      "editorial_chunk_results": {
+        "name": "editorial_chunk_results",
+        "row_count": 1903,
+        "sha256": "b374d20fd98cb429bed2eb9b3e7b7a9bd63a0fd5f83bf2033e4ed68acd2cacf8",
+        "includes_rowid": true
+      },
+      "editorial_model_calls": {
+        "name": "editorial_model_calls",
+        "row_count": 2052,
+        "sha256": "b6ac3e3253228fc5be127ffca5231f11c2b908c8eea4bf5c5a83c015281e7183",
+        "includes_rowid": true
+      },
+      "workflow_jobs": {
+        "name": "workflow_jobs",
+        "row_count": 12708,
+        "sha256": "bae3d249086d18b8e07758ed6782074e663e19512c6456a358eb640fd385da0f",
+        "includes_rowid": true
+      },
+      "workflow_attempts": {
+        "name": "workflow_attempts",
+        "row_count": 11292,
+        "sha256": "895c671be4e139858e7721ab541313214d4a6c5baab450f10975446e8bee6693",
+        "includes_rowid": true
+      },
+      "publication_releases": {
+        "name": "publication_releases",
+        "row_count": 0,
+        "sha256": "fed6336d79a533f5f958d1bc1a7f67d184194b311227689b95a550af06a8d076",
+        "includes_rowid": true
+      },
+      "transcripts": {
+        "name": "transcripts",
+        "row_count": 3241,
+        "sha256": "533fc1913b10b2639ce1397c869b83ba36054fd93629078f6a1062f3d5759e7f",
+        "includes_rowid": true
+      },
+      "transcript_segments": {
+        "name": "transcript_segments",
+        "row_count": 2271652,
+        "sha256": "bae15f238a8eb526b453200d1a9cb3fcde1e9f125cf3960cf615af7cae275415",
+        "includes_rowid": true
+      }
+    }
+  },
+  "full-snapshot-save.json": {
+    "sha256": "75012f18d2a8ccb350e74e58687f49cb308b7a7dff5a828a3fbed9568dd09da0",
+    "result": {
+      "operation": "save",
+      "snapshot": "/dev/shm/bili-issues-20261011-full.zip",
+      "snapshot_id": "be5912f8-ecc3-45fe-acea-3b23db357d02",
+      "created_at": "2026-10-10T19:00:38.134268+00:00",
+      "database_contract": "sha256:1b233994b03e1d006df100b78a954c5b6769e1ead14632e36688af92f6e9fbe8",
+      "file_count": 18237,
+      "total_bytes": 32828875334
+    }
+  },
+  "full-snapshot-check.json": {
+    "sha256": "6ee50d7de9cd1d5eaff624c1f4aea71f89b9237b40d3aefa950c0573f8cfb4e2",
+    "result": {
+      "operation": "check",
+      "snapshot": "/dev/shm/bili-issues-20261011-full.zip",
+      "valid": true,
+      "snapshot_id": "be5912f8-ecc3-45fe-acea-3b23db357d02",
+      "created_at": "2026-10-10T19:00:38.134268+00:00",
+      "database_contract": "sha256:1b233994b03e1d006df100b78a954c5b6769e1ead14632e36688af92f6e9fbe8",
+      "file_count": 18237,
+      "total_bytes": 32828875334
+    }
+  },
+  "full-snapshot-cost.json": {
+    "sha256": "2f6c0ad5f5021ee7bb6ba6874c24072ee3ea1c51fbaf5f60d433c507156da2f2",
+    "result": {
+      "seconds": 1300.823987309821,
+      "compressed_bytes": 29786196049,
+      "sha256": "38b8a18b1496e7999194e92779605338d694e29a7031cf83d2a47b47146f6298"
+    }
+  },
+  "full-snapshot-restore.json": {
+    "sha256": "3087fc3fbabc68897b79c25a7f5e196f14118bd8b6ffce58215dcf52239e25bb",
+    "result": {
+      "operation": "restore",
+      "archive_root": "/dev/shm/bili-issues-20261011-restored",
+      "installed": true,
+      "recovered": {
+        "workflow_attempts": 0,
+        "workflow_jobs": 0,
+        "ingestion_runs": 0,
+        "acquisition_runs": 0,
+        "editorial_model_calls": 0
+      },
+      "snapshot_id": "be5912f8-ecc3-45fe-acea-3b23db357d02",
+      "created_at": "2026-10-10T19:00:38.134268+00:00",
+      "database_contract": "sha256:1b233994b03e1d006df100b78a954c5b6769e1ead14632e36688af92f6e9fbe8",
+      "file_count": 18237,
+      "total_bytes": 32828875334,
+      "recovery_report_written": true,
+      "all_authority_tables_identical": true,
+      "all_artifact_bytes_identical": true,
+      "seconds": 350.6081559951417,
+      "max_rss_kib": 111280,
+      "download_calls": 0,
+      "asr_calls": 0,
+      "ai_calls": 0
+    }
+  }
+}
