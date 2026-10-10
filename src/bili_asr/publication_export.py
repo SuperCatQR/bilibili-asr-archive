@@ -10,7 +10,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator
 
-from bili_asr.export_snapshot import ExportSnapshotError, guard_output, json_bytes, replace_snapshot
+from bili_asr.export_snapshot import ExportSnapshotError, checked_path, guard_output, json_bytes, replace_snapshot
 from bili_asr.publication import content_from_ai, get_ai_artifacts, get_edition, render_publication, verify_release
 from bili_asr.storage.database import require_manuscript_schema
 from bili_asr.publication_content_v2 import content_from_ai_v2, render_publish_v2
@@ -76,10 +76,12 @@ def export_publications(
     *,
     artifact_roots: tuple[Path, ...],
     output: Path,
+    series_file: Path | None = None,
 ) -> int:
     """Export only valid current releases, failing the whole export on corruption."""
     require_manuscript_schema(connection)
     output = guard_output(connection, output, artifact_roots)
+    series = _read_series_source(series_file, output)
     files: dict[str, bytes] = {}
     articles = []
     with _read_snapshot(connection):
@@ -115,6 +117,7 @@ def export_publications(
     articles.sort(key=lambda entry: (-entry["publishedAt"], entry["videoPartId"]))
     version = 3 if any(entry.get("contentVersion") == 2 for entry in articles) else 2
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication", "articles": articles})
+    _add_series(files, series, articles, "publication")
     replace_snapshot(output, kind="publication-export", files=files)
     return len(articles)
 
@@ -124,10 +127,12 @@ def export_publication_drafts(
     *,
     artifact_roots: tuple[Path, ...],
     output: Path,
+    series_file: Path | None = None,
 ) -> int:
     """Export current reader drafts that have never had a release of any status."""
     require_manuscript_schema(connection)
     output = guard_output(connection, output, artifact_roots)
+    series = _read_series_source(series_file, output)
     files: dict[str, bytes] = {}
     articles = []
     with _read_snapshot(connection):
@@ -190,8 +195,25 @@ def export_publication_drafts(
     articles.sort(key=lambda entry: (-entry["createdAt"], entry["videoPartId"], entry["editionId"]))
     version = 3 if any(entry.get("contentVersion") == 2 for entry in articles) else 2
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication-draft", "articles": articles})
+    _add_series(files, series, articles, "publication-draft")
     replace_snapshot(output, kind="publication-draft-export", files=files)
     return len(articles)
+
+
+def _read_series_source(series_file: Path | None, output: Path) -> dict | None:
+    if series_file is None:
+        return None
+    from bili_asr.publication_series import read_series
+    path = checked_path(series_file)
+    if path == output or path.is_relative_to(output):
+        raise ExportSnapshotError("series editorial source cannot be inside the exported snapshot")
+    return read_series(path)
+
+
+def _add_series(files: dict[str, bytes], series: dict | None, articles: list, manuscript_type: str) -> None:
+    if series is not None:
+        from bili_asr.publication_series import project_series
+        files["series.json"] = json_bytes(project_series(series, articles, manuscript_type))
 
 
 def _difference(before: str, after: str, before_name: str, after_name: str) -> bytes:

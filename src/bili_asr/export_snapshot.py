@@ -78,9 +78,9 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
 
 def _allowed_file(name: str, kind: str) -> bool:
     if kind == "publication-export":
-        return name == "catalog.json" or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
+        return name in {"catalog.json", "series.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
     if kind == "publication-draft-export":
-        return name == "catalog.json" or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
+        return name in {"catalog.json", "series.json"} or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
     return name in _REVIEW_FILES
 
 
@@ -229,8 +229,11 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
                 record = next((record for record in records if record["path"] == article[file_field]), None)
                 if record is None or record["sha256"] != article[hash_field]:
                     raise ExportSnapshotError("public article and manifest hashes differ")
-        if article_files != expected_files - {manifest_name, "catalog.json"}:
+        if article_files != expected_files - {manifest_name, "catalog.json", "series.json"}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
+        if "series.json" in expected_files:
+            from bili_asr.publication_series import validate_public_series
+            validate_public_series(read_json(directory / "series.json"), catalog["articles"], manuscript_type)
     elif expected_files != _REVIEW_FILES | {manifest_name}:
         raise ExportSnapshotError("private editorial snapshot is incomplete")
     return str(manifest["snapshotId"])
@@ -298,7 +301,12 @@ def _exclusive_lock(output: Path) -> Iterator[None]:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ExportSnapshotError("export lock is not a regular file")
         os.lseek(descriptor, 0, os.SEEK_SET)
-        if os.read(descriptor, len(marker) + 1) != marker:
+        try:
+            actual_marker = os.read(descriptor, len(marker) + 1)
+        except PermissionError as exc:
+            # Windows byte-range locks reject even reading the locked marker.
+            raise ExportSnapshotError("another export holds the output lock") from exc
+        if actual_marker != marker:
             raise ExportSnapshotError("export lock file is unmanaged or damaged")
         try:
             if os.name == "nt":

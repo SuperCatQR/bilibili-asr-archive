@@ -61,6 +61,8 @@ def _cmd_publication(args: argparse.Namespace) -> int:
     from bili_asr import publication
 
     action = args.publication_action
+    if action == "series":
+        return _cmd_series(args)
     readonly = action in {"show", "export", "export-drafts"}
     try:
         with closing(archive_connection(args.archive_root, readonly=readonly)) as connection:
@@ -102,12 +104,12 @@ def _cmd_publication(args: argparse.Namespace) -> int:
             elif action == "export-drafts":
                 from bili_asr.publication_export import export_publication_drafts
                 count = export_publication_drafts(connection, artifact_roots=args.artifact_roots.read_bases(),
-                                                 output=Path(args.out))
+                                                 output=Path(args.out), series_file=Path(args.series_file) if args.series_file else None)
                 result = {"manuscriptType": "publication-draft", "count": count, "output": args.out}
             else:
                 from bili_asr.publication_export import export_publications
                 count = export_publications(connection, artifact_roots=args.artifact_roots.read_bases(),
-                                            output=Path(args.out))
+                                            output=Path(args.out), series_file=Path(args.series_file) if args.series_file else None)
                 result = {"manuscriptType": "publication", "count": count, "output": args.out}
             if action == "create" and (result["content_version"] == 1 or result["content"]["source"]["platform"] == "bilibili"):
                 from bili_asr.publication_tags import tag_coverage
@@ -120,6 +122,27 @@ def _cmd_publication(args: argparse.Namespace) -> int:
         return 0
     except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
         write_stderr(f"publication {action}: {getattr(exc, 'code', type(exc).__name__)}: {exc}")
+        return 1
+
+
+def _cmd_series(args: argparse.Namespace) -> int:
+    from bili_asr.publication_series import edit_series, read_series_with_sha256, editorial_version
+    try:
+        if args.series_action == "edit":
+            result = edit_series(Path(args.input), Path(args.out), actor=args.actor,
+                                 expected_sha256=args.expected_sha256)
+        else:
+            path = Path(args.series_file)
+            value, digest = read_series_with_sha256(path)
+            result = {"sha256": digest,
+                      "editorialVersion": editorial_version(value), "seriesCount": len(value["series"])}
+            if args.series_action == "show":
+                result["content"] = value
+        # Series content is JSON, rather than the manuscript markdown printer.
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False))
+        return 0
+    except (OSError, ValueError, RuntimeError) as exc:
+        write_stderr(f"publication series {args.series_action}: {exc}")
         return 1
 
 
@@ -181,7 +204,22 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     export = actions.add_parser("export", help="Export only currently released 发布稿")
     _common(export, archive_root, artifacts=ArtifactPolicy.READ)
     export.add_argument("--out", required=True)
+    export.add_argument("--series-file", default=None, help="Editor-confirmed series source, optional and separately versioned")
 
     drafts = actions.add_parser("export-drafts", help="Export current reader drafts that have never been released")
     _common(drafts, archive_root, artifacts=ArtifactPolicy.READ)
     drafts.add_argument("--out", required=True)
+    drafts.add_argument("--series-file", default=None, help="Editor-confirmed series source, optional and separately versioned")
+
+    series = actions.add_parser("series", help="Maintain editor-confirmed series metadata without changing the archive database")
+    series_actions = series.add_subparsers(dest="series_action", required=True)
+    for action in ("validate", "show", "edit"):
+        command = series_actions.add_parser(action)
+        command.set_defaults(artifact_policy=ArtifactPolicy.NONE, database_policy=None)
+        if action == "edit":
+            command.add_argument("--input", required=True)
+            command.add_argument("--out", required=True)
+            command.add_argument("--actor", required=True)
+            command.add_argument("--expected-sha256", required=True, help="Current raw file SHA-256, or new for a new file")
+        else:
+            command.add_argument("--series-file", required=True)
