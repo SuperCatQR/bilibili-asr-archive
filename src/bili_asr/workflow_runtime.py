@@ -29,6 +29,7 @@ from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
+from bili_asr.services.workflow_audio_access import retained_audio, verified_local_audio
 from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
 from bili_asr.sources.bilibili_source import BilibiliAudioSource
 from bili_asr.storage import (
@@ -181,6 +182,10 @@ class ArchiveWorkflowHandlers:
         decode_job_payload(job)
         self.repository.assert_lease(job)
         part = self._part(job)
+        retained = retained_audio(self.connection, int(part["video_part_id"]))
+        if retained is not None:
+            verified_local_audio(self.connection, self.artifact_roots, retained)
+            return {key: retained[key] for key in ("storage_key", "sha256", "duration_ms", "object_id")}
         identity = PageIdentity(
             work_id=f"{part['bvid']}:p{part['page_index']}",
             bvid=str(part["bvid"]),
@@ -252,7 +257,24 @@ class ArchiveWorkflowHandlers:
                    VALUES (?, ?, ?, 'workflow')""",
                 (int(part["video_part_id"]), audio_id, now),
             )
-        return {"storage_key": storage_key, "sha256": digest, "duration_ms": duration_ms}
+            from bili_asr.storage.artifact_catalog import (
+                ArtifactCatalog,
+                require_artifact_catalog,
+            )
+            if require_artifact_catalog(self.connection):
+                catalog = ArtifactCatalog(self.connection)
+                object_id = catalog.register_object(digest, byte_size)
+                catalog.bind_audio(audio_id, object_id)
+                base = next(base for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
+                target_id = "local-artifacts" if self.artifact_roots.configured and base == self.artifact_roots.artifact_root else "local"
+                catalog.register_target(target_id, kind="local")
+                previous = self.connection.execute("SELECT MAX(generation) FROM artifact_replicas WHERE target_id=? AND relative_key=? AND member_key=''", (target_id, storage_key)).fetchone()[0]
+                catalog.record_verified_replica(object_id, target_id, storage_key, sha256=digest, byte_size=byte_size,
+                                                generation=int(previous or 0) + 1)
+        result = {"storage_key": storage_key, "sha256": digest, "duration_ms": duration_ms}
+        if require_artifact_catalog(self.connection):
+            result["object_id"] = digest
+        return result
 
     def local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
         decode_job_payload(job)
@@ -264,7 +286,9 @@ class ArchiveWorkflowHandlers:
         storage_key = audio_result.get("storage_key")
         if not isinstance(storage_key, str) or not storage_key:
             raise RuntimeError("audio_result_missing_storage_key")
-        audio_path = resolve_audio_path(self.artifact_roots, storage_key)
+        retained = retained_audio(self.connection, int(part["video_part_id"]), audio_result)
+        audio_path = (verified_local_audio(self.connection, self.artifact_roots, retained) if retained is not None
+                      else resolve_audio_path(self.artifact_roots, storage_key))
         if audio_path is None:
             raise RuntimeError("audio_missing")
         profile = self.repository.profile(job.profile_id)
@@ -459,6 +483,20 @@ class ArchiveWorkflowHandlers:
                     (int(part["video_part_id"]), transcript_id, published_at,
                      json.dumps(paths, ensure_ascii=False, separators=(",", ":"))),
                 )
+                from bili_asr.storage.artifact_catalog import require_artifact_catalog
+                if require_artifact_catalog(self.connection):
+                    from bili_asr.services.artifact_groups import preserve_transcript_bundle
+                    publication_id = self.connection.execute("SELECT publication_id FROM workflow_publications WHERE video_part_id=? AND transcript_id=?",
+                                                             (int(part["video_part_id"]), transcript_id)).fetchone()[0]
+                    preserve_transcript_bundle(self.connection, self.artifact_roots, publication_id, paths)
+
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        if require_artifact_catalog(self.connection):
+            from bili_asr.services.artifact_groups import preserve_existing_publication
+            previous_publication = self.connection.execute("SELECT p.* FROM workflow_publications p LEFT JOIN artifact_publication_groups g USING(publication_id) WHERE p.video_part_id=? ORDER BY p.published_at DESC,p.publication_id DESC LIMIT 1", (int(part["video_part_id"]),)).fetchone()
+            if previous_publication is not None and self.connection.execute("SELECT 1 FROM artifact_publication_groups WHERE publication_id=?", (previous_publication["publication_id"],)).fetchone() is None:
+                with self.repository.owned_transaction(job):
+                    preserve_existing_publication(self.connection, self.artifact_roots, previous_publication)
 
         paths = archive.write_archive(
             self.artifact_roots.write_base,

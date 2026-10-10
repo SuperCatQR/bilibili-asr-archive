@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_snapshot_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.archive import add_archive_parser
     add_archive_parser(subparsers)
+    from bili_asr.cli.artifacts import add_artifacts_parser
+    add_artifacts_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.source import add_source_parser
     add_source_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 

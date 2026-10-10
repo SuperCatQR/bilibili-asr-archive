@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from bili_asr.artifact_root import roots_for
 from bili_asr.diagnostics import write_stderr
@@ -18,6 +18,7 @@ def add_snapshot_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     save.add_argument("--archive-root", default=archive_root)
     save.add_argument("--artifact-root", default=None, help="Existing artifact root (or BILI_ARTIFACT_ROOT)")
     save.add_argument("--out", required=True, help="New snapshot ZIP outside the archive roots")
+    save.add_argument("--storage-target", action="append", help="Explicit TARGET_ID=DIRECTORY binding for offloaded objects")
     check = actions.add_parser("check", help="Verify snapshot hashes, database contract, and file references offline")
     check.set_defaults(database_policy=None)
     check.add_argument("--file", required=True, help="Snapshot ZIP to verify")
@@ -42,15 +43,25 @@ def add_snapshot_parser(subparsers: argparse._SubParsersAction, *, archive_root:
 
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
-    from bili_asr.services.archive_snapshot import check_snapshot, restore_snapshot, save_snapshot
-    from bili_asr.services.archive_recovery import inspect_snapshot, plan_restore, doctor_archive
+    from bili_asr.services.archive_recovery import (
+        doctor_archive,
+        inspect_snapshot,
+        plan_restore,
+    )
+    from bili_asr.services.archive_snapshot import (
+        check_snapshot,
+        restore_snapshot,
+        save_snapshot,
+    )
 
     try:
         if args.snapshot_action == "save":
+            from bili_asr.services.artifact_access import parse_target_bindings
             roots = roots_for(args.archive_root, flag_value=args.artifact_root, require_writable=False)
             report = save_snapshot(
                 Path(args.archive_root), Path(args.out),
                 artifact_root=roots.artifact_root if roots.configured else None,
+                storage_targets=parse_target_bindings(args.storage_target),
             )
         elif args.snapshot_action == "check":
             report = check_snapshot(Path(args.file))

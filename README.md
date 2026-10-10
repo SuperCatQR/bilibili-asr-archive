@@ -247,6 +247,8 @@ example groups included in the output.
 
 `workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/artifact-root.md](docs/artifact-root.md).
 
+`bili-asr artifacts` provides read-only inventory, frozen offload plans, an explicit catalog upgrade, verified directory packages, manual audio offload and single-object restore. Production state stays in the archive database after audio moves. Offload uses an exclusive maintenance window and preserves queued, failed or held inputs; restore the retained SHA-256 before running a new consumer. See [artifact storage](docs/artifact-storage.md) for commands, target identity, crash recovery and snapshot limits.
+
 Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
 
 Search defaults to `transcripts`. `metadata` searches stored titles,

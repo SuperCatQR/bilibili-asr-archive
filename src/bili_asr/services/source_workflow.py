@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import tempfile
 import time
+from pathlib import Path
 from uuid import uuid4
 
 from bili_asr.canonical_json import canonical
@@ -13,8 +13,8 @@ from bili_asr.sources.registry import SourceRegistry
 from bili_asr.storage.models import AcquisitionRunRecord, TranscriptSegmentRecord
 from bili_asr.storage.sources import SourceRepository, acquisition_selector
 from bili_asr.storage.transcripts import TranscriptRepository
-from bili_asr.workflow_models import JobKind
 from bili_asr.workflow_errors import JobExecutionError
+from bili_asr.workflow_models import JobKind
 
 
 class SourceWorkflowHandlers:
@@ -136,11 +136,19 @@ class SourceWorkflowHandlers:
         if part["platform"] == "bilibili":
             return self.archive.audio(job)
         self.workflow.assert_lease(job)
+        from bili_asr.services.workflow_audio_access import (
+            retained_audio,
+            verified_local_audio,
+        )
+        retained = retained_audio(self.connection, job.video_part_id)
+        if retained is not None:
+            verified_local_audio(self.connection, self.archive.artifact_roots, retained)
+            return {key: retained[key] for key in ("storage_key", "sha256", "duration_ms", "object_id")}
         row = self.connection.execute("SELECT a.storage_key,a.sha256,a.duration_ms FROM part_audio_objects p JOIN audio_objects a USING(audio_id) WHERE p.video_part_id=? ORDER BY a.audio_id DESC LIMIT 1", (job.video_part_id,)).fetchone()
         if row is not None:
+            from bili_asr.artifact_inventory import stream_hash
             from bili_asr.artifact_root import usable_audio_path
             from bili_asr.path_policy import confined_audio_file
-            from bili_asr.artifact_inventory import stream_hash
             found = usable_audio_path(self.archive.artifact_roots, (row["storage_key"],))
             if found is None:
                 raise JobExecutionError("audio_missing")
