@@ -54,6 +54,16 @@ bili-asr workflow supervise --archive-root /srv/archive \
 
 这个预算约束额外准备的输入，不是整个进程 RSS 的硬上限。模型、完整音频、processor clone、第三方 processor 暂态分配和 RF64 解码临时文件仍须纳入真实基准资源测量；特别长音频或自定义 processor 应保持串行。没有预读未 claim 的下一条任务，跨任务 ownership 不被绕过。
 
+### 准入与对齐诊断（#295 / #299）
+
+预取报告的 `schema_version=2` 保留旧字段，并增加逐块 `chunks`、`consumed`、`discarded` 和 `fallback_counts`。每个候选下一块记录实际 float32 波形字节、包含短尾 padding 的预留、观测输入字节、状态、等待与回退；首块始终串行，未开启预取时不运行 processor 或复制/填充下一块。`fallback` 保留最后一个回退原因以兼容旧消费者，累计统计应使用 `fallback_counts`。
+
+估算策略仍为 `waveform_x64_v1`，未调高默认预算。16 kHz 单声道 180 秒 float32 块是 11,520,000 bytes，预留为 737,280,000 bytes（703.125 MiB）；64 MiB 默认预算会拒绝该候选并串行准备，短尾块可能通过。开关开启不等于所有块实现重叠。处理器输入大小不能确定时记录 `prepared_input_size_unknown` 并回退；返回输入实测超限记录 `prepared_input_budget`，释放预取引用后按原串行路径重建。实测发生在分配之后，不能限制第三方处理器暂态峰值。
+
+准备线程只返回输入和计时元数据，主线程负责合并诊断；异常退出仍取消未开始的准备、等候已运行的准备并清理资源。硬取消/超时仍由可终止 session 边界保障；线程等待自身不提供新的硬期限。
+
+对齐新增 `align_prepare`、`align_transfer`、`align_forward`、`align_postprocess`，均带 chunk index，沿用 `measurement=wall`。父事件 `align` 仍保留，不将父子事件相加充当 GPU 时间，也不引入每块 GPU synchronize。batch 和对齐编译仍未启用。
+
 ## 验证与实际 GPU 验收
 
 本地 WSL 的 `test_asr_sessions.py` 使用真实 spawn 进程验证复用、任务隔离、配置/binding 重建、异常/超时/硬崩溃、取消、迟到身份拒绝、大 IPC 结果与父 SIGKILL。`test_asr_prefetch.py` 验证两遍只解码一次、源变化拒绝、准备与 decode 的实际线程重叠、与串行相同 cues/coverage、预算与 clone 回退。`test_workflow_workers.py` 验证 claim 筛选、排空、期限、固定槽位/退避/互斥和真实空闲控制进程退出。没有修改旧测试收集忽略规则。

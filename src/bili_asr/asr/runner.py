@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import multiprocessing as _multiprocessing
 import os
 import queue as _queue
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from typing import Any, NamedTuple
@@ -23,6 +21,7 @@ import bili_asr.asr.diagnostics as _dependency_diagnostics
 import bili_asr.asr.errors as _dependency_errors
 import bili_asr.asr.hotwords as _dependency_hotwords
 from bili_asr.asr.provenance import _redact
+from bili_asr.asr.preparation import InputPrefetch
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -274,6 +273,7 @@ class ASRRunner:
         self._prefetch_bytes = 64 * 1024 * 1024
         self._trace: list[dict[str, Any]] | None = None
         self._trace_origin = 0.0
+        self._trace_chunk_index = None
 
     def configure_prefetch(self, *, enabled: bool, max_bytes: int = 64 * 1024 * 1024) -> None:
         """Experimental depth-one CPU input preparation; no concurrent GPU calls."""
@@ -307,15 +307,17 @@ class ASRRunner:
     def _trace_stage(self, phase: str, started: float, *, chunk_index: int | None = None) -> None:
         if self._trace is not None:
             self._trace.append({"phase": phase, "start_s": started - self._trace_origin,
-                "end_s": time.perf_counter() - self._trace_origin, "chunk_index": chunk_index,
+                "end_s": time.perf_counter() - self._trace_origin,
+                "chunk_index": self._trace_chunk_index if chunk_index is None else chunk_index,
                 "clock": "process_perf_counter", "measurement": "wall"})
 
-    def _prepare_decode_inputs(self, processor: Any, audio: Any):
+    def _prepare_decode_inputs(self, processor: Any, audio: Any, *, record_trace: bool = True):
         hotwords = self._prompt_hotwords()
         prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
         started = time.perf_counter()
         result = processor.apply_transcription_request(audio=audio, language=self.config.language, prompt=prompt)
-        self._trace_stage("cpu_input_prepare", started)
+        if record_trace:
+            self._trace_stage("cpu_input_prepare", started)
         return result
 
     def _get_models(self) -> _ModelSet:
@@ -424,19 +426,28 @@ class ASRRunner:
 
         import torch
 
+        started = time.perf_counter()
         inputs, word_lists = models.aligner_processor.prepare_forced_aligner_inputs(
             audio=audio, transcript=text, language=language or "Chinese"
         )
+        self._trace_stage("align_prepare", started)
+        started = time.perf_counter()
         inputs = inputs.to(models.aligner.device, models.aligner.dtype)
+        self._trace_stage("align_transfer", started)
         with torch.inference_mode():
             _progress("align")
+            started = time.perf_counter()
             logits = models.aligner(**inputs).logits
-        return list(models.aligner_processor.decode_forced_alignment(
+            self._trace_stage("align_forward", started)
+        started = time.perf_counter()
+        units = list(models.aligner_processor.decode_forced_alignment(
             logits=logits,
             input_ids=inputs["input_ids"],
             word_lists=word_lists,
             timestamp_token_id=models.aligner.config.timestamp_token_id,
         )[0])
+        self._trace_stage("align_postprocess", started)
+        return units
 
     def characters(self) -> dict[str, Any] | None:
         """The character-level record for the **last** :meth:`transcribe`, or ``None``.
@@ -502,6 +513,7 @@ class ASRRunner:
         self._diagnostic_passes.append(report)
         run_clock = time.perf_counter()
         self._trace_origin = run_clock
+        self._trace_chunk_index = None
         self._trace = report["trace"] = []
         load_clock = time.perf_counter()
         report["model_reused"] = self._models is not None
@@ -528,7 +540,7 @@ class ASRRunner:
 
         audio_clock = time.perf_counter()
         path, temporary = _dependency_audio._materialize_input(audio_path)
-        preparation_pool = None
+        prefetch = None
         try:
             audio_key = self._audio_identity(path) if self._audio_reuse_scope else None
             cached = self._prepared_audio if self._audio_reuse_scope else None
@@ -578,19 +590,10 @@ class ASRRunner:
             minimum = int(_dependency_constants._CHUNK_MIN_SECONDS * _dependency_constants.SAMPLE_RATE)
             pieces: list[dict[str, Any]] = []
             languages: set[str] = set()
-            prefetch_processor = None
-            report["prefetch"] = {"enabled": self._prefetch_enabled, "depth": 1,
-                                  "budget_bytes": self._prefetch_bytes, "submitted": 0,
-                                  "fallback": None, "input_wait_s": 0.0}
-            if self._prefetch_enabled:
-                try:
-                    # The decoder's processor is never concurrently used by the preparation
-                    # thread. A separate tokenizer/feature extractor owns the CPU work.
-                    prefetch_processor = copy.deepcopy(models.processor)
-                    preparation_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="asr-cpu-input")
-                except Exception:  # noqa: BLE001 - unsupported processor safely retains serial execution.
-                    report["prefetch"]["fallback"] = "processor_not_cloneable"
-            pending = None
+            prefetch = InputPrefetch(models.processor if self._prefetch_enabled else None,
+                lambda processor, audio: self._prepare_decode_inputs(processor, audio, record_trace=False),
+                enabled=self._prefetch_enabled, budget_bytes=self._prefetch_bytes)
+            report["prefetch"] = prefetch.report
             report["resources"] = {"decoded_waveform_bytes": int(samples.nbytes),
                                    "prefetch_input_peak_bytes": 0, "prefetch_memory_bound": "reservation_and_observed_input"}
 
@@ -598,31 +601,8 @@ class ASRRunner:
                 value = np.asarray(chunk, dtype=np.float32)
                 return np.pad(value, (0, minimum - value.shape[0])) if value.shape[0] < minimum else value
 
-            def prepare_next(index):
-                if preparation_pool is None or index >= len(chunks):
-                    return None
-                value = padded_audio(chunks[index][0])
-                # A conservative reservation includes waveform, feature tensors and masks.
-                # Large inputs keep the serial path rather than retaining another request.
-                if value.nbytes * 64 > self._prefetch_bytes:
-                    report["prefetch"]["fallback"] = "input_budget"
-                    return None
-                report["prefetch"]["submitted"] += 1
-                def prepare_bounded():
-                    prepared = self._prepare_decode_inputs(prefetch_processor, value)
-                    total_bytes = sum(
-                        int(item.numel()) * int(item.element_size())
-                        if callable(getattr(item, "numel", None)) and callable(getattr(item, "element_size", None))
-                        else int(getattr(item, "nbytes", 0)) for item in prepared.values())
-                    report["resources"]["prefetch_input_peak_bytes"] = max(
-                        report["resources"]["prefetch_input_peak_bytes"], total_bytes)
-                    if total_bytes > self._prefetch_bytes:
-                        report["prefetch"]["fallback"] = "prepared_input_budget"
-                        return None
-                    return prepared
-                return preparation_pool.submit(prepare_bounded)
-
             for chunk_index, (chunk, offset) in enumerate(chunks):
+                self._trace_chunk_index = chunk_index
                 chunk_report: dict[str, Any] = {
                     "chunk_index": chunk_index, "start_s": offset,
                     "end_s": offset + len(chunk) / _dependency_constants.SAMPLE_RATE,
@@ -630,24 +610,27 @@ class ASRRunner:
                 }
                 report["chunks"].append(chunk_report)
                 audio = padded_audio(chunk)
-                if audio.shape[0] < minimum:
-                    # The aligner refuses a degenerate window.  The splitter deliberately does not
-                    # pad — that would break its tiling promise — so the pad happens here, where the
-                    # requirement comes from.
-                    audio = np.pad(audio, (0, minimum - audio.shape[0]))
-                prepared_inputs = None
-                if pending is not None:
+                if prefetch.pending is not None:
                     wait_clock = time.perf_counter()
-                    prepared_inputs = pending.result()
-                    report["prefetch"]["input_wait_s"] += time.perf_counter() - wait_clock
+                    prepared_inputs, prepared = prefetch.consume()
                     self._trace_stage("cpu_input_wait", wait_clock, chunk_index=chunk_index)
-                pending = prepare_next(chunk_index + 1)
+                    if prepared is not None:
+                        self._trace.append({"phase": "cpu_input_prepare",
+                            "start_s": prepared.started - self._trace_origin,
+                            "end_s": prepared.finished - self._trace_origin, "chunk_index": chunk_index,
+                            "clock": "process_perf_counter", "measurement": "wall"})
+                else:
+                    prepared_inputs = None
+                if chunk_index + 1 < len(chunks):
+                    prefetch.submit(chunk_index + 1, chunks[chunk_index + 1][0], minimum_samples=minimum)
                 self._last_generation = {}
                 decode_clock = time.perf_counter()
                 # Processors accept decoded arrays. Paths would invoke their
                 # optional decoder backend and repeat our own audio preparation.
                 decode_kwargs = {} if prepared_inputs is None else {"prepared_inputs": prepared_inputs}
                 text, language = self._transcribe_chunk(models, audio, bust_cache=bust_cache, **decode_kwargs)
+                prepared_inputs = None
+                decode_kwargs.clear()
                 chunk_report["decode_s"] = time.perf_counter() - decode_clock
                 self._trace_stage("decode", decode_clock, chunk_index=chunk_index)
                 chunk_report["text"] = text
@@ -703,10 +686,12 @@ class ASRRunner:
                 self._last_language = "mul"
             return cues
         finally:
-            if preparation_pool is not None:
-                preparation_pool.shutdown(wait=True, cancel_futures=True)
+            if prefetch is not None:
+                prefetch.close()
+                report["resources"]["prefetch_input_peak_bytes"] = prefetch.peak_bytes
             report["timings_s"]["total"] = time.perf_counter() - run_clock
             self._trace = None
+            self._trace_chunk_index = None
             for leftover in (temporary,):
                 if leftover:
                     try:
