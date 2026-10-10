@@ -107,7 +107,7 @@ class StagedArtifact:
 
 
 @contextmanager
-def stage_artifact(root: Path, relative_path: str, data: bytes) -> Iterator[StagedArtifact]:
+def stage_artifact(root: Path, relative_path: str, data: bytes, *, temporary_root: Path | None = None) -> Iterator[StagedArtifact]:
     """Prepare and fsync outside SQLite transactions; always clean staging."""
     target = secure_path(root, relative_path, create_parents=True)
     if target.exists():
@@ -115,7 +115,8 @@ def stage_artifact(root: Path, relative_path: str, data: bytes) -> Iterator[Stag
             raise ValueError("manuscript-integrity: existing artifact has different bytes")
         yield StagedArtifact(root, relative_path, target, None, data)
         return
-    fd, temporary = tempfile.mkstemp(prefix=".manuscript-", dir=target.parent)
+    temporary_directory = validate_root(temporary_root) if temporary_root is not None else target.parent
+    fd, temporary = tempfile.mkstemp(prefix=".manuscript-", dir=temporary_directory)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)

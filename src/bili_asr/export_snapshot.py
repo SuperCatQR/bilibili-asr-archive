@@ -27,6 +27,7 @@ _ARTICLE_FIELDS = frozenset({
 _DRAFT_FIELDS = (_ARTICLE_FIELDS - {"releaseId", "templateVersion", "publishedAt"}) | {"reviewStatus", "createdAt"}
 _REVIEW_STATUSES = frozenset({"pending-review", "in-review", "changes-requested", "approved", "rejected"})
 _REVIEW_FILES = frozenset({"ai-draft.md", "review.md", "edition.md", "edition.json", "review.json", "differences/ai.patch", "differences/parent.patch"})
+_IMPORT_REVIEW_FILES = frozenset({"import-origin.json", "preserved-body.md", "differences/preserved.patch"})
 
 
 def json_bytes(value: object) -> bytes:
@@ -76,12 +77,14 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
     return output
 
 
-def _allowed_file(name: str, kind: str) -> bool:
+def _allowed_file(name: str, kind: str, profile: str | None = None) -> bool:
+    if name == "origins.json":
+        return profile == "universal-origin-v1" and kind in {"publication-export", "publication-draft-export"}
     if kind == "publication-export":
         return name in {"catalog.json", "series.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
     if kind == "publication-draft-export":
         return name in {"catalog.json", "series.json"} or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
-    return name in _REVIEW_FILES
+    return name in _REVIEW_FILES | _IMPORT_REVIEW_FILES
 
 
 def _validate_article(article: object, *, draft: bool = False, catalog_version: int = 2) -> dict:
@@ -143,15 +146,16 @@ def _validate_article(article: object, *, draft: bool = False, catalog_version: 
     return article
 
 
-def _file_parts(name: str, kind: str) -> tuple[str, ...]:
+def _file_parts(name: str, kind: str, profile: str | None = None) -> tuple[str, ...]:
     parts = PurePosixPath(name).parts
-    if not _allowed_file(name, kind) or PurePosixPath(name).as_posix() != name or any(part in {".", ".."} for part in parts):
+    if not _allowed_file(name, kind, profile) or PurePosixPath(name).as_posix() != name or any(part in {".", ".."} for part in parts):
         raise ExportSnapshotError(f"unmanaged export file: {name}")
     return parts
 
 
-def _snapshot_id(files: list[dict[str, str]]) -> str:
-    canonical = json.dumps(files, sort_keys=True, separators=(",", ":"))
+def _snapshot_id(files: list[dict[str, str]], kind: str | None = None, profile: str | None = None) -> str:
+    value = files if profile is None else {"schemaVersion": 2, "manuscriptType": kind, "contractProfile": profile, "files": files}
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -184,9 +188,12 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
     if manifest_name not in actual_files:
         raise ExportSnapshotError(f"output is not a managed {kind} snapshot; legacy exports and manual files are refused")
     manifest = read_json(directory / manifest_name)
-    if not isinstance(manifest, dict) or set(manifest) != {"schemaVersion", "manuscriptType", "snapshotId", "files"}:
+    profile = manifest.get("contractProfile") if isinstance(manifest, dict) else None
+    fields = {"schemaVersion", "manuscriptType", "snapshotId", "files"} | ({"contractProfile"} if profile is not None else set())
+    if not isinstance(manifest, dict) or set(manifest) != fields:
         raise ExportSnapshotError("invalid export manifest fields")
-    if type(manifest["schemaVersion"]) is not int or manifest["schemaVersion"] != 1 or manifest["manuscriptType"] != kind:
+    if (type(manifest["schemaVersion"]) is not int or manifest["schemaVersion"] != (2 if profile is not None else 1)
+            or manifest["manuscriptType"] != kind or (profile is not None and (profile != "universal-origin-v1" or kind == "editorial-export"))):
         raise ExportSnapshotError("unsupported export manifest contract")
     records = manifest["files"]
     if not isinstance(records, list) or not records:
@@ -199,7 +206,7 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         name, digest = record["path"], record["sha256"]
         if not isinstance(name, str) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ExportSnapshotError("invalid export file identity")
-        _file_parts(name, kind)
+        _file_parts(name, kind, profile)
         if name in expected_files:
             raise ExportSnapshotError("duplicate export manifest file")
         expected_files.add(name)
@@ -207,7 +214,7 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         path = directory / name
         if name not in actual_files or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise ExportSnapshotError(f"export file is missing or modified: {name}")
-    if records != sorted(records, key=lambda item: item["path"]) or manifest["snapshotId"] != _snapshot_id(records):
+    if records != sorted(records, key=lambda item: item["path"]) or manifest["snapshotId"] != _snapshot_id(records, kind, profile):
         raise ExportSnapshotError("export snapshot identity mismatch")
     if actual_files != expected_files or actual_directories != expected_directories:
         raise ExportSnapshotError("export contains unmanaged files or directories")
@@ -229,12 +236,17 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
                 record = next((record for record in records if record["path"] == article[file_field]), None)
                 if record is None or record["sha256"] != article[hash_field]:
                     raise ExportSnapshotError("public article and manifest hashes differ")
-        if article_files != expected_files - {manifest_name, "catalog.json", "series.json"}:
+        if profile is not None:
+            from bili_asr.publication_origins import validate_origins
+            if catalog["schemaVersion"] != 3 or "origins.json" not in expected_files:
+                raise ExportSnapshotError("origin profile requires catalog v3 and origins.json")
+            validate_origins(read_json(directory / "origins.json"), catalog["articles"], manuscript_type)
+        if article_files != expected_files - {manifest_name, "catalog.json", "series.json", "origins.json"}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
         if "series.json" in expected_files:
             from bili_asr.publication_series import validate_public_series
             validate_public_series(read_json(directory / "series.json"), catalog["articles"], manuscript_type)
-    elif expected_files != _REVIEW_FILES | {manifest_name}:
+    elif expected_files not in (_REVIEW_FILES | {manifest_name}, _REVIEW_FILES | _IMPORT_REVIEW_FILES | {manifest_name}):
         raise ExportSnapshotError("private editorial snapshot is incomplete")
     return str(manifest["snapshotId"])
 
@@ -394,7 +406,7 @@ def _recover(output: Path, kind: str) -> None:
     _fsync_directory(output.parent)
 
 
-def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes]) -> str:
+def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes], profile: str | None = None) -> str:
     """Install one exact snapshot, or restore the previous directory on failure.
 
     Recovery artifacts are siblings of the public directory. OS advisory locks
@@ -402,14 +414,18 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes]) -> 
     """
     if kind not in {"publication-export", "publication-draft-export", "editorial-export"} or not files:
         raise ExportSnapshotError("unsupported or empty export snapshot")
+    if profile is not None and (profile != "universal-origin-v1" or kind == "editorial-export"):
+        raise ExportSnapshotError("unsupported export origin profile")
     output = checked_path(output)
     for name, content in files.items():
-        _file_parts(name, kind)
+        _file_parts(name, kind, profile)
         if not isinstance(content, bytes):
             raise ExportSnapshotError("export content must be bytes")
     records = [{"path": name, "sha256": hashlib.sha256(files[name]).hexdigest()} for name in sorted(files)]
-    snapshot_id = _snapshot_id(records)
-    manifest = {"schemaVersion": 1, "manuscriptType": kind, "snapshotId": snapshot_id, "files": records}
+    snapshot_id = _snapshot_id(records, kind, profile)
+    manifest = {"schemaVersion": 2 if profile is not None else 1, "manuscriptType": kind, "snapshotId": snapshot_id, "files": records}
+    if profile is not None:
+        manifest["contractProfile"] = profile
     output.parent.mkdir(parents=True, exist_ok=True)
     checked_path(output.parent)
     with _exclusive_lock(output):
@@ -423,7 +439,7 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes]) -> 
         installed = moved_old = journal_written = False
         try:
             for name, content in files.items():
-                target = stage.joinpath(*_file_parts(name, kind))
+                target = stage.joinpath(*_file_parts(name, kind, profile))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 _write_file(target, content)
             _write_file(stage / f"{kind}-manifest.json", json_bytes(manifest))

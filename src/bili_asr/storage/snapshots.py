@@ -141,14 +141,17 @@ def _schema(connection: sqlite3.Connection) -> dict[str, Any]:
     return objects
 
 
-@lru_cache(maxsize=2)
-def _current_contract(kind: str = "bilibili-v1") -> tuple[dict[str, Any], str]:
+@lru_cache(maxsize=4)
+def _current_contract(kind: str = "bilibili-v1", imports: bool = False) -> tuple[dict[str, Any], str]:
     from bili_asr.storage.archive_contracts import BILIBILI_V1, bootstrap_contract
     with closing(sqlite3.connect(":memory:")) as connection:
         if kind == BILIBILI_V1:
             initialize_schema(connection)
         else:
             bootstrap_contract(connection, kind)
+        if imports:
+            from bili_asr.storage.archive_contracts import _resource
+            connection.executescript(_resource("schema-preserved-body-import.sql"))
         required = _schema(connection)
     canonical = json.dumps(required, sort_keys=True, separators=(",", ":"))
     return required, "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -163,7 +166,8 @@ def validate_snapshot_database(database_path: Path, expected_contract: str | Non
     from bili_asr.storage.archive_contracts import runtime_contract
     try:
         with closing(_connect(database_path)) as connection:
-            required, contract = _current_contract(runtime_contract(connection))
+            from bili_asr.storage.import_origins import require_import_extension
+            required, contract = _current_contract(runtime_contract(connection), require_import_extension(connection))
             if expected_contract is not None and expected_contract != contract:
                 raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             integrity = connection.execute("PRAGMA integrity_check").fetchall()
@@ -298,6 +302,15 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
 
             connection.row_factory = sqlite3.Row
             repository = PublicationRepository(connection)
+            from bili_asr.storage.import_origins import require_import_extension, read_baseline
+            if require_import_extension(connection):
+                for row in connection.execute("SELECT import_id FROM manuscript_import_baselines"):
+                    baseline = read_baseline(connection, row["import_id"])
+                    add(baseline["body_path"], baseline["body_sha256"])
+                    add(baseline["review_path"], baseline["review_sha256"])
+                from bili_asr.storage.publication import read_edition
+                for row in connection.execute("SELECT edition_id FROM publication_import_origins"):
+                    read_edition(connection, row["edition_id"])
             for row in connection.execute("SELECT release_id FROM publication_releases"):
                 release = repository.release(row["release_id"])
                 verify_release_identity(connection, release)

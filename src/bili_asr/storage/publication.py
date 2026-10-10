@@ -158,7 +158,11 @@ class PublicationRepository:
         edition = {"edition_id": edition_id, "video_part_id": part_id,
                    "review_id": review_id, "content_sha256": digest(content)}
         self.event(edition, event_type, None, "pending-review", actor, note)
-        return self.edition(edition_id)
+        result = self.edition(edition_id)
+        if event_type == "edited" and parent_edition_id:
+            from bili_asr.storage.import_origins import inherit_import_origin
+            inherit_import_origin(self.connection, parent_edition_id, result)
+        return result
 
     def set_review(self, *, edition_id: str, status: str, content_sha256: str,
                    expected_status: str, actor: str, note: str,
@@ -302,9 +306,15 @@ def read_edition(connection: sqlite3.Connection, edition_id: str) -> dict:
     else:
         normalized = normalize_content(edition["content"])
     metadata = prepared["snapshot"]["metadata"]
-    if version != frozen_version(connection, "input", revision["input_id"]):
-        raise ValueError("publication-integrity: content version differs from frozen input")
-    if version == 2:
+    input_version = frozen_version(connection, "input", revision["input_id"])
+    from bili_asr.storage.import_origins import import_origin, validate_edition_origin
+    origin = import_origin(connection, edition_id)
+    if version == 2 and input_version == 1:
+        baseline = validate_edition_origin(connection, edition, revision)
+        source_matches = normalized["source"] == baseline["content"]["source"]
+    elif version != input_version or origin is not None:
+        raise ValueError("publication-integrity: content version or origin differs from frozen input")
+    elif version == 2:
         source_matches = normalized["source"]["metadata"] == metadata["source_metadata"]
     else:
         source_matches = (normalized["source"]["bvid"] == metadata["bvid"]
