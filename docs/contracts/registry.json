@@ -1284,7 +1284,7 @@
       },
       {
         "path": "tests/fixtures/data/bilibili-v1-frozen.json",
-        "sha256": "045f4d7cf96cf97d38a9dcf069a8fa4f0865c62fb321deb7232babb519d784dd"
+        "sha256": "2e2d67cac953c115d541e210cd663c91adc07327ff3c158947eb0e9621849844"
       },
       {
         "path": "tests/fixtures/data/contracts-release-baseline-v1.json",

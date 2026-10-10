@@ -247,7 +247,7 @@ FROZEN_RELEASE_FILES = (
     FrozenReleaseFile("tests/fixtures/data/bilibili-v1-frozen.zip",
         "20790dfc0acec3dda5707cb534907374c458f99b04f1947dc865ffe67b93770b"),
     FrozenReleaseFile("tests/fixtures/data/bilibili-v1-frozen.json",
-        "045f4d7cf96cf97d38a9dcf069a8fa4f0865c62fb321deb7232babb519d784dd"),
+        "2e2d67cac953c115d541e210cd663c91adc07327ff3c158947eb0e9621849844"),
     FrozenReleaseFile(RELEASE_BASELINE, "7ea6da1930354dbb5e871ae84828b189138d88a2b1467c33edd75174913f194e"),
 )
 

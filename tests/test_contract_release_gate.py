@@ -40,6 +40,30 @@ def test_actual_full_pytest_collection_covers_every_registered_upgrade(monkeypat
     assert all(report["collected_acceptance"].values())
 
 
+def test_frozen_evidence_checkout_is_byte_identical_with_autocrlf_enabled(tmp_path):
+    """A Windows-style checkout must retain the same historical bytes as Git archive."""
+    def git(*arguments):
+        return subprocess.run(["git", "-C", str(tmp_path), *arguments], check=True,
+                              capture_output=True, text=True)
+
+    git("init", "-q")
+    git("config", "core.autocrlf", "true")
+    shutil.copyfile(ROOT / ".gitattributes", tmp_path / ".gitattributes")
+    expected = {}
+    for entry in catalog()["release_acceptance"]["frozen_files"]:
+        relative = entry["path"]
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        expected[relative] = (ROOT / relative).read_bytes()
+        destination.write_bytes(expected[relative])
+    git("add", ".gitattributes", *expected)
+    for relative in expected:
+        (tmp_path / relative).unlink()
+    git("checkout-index", "--all")
+    for relative, original in expected.items():
+        assert (tmp_path / relative).read_bytes() == original, relative
+
+
 def test_collect_ignore_cannot_supply_release_acceptance(tmp_path):
     tests = tmp_path / "tests"
     tests.mkdir()
