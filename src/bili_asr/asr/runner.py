@@ -560,7 +560,7 @@ class ASRRunner:
             "requested": self.backend.capabilities.name, "resolved": self.backend.capabilities.name,
             "capabilities": self.backend.capabilities.evidence(),
         }
-        report["hardware"] = hardware_evidence(models.model.device)
+        report["hardware"] = hardware_evidence(getattr(models.model, "device", None))
         report["execution_policy"]["runtime"] = {
             "environment": report["environment"], "hardware": report["hardware"], "source_commit": None,
         }
