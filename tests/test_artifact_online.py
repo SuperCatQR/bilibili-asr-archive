@@ -382,7 +382,3 @@ def test_concurrent_restores_have_one_install_and_read_pin_excludes_migration(ar
     assert outcomes.get(timeout=5) == archive.data
     with sqlite3.connect(archive.root / "archive.db") as connection:
         assert connection.execute("SELECT COUNT(*) FROM artifact_transfers WHERE kind='restore'").fetchone()[0] == 1
-
-
-
-

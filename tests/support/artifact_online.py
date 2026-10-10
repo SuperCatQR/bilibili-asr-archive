@@ -31,4 +31,3 @@ def configure(archive, **changes):
     with ArchiveSession(archive.root, mode=ArchiveAccessMode.WRITE) as session:
         configure_policy(session.connection, "default", value)
     return value
-

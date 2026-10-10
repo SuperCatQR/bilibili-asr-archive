@@ -195,4 +195,3 @@ def test_io_meter_limits_aggregate_repeated_read_bytes(monkeypatch):
     meter.observe(100)
     meter.observe(150)
     assert meter.report() == {"bytes_read": 250, "elapsed_seconds": 2.5, "bytes_per_second_limit": 100}
-
