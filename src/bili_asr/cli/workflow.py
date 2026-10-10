@@ -53,6 +53,19 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     plan.add_argument("--tokens-per-second", type=float, default=None)
     plan.add_argument("--min-new-tokens", type=int, default=None)
     plan.add_argument("--second-pass-cache", action=argparse.BooleanOptionalAction, default=None)
+    plan.add_argument("--asr-batch-size", type=int, default=None)
+    plan.add_argument("--asr-attention", choices=("default", "eager", "sdpa", "flash_attention_2"), default=None)
+    plan.add_argument("--aligner-attention", choices=("default", "eager", "sdpa", "flash_attention_2"), default=None)
+    plan.add_argument("--asr-cache-implementation", choices=("default", "dynamic", "static"), default=None)
+    plan.add_argument("--asr-compile", action=argparse.BooleanOptionalAction, default=None)
+    plan.add_argument("--aligner-compile", action=argparse.BooleanOptionalAction, default=None)
+    plan.add_argument("--compile-max-buckets", type=int, default=None)
+    plan.add_argument("--compile-max-input-tokens", type=int, default=None)
+    plan.add_argument("--compile-max-output-tokens", type=int, default=None)
+    plan.add_argument("--aligner-batch-size", type=int, default=None)
+    plan.add_argument("--batch-max-audio-seconds", type=float, default=None)
+    plan.add_argument("--batch-max-input-bytes", type=int, default=None)
+    plan.add_argument("--batch-max-tokens", type=int, default=None)
     plan.add_argument("--proofread", action="store_true", help="Queue AI proofreading after ASR and then render Markdown")
     _add_editorial_arguments(plan)
 
@@ -160,6 +173,13 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     evidence.add_argument("--run-id", required=True)
     evidence.add_argument("--part-id", type=int, required=True)
 
+    performance = actions.add_parser("asr-performance", help="Read ASR throughput and retry costs in a fixed UTC window")
+    performance.set_defaults(database_policy=ArchiveAccessMode.READ)
+    performance.add_argument("--archive-root", default=archive_root)
+    performance.add_argument("--start", type=int, required=True, help="Inclusive UTC epoch second")
+    performance.add_argument("--end", type=int, required=True, help="Exclusive UTC epoch second")
+    performance.add_argument("--max-attempts", type=int, default=10_000)
+
     retry = actions.add_parser("retry", help="Requeue failed jobs while keeping attempt evidence")
     retry.add_argument("--archive-root", default=archive_root)
     retry.add_argument("--part-id", type=int, action="append", default=None)
@@ -232,7 +252,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
     if args.workflow_action in {"run", "render"}:
         artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
                                    require_writable=args.workflow_action == "run")
-    readonly = args.workflow_action in {"status", "explain", "asr-evidence"} or (
+    readonly = args.workflow_action in {"status", "explain", "asr-evidence", "asr-performance"} or (
         args.workflow_action == "repair-dependencies" and not args.apply)
     mode = ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE
     session = ArchiveSession(args.archive_root, mode=mode, artifact_roots=artifact_roots).open()
@@ -242,6 +262,12 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         repository = application.repository
         if args.workflow_action != "status":
             repository.require_cancellation_contract()
+        if args.workflow_action == "asr-performance":
+            from bili_asr.services.asr_performance import asr_performance_report
+            report = asr_performance_report(connection, start=args.start, end=args.end,
+                                            max_attempts=args.max_attempts)
+            print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+            return 0
         if args.workflow_action == "repair-dependencies":
             if args.apply and args.expected_plan_id is None:
                 raise ValueError("--apply requires --expected-plan-id from the inspected plan")
@@ -335,7 +361,11 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 for name in ("model", "model_revision", "aligner", "aligner_revision",
                              "device", "language", "chunk_seconds", "inference_timeout",
                              "hotword", "offline", "model_id", "tokens_per_second",
-                             "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype"):
+                             "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype",
+                             "asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",
+                             "batch_max_input_bytes", "batch_max_tokens", "asr_attention", "aligner_attention",
+                             "asr_cache_implementation", "asr_compile", "aligner_compile", "compile_max_buckets",
+                             "compile_max_input_tokens", "compile_max_output_tokens"):
                     value = getattr(args, name)
                     if value is not None:
                         overrides[names.get(name, name)] = tuple(value) if name == "hotword" else value
