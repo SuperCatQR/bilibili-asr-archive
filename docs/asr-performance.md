@@ -1,0 +1,49 @@
+# ASR 正常运行的只读吞吐汇总
+
+实现 #301 的第一部分：从已有 SQLite evidence 与 workflow attempts 生成有明确窗口和缺失值的 JSON 报告。它不运行模型，不执行 retry/claim，不变更 hold，也不加载 profiler。
+
+```bash
+bili-asr workflow asr-performance --archive-root /srv/archive \
+  --start 1791504000 --end 1791507600 --max-attempts 10000
+```
+
+`--start`/`--end` 是 UTC epoch 整数秒，指定 `[start,end)` 的共同墙钟窗口。输入要求 `0 <= start < end`；attempt 限额为 1–100000，默认 10000。候选超过限额时拒绝整份报告，提示缩小窗口或提高限额，不悄悄输出截断结果。报告各查询在同一 read transaction 快照完成；调用者已有事务时不提交或回滚其事务。以 READ 模式打开归档；本次静止测试归档的 DB/sidecar 字节校验保持不变，并发 writer 自身写入不在该校验范围内。
+
+## 统计口径
+
+| 字段 | 定义 |
+| --- | --- |
+| `unique_success_audio_s` | 完整落在窗口内的成功 workflow ASR attempt，以 evidence 中已有音频 SHA256 去重后的原始音频秒。相同输入重复执行或双遍不会重复计音频。 |
+| `audio_s_per_wall_s` | 上述原始音频秒 / 窗口共同墙钟秒。成功输入身份/时长缺失时为 `null`，而非假设音频为零。 |
+| `known_audio_s_per_wall_s_lower_bound` | 已知输入的窗口吞吐下界，可结合 unknown 数量查看。跨边界成功明确排除在该采样口径外。 |
+| `overlapping_attempt_wall_s` | 所有与窗口重叠的 attempt 耗时截入窗口后求和；并行时可能大于窗口，**不是吞吐分母**。 |
+| `failure_cancelled_attempt_wall_s` | 失败/取消 attempt 在窗口内的耗时。 |
+| `retry_attempt_wall_s` | retry attempt 在窗口内的耗时，可能与失败耗时重叠，二者不相加当总成本。 |
+| `retry_attempts` | 同 job 已有更早开始的 attempt；同秒以插入顺序消歧。更早 attempt 可在窗口外。 |
+| `terminal_attempt_success_rate` | 重叠样本中成功 /（成功+失败+取消）。它是 attempt 成功率，不是唯一任务成功率。 |
+| `successful_attempt_latency_s` | 完整在窗内成功 attempt 的耗时 P50/P95（线性插值），附样本数。历史时间仅精确到秒，零秒样本照实保留。 |
+| `excluded_boundary_success_attempts` | 开始在窗口前或结束在窗口后、无法完整归因音频的成功 attempt 数。不会按耗时比例猜测处理音频量。 |
+| `pass_counts` | 完整在窗内成功 evidence 的单遍、多遍和未知数量。 |
+| `prefetch_observed_totals` | 同一成功 evidence 范围的 submitted/consumed/discarded/input_wait_s；缺失字段不造零。 |
+| `prefetch_fallback_counts` | v2 记录的已知回退计数；旧 v1 只记录最后原因，不能重构逐块次数，另计 legacy passes。 |
+| `acquisition_run_outcomes` | 所有重叠 ASR acquisition runs 的 outcome 次数，包括没有 workflow attempt 的独立历史运行；不与 workflow 计数相加。 |
+
+开始在 end 的任务不在窗口，结束恰好在 end 的完整任务可计 credit；结束在 start 的非零耗时任务不重叠。outcome 是报告快照中的存储终态，不能还原“窗口结束时它是否仍 running”；报告明确声明该限制。
+
+## 配置、脱敏和未知值
+
+报告按冻结 profile SHA256、runtime binding 身份 SHA256 和已记录 execution policy SHA256 分组。整个报告的音频去重独立于分组；跨配置同输入会在各自组内计一次，**不能相加各组音频量当总量**。每组仍用共同窗口分母，表示该组对窗口的贡献，不是该配置独占设备的 benchmark。
+
+缺失 binding/有效 policy 为 `unknown`，不会根据另一成功 attempt 猜测失败的配置。缺少有效策略时分组不能用作后端排名。旧 evidence 能读取，未知 schema、缺失、无效结构和不完整音频身份显式计数。不同记录对同一 SHA256 声明冲突时长时拒绝报告，避免静默选取更大的值。
+
+`evidence_counts` 的诊断计数不互斥：缺失 evidence 同时无法按支持的 schema 读取，会计入 `missing` 和 `invalid_or_unsupported`，两者不能相加作为缺证据 attempt 总数。
+
+查询仅投影性能所需字段，不复制逐块字幕/正文进聚合器。输出身份为摘要，错误正文、Cookie、API key 和任意回退文本不写入报告。聚合器不重新读取或哈希大音频文件，复用已有 SHA256。记录读取受 attempt 数量限制，但 SQLite 仍需扫描相关历史，单份旧 JSON 的解析成本与其大小有关，不能称全链路常量内存或固定响应时间。
+
+GPU 型号/driver、跨进程精确时间轴、有效后端策略、失败阶段资源和最终发布吞吐尚未全面采集；对应字段为 unknown。`asr-performance` 不证明质量或定位带宽/SM 瓶颈。#301 的 execution envelope 与资源采集、#292 的硬件 profiling 仍为后续范围。
+
+## 本地验证
+
+回归覆盖重叠执行、重复源音频、双遍、失败/重试、跨窗口、未知/未来 evidence、限额拒绝、旧预取报告和敏感字段；并发 WAL writer 下验证单一快照，并验证不影响调用者事务。真实轻量 workflow 执行 fake ASR 后落库，再由真实 CLI 读取报告，静止 DB 字节保持不变。缺库 READ 拒绝且不创建根目录/数据库。
+
+运行记录见 [Perf 首批 WSL 验证](perf-evidence-validation.md)。无 GPU 的测试不能证明真实性能收益。

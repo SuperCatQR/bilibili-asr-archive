@@ -50,6 +50,7 @@
 | --- | --- |
 | [ASR 参数与诊断](asr-configuration.md) | 完整配置快照、独立模型版本、逐次运行证据与质量标记 |
 | [ASR worker](asr-workers.md) | 角色、固定 slot、持久模型会话、drain、准备预算与运行限制 |
+| [ASR 吞吐汇总](asr-performance.md) | 已有 evidence 的只读窗口报告、重试成本、缺失值与预取回退统计 |
 | [ASR 设计评审](asr-design-review.md) | 官方资料、归档定位、证据支持的基线与空热词策略 |
 | [公开样本测试](asr-public-samples.md) | FLEURS 参考 CER、分块与静音对照、完整 JSON 与复现命令 |
 | [WSL 验证记录](asr-wsl-validation.md) | 自动化回归、真实 CPU 模型样本与 GPU 限制 |

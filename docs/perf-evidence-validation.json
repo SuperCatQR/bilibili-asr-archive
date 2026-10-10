@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "branch": "codex/asr-perf-evidence",
+  "base_commit": "472229804283655e877a3dd01764e4991a807cc9",
+  "scope": {
+    "295": "prefetch admission evidence",
+    "299": "alignment phase wall traces",
+    "301": "readonly historical throughput report"
+  },
+  "environment": {
+    "wsl_distro": "Ubuntu-24.04",
+    "python": "3.12.3",
+    "root": "/home/chosenecho/asr-perf-evidence-20261010",
+    "isolated_venv": "/home/chosenecho/asr-perf-evidence-20261010/venv",
+    "gpu_models": "fakes"
+  },
+  "focused": {
+    "tests": 171,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 171,
+    "elapsed_s": 24.907
+  },
+  "full": {
+    "tests": 2392,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 11,
+    "passed": 2381,
+    "elapsed_s": 440.742
+  },
+  "full_shards": {
+    "wall_s": 440.74240399300015,
+    "shards": [
+      {
+        "index": 0,
+        "exit_code": 0
+      },
+      {
+        "index": 1,
+        "exit_code": 0
+      },
+      {
+        "index": 2,
+        "exit_code": 0
+      },
+      {
+        "index": 3,
+        "exit_code": 0
+      }
+    ]
+  },
+  "coverage": {
+    "line_percent": 82.84,
+    "branch_percent": 71.88,
+    "covered_lines": 14358,
+    "lines": 17333,
+    "covered_branches": 4340,
+    "branches": 6038,
+    "line_floor": 75,
+    "branch_floor": 63,
+    "gate": "passed"
+  },
+  "quality": {
+    "ruff_ci_E9": "passed",
+    "compileall": "passed",
+    "git_diff_check": "passed"
+  },
+  "prevalidation_findings": [
+    {
+      "test": "test_installed_package_bootstraps_schema_and_status",
+      "resolution": "Install current wheel into isolated venv instead of obsolete editable checkout"
+    },
+    {
+      "test": "test_a_real_transcription_reaches_the_published_raw",
+      "resolution": "Do not access processor when prefetch is disabled; original assertion preserved"
+    },
+    {
+      "test": "test_repository_config_measures_subprocess_and_unexecuted_source",
+      "resolution": "Copy coverage startup pth into isolated venv; original assertion preserved"
+    },
+    {
+      "test": "test_parent_sigkill_during_inference_does_not_leave_live_child",
+      "resolution": "Handle ESRCH after opening proc stat; original deadline and liveness assertion preserved"
+    }
+  ],
+  "mutations": [
+    {
+      "case": "admission",
+      "exit_code": 1,
+      "caught": true
+    },
+    {
+      "case": "denominator",
+      "exit_code": 1,
+      "caught": true
+    }
+  ],
+  "artifact_verification": {
+    "source_file_count": 381,
+    "source_manifest_sha256": "af163d844a716ac6acff332873386760eb705139769e1d730e090652a52950fd",
+    "windows_wsl_exact_bytes_match": true,
+    "wheel_source_file_count": 157,
+    "wheel_source_exact_bytes_match": true,
+    "artifacts": {
+      "bili_asr-0.1.0.tar.gz": "f79b32e47894b5bb62292d87703f984abe054337d1e0846baa99b5eb45f35fa2",
+      "bili_asr-0.1.0-py3-none-any.whl": "63c381a93340fedabc50adbd94820521c63e60b5b7442450b971eb369079f9c6"
+    },
+    "installed_console_report_exit_code": 0,
+    "installed_console_missing_archive_exit_code": 1,
+    "static_archive_bytes_unchanged": true
+  },
+  "limitations": [
+    "No GPU performance or quality acceptance",
+    "No alignment batching or execution envelope implemented",
+    "Historical missing evidence remains unknown",
+    "Initial run with an obsolete editable install was interrupted and excluded"
+  ]
+}
