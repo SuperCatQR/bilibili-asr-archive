@@ -10,6 +10,15 @@ from typing import Any, Callable
 
 
 @dataclass(frozen=True)
+class DecodeInputs:
+    """CPU processor output and its generation budget, before device transfer."""
+
+    inputs: Any
+    max_new_tokens: int
+    feature_seconds: float
+
+
+@dataclass(frozen=True)
 class PreparationEstimate:
     waveform_bytes: int
     reserved_bytes: int
@@ -23,6 +32,8 @@ def estimate_preparation(waveform_bytes: int) -> PreparationEstimate:
 
 
 def prepared_input_bytes(inputs: Any) -> int | None:
+    if isinstance(inputs, DecodeInputs):
+        inputs = inputs.inputs
     total = 0
     for item in inputs.values():
         if callable(getattr(item, "numel", None)) and callable(getattr(item, "element_size", None)):

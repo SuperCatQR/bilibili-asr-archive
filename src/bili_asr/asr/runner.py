@@ -21,7 +21,7 @@ import bili_asr.asr.diagnostics as _dependency_diagnostics
 import bili_asr.asr.errors as _dependency_errors
 import bili_asr.asr.hotwords as _dependency_hotwords
 from bili_asr.asr.provenance import _redact
-from bili_asr.asr.preparation import InputPrefetch, ProcessorReuse
+from bili_asr.asr.preparation import DecodeInputs, InputPrefetch, ProcessorReuse
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -323,9 +323,18 @@ class ASRRunner:
         prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
         started = time.perf_counter()
         result = processor.apply_transcription_request(audio=audio, language=self.config.language, prompt=prompt)
+        prepared = self._decode_input_budget(result)
         if record_trace:
             self._trace_stage("cpu_input_prepare", started)
-        return result
+        return prepared
+
+    def _decode_input_budget(self, inputs: Any) -> DecodeInputs:
+        # Preserve the original mask formula, including padding and the minimum.
+        # Native processors return CPU tensors here: evaluating the scalar before
+        # .to() avoids a device-to-host synchronization solely for token budgeting.
+        seconds = float(inputs["input_features_mask"].sum(-1).max()) / _dependency_constants._MEL_FRAMES_PER_SECOND
+        budget = max(self.config.min_new_tokens, int(seconds * self.config.tokens_per_second))
+        return DecodeInputs(inputs, budget, seconds)
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -407,12 +416,14 @@ class ASRRunner:
         import torch
 
         # Decoded chunks already contain mono 16 kHz audio.
-        inputs = prepared_inputs if prepared_inputs is not None else self._prepare_decode_inputs(models.processor, audio)
+        prepared = prepared_inputs if prepared_inputs is not None else self._prepare_decode_inputs(models.processor, audio)
+        # Custom/injected processors can still supply the historical mapping.
+        if not isinstance(prepared, DecodeInputs):
+            prepared = self._decode_input_budget(prepared)
+        inputs, budget = prepared.inputs, prepared.max_new_tokens
         transfer_clock = time.perf_counter()
         inputs = inputs.to(models.model.device, models.model.dtype)
         self._trace_stage("device_transfer", transfer_clock)
-        seconds = float(inputs["input_features_mask"].sum(-1).max()) / _dependency_constants._MEL_FRAMES_PER_SECOND
-        budget = max(self.config.min_new_tokens, int(seconds * self.config.tokens_per_second))
         with torch.inference_mode():
             _progress("decode")
             generate_clock = time.perf_counter()
@@ -423,6 +434,9 @@ class ASRRunner:
         post_clock = time.perf_counter()
         tokens = generated[:, inputs["input_ids"].shape[1]:]
         self._last_generation = _dependency_diagnostics.generation_evidence(tokens, models.model, budget)
+        self._last_generation["budget_metadata"] = {
+            "source": "processor_mask_before_transfer", "feature_seconds": prepared.feature_seconds,
+        }
         text = _dependency_alignment._clean_text(models.processor.decode(tokens, return_format="transcription_only")[0])
         parsed = models.processor.decode(tokens, return_format="parsed")[0]
         self._trace_stage("decode_postprocess", post_clock)

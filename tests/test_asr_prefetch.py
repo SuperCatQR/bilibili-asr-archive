@@ -329,7 +329,7 @@ def test_prepared_size_overflow_or_unknown_discards_then_uses_serial(monkeypatch
     def oversized(processor, audio, **kwargs):
         inputs = original(processor, audio, **kwargs)
         if threading.current_thread() is not threading.main_thread():
-            inputs["extra"] = object() if unknown else SimpleNamespace(nbytes=65 * 1024 * 1024)
+            inputs.inputs["extra"] = object() if unknown else SimpleNamespace(nbytes=65 * 1024 * 1024)
         return inputs
     monkeypatch.setattr(runner, "_prepare_decode_inputs", oversized)
     runner.configure_prefetch(enabled=True)
