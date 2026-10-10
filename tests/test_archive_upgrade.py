@@ -202,3 +202,47 @@ def test_external_holds_remain_external_and_block_automatic_continuation(tmp_pat
     state.write_text('{"retry_holds":{"unknown-job":{}}}')
     with pytest.raises(ValueError, match="cannot be bound"):
         upgrade.apply_upgrade(plan)
+
+
+@pytest.mark.parametrize("damage", ["remove", "change"])
+def test_converter_cannot_drop_unreferenced_historical_file(tmp_path, monkeypatch, damage):
+    source, target = tmp_path / "source", tmp_path / "target"
+    initialize_archive(source)
+    (source / "documents").mkdir()
+    history = source / "documents/operator-history.json"
+    history.write_text('{"historical":"keep exact bytes"}')
+    plan = _plan(source, target)
+    original = upgrade._convert
+    def damaged(edge, stage):
+        original(edge, stage)
+        path = stage / "documents/operator-history.json"
+        if damage == "remove":
+            path.unlink(missing_ok=True)
+        else:
+            path.write_text("changed")
+    monkeypatch.setattr(upgrade, "_convert", damaged)
+    with pytest.raises(ValueError, match="protected source file"):
+        upgrade.apply_upgrade(plan)
+    assert not target.exists()
+    assert history.read_text() == '{"historical":"keep exact bytes"}'
+
+
+def test_receipt_cannot_omit_planned_source_file_or_hide_added_file(tmp_path):
+    source, target = tmp_path / "source", tmp_path / "target"
+    initialize_archive(source)
+    (source / "documents").mkdir()
+    (source / "documents/retained.json").write_text("{}")
+    plan = _plan(source, target)
+    upgrade.apply_upgrade(plan)
+    receipt_path = target / "documents/upgrades" / plan["plan_id"] / "receipt.json"
+    original = receipt_path.read_bytes()
+    receipt = json.loads(original)
+    receipt["files"] = [item for item in receipt["files"] if item["path"] != "documents/retained.json"]
+    receipt["receipt_id"] = digest({key: value for key, value in receipt.items() if key != "receipt_id"})
+    receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="protected source file"):
+        upgrade.check_upgrade(target, expected_plan_id=plan["plan_id"])
+    receipt_path.write_bytes(original)
+    (target / "documents/new-business-file.json").write_text("{}")
+    with pytest.raises(ValueError, match="file set changed"):
+        upgrade.check_upgrade(target, expected_plan_id=plan["plan_id"])

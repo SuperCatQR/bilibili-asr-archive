@@ -20,6 +20,7 @@ from pathlib import Path
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
 from bili_asr.artifact_inventory import (
+    collect_artifacts,
     portable_artifact_parts,
     require_no_links,
     require_regular_file,
@@ -185,6 +186,18 @@ def _copy_source(inventory: dict, stage: Path) -> None:
         _copy_file(Path(item["base"]).joinpath(*parts), stage.joinpath(*parts), item)
 
 
+def _verify_file_inventory(actual: list[dict], protected: list[dict]) -> None:
+    by_path = {}
+    for item in actual:
+        portable_artifact_parts(item["path"])
+        if item["path"] in by_path:
+            raise ValueError("duplicate file in upgrade receipt inventory")
+        by_path[item["path"]] = (item["size"], item["sha256"])
+    for expected in protected:
+        if by_path.get(expected["path"]) != (expected["size"], expected["sha256"]):
+            raise ValueError("upgrade lost or changed a protected source file: " + expected["path"])
+
+
 def _convert(edge, stage: Path) -> None:
     if edge.converter == "install-preserved-body":
         from bili_asr.services.preserved_body_import import (
@@ -245,6 +258,7 @@ def apply_upgrade(plan: dict) -> dict:
                     raise ValueError("intermediate target contract does not match registered edge")
                 verify_preserved_tables(stage / "archive.db", plan["source"]["tables"])
             installed = _inventory(stage, stage)
+            _verify_file_inventory(installed["files"], plan["source"]["files"])
             if installed["contracts"] != plan["target_contracts"]:
                 raise ValueError("upgrade did not produce the requested contract combination")
             if _inventory(source, Path(plan["source"]["artifact_root"])) != plan["source"]:
@@ -303,6 +317,10 @@ def check_upgrade(target_root: Path, *, expected_plan_id: str) -> dict:
         if source_evidence(target / "archive.db")["contracts"] != plan["target_contracts"]:
             raise ValueError("completed upgrade contract mismatch")
         verify_preserved_tables(target / "archive.db", plan["source"]["tables"])
+        _verify_file_inventory(receipt["files"], plan["source"]["files"])
+        expected_paths = {item["path"] for item in receipt["files"]} | {path.relative_to(target).as_posix()}
+        if set(collect_artifacts((target,))) != expected_paths:
+            raise ValueError("upgrade installation file set changed")
         for item in receipt["files"]:
             actual = _hash_file(target.joinpath(*portable_artifact_parts(item["path"])))
             if actual[:2] != (item["size"], item["sha256"]):
