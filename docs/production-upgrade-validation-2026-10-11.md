@@ -86,7 +86,7 @@ current/superseded/withdrawn、多 release、人工编辑和 draft/release 双 h
 | snapshot ID | `be5912f8-ecc3-45fe-acea-3b23db357d02` |
 | 文件 / 原始量 | 18,237 个 / 32,828,875,334 字节 |
 | ZIP 大小 | 29,786,196,049 字节 |
-| ZIP SHA256 | `38b8aa18b1496e7999194e92779605338d694e29a7031cf83d2a47b47146f6298` |
+| ZIP SHA256 | `38b8a18b1496e7999194e92779605338d694e29a7031cf83d2a47b47146f6298` |
 | save | 1,074.793 秒 |
 | save + check | 1,300.824 秒；含最后包摘要的脚本总计 1,326.794 秒 |
 | restore + 前置复核 + 恢复后全量复核 | 350.608 秒；`ru_maxrss` 111,280 KiB |
