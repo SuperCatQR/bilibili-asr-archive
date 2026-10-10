@@ -42,3 +42,20 @@ def test_profiling_evidence_drops_transcript_without_changing_original():
     projected = profile_asr.bounded_diagnostics(raw)
     assert projected["passes"][0]["chunks"] == [{"decode_s": 2}]
     assert raw["passes"][0]["chunks"][0]["text"] == "private transcript"
+
+
+@pytest.mark.parametrize("reference,hypothesis,edits", [("中文音频", "中文音频", 0),
+    ("中文音频", "中文视频", 1), ("中文音频", "中文", 2), ("中文", "中英文", 1),
+    ("中文", "", 2), ("e\u0301 中文", "é中文", 0), ("中文。", "中文", 1)])
+def test_reference_metric_measures_edits_with_explicit_normalization(reference, hypothesis, edits):
+    report = profile_asr.character_error_rate(reference, hypothesis)
+    assert report["edit_distance"] == edits
+    assert report["cer"] == edits / report["reference_characters"]
+    assert report["semantic_quality_accepted"] is False
+    assert reference not in str(report)
+
+
+def test_reference_metric_refuses_empty_and_bounds_long_comparisons():
+    with pytest.raises(ValueError, match="reference"):
+        profile_asr.character_error_rate(" \n", "text")
+    assert profile_asr.character_error_rate("a" * 3000, "b" * 3000)["reason"] == "edit_distance_work_limit"

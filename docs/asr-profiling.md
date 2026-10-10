@@ -43,6 +43,11 @@ PyTorch allocated/reserved 峰值；不导出字幕正文。加载和显式预�
 计时只在整次请求前后 synchronize，原逐块 trace 继续表示嵌套 wall 时间。
 只有 baseline 的 `normal_audio_s_per_wall_s` 有数值；profiler 会重放/插桩，带 profiler 耗时禁止用于正常吞吐比较。
 allocator 峰值不含驱动/context，也不是总 RAM/VRAM。输出哈希一致仅说明重放一致，不能替代参考 CER/听校。
+可用 `--reference-text /srv/fixtures/reference.txt` 提供独立 UTF-8 人工参考（最多 64 KiB），
+报告参考 SHA256 和字符编辑距离/CER，不输出正文。规范化仅 NFC 与删除空白，保留大小写、标点，
+比较工作量超过 4,000,000 个字符对时标记未测量；CER 不自动认可语义或时间戳质量。
+`--model-dtype float16 --aligner-dtype float16` 可分别控制两模型精度，其默认均为 bfloat16。
+该 NVIDIA 专用入口的结果不能充当 BW1000 海光实机验收。
 重复相同音频的每次测量是独立基准样本，不将它们作为多个唯一归档音频来计算生产吞吐。
 
 此入口提供复现工具，#292 仍须保存实际 trace/计数器与同语料正常基线，才能判断带宽、SM/Tensor、

@@ -11,6 +11,7 @@ import math
 from pathlib import Path
 import subprocess
 import time
+import unicodedata
 
 
 def _duration(path: Path) -> float:
@@ -48,6 +49,33 @@ def bounded_diagnostics(diagnostics: dict) -> dict:
     return result
 
 
+def character_error_rate(reference: str, hypothesis: str) -> dict:
+    """Explicit reproducible character metric; never exports the reference text."""
+    def normalize(value):
+        return "".join(character for character in unicodedata.normalize("NFC", value)
+                       if not character.isspace())
+
+    expected, actual = normalize(reference), normalize(hypothesis)
+    if not expected:
+        raise ValueError("reference must contain non-whitespace characters")
+    # Limit the quadratic metric's work independently of inference duration.
+    if len(expected) * len(actual) > 4_000_000:
+        return {"status": "unmeasured", "reason": "edit_distance_work_limit",
+                "reference_characters": len(expected), "hypothesis_characters": len(actual)}
+    previous = list(range(len(actual) + 1))
+    for row, expected_character in enumerate(expected, start=1):
+        current = [row]
+        for column, actual_character in enumerate(actual, start=1):
+            current.append(min(current[-1] + 1, previous[column] + 1,
+                               previous[column - 1] + (expected_character != actual_character)))
+        previous = current
+    distance = previous[-1]
+    return {"status": "measured", "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+            "reference_characters": len(expected), "hypothesis_characters": len(actual),
+            "edit_distance": distance, "cer": distance / len(expected),
+            "semantic_quality_accepted": False}
+
+
 @contextmanager
 def marked_stage(torch, name: str):
     with torch.profiler.record_function(name):
@@ -82,6 +110,14 @@ def run(args) -> dict:
     # time guard, not a scheduler lock: the operator must maintain exclusivity.
     assert_idle_gpu(args.nvidia_device)
     audio_digest = _sha256(args.audio)
+    reference = None
+    reference_digest = None
+    if args.reference_text is not None:
+        if args.reference_text.stat().st_size > 64 * 1024:
+            raise ValueError("reference text must be at most 64 KiB")
+        reference = args.reference_text.read_text(encoding="utf-8")
+        character_error_rate(reference, "")  # Validate before loading checkpoints.
+        reference_digest = _sha256(args.reference_text)
     from bili_asr.asr.config import ASRConfig
     from bili_asr.asr.runner import ASRRunner, two_pass_transcribe
     import torch
@@ -98,13 +134,15 @@ def run(args) -> dict:
                        asr_compile=args.asr_compile, aligner_compile=args.aligner_compile,
                        compile_max_buckets=args.compile_max_buckets,
                        compile_max_input_tokens=args.compile_max_input_tokens,
-                       compile_max_output_tokens=args.compile_max_output_tokens)
+                       compile_max_output_tokens=args.compile_max_output_tokens,
+                       model_dtype=args.model_dtype, aligner_dtype=args.aligner_dtype)
     runner = ASRRunner(config)
     runner.configure_prefetch(enabled=args.prefetch, max_bytes=args.prefetch_bytes)
     args.output.mkdir(parents=True)
     report = {"schema_version": 1, "mode": args.mode, "status": "incomplete",
               "performance_comparison_allowed": args.mode == "baseline",
               "audio_sha256": audio_digest, "audio_seconds": audio_seconds,
+              "reference_sha256": reference_digest,
               "measurement": "synchronized_invocation_wall_not_kernel_time",
               "profiler_wall_is_not_normal_throughput": True, "runs": []}
     try:
@@ -139,11 +177,15 @@ def run(args) -> dict:
             report["runs"].append({"index": index, "wall_s": elapsed,
                 "normal_audio_s_per_wall_s": audio_seconds / elapsed if args.mode == "baseline" else None,
                 "output_sha256": hashlib.sha256(encoded).hexdigest(), "cue_count": len(cues),
+                "character_quality": (character_error_rate(reference, "".join(cue["text"] for cue in cues))
+                    if reference is not None else {"status": "unmeasured", "reason": "no_reference"}),
                 "gpu_allocator_peak_allocated_bytes": torch.cuda.max_memory_allocated(args.device),
                 "gpu_allocator_peak_reserved_bytes": torch.cuda.max_memory_reserved(args.device),
                 "diagnostics": bounded_diagnostics(runner.diagnostics())})
             if _sha256(args.audio) != audio_digest:
                 raise ValueError("sample audio changed during profiling")
+            if args.reference_text is not None and _sha256(args.reference_text) != reference_digest:
+                raise ValueError("reference text changed during profiling")
         report["status"] = "completed"
     except Exception as exc:
         report["error_type"] = type(exc).__name__
@@ -161,6 +203,9 @@ def main() -> int:
     for name in ("audio", "model", "aligner", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--warmup-audio", type=Path)
+    parser.add_argument("--reference-text", type=Path, help="optional UTF-8 reference for explicit character error rate")
+    parser.add_argument("--model-dtype", choices=("bfloat16", "float16"), default="bfloat16")
+    parser.add_argument("--aligner-dtype", choices=("bfloat16", "float16"), default="bfloat16")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--nvidia-device", default="0", help="physical nvidia-smi index or UUID matching --device")
     parser.add_argument("--language", default="Chinese")
