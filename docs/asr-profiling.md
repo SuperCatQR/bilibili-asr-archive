@@ -4,6 +4,9 @@
 默认单次、最多 360 秒（显式上限不能超过 1800 秒），只读加载本地模型，不领取或写回业务任务。
 默认保留 BF16、180 秒 chunk、第二遍 cache 关闭与预取关闭；显式实验参数单独记录在 execution policy。
 
+已有硬件执行证据见 [2026-10-11 的 4090 验证记录](asr-gpu-validation-2026-10-11.md)。
+该次计数器权限不足、参考仅为历史 subtitle-ai，且短样本预取更慢；这些限制属于结果的一部分。
+
 生产需先按原监督流程排空，确认没有 running 任务和 GPU owner，再由操作者维持独占窗口。
 入口要求 `--ack-exclusive-device`，加载模型前通过 `nvidia-smi` 拒绝已有 compute owner。
 该检查是瞬时观察，不是跨进程锁；`--nvidia-device` 必须和 `--device` / CUDA_VISIBLE_DEVICES 的映射一致。
