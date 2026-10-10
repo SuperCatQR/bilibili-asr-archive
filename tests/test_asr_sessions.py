@@ -207,6 +207,31 @@ def test_mismatched_late_response_cannot_be_consumed_by_a_new_request():
         session.close()
 
 
+@pytest.mark.parametrize("field", ["protocol", "generation", "request_id", "job_id", "owner",
+                                   "attempt_count", "profile_digest", "runtime_binding"])
+def test_each_response_identity_field_is_fenced_before_returning_real_child_result(monkeypatch, field):
+    session = AsrInferenceSession(runner_factory=ProcessRunner)
+    try:
+        invoke(session)
+        original = session._responses.get
+        def tampered_response(*args, **kwargs):
+            response = original(*args, **kwargs)
+            if field in ("protocol", "generation", "request_id"):
+                response[field] = "wrong"
+            else:
+                response["identity"] = {**response["identity"], field: "wrong"}
+            return response
+        monkeypatch.setattr(session._responses, "get", tampered_response)
+        with pytest.raises(InferenceSessionError, match="identity mismatch"):
+            invoke(session, "must-not-be-returned", attempt=2)
+        assert session._process is None
+        result, evidence = invoke(session, "valid-new-generation", attempt=3)
+        assert result[0][0]["text"] == "valid-new-generation:3"
+        assert evidence["calls"] == 1
+    finally:
+        session.close()
+
+
 def _process_is_live(pid):
     try:
         state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]

@@ -50,12 +50,36 @@ per stage; nested preparation/transfer/forward events are wall observations and
 must not be summed as kernel time. EOS evidence excludes padding after an item's
 first EOS. Original text/language remain in the ordinary chunk evidence.
 
+Diagnostic schema 2 distinguishes fixed capacity from observed activity.
+`limits` contains the one-window/one-stage/one-builder limits; `current` and
+`peaks` observe scheduler windows, running decode/alignment stages and native
+batch preparation. A running stage includes its preparation and postprocessing;
+these counts are not concurrent GPU kernel counts. Delegated serial preparation
+is outside the native builder observation. The three original top-level fields
+remain capacity aliases for older readers. `current` returns to zero on normal
+completion, stage failure or generator close. The suspended generator retains
+at most its current window and never builds the next window until the current
+one is consumed. `dispatch` states FIFO order, zero fill wait and the parent
+session's existing request deadline; there is no additional batch queue deadline.
+
+`resource_admission` records the peak requested conservative reservation, including
+refused candidates, and lists excluded resources. Total RSS and total GPU VRAM
+admission are explicitly `not_enforced`. This process does not coordinate other
+GPU owners or allocate a global memory quota; an operator must size model slots
+and batch limits together. Cross-task fairness is not applicable inside one owned
+task: another task is never pulled into its local batch. Adding a shared engine
+would require a separate capacity and fairness protocol, not just larger limits.
+
 The reservation is not a hard bound on RSS or total VRAM. It excludes processor
 temporaries, resident models, KV cache, allocator fragmentation, compiler/Graph
 state and other processes. No increase in workflow workers or model replicas is
 implied. Real Chinese quality, throughput, cold cost and combined model/batch
 peak memory need the isolated GPU comparison described in `asr-profiling.md`;
 offline equivalence tests cannot establish those results.
+
+The [2026-10-11 GPU record](asr-gpu-validation-2026-10-11.md) subsequently verifies
+one fixed short sample, including actual native ASR/alignment batches and explicit
+64 MiB fallback. It does not qualify long-input quality or other-process capacity.
 
 The [Transformers Qwen3-ASR processor documentation](https://huggingface.co/docs/transformers/v5.19.0/model_doc/qwen3_asr)
 defines native batched audio/transcription and forced alignment inputs. This
