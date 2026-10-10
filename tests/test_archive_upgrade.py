@@ -12,6 +12,7 @@ import pytest
 
 from bili_asr.canonical_json import digest
 from bili_asr.contracts.registry import (
+    ARTIFACT_ONLINE,
     ARTIFACT_STORAGE,
     BILIBILI_V1,
     IMPORT_EXTENSION,
@@ -106,7 +107,8 @@ def test_unknown_and_ambiguous_paths_never_guess_by_version():
 
 @pytest.mark.parametrize("combination", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT])
 @pytest.mark.parametrize("native", [False, True])
-def test_artifact_catalog_is_reachable_from_each_actual_universal_combination(tmp_path, combination, native):
+@pytest.mark.parametrize("online", [False, True])
+def test_artifact_catalog_is_reachable_from_each_actual_universal_combination(tmp_path, combination, native, online):
     legacy, source, target = tmp_path / "legacy", tmp_path / "source", tmp_path / "target"
     if native:
         initialize_archive(source)
@@ -120,13 +122,16 @@ def test_artifact_catalog_is_reachable_from_each_actual_universal_combination(tm
         frozen_archive(legacy)
         upgrade.apply_upgrade(_plan(legacy, source, combination))
     before = _bytes(source)
-    plan = _plan(source, target, (*combination, ARTIFACT_STORAGE))
+    destination_contracts = (*combination, ARTIFACT_STORAGE, *((ARTIFACT_ONLINE,) if online else ()))
+    plan = _plan(source, target, destination_contracts)
     assert upgrade.apply_upgrade(plan)["valid"]
     assert upgrade.check_upgrade(target, expected_plan_id=plan["plan_id"])["valid"]
     assert _bytes(source) == before
     with closing(connect_database(target / "archive.db", readonly=True)) as connection:
         from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        from bili_asr.storage.artifact_online import require_artifact_online
         assert require_artifact_catalog(connection)
+        assert require_artifact_online(connection) == online
     package = tmp_path / "catalog.zip"
     save_snapshot(target, package)
     assert check_snapshot(package)["valid"]

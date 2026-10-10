@@ -1003,6 +1003,87 @@
       ],
       "sample": "tests/test_archive_upgrade.py",
       "reversible": false
+    },
+    {
+      "identity": "artifact-online-native/v1",
+      "source": [
+        "universal-v2",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-preserved/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-supplemented/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
     }
   ],
   "content_policies": [

@@ -39,7 +39,9 @@ def source_evidence(database: Path) -> dict:
     with closing(readonly(database)) as connection:
         kind = runtime_contract(connection)
         from bili_asr.storage.artifact_catalog import require_artifact_catalog, EXTENSION as ARTIFACT_EXTENSION
+        from bili_asr.storage.artifact_online import require_artifact_online, EXTENSION as ONLINE_EXTENSION
         artifacts = require_artifact_catalog(connection)
+        online = require_artifact_online(connection)
         if kind == BILIBILI_V1:
             if artifacts:
                 raise ValueError("artifact-extended legacy source requires an explicitly registered conversion")
@@ -50,9 +52,9 @@ def source_evidence(database: Path) -> dict:
             imports = require_import_extension(connection)
             supplements = require_supplement_extension(connection)
             validate_snapshot_database(database)
-            required, _ = _current_contract(kind, imports, supplements, artifacts)
+            required, _ = _current_contract(kind, imports, supplements, artifacts, online)
             extensions = (((IMPORT_EXTENSION,) if imports else ()) + ((SOURCE_SUPPLEMENT_POLICY,) if supplements else ())
-                          + ((ARTIFACT_EXTENSION,) if artifacts else ()))
+                          + ((ARTIFACT_EXTENSION,) if artifacts else ()) + ((ONLINE_EXTENSION,) if online else ()))
         actual = _schema(connection)
         extras = set(actual) - set(required)
         # Search indexes are derived but must still match a registered definition.

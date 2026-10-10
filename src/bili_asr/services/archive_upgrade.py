@@ -235,6 +235,12 @@ def _convert(edge, stage: Path) -> None:
         with closing(connect_database(stage / "archive.db")) as connection:
             install_catalog_in_staged_copy(connection, files, now=int(time.time()))
         validate_snapshot_database(stage / "archive.db")
+    elif edge.converter == "install-artifact-online":
+        from bili_asr.storage.artifact_online import install_online_in_staged_copy
+        from bili_asr.storage.database import connect_database
+        with closing(connect_database(stage / "archive.db")) as connection:
+            install_online_in_staged_copy(connection)
+        validate_snapshot_database(stage / "archive.db")
     else:
         raise ValueError("unsupported upgrade converter")
 
