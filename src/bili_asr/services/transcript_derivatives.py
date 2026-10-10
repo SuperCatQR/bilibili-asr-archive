@@ -29,10 +29,13 @@ def export_transcript_vtt(archive_root: Path, *, transcript_id: int, output: Pat
     destination = Path(os.path.abspath(destination))
     if destination.suffix.casefold() != ".vtt":
         raise ValueError("derivative output must have .vtt extension")
-    for root in (archive_root, artifact_root):
+    session = ArchiveSession(archive_root, mode=ArchiveAccessMode.READ)
+    # ArchiveSession accepts both a root directory and an explicit DB path.
+    # Protect the normalized archive scope in either spelling.
+    for root in (session.archive_root, artifact_root):
         if root is not None and destination.is_relative_to(Path(os.path.abspath(root))):
             raise ValueError("derivative export must be outside archive and artifact roots")
-    with ArchiveSession(archive_root, mode=ArchiveAccessMode.READ) as session:
+    with session:
         record = EditorialRepository(session.connection).read_source(transcript_id)
         triples = [[item.start_ms, item.end_ms, item.text] for item in record.segments]
         if _segment_content_sha256(triples) != record.content_sha256:

@@ -77,7 +77,7 @@ def test_cli_derives_vtt_without_changing_source_or_requiring_inference(tmp_path
     assert output.read_bytes() == b"other evidence"
 
 
-@pytest.mark.parametrize("damage", ["hash", "timeline", "inside", "traversal"])
+@pytest.mark.parametrize("damage", ["hash", "timeline", "inside", "traversal", "explicit-database"])
 def test_invalid_derivative_evidence_never_installs_output(tmp_path, damage):
     from bili_asr.storage.transcripts import _segment_content_sha256
     source = tmp_path / "source"
@@ -94,8 +94,11 @@ def test_invalid_derivative_evidence_never_installs_output(tmp_path, damage):
                     rows = connection.execute("SELECT start_ms,end_ms,text FROM transcript_segments WHERE transcript_id=2 ORDER BY ordinal").fetchall()
                     connection.execute("UPDATE transcripts SET content_sha256=? WHERE transcript_id=2",
                                        (_segment_content_sha256([list(row) for row in rows]),))
+    elif damage == "explicit-database":
+        output = source / "derived.vtt"
     else:
         output = source / "derived.vtt" if damage == "inside" else tmp_path / "unused" / ".." / "source" / "derived.vtt"
     with pytest.raises(ValueError):
-        export_transcript_vtt(source, transcript_id=2, output=output)
+        export_transcript_vtt(source / "archive.db" if damage == "explicit-database" else source,
+                              transcript_id=2, output=output)
     assert not output.exists()
