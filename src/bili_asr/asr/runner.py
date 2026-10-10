@@ -23,6 +23,7 @@ import bili_asr.asr.hotwords as _dependency_hotwords
 from bili_asr.asr.provenance import _redact
 from bili_asr.asr.preparation import DecodeInputs, InputPrefetch, ProcessorReuse
 from bili_asr.asr.execution import clock_anchor, execution_policy, hardware_evidence
+from bili_asr.asr.backend import HuggingFaceBackend, InferenceBackend
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -226,6 +227,7 @@ class ASRRunner:
         *,
         model_factory: Callable[..., Any] | None = None,
         model_name: str | None = None,
+        backend: InferenceBackend | None = None,
     ) -> None:
         if config is None:
             config = _dependency_config.ASRConfig(model_name=model_name or _dependency_constants.DEFAULT_MODEL)
@@ -238,6 +240,9 @@ class ASRRunner:
         if not isinstance(config, _dependency_config.ASRConfig):
             raise TypeError("config must be an ASRConfig")
         self.config = config
+        self.backend = backend if backend is not None else HuggingFaceBackend()
+        if any(dtype not in self.backend.capabilities.precisions for dtype in (config.model_dtype, config.aligner_dtype)):
+            raise ValueError("selected inference backend does not support the requested precision")
         self._model_factory = model_factory
         self._models: _ModelSet | None = None
         # Monotonic, never reset by release(): a runner that released and rebuilt paid two
@@ -428,9 +433,8 @@ class ASRRunner:
         with torch.inference_mode():
             _progress("decode")
             generate_clock = time.perf_counter()
-            generated = models.model.generate(**inputs, max_new_tokens=budget, **(
-                {"use_cache": False} if bust_cache and not self.config.second_pass_use_cache else {}
-            ))
+            generated = self.backend.generate(models.model, inputs, max_new_tokens=budget,
+                disable_cache=bust_cache and not self.config.second_pass_use_cache)
             self._trace_stage("model_generate", generate_clock)
         post_clock = time.perf_counter()
         tokens = generated[:, inputs["input_ids"].shape[1]:]
@@ -459,7 +463,7 @@ class ASRRunner:
         with torch.inference_mode():
             _progress("align")
             started = time.perf_counter()
-            logits = models.aligner(**inputs).logits
+            logits = self.backend.align(models.aligner, inputs)
             self._trace_stage("align_forward", started)
         started = time.perf_counter()
         units = list(models.aligner_processor.decode_forced_alignment(
@@ -551,6 +555,10 @@ class ASRRunner:
         report["environment"] = _dependency_diagnostics.runtime_environment()
         report["execution_policy"] = execution_policy(self.config, models,
             prefetch=self._prefetch_enabled, prefetch_bytes=self._prefetch_bytes)
+        report["execution_policy"]["backend"] = {
+            "requested": self.backend.capabilities.name, "resolved": self.backend.capabilities.name,
+            "capabilities": self.backend.capabilities.evidence(),
+        }
         report["hardware"] = hardware_evidence(models.model.device)
         report["execution_policy"]["runtime"] = {
             "environment": report["environment"], "hardware": report["hardware"], "source_commit": None,
