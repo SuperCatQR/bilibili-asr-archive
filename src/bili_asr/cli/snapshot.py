@@ -18,6 +18,8 @@ def add_snapshot_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     save.add_argument("--archive-root", default=archive_root)
     save.add_argument("--artifact-root", default=None, help="Existing artifact root (or BILI_ARTIFACT_ROOT)")
     save.add_argument("--out", required=True, help="New snapshot ZIP outside the archive roots")
+    save.add_argument("--compression", choices=("stored", "deflate"), default="stored",
+                      help="Optional lossless ZIP deflate to reduce archive size; default stored")
     save.add_argument("--storage-target", action="append", help="Explicit TARGET_ID=DIRECTORY binding for offloaded objects")
     check = actions.add_parser("check", help="Verify snapshot hashes, database contract, and file references offline")
     check.set_defaults(database_policy=None)
@@ -58,10 +60,12 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
         if args.snapshot_action == "save":
             from bili_asr.services.artifact_access import parse_target_bindings
             roots = roots_for(args.archive_root, flag_value=args.artifact_root, require_writable=False)
+            compression_options = {"compression": args.compression} if args.compression != "stored" else {}
             report = save_snapshot(
                 Path(args.archive_root), Path(args.out),
                 artifact_root=roots.artifact_root if roots.configured else None,
                 storage_targets=parse_target_bindings(args.storage_target),
+                **compression_options,
             )
         elif args.snapshot_action == "check":
             report = check_snapshot(Path(args.file))
