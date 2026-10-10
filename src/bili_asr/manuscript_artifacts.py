@@ -8,7 +8,7 @@ import re
 import sqlite3
 from typing import Iterable
 
-from bili_asr.manuscript_files import read_artifact
+from bili_asr.services.artifact_readers import read_retained_text
 from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
 from bili_asr.storage.archive_contracts import frozen_version
 from bili_asr.storage.publication import PublicationRepository, read_revision
@@ -43,5 +43,5 @@ def get_ai_artifacts(connection: sqlite3.Connection, revision_id: str,
                 or row["relative_path"] != path or re.fullmatch(r"[0-9a-f]{64}", row["content_sha256"]) is None
                 or row["content_sha256"] != hashlib.sha256(documents[name].encode("utf-8")).hexdigest()):
             raise ValueError("publication-integrity: AI artifact identity does not match revision")
-        artifacts[name] = read_artifact(path, row["content_sha256"], roots)
+        artifacts[name] = read_retained_text(connection, path, row["content_sha256"], roots)
     return artifacts

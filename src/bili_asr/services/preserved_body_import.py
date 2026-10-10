@@ -11,7 +11,8 @@ import tempfile
 import time
 
 from bili_asr.canonical_json import canonical, digest
-from bili_asr.manuscript_files import read_artifact, stage_artifact
+from bili_asr.manuscript_files import stage_artifact
+from bili_asr.services.artifact_readers import read_retained_text
 from bili_asr.manuscript_artifacts import get_ai_artifacts
 from bili_asr.publication_content import content_from_ai, normalize_actor
 from bili_asr.publication_content_v2 import normalize_content_v2
@@ -114,7 +115,7 @@ def _selected_baseline(connection, selector: dict, artifact_roots) -> tuple[dict
     release = PublicationRepository(connection).release_for_edition(old_edition["edition_id"]) if old_edition else None
     if release:
         verify_release_identity(connection, release)
-        read_artifact(release["relative_path"], release["artifact_sha256"], artifact_roots)
+        read_retained_text(connection, release["relative_path"], release["artifact_sha256"], artifact_roots)
     baseline = {
         "policyVersion": POLICY, "selector": selector, "videoPartId": part_id,
         "revisionId": revision_id, "inputId": revision["input_id"],
@@ -202,8 +203,8 @@ def check_preserved_body_import(connection, *, edition_id: str, artifact_roots) 
     baseline, body, review = _selected_baseline(connection, stored["baseline"]["selector"], artifact_roots)
     if baseline != stored["baseline"]:
         raise ValueError("import-integrity: legacy evidence differs from import baseline")
-    if (read_artifact(stored["body_path"], stored["body_sha256"], artifact_roots) != body
-            or read_artifact(stored["review_path"], stored["review_sha256"], artifact_roots) != review):
+    if (read_retained_text(connection, stored["body_path"], stored["body_sha256"], artifact_roots) != body
+            or read_retained_text(connection, stored["review_path"], stored["review_sha256"], artifact_roots) != review):
         raise ValueError("import-integrity: baseline files differ from legacy evidence")
     return {"valid": True, "importId": origin["import_id"], "editionId": edition_id,
             "bodyPreserved": origin["relation"] == "preserved", "baselineBodySha256": stored["body_sha256"],

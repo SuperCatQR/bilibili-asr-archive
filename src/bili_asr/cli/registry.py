@@ -44,6 +44,7 @@ COMMANDS = MappingProxyType({
     "workflow": CommandSpec("_cmd_workflow", ArtifactPolicy.NONE, ArchiveAccessMode.WRITE, write_flags=("apply",)),
     "snapshot": CommandSpec("_cmd_snapshot", ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE),
     "archive": CommandSpec("_cmd_archive", ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE, archive_argument="source_root"),
+    "artifacts": CommandSpec("_cmd_artifacts", ArtifactPolicy.NONE, ArchiveAccessMode.READ),
     "source": CommandSpec("_cmd_source", ArtifactPolicy.NONE, ArchiveAccessMode.WRITE),
     "fetch-tags": CommandSpec("_cmd_fetch_tags", ArtifactPolicy.NONE, ArchiveAccessMode.BOOTSTRAP),
     "fetch-meta": CommandSpec("_cmd_fetch_meta", ArtifactPolicy.NONE, ArchiveAccessMode.BOOTSTRAP),
