@@ -45,16 +45,24 @@ def test_installed_contract_resources_resolve_offline_outside_checkout(isolated_
     documentation_root = Path(__file__).resolve().parents[1] / "docs/contracts"
     assert {path.name for path in documentation_root.glob("*.schema.json")} == expected_schemas
     assert f"{len(CONTRACTS)} contracts, {len(expected_schemas)} schemas" in checked.stdout
+    example = json.loads((Path(__file__).resolve().parents[1] /
+                          "docs/contracts/examples/publication-catalog.json").read_text(encoding="utf-8"))
+    example["schemaVersion"] = 3
+    assert example["articles"]  # Exercise v3's reference into the packaged v2 schema.
     validated = subprocess.run(
         [isolated_cli.python, "-c", """
 from pathlib import Path
+import json
+import socket
 import sys
 import bili_asr.contracts
 from bili_asr.contracts.json_schema import validate_json
+def no_network(*args, **kwargs):
+    raise AssertionError('installed schema references must resolve offline')
+socket.create_connection = no_network
 assert Path(bili_asr.contracts.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
-validate_json('publication-catalog/v3', {
-    'schemaVersion': 3, 'manuscriptType': 'publication', 'articles': []})
-"""],
+validate_json('publication-catalog/v3', json.loads(sys.argv[1]))
+""", json.dumps(example)],
         cwd=isolated_cli.venv_dir, env=clean_cli_env(),
         capture_output=True, text=True, check=False,
     )

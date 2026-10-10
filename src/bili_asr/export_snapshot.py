@@ -101,6 +101,14 @@ def _validate_article(article: object, *, draft: bool = False, catalog_version: 
 def _validate_article_semantics(article: dict, *, draft: bool, catalog_version: int) -> dict:
     """Check domain identities and file relations after structural validation."""
     universal = catalog_version == 3 and isinstance(article, dict) and article.get("contentVersion") == 2
+    # JSON Schema patterns use search semantics: `$` can match before a final
+    # newline. Preserve the original exact identity checks at this boundary.
+    hashes = ("aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256")
+    for key in hashes if draft else ("releaseId", *hashes):
+        if re.fullmatch(r"[0-9a-f]{64}", article[key]) is None:
+            raise ExportSnapshotError(f"invalid public article hash: {key}")
+    if re.fullmatch(r"[0-9a-f]{32}", article["editionId"]) is None:
+        raise ExportSnapshotError("invalid public edition ID")
     for key, minimum in (("videoPartId", 1), ("partIndex" if universal else "pageIndex", 0), ("createdAt" if draft else "publishedAt", 0)):
         if type(article[key]) is not int or article[key] < minimum:
             raise ExportSnapshotError(f"invalid public article integer: {key}")
