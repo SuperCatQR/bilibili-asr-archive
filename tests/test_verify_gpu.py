@@ -14,19 +14,27 @@ def fake_torch(monkeypatch, *, backend="cuda", bf16=True):
         def __matmul__(self, other):
             return self
 
+        def __mul__(self, value):
+            return self
+
         def all(self):
             return self
 
         def item(self):
             return True
 
+    def ones(*args, **kwargs):
+        if kwargs.get("dtype") == "bf16" and not bf16:
+            raise RuntimeError("BF16 allocation unavailable")
+        return Tensor()
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(
-        __version__="test-runtime", bfloat16="bf16",
+        __version__="test-runtime", bfloat16="bf16", float16="fp16",
         version=SimpleNamespace(hip="test" if backend == "rocm" else None,
                                 cuda="test" if backend == "cuda" else None),
         cuda=SimpleNamespace(is_available=lambda: True, is_bf16_supported=lambda: bf16,
-                             synchronize=lambda: None, get_device_name=lambda index: "test-device"),
-        ones=lambda *args, **kwargs: Tensor(), isfinite=lambda value: value,
+                             synchronize=lambda *args: None, get_device_name=lambda index: "test-device"),
+        ones=ones, isfinite=lambda value: value,
+        allclose=lambda left, right: True,
     ))
 
 

@@ -5,12 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import hashlib
 from pathlib import Path
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("cuda", "rocm"), required=True)
+    parser.add_argument("--backend", choices=("cuda", "rocm", "hcu"), required=True)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--model-dtype", choices=("bfloat16", "float16"), default="bfloat16")
+    parser.add_argument("--aligner-dtype", choices=("bfloat16", "float16"), default="bfloat16")
     parser.add_argument("--audio", type=Path)
     parser.add_argument("--model", type=Path)
     parser.add_argument("--aligner", type=Path)
@@ -21,32 +25,26 @@ def main() -> int:
     for path in (args.audio, args.model, args.aligner):
         if path is not None and not path.is_absolute():
             parser.error("audio and checkpoint paths must be absolute")
-    import torch
-
-    backend = "rocm" if torch.version.hip else "cuda" if torch.version.cuda else "cpu"
-    if backend != args.backend or not torch.cuda.is_available():
-        raise RuntimeError("selected GPU backend is unavailable")
-    if not torch.cuda.is_bf16_supported():
-        raise RuntimeError("GPU does not support the model's BF16 execution")
-    tensor = torch.ones((32, 32), device="cuda", dtype=torch.bfloat16)
-    product = tensor @ tensor
-    torch.cuda.synchronize()
-    if not bool(torch.isfinite(product).all().item()):
-        raise RuntimeError("BF16 matrix multiplication failed")
-    result = {"backend": backend, "torch": torch.__version__, "cuda": torch.version.cuda,
-              "hip": torch.version.hip, "device": torch.cuda.get_device_name(0),
-              "bf16": True, "real_inference": "not_run"}
+    from bili_asr.asr.device_probe import probe_gpu
+    result = probe_gpu(args.backend, device=args.device, dtypes=(args.model_dtype, args.aligner_dtype))
+    result.update(bf16="bfloat16" in result["precision_execution"], real_inference="not_run")
     if args.audio:
         from bili_asr.asr import ASRConfig, ASRRunner
 
         runner = ASRRunner(ASRConfig(model_name=str(args.model), aligner_name=str(args.aligner),
-                                     device="cuda", language=args.language, offline=True))
+                                     device=args.device, language=args.language, offline=True,
+                                     model_dtype=args.model_dtype, aligner_dtype=args.aligner_dtype))
         started = time.monotonic()
         try:
             cues = runner.transcribe(str(args.audio))
             if not cues or not runner.characters():
                 raise RuntimeError("real sample produced no transcript or character alignment")
-            result.update(real_inference="passed", segments=len(cues), seconds=round(time.monotonic() - started, 2))
+            with args.audio.open("rb") as audio_handle:
+                audio_sha256 = hashlib.file_digest(audio_handle, "sha256").hexdigest()
+            result.update(real_inference="passed", segments=len(cues), seconds=round(time.monotonic() - started, 2),
+                          model_execution="passed", audio_sha256=audio_sha256,
+                          provenance=runner.provenance(), diagnostics=runner.diagnostics(),
+                          coverage=runner.transcribed_coverage())
         finally:
             runner.release()
     print(json.dumps(result))

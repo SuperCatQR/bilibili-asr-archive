@@ -193,11 +193,13 @@ def _load_qwen_models(**kwargs: Any) -> _ModelSet:
 
     processor = AutoProcessor.from_pretrained(model_name, revision=revision, local_files_only=local_files_only)
     model = AutoModelForMultimodalLM.from_pretrained(
-        model_name, revision=revision, dtype=torch.bfloat16, device_map=device, local_files_only=local_files_only
+        model_name, revision=revision, dtype=getattr(torch, kwargs.get("model_dtype", "bfloat16")),
+        device_map=device, local_files_only=local_files_only
     )
     aligner_processor = AutoProcessor.from_pretrained(aligner_name, revision=aligner_revision, local_files_only=local_files_only)
     aligner = AutoModelForTokenClassification.from_pretrained(
-        aligner_name, revision=aligner_revision, dtype=torch.bfloat16, device_map=device, local_files_only=local_files_only
+        aligner_name, revision=aligner_revision, dtype=getattr(torch, kwargs.get("aligner_dtype", "bfloat16")),
+        device_map=device, local_files_only=local_files_only
     )
     model.eval()
     aligner.eval()
@@ -346,6 +348,8 @@ class ASRRunner:
             "aligner_revision": self.config.aligner_revision,
             "offline": self.config.offline,
         }
+        if self.config.model_dtype != "bfloat16" or self.config.aligner_dtype != "bfloat16":
+            kwargs.update(model_dtype=self.config.model_dtype, aligner_dtype=self.config.aligner_dtype)
         if self.config.model_revision is not None:
             kwargs["model_revision"] = self.config.model_revision
 
@@ -720,6 +724,30 @@ class ASRRunner:
         self._models = None
         self._prepared_audio = None
 
+    def prepare(self, audio_path: str | None = None) -> dict[str, Any]:
+        """Load both models and optionally run an explicit, non-business sentinel."""
+        started = time.perf_counter()
+        models = self._get_models()
+        result = {"state": "loaded", "model_dtype": str(models.model.dtype),
+                  "aligner_dtype": str(models.aligner.dtype)}
+        if audio_path is not None:
+            try:
+                cues = self.transcribe(audio_path)
+                if not cues or not self.characters():
+                    raise _dependency_errors.ASRModelError("warmup sample produced no aligned transcript")
+                result["state"] = "ready"
+            finally:
+                # Warmup output and hotword evidence must never enter a business request.
+                self._diagnostic_passes.clear()
+                self._last_characters = self._last_transcribed_segments = self._last_coverage = None
+                self._last_language = None
+                self._last_generation = {}
+                self._hotwords_effective = None
+                self._hotwords_dropped = ()
+                self._hotwords_evidence_text = self._hotwords_subtitle_text = None
+        result["wall_s"] = time.perf_counter() - started
+        return result
+
     def _prompt_hotwords(self) -> tuple[str, ...]:
         """The vocabulary that may reach the prompt for the next chunk.
 
@@ -821,6 +849,8 @@ class ASRRunner:
             "offline": str(config.offline),
             "local_source": _redact(config.local_source),
         }
+        if config.model_dtype != "bfloat16" or config.aligner_dtype != "bfloat16":
+            provenance.update(model_dtype=config.model_dtype, aligner_dtype=config.aligner_dtype)
         if self._hotwords_dropped:
             provenance["hotword_dropped_no_evidence"] = ",".join(
                 _redact(term) for term in self._hotwords_dropped
