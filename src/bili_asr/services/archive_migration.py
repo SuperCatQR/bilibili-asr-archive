@@ -375,7 +375,8 @@ def migrate_archive(source_root: Path, target_root: Path, *, artifact_root: Path
             _validate_files(stage)
             if migration_preflight(source, artifact_root=artifact_root)["source"]["fingerprint"] != fingerprint:
                 raise ArchiveMigrationError("source changed before target installation")
-            with (stage / "archive.db").open("rb") as database:
+            # Windows fsync requires a writable descriptor for this owned target.
+            with (stage / "archive.db").open("r+b") as database:
                 os.fsync(database.fileno())
             for directory, _, _ in os.walk(stage, topdown=False):
                 _sync_directory(Path(directory))
@@ -406,7 +407,8 @@ def initialize_archive(target_root: Path) -> dict:
             with closing(connect_database(stage / "archive.db")) as connection:
                 bootstrap_contract(connection)
             validate_snapshot_database(stage / "archive.db")
-            with (stage / "archive.db").open("rb") as database:
+            # Windows fsync requires a writable descriptor for this owned target.
+            with (stage / "archive.db").open("r+b") as database:
                 os.fsync(database.fileno())
             _sync_directory(stage)
             _empty_target(target)
