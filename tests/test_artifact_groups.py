@@ -209,6 +209,10 @@ def test_ai_pair_and_every_release_status_offload_without_domain_changes(archive
     transfer(archive, frozen, mode="offload")
     with sqlite3.connect(archive.root / "archive.db") as connection:
         groups = connection.execute("SELECT group_id FROM artifact_groups WHERE owner_kind IN ('document','release')").fetchall()
+        from bili_asr.services.artifact_readers import read_retained_text
+        row = connection.execute("SELECT relative_path,content_sha256 FROM document_artifacts LIMIT 1").fetchone()
+        with pytest.raises(ValueError, match="artifact_restore_required.*restore-group"):
+            read_retained_text(connection, row[0], row[1], (archive.root,))
     for group, in groups:
         restore_artifact_group(archive.roots, group, storage_targets={"cold": archive.target})
     assert domain_facts(archive) == before

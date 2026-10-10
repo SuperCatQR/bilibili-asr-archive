@@ -115,7 +115,8 @@ def verify_release(connection: sqlite3.Connection, release_id: str,
     if import_origin(connection, edition["edition_id"]) is not None:
         from bili_asr.services.preserved_body_import import check_preserved_body_import
         check_preserved_body_import(connection, edition_id=edition["edition_id"], artifact_roots=artifact_roots)
-    data = read_artifact(release["relative_path"], release["artifact_sha256"], _roots(artifact_roots))
+    from bili_asr.services.artifact_readers import read_retained_text
+    data = read_retained_text(connection, release["relative_path"], release["artifact_sha256"], _roots(artifact_roots))
     return release, edition, data
 
 
