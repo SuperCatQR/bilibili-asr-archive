@@ -21,6 +21,7 @@ from uuid import uuid4
 from pathlib import Path
 
 from .config import ASRConfig
+from .execution import clock_anchor
 from .runner import ASRInferenceTimeoutError, ASRRunner, two_pass_transcribe
 
 _DECODER_GUARDS: list[subprocess.Popen] = []
@@ -290,6 +291,7 @@ class AsrInferenceSession:
             envelope = {"protocol": 1, "generation": self._generation,
                         "request_id": request_id, "identity": request.identity()}
             start = time.monotonic()
+            parent_clock = clock_anchor()
             deadline = start + timeout_seconds
             self._commands.put({**envelope, "audio_path": audio_path,
                                 "paired_subtitle_text": paired_subtitle_text}, timeout=min(1, timeout_seconds))
@@ -299,6 +301,7 @@ class AsrInferenceSession:
                 "request_id": request_id, "identity": request.identity(), "reused": reused,
                 "rebuild_reason": None if reused else self._reason,
                 "parent_wall_s": time.monotonic() - start,
+                "parent_clock": parent_clock, "configuration_key": key,
                 "task_gap_s": None if self._previous_finish is None else start - self._previous_finish,
                 "mode": "persistent" if self.persistent else "oneshot"}
             if self._preparation is not None:

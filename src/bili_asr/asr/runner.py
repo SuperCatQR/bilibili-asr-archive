@@ -22,6 +22,7 @@ import bili_asr.asr.errors as _dependency_errors
 import bili_asr.asr.hotwords as _dependency_hotwords
 from bili_asr.asr.provenance import _redact
 from bili_asr.asr.preparation import DecodeInputs, InputPrefetch, ProcessorReuse
+from bili_asr.asr.execution import clock_anchor, execution_policy, hardware_evidence
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -534,6 +535,8 @@ class ASRRunner:
         self._diagnostic_passes.append(report)
         run_clock = time.perf_counter()
         self._trace_origin = run_clock
+        report["clock"] = clock_anchor(monotonic=run_clock)
+        report["pass_kind"] = "hotword_second" if bust_cache else "first"
         self._trace_chunk_index = None
         self._trace = report["trace"] = []
         load_clock = time.perf_counter()
@@ -546,6 +549,16 @@ class ASRRunner:
         report["timings_s"]["model_load"] = time.perf_counter() - load_clock
         self._trace_stage("model_load", load_clock)
         report["environment"] = _dependency_diagnostics.runtime_environment()
+        report["execution_policy"] = execution_policy(self.config, models,
+            prefetch=self._prefetch_enabled, prefetch_bytes=self._prefetch_bytes)
+        report["hardware"] = hardware_evidence(models.model.device)
+        report["execution_policy"]["runtime"] = {
+            "environment": report["environment"], "hardware": report["hardware"], "source_commit": None,
+        }
+        report["resource_observation"] = {
+            "cpu_rss_peak_bytes": None, "gpu_allocator_peak_bytes": None,
+            "gpu_sampled_peak_bytes": None, "sampling": "disabled",
+        }
         report["model_dtype"] = str(models.model.dtype)
         report["aligner_dtype"] = str(models.aligner.dtype)
         for key, model in (("resolved_model_revision", models.model), ("resolved_aligner_revision", models.aligner)):

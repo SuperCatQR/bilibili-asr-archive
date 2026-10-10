@@ -40,7 +40,11 @@ bili-asr workflow asr-performance --archive-root /srv/archive \
 
 查询仅投影性能所需字段，不复制逐块字幕/正文进聚合器。输出身份为摘要，错误正文、Cookie、API key 和任意回退文本不写入报告。聚合器不重新读取或哈希大音频文件，复用已有 SHA256。记录读取受 attempt 数量限制，但 SQLite 仍需扫描相关历史，单份旧 JSON 的解析成本与其大小有关，不能称全链路常量内存或固定响应时间。
 
-GPU 型号/driver、跨进程精确时间轴、有效后端策略、失败阶段资源和最终发布吞吐尚未全面采集；对应字段为 unknown。`asr-performance` 不证明质量或定位带宽/SM 瓶颈。#301 的 execution envelope 与资源采集、#292 的硬件 profiling 仍为后续范围。
+新运行在每遍记录版本化 `execution_policy`：请求/实际精度、实际 attention（未知保留 null）、checkpoint cache 默认、第二遍 cache、compile/Graph、chunk/batch 和预取预算。生效策略摘要同时包含实际安装包与可读取的 GPU 名称、容量、SM 数及架构，配置/设备变化不会混成同一组。CPU token 预算在输入迁移前按原 mask 公式计算并随准备结果携带；默认推理行为和历史 profile canonical JSON 不变。
+
+每遍拥有独立的 `clock.domain_id`、PID、perf_counter 起点与 UTC 锚点/采样误差；session 记录父进程锚点、request/job/attempt/generation 和配置 key。时间轴可以按锚点估计关联，不能把不同进程/遍的相对时间直接相加，也不能称为同步的 GPU kernel 时钟。正常路径没有新增模型请求或逐块 synchronize。
+
+driver、源码 commit、CPU RSS/GPU allocator/采样峰值、失败阶段资源和最终发布吞吐仍明确为 unknown；资源采样当前 disabled。`asr-performance` 不证明质量或定位带宽/SM 瓶颈。历史证据缺失的策略/硬件不能反向补造，#292 的硬件 profiling 仍独立验收。
 
 ## 本地验证
 

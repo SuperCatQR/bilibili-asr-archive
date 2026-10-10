@@ -90,6 +90,9 @@ def test_real_spawn_reuses_models_with_independent_output_and_request_identity()
         assert second_evidence["session"]["reused"] is True
         assert first_evidence["session"]["request_id"] != second_evidence["session"]["request_id"]
         assert second_evidence["session"]["identity"]["attempt_count"] == 2
+        assert second_evidence["session"]["parent_clock"]["process_id"] == os.getpid()
+        assert second_evidence["session"]["configuration_key"] == first_evidence["session"]["configuration_key"]
+        assert second_evidence["session"]["parent_clock"]["domain_id"] != first_evidence["session"]["parent_clock"]["domain_id"]
     finally:
         session.close()
     assert session._process is None
