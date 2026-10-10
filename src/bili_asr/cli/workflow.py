@@ -64,6 +64,8 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     reference = proofread.add_mutually_exclusive_group()
     reference.add_argument("--reference-transcript-id", type=int, default=None)
     reference.add_argument("--no-reference", action="store_true")
+    proofread.add_argument("--refresh-input", action="store_true",
+        help="Explicitly freeze current prompt/metadata instead of reusing matching stored work; may call AI again")
     _add_editorial_arguments(proofread)
 
     repair_ai = actions.add_parser("repair-proofread",
@@ -290,7 +292,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         if args.workflow_action == "proofread":
             item = application.proofread(part_id=args.part_id, base_transcript_id=args.base_transcript_id,
                 reference_transcript_id=args.reference_transcript_id, no_reference=args.no_reference,
-                config=_editorial_config(args))
+                config=_editorial_config(args), refresh_input=args.refresh_input)
             print("workflow proofread: " + " ".join(f"{name}={value}" for name, value in item.items()))
             return 0
         if args.workflow_action == "render":

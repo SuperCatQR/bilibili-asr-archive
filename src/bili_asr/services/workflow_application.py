@@ -74,7 +74,7 @@ class WorkflowApplication:
 
     def proofread(self, *, part_id: int | None, base_transcript_id: int | None,
                   reference_transcript_id: int | None, no_reference: bool,
-                  config: EditorialConfig) -> dict[str, Any]:
+                  config: EditorialConfig, refresh_input: bool = False) -> dict[str, Any]:
         editorial = EditorialRepository(self.session.connection, commit_guard=self.repository.commit_guard)
         if base_transcript_id is not None:
             base = editorial.read_source(base_transcript_id)
@@ -86,7 +86,7 @@ class WorkflowApplication:
             base_transcript_id, default_reference = editorial.latest_sources(part_id)
         reference_id = None if no_reference else (
             reference_transcript_id if reference_transcript_id is not None else default_reference)
-        prepared = editorial.build_input(base_transcript_id, reference_id, config)
+        prepared = editorial.build_input(base_transcript_id, reference_id, config, reuse_existing=not refresh_input)
         with self.repository.commit_guard.transaction():
             editorial.store_input(prepared)
             proof_id, render_id, _, _ = self.repository.enqueue_editorial(
