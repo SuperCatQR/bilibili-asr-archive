@@ -80,7 +80,7 @@ def _register_local(catalog: ArtifactCatalog, roots: ArtifactRoots, object_id: s
 
 
 def restore_artifact(roots: ArtifactRoots, object_id: str, *, target_id: str,
-                     target_root: Path, storage_key: str) -> dict:
+                     target_root: Path, storage_key: str, _online: bool = False) -> dict:
     """Verify one packaged member and install it under the selected write base.
 
     Archive maintenance excludes supported production writers. Large reads run
@@ -90,9 +90,12 @@ def restore_artifact(roots: ArtifactRoots, object_id: str, *, target_id: str,
     """
     _artifact_key(storage_key)
     target = open_directory_target(target_root, target_id, roots=roots)
-    with archive_access(roots.archive_root, exclusive=True, create_root=False), closing(
+    with archive_access(roots.archive_root, exclusive=not _online, create_root=False), closing(
         open_archive_connection(roots.archive_root, mode=ArchiveAccessMode.WRITE, artifact_roots=roots)
     ) as connection:
+        if _online:
+            from bili_asr.storage.artifact_online import require_artifact_online
+            require_artifact_online(connection, required=True)
         catalog = ArtifactCatalog(connection)
         obj = catalog.object(object_id)
         size = obj["byte_size"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from bili_asr.artifact_inventory import portable_artifact_parts
@@ -61,7 +61,9 @@ def _verify(directory: Path, descriptor: int | None, name: str, identity: str, g
         ):
             raise ValueError("release source changed while opening")
         digest = hashlib.sha256()
+        from bili_asr.services.artifact_io import observe_io
         for block in iter(lambda: incoming.read(1024 * 1024), b""):
+            observe_io(len(block))
             digest.update(block)
         after = os.fstat(incoming.fileno())
         if digest.hexdigest() != identity or (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (
@@ -85,7 +87,7 @@ def _unchanged(directory: Path, descriptor: int | None, name: str, verified):
 
 
 def release_copy(root: Path, source_key: str, quarantine_key: str, object_id: str, generation: dict,
-                 *, allow_delete: bool, isolated=None, before_delete=None) -> dict:
+                 *, allow_delete: bool, isolated=None, before_delete=None, deletion_guard=None) -> dict:
     """Replay a persisted intent; never remove a replaced source or quarantine.
 
     The quarantine is on the same anchored audio directory. On POSIX, link plus
@@ -141,14 +143,15 @@ def release_copy(root: Path, source_key: str, quarantine_key: str, object_id: st
         verified_quarantine = _verify(directory, descriptor, quarantine[1], object_id, generation)
         if before_delete is not None:
             before_delete()
-        _unchanged(directory, descriptor, quarantine[1], verified_quarantine)
-        if source_present:
-            _unchanged(directory, descriptor, source[1], verified_quarantine)
-            os.unlink(source[1], **options)
-            os.fsync(descriptor)
-        remaining = _info(directory, descriptor, quarantine[1])
-        if remaining is None or (remaining.st_dev, remaining.st_ino, remaining.st_size, remaining.st_mtime_ns) != tuple(generation[key] for key in ("device", "inode", "size_bytes", "mtime_ns")):
-            raise ValueError("isolated copy changed before deletion")
-        os.unlink(quarantine[1] if descriptor is not None else directory / quarantine[1], **options)
-        sync_directory(directory)
+        with deletion_guard() if deletion_guard is not None else nullcontext():
+            _unchanged(directory, descriptor, quarantine[1], verified_quarantine)
+            if source_present:
+                _unchanged(directory, descriptor, source[1], verified_quarantine)
+                os.unlink(source[1], **options)
+                os.fsync(descriptor)
+            remaining = _info(directory, descriptor, quarantine[1])
+            if remaining is None or (remaining.st_dev, remaining.st_ino, remaining.st_size, remaining.st_mtime_ns) != tuple(generation[key] for key in ("device", "inode", "size_bytes", "mtime_ns")):
+                raise ValueError("isolated copy changed before deletion")
+            os.unlink(quarantine[1] if descriptor is not None else directory / quarantine[1], **options)
+            sync_directory(directory)
         return {"state": "released", "released_bytes": generation["size_bytes"] if remaining.st_nlink == 1 else 0, "observation": "deleted_verified_copy"}

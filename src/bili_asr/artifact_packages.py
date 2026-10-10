@@ -248,8 +248,10 @@ def package_manifest(sources: tuple[PackageSource, ...], operation_id: str,
 
 def _hash_stream(source: BinaryIO, *, expected_size: int | None = None,
                  destination: BinaryIO | None = None) -> tuple[int, str]:
+    from bili_asr.services.artifact_io import observe_io
     digest, size = hashlib.sha256(), 0
     while chunk := source.read(_CHUNK_SIZE):
+        observe_io(len(chunk))
         size += len(chunk)
         if expected_size is not None and size > expected_size:
             raise ArtifactPackageError("object exceeds its frozen size")
