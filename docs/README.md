@@ -58,6 +58,9 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [ASR 部署与就绪](asr-deployment-readiness.md) | 只读检查、领取前模型准备、显式预热和持久缓存边界 |
+| [海光 BW1000 验收](hygon-bw1000-validation.md) | 双模型精度、平台探测、目标环境门槛和实机验收流程 |
+| [非 perf 修复验证](non-perf-issues-validation.md) | #305/#306/#300/#289 的交付范围、回归记录和硬件待办 |
 | [Miniconda 部署](miniconda-deployment.md) | 应用依赖、生产启动检查与独立 ASR 环境 |
 | [WSL ROCm GPU](wsl-rocm-gpu.md) | 已记录的 AMD WSL2 环境、版本组合、设备探测与故障排查 |
 | [CI 覆盖率门禁](ci-coverage.md) | 产品源码范围、子进程采集、行与分支阈值及本地复现 |
