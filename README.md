@@ -249,6 +249,8 @@ example groups included in the output.
 
 `bili-asr artifacts` provides read-only inventory, frozen offload plans, an explicit catalog upgrade, verified directory packages, manual audio offload and single-object restore. Production state stays in the archive database after audio moves. Offload uses an exclusive maintenance window and preserves queued, failed or held inputs; restore the retained SHA-256 before running a new consumer. See [artifact storage](docs/artifact-storage.md) for commands, target identity, crash recovery and snapshot limits.
 
+`bili-asr remote` adds explicitly configured Linux/OpenSSH package copying and restoration with strict host keys and client SHA-256 readback. `bili-asr reference` saves a non-self-contained state backup with declared external dependencies and retained holds; offline validation never verifies unseen external bytes or starts workers. See [SSH storage and reference backups](docs/remote-reference-backups.md) for capabilities and execution handoff.
+
 Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
 
 Search defaults to `transcripts`. `metadata` searches stored titles,
