@@ -91,12 +91,15 @@ def test_real_spawn_reuses_models_with_independent_output_and_request_identity()
         assert second_evidence["session"]["reused"] is True
         assert first_evidence["session"]["request_id"] != second_evidence["session"]["request_id"]
         assert second_evidence["session"]["identity"]["attempt_count"] == 2
+        assert second_evidence["session"]["parent_clock"]["process_id"] == os.getpid()
+        assert second_evidence["session"]["configuration_key"] == first_evidence["session"]["configuration_key"]
+        assert second_evidence["session"]["parent_clock"]["domain_id"] != first_evidence["session"]["parent_clock"]["domain_id"]
     finally:
         session.close()
     assert session._process is None
 
 
-@pytest.mark.parametrize("change", ["model", "binding", "revision"])
+@pytest.mark.parametrize("change", ["model", "binding", "revision", "batch", "compile", "attention"])
 def test_full_configuration_and_runtime_identity_rebuild_session(change):
     session = AsrInferenceSession(runner_factory=ProcessRunner)
     try:
@@ -107,6 +110,12 @@ def test_full_configuration_and_runtime_identity_rebuild_session(change):
             config = replace(config, model_name="other-model")
         elif change == "revision":
             config = replace(config, aligner_revision="other-revision")
+        elif change == "batch":
+            config = replace(config, asr_batch_size=2)
+        elif change == "compile":
+            config = replace(config, asr_cache_implementation="static", asr_compile=True)
+        elif change == "attention":
+            config = replace(config, aligner_attention="sdpa")
         else:
             binding = {"manifest_sha256": "a" * 64}
         second, evidence = invoke(session, attempt=2, config=config, binding=binding)
@@ -194,6 +203,31 @@ def test_mismatched_late_response_cannot_be_consumed_by_a_new_request():
         assert session._process is None
         recovered, _ = invoke(session, "fresh", attempt=3)
         assert recovered[0][0]["text"] == "fresh:3"
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("field", ["protocol", "generation", "request_id", "job_id", "owner",
+                                   "attempt_count", "profile_digest", "runtime_binding"])
+def test_each_response_identity_field_is_fenced_before_returning_real_child_result(monkeypatch, field):
+    session = AsrInferenceSession(runner_factory=ProcessRunner)
+    try:
+        invoke(session)
+        original = session._responses.get
+        def tampered_response(*args, **kwargs):
+            response = original(*args, **kwargs)
+            if field in ("protocol", "generation", "request_id"):
+                response[field] = "wrong"
+            else:
+                response["identity"] = {**response["identity"], field: "wrong"}
+            return response
+        monkeypatch.setattr(session._responses, "get", tampered_response)
+        with pytest.raises(InferenceSessionError, match="identity mismatch"):
+            invoke(session, "must-not-be-returned", attempt=2)
+        assert session._process is None
+        result, evidence = invoke(session, "valid-new-generation", attempt=3)
+        assert result[0][0]["text"] == "valid-new-generation:3"
+        assert evidence["calls"] == 1
     finally:
         session.close()
 

@@ -87,8 +87,46 @@ class ASRConfig:
     model_id: str | None = None
     model_dtype: str = "bfloat16"
     aligner_dtype: str = "bfloat16"
+    asr_batch_size: int = 1
+    aligner_batch_size: int = 1
+    batch_max_audio_seconds: float = 360.0
+    batch_max_input_bytes: int = 64 * 1024**2
+    batch_max_tokens: int = 8192
+    asr_attention: str = "default"
+    aligner_attention: str = "default"
+    asr_cache_implementation: str = "default"
+    asr_compile: bool = False
+    aligner_compile: bool = False
+    compile_max_buckets: int = 2
+    compile_max_input_tokens: int = 4096
+    compile_max_output_tokens: int = 2048
 
     def __post_init__(self) -> None:
+        for name in ("asr_attention", "aligner_attention"):
+            if getattr(self, name) not in ("default", "eager", "sdpa", "flash_attention_2"):
+                raise ValueError(f"{name} is unsupported")
+        if self.asr_cache_implementation not in ("default", "dynamic", "static"):
+            raise ValueError("unsupported ASR cache implementation")
+        for name in ("asr_compile", "aligner_compile"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a bool")
+        if self.asr_compile and self.asr_cache_implementation != "static":
+            raise ValueError("ASR compilation requires explicit static cache")
+        if type(self.compile_max_buckets) is not int or not 1 <= self.compile_max_buckets <= 8:
+            raise ValueError("compile_max_buckets must be an integer within 1..8")
+        for name in ("compile_max_input_tokens", "compile_max_output_tokens"):
+            if type(getattr(self, name)) is not int or not 1 <= getattr(self, name) <= 32768:
+                raise ValueError(f"{name} must be an integer within 1..32768")
+        for name in ("asr_batch_size", "aligner_batch_size"):
+            if type(getattr(self, name)) is not int or not 1 <= getattr(self, name) <= 8:
+                raise ValueError(f"{name} must be an integer within 1..8")
+        if (isinstance(self.batch_max_audio_seconds, bool)
+                or not isinstance(self.batch_max_audio_seconds, (int, float))
+                or not math.isfinite(self.batch_max_audio_seconds) or not 0 < self.batch_max_audio_seconds <= 1800):
+            raise ValueError("batch_max_audio_seconds must be finite and within 0..1800")
+        for name in ("batch_max_input_bytes", "batch_max_tokens"):
+            if type(getattr(self, name)) is not int or getattr(self, name) < 1:
+                raise ValueError(f"{name} must be a positive integer")
         for name in ("model_dtype", "aligner_dtype"):
             if getattr(self, name) not in ("bfloat16", "float16"):
                 raise ValueError(f"{name} must be bfloat16 or float16")

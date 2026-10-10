@@ -1,6 +1,6 @@
 """Deployment/readiness contracts with real spawn and SQLite, no GPU."""
 
-from dataclasses import asdict, replace
+from dataclasses import replace
 import hashlib
 import json
 import os
@@ -39,9 +39,12 @@ def test_precision_extension_preserves_v2_bytes_and_new_profile_identity(tmp_pat
     connection = open_database(tmp_path)
     repository = WorkflowRepository(connection)
     profile = AsrProfile("default", "local", device="cpu")
-    old_values = asdict(profile)
-    for name in ("profile_key", "model_dtype", "aligner_dtype"):
-        old_values.pop(name)
+    # Freeze the historical fields; deriving them from today's dataclass would
+    # silently extend the expected old snapshot whenever an opt-in knob is added.
+    old_values = {"model_name": "local", "model_revision": "", "aligner_name": "Qwen/Qwen3-ForcedAligner-0.6B-hf",
+        "aligner_revision": None, "device": "cpu", "language": None, "hotwords": (),
+        "chunk_seconds": 180.0, "inference_timeout_seconds": 1800.0, "tokens_per_second": 8.0,
+        "min_new_tokens": 256, "second_pass_use_cache": False, "offline": True, "model_id": None}
     old = json.dumps({"schema_version": 2, **old_values}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     assert profile.canonical() == old
     original_id = repository.register_profile(profile)
