@@ -7,9 +7,11 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 from bili_asr.artifact_root import ArtifactRoots
+from bili_asr.editorial_quality import check_source_quality
+from bili_asr.workflow_errors import JobExecutionError
 
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
-from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION, render_documents, validate_revision
+from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION, validate_revision
 from bili_asr.manuscript_files import stage_artifact
 from bili_asr.storage.editorial import EditorialRepository
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
@@ -39,6 +41,7 @@ class EditorialWorkflowHandlers:
         decode_job_payload(job)
         self.workflow.assert_lease(job)
         prepared = self.repository.freeze_job_input(job)
+        check_source_quality(prepared)
         config = EditorialConfig(**prepared["snapshot"]["config"])
         for chunk in prepared["chunks"]:
             self.workflow.assert_lease(job)
@@ -58,6 +61,9 @@ class EditorialWorkflowHandlers:
                 self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, blocks)
             except Exception as exc:
                 self.repository.finish_call(call_id, envelope, type(exc).__name__[:64])
+                if hasattr(exc, "safe_details"):
+                    details = dict(exc.safe_details, call_id=call_id, chunk_id=chunk["chunk_id"])
+                    raise JobExecutionError(type(exc).__name__, details) from None
                 raise
         revision_id = self.repository.commit_revision(job, prepared)
         return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
