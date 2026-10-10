@@ -68,6 +68,8 @@ def _cmd_publication(args: argparse.Namespace) -> int:
         return _cmd_series(args)
     if action == "import-preserved":
         return _cmd_import_preserved(args)
+    if action == "supplement-source":
+        return _cmd_supplement_source(args)
     readonly = action in {"show", "export", "export-drafts"}
     try:
         with closing(archive_connection(args.archive_root, readonly=readonly)) as connection:
@@ -163,6 +165,38 @@ def _cmd_import_preserved(args: argparse.Namespace) -> int:
         return 1 if result.get("blocked") else 0
     except (OSError, ValueError, RuntimeError, sqlite3.Error, KeyError, TypeError) as error:
         write_stderr(f"publication import-preserved {action}: {error}")
+        return 1
+
+
+def _cmd_supplement_source(args: argparse.Namespace) -> int:
+    from bili_asr.services.source_supplement import (
+        install_source_supplement_extension, plan_source_supplement,
+        apply_source_supplement, check_source_supplement,
+    )
+    action = args.supplement_action
+    try:
+        if action == "install":
+            result = install_source_supplement_extension(Path(args.archive_root))
+        else:
+            with closing(archive_connection(args.archive_root, readonly=action != "apply")) as connection:
+                roots = args.artifact_roots.read_bases()
+                if action == "plan":
+                    selection = _json_object(args.selection_file)
+                    if set(selection) != {"editionIds"}:
+                        raise ValueError("selection file must contain only editionIds")
+                    result = plan_source_supplement(connection, edition_ids=selection["editionIds"], artifact_roots=roots)
+                    if args.out:
+                        from bili_asr.export_snapshot import checked_path, json_bytes
+                        with checked_path(Path(args.out)).open("xb") as stream:
+                            stream.write(json_bytes(result))
+                elif action == "apply":
+                    result = apply_source_supplement(connection, plan=_json_object(args.plan_file), artifact_roots=roots, actor=args.actor)
+                else:
+                    result = check_source_supplement(connection, edition_id=args.edition_id, artifact_roots=roots)
+        print_result(result, args.format)
+        return 1 if result.get("blocked") else 0
+    except (OSError, ValueError, RuntimeError, sqlite3.Error, KeyError, TypeError) as error:
+        write_stderr(f"publication supplement-source {action}: {error}")
         return 1
 
 
@@ -272,6 +306,21 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     _common(apply, archive_root, artifacts=ArtifactPolicy.WRITE, actor=True, database=ArchiveAccessMode.WRITE)
     apply.add_argument("--plan-file", required=True)
     check = import_actions.add_parser("check", help="Verify body, review, origin and historical source evidence")
+    _common(check, archive_root, artifacts=ArtifactPolicy.READ)
+    check.add_argument("--edition-id", required=True)
+
+    supplement = actions.add_parser("supplement-source", help="Supplement collected legacy part titles with immutable evidence")
+    supplement_actions = supplement.add_subparsers(dest="supplement_action", required=True)
+    install = supplement_actions.add_parser("install", help="Install title evidence extension on an offline archive copy")
+    _common(install, archive_root, database=ArchiveAccessMode.MAINTENANCE)
+    plan = supplement_actions.add_parser("plan", help="Inspect titles and create an evidence-bound read-only plan")
+    _common(plan, archive_root, artifacts=ArtifactPolicy.READ)
+    plan.add_argument("--selection-file", required=True)
+    plan.add_argument("--out", default=None)
+    apply = supplement_actions.add_parser("apply", help="Create new pending-review editions atomically")
+    _common(apply, archive_root, artifacts=ArtifactPolicy.READ, actor=True, database=ArchiveAccessMode.WRITE)
+    apply.add_argument("--plan-file", required=True)
+    check = supplement_actions.add_parser("check", help="Verify supplemental titles and preserved historical artifacts")
     _common(check, archive_root, artifacts=ArtifactPolicy.READ)
     check.add_argument("--edition-id", required=True)
 

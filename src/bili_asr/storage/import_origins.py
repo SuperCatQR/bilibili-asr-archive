@@ -30,6 +30,8 @@ def require_import_extension(connection: sqlite3.Connection, *, required: bool =
     actual = {row[0]: (row[1], row[2]) for row in connection.execute(
         "SELECT name,type,sql FROM sqlite_master WHERE sql IS NOT NULL")}
     expected = extension_objects()
+    from bili_asr.storage.source_supplements import require_supplement_extension
+    require_supplement_extension(connection)
     if not expected.keys() & actual.keys():
         if required:
             raise SchemaContractError("install preserved-body-import-v1 on an offline archive copy first")
@@ -131,10 +133,11 @@ def validate_edition_origin(connection: sqlite3.Connection, edition: dict, revis
     if origin is None:
         raise ValueError("import-integrity: v2/v1 edition requires immutable import origin")
     baseline = read_baseline(connection, origin["import_id"])["baseline"]
+    from bili_asr.storage.source_supplements import expected_source, validate_supplement_inheritance
     if (edition["content_version"] != 2 or frozen_version(connection, "input", revision["input_id"]) != 1
             or revision["input_id"] != baseline["inputId"] or edition["revision_id"] != baseline["revisionId"]
             or edition["video_part_id"] != baseline["videoPartId"]
-            or edition["content"]["source"] != baseline["content"]["source"]):
+            or edition["content"]["source"] != expected_source(connection, edition, baseline)):
         raise ValueError("import-integrity: edition differs from frozen import identity")
     current = body_digest(edition["content"]["markdown"])
     expected_relation = "preserved" if current == baseline["bodySha256"] else "derived"
@@ -164,10 +167,11 @@ def validate_edition_origin(connection: sqlite3.Connection, edition: dict, revis
         if (parent["content_version"] != 2 or parent["revision_id"] != baseline["revisionId"]
                 or parent["video_part_id"] != baseline["videoPartId"]
                 or normalize_content_v2(parent["content"]) != parent["content"]
-                or parent["content"]["source"] != baseline["content"]["source"]
+                or parent["content"]["source"] != expected_source(connection, parent, baseline)
                 or parent_origin["expected_markdown_sha256"] != parent_hash
                 or parent_origin["relation"] != ("preserved" if parent_hash == baseline["bodySha256"] else "derived")):
             raise ValueError("import-integrity: invalid ancestor edition")
+        validate_supplement_inheritance(connection, child, parent)
         child = parent
     return baseline
 
@@ -181,3 +185,5 @@ def inherit_import_origin(connection: sqlite3.Connection, parent_id: str, editio
     connection.execute("INSERT INTO publication_import_origins VALUES (?,?,?,?,?)", (
         edition["edition_id"], origin["import_id"], origin["root_edition_id"],
         "preserved" if current == baseline["bodySha256"] else "derived", current))
+    from bili_asr.storage.source_supplements import inherit_supplement
+    inherit_supplement(connection, parent_id, edition["edition_id"])

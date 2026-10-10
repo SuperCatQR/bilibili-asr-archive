@@ -31,6 +31,10 @@ MAX_BASELINE_BYTES = 64 * 1024 * 1024
 
 
 def install_preserved_body_extension(archive_root: Path) -> dict:
+    return _install_extension(archive_root, EXTENSION, "schema-preserved-body-import.sql", require_import_extension)
+
+
+def _install_extension(archive_root: Path, extension: str, script: str, installed) -> dict:
     """Explicit maintenance cutover of a validated DB copy, never access-time DDL.
 
     Operators use an offline archive copy first. A live writer lease or a SQLite
@@ -47,8 +51,8 @@ def install_preserved_body_extension(archive_root: Path) -> dict:
     with archive_access(root, exclusive=True, create_root=False):
         with closing(connect_database(database, readonly=True, must_exist=True)) as source:
             require_universal_contract(source)
-            if require_import_extension(source):
-                return {"extension": EXTENSION, "installed": False}
+            if installed(source):
+                return {"extension": extension, "installed": False}
             validate_snapshot_database(database)
             for suffix in ("-wal", "-shm", "-journal"):
                 if Path(str(database) + suffix).exists():
@@ -59,7 +63,7 @@ def install_preserved_body_extension(archive_root: Path) -> dict:
             try:
                 with closing(connect_database(staged)) as target:
                     source.backup(target)
-                    target.executescript("BEGIN IMMEDIATE;\n" + _resource("schema-preserved-body-import.sql") + "\nCOMMIT;")
+                    target.executescript("BEGIN IMMEDIATE;\n" + _resource(script) + "\nCOMMIT;")
                     require_universal_contract(target)
                 validate_snapshot_database(staged)
                 with staged.open("r+b") as stream:
@@ -72,7 +76,7 @@ def install_preserved_body_extension(archive_root: Path) -> dict:
             _fsync_directory(root)
         finally:
             staged.unlink(missing_ok=True)
-    return {"extension": EXTENSION, "installed": True}
+    return {"extension": extension, "installed": True}
 
 
 def _selected_baseline(connection, selector: dict, artifact_roots) -> tuple[dict, bytes, bytes]:
