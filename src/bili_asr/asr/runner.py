@@ -764,7 +764,7 @@ class ASRRunner:
                 batch_results.close()
             strategy_evidence = getattr(self.backend, "execution_evidence", None)
             if callable(strategy_evidence):
-                report["execution_policy"]["runtime_strategies"] = strategy_evidence()
+                report["runtime_strategies"] = strategy_evidence()
             if prefetch is not None:
                 prefetch.close()
                 report["resources"]["prefetch_input_peak_bytes"] = prefetch.peak_bytes

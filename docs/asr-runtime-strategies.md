@@ -48,11 +48,13 @@ the owned model lifetime; pending input tensors, prompts and generated results
 are not retained by this strategy layer. Session cancellation still terminates
 the owned process and discards the response before workflow publication.
 
-`runtime_strategies` evidence distinguishes requested options, API calls,
+Each pass's `runtime_strategies` observation distinguishes requested options, API calls,
 fallback counts and admitted signatures. The first call for each signature has a
 separate wall observation including compilation, execution and any fallback.
 These observations are cumulative per model lifetime, so do not sum snapshots
-from multiple passes. `compile_api_calls` does not prove compiled kernel
+from multiple passes. These changing counters stay outside the stable `execution_policy`;
+the read-only throughput report also projects them out of older policy records.
+`compile_api_calls` does not prove compiled kernel
 execution; inspect an isolated profiler trace for that. The signature cap bounds
 external shapes, not PyTorch's internal graph count or its allocator. Total VRAM
 and cold/warm costs require actual combined ASR/aligner measurements.

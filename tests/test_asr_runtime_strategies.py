@@ -210,7 +210,7 @@ def test_runner_records_strategy_evidence_and_rebuilds_after_release(monkeypatch
     runner, models = runner_for(monkeypatch, asr_cache_implementation="dynamic")
     assert runner.transcribe("/virtual/audio")
     strategy = runner.backend.strategies
-    assert runner.diagnostics()["execution_policy"]["runtime_strategies"]["cache_cleanup_calls"] == 4
+    assert runner.diagnostics()["passes"][0]["runtime_strategies"]["cache_cleanup_calls"] == 4
     runner.release()
     assert runner.backend.strategies is None
     assert runner.transcribe("/virtual/audio")

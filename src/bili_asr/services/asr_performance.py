@@ -36,6 +36,15 @@ def _identity(value: Any) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def _policy_identity(value: Any) -> str:
+    policy = dict(_mapping(value))
+    # Early runtime-strategy records placed model-lifetime counters and cold
+    # call measurements inside the stable policy. Preserve the record itself,
+    # but project these observations out of configuration grouping.
+    policy.pop("runtime_strategies", None)
+    return _identity(policy)
+
+
 def _percentile(values: list[float], fraction: float) -> float | None:
     if not values:
         return None
@@ -183,7 +192,7 @@ def _read_report(connection, start: int, end: int, max_attempts: int) -> dict:
             evidence, invalid = {}, True
         diagnostics = _mapping(evidence.get("diagnostics"))
         binding = _identity(_mapping(evidence.get("runtime_binding")))
-        policy = _identity(_mapping(diagnostics.get("execution_policy")))
+        policy = _policy_identity(diagnostics.get("execution_policy"))
         profile = row["config_sha256"]
         profile = profile if isinstance(profile, str) and _SHA256.fullmatch(profile) else "unknown"
         key = (profile, binding, policy)
