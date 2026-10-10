@@ -7,7 +7,6 @@ Token budgeting uses UTF-8 bytes as a conservative estimate, not a tokenizer.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-import json
 import re
 from typing import Any, TYPE_CHECKING
 from bili_asr.canonical_json import canonical, digest
@@ -61,6 +60,8 @@ SYSTEM_PROMPT = """你是中文口述转录的阅读稿编辑。核心任务是�
 不能重复、遗漏、交换顺序，也不能引用 readonly_context 的段作为正文来源。
 每段 issues 的 evidence_refs 只能取本段 segment_ids 对应的 allowed_issue_refs 的并集。
 不要凭记忆猜字幕 ID，不要引用别的段落的证据。不能确定参考字幕 ID 时，使用本段基础来源 ID。
+同一 chunk 中存在的 ID 不代表本段可以引用；readonly_context 和其他段落的 ID 都不能使用。
+疑点必须归属于发生该疑点的段落；无合法证据时 evidence_refs=[]，不要猜 ID。
 示例结构（实际 ID 与文字必须来自输入）：
 {"chunk_id":"实际块ID","paragraphs":[{"segment_ids":["实际段ID1","实际段ID2"],
 "text":"整理后语句和逻辑通顺的完整段落。",
@@ -82,6 +83,8 @@ class EditorialConfig:
     reasoning_effort: str = "high"
     top_p: float = 0.95
     rule_version: str = RULE_VERSION
+    max_chunk_segments: int = 256
+    max_chunk_chars: int = 20_000
 
     def __post_init__(self) -> None:
         if not self.model.strip() or self.rule_version != RULE_VERSION:
@@ -92,7 +95,8 @@ class EditorialConfig:
             raise ValueError("unsupported thinking effort")
         if type(self.top_p) not in {int, float} or not 0.95 <= self.top_p <= 1.0:
             raise ValueError("thinking-mode top_p must be between 0.95 and 1.0")
-        for name in ("context_tokens", "max_input_tokens", "max_output_tokens", "safety_tokens", "timeout_seconds"):
+        for name in ("context_tokens", "max_input_tokens", "max_output_tokens", "safety_tokens",
+                     "timeout_seconds", "max_chunk_segments", "max_chunk_chars"):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
@@ -176,7 +180,9 @@ def prepare_input(base: TranscriptRecord, reference: TranscriptRecord | None,
         # about a model's arbitrary verbosity; length-truncated responses fail.
         output_estimate = 1024 + min(8192, config.max_output_tokens // 4) + sum(2 * len(s["text"].encode("utf-8")) + 256
                                      for s in chunk["editable_segments"])
-        return request_size <= input_limit and output_estimate <= config.max_output_tokens
+        return (request_size <= input_limit and output_estimate <= config.max_output_tokens
+                and len(chunk["editable_segments"]) <= config.max_chunk_segments
+                and sum(len(s["text"]) for s in chunk["editable_segments"]) <= config.max_chunk_chars)
 
     chunks, start = [], 0
     while start < len(body):
@@ -226,7 +232,7 @@ def validate_revision(chunk: dict[str, Any], response: Any) -> list[dict[str, An
     if not response["paragraphs"]:
         raise RevisionValidationError("empty reading paragraphs")
     cursor, validated = 0, []
-    for paragraph in response["paragraphs"]:
+    for paragraph_index, paragraph in enumerate(response["paragraphs"]):
         _fields(paragraph, {"segment_ids", "text", "issues"})
         ids = paragraph["segment_ids"]
         if (not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids)
@@ -244,14 +250,21 @@ def validate_revision(chunk: dict[str, Any], response: Any) -> list[dict[str, An
                                 for s in originals)}
         allowed = reference_ids | set(ids)
         issues = []
-        for issue in paragraph["issues"]:
+        for issue_index, issue in enumerate(paragraph["issues"]):
             _fields(issue, {"note", "candidate", "evidence_refs"})
             _string(issue["note"], maximum=2000, empty=False)
             _string(issue["candidate"], maximum=4000)
             refs = issue["evidence_refs"]
             if (not isinstance(refs, list)
                     or any(not isinstance(r, str) or r not in allowed for r in refs)):
-                raise RevisionValidationError("unknown or unrelated issue reference")
+                error = RevisionValidationError("unknown or unrelated issue reference")
+                bad = refs if isinstance(refs, list) else []
+                error.safe_details = {"paragraph_index": paragraph_index, "issue_index": issue_index,
+                    "allowed_count": len(allowed), "invalid_count": sum(
+                        not isinstance(r, str) or r not in allowed for r in bad),
+                    "invalid_ref_hashes": [digest(r) for r in bad
+                        if not isinstance(r, str) or r not in allowed][:8]}
+                raise error
             issues.append(dict(issue))
         validated.append({"segment_ids": list(ids), "start_ms": originals[0]["start_ms"],
                           "end_ms": max(s["end_ms"] for s in originals),

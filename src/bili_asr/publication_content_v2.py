@@ -21,7 +21,12 @@ Preserve all meaning, evidence, examples, stance and emphasis. Do not translate,
 summarize, invent facts or extend the speaker's claims. Remove meaningless fillers,
 stutters and abandoned false starts; connect sentences and add natural punctuation.
 Every editable segment must appear exactly once in the returned blocks. Context is
-read-only. Use only allowed evidence references. Keep uncertain words as uncertainty
+read-only. Each paragraph must cover consecutive editable segment_ids in source order.
+For each paragraph, evidence_refs may only come from the union of allowed_issue_refs
+on that paragraph's own segment_ids. IDs from other paragraphs or readonly_context
+are forbidden even if present in this chunk. Put each issue on the paragraph that
+contains it. If no permitted evidence is available, use evidence_refs=[]; never guess IDs.
+Keep uncertain words as uncertainty
 in issues rather than inventing replacements. Return the exact requested JSON schema:
 {"chunk_id":"the input chunk id","paragraphs":[{"segment_ids":["source segment id"],
 "text":"edited prose","issues":[{"note":"uncertainty","candidate":"candidate",
@@ -84,7 +89,7 @@ def prepare_input_v2(base, reference, config, *, source_metadata) -> dict[str, A
             "content_sha256": reference.content_sha256, "source_kind": reference.source_kind,
             "language": reference.language, "segments": refs},
         "config": config.to_dict(), "metadata": {"title": source_metadata.title, "source_metadata": source_metadata.to_dict()},
-        "source_rule_version": "multilingual-prose-v1", "system_prompt": MULTILINGUAL_PROMPT,
+        "source_rule_version": "multilingual-prose-v2", "system_prompt": MULTILINGUAL_PROMPT,
         "prompt_sha256": digest(MULTILINGUAL_PROMPT),
         "unassigned_reference_ids": [ref["segment_id"] for ref in refs if ref["segment_id"] not in assigned],
     }
@@ -105,7 +110,9 @@ def prepare_input_v2(base, reference, config, *, source_metadata) -> dict[str, A
         request_size = len(MULTILINGUAL_PROMPT.encode("utf-8")) + len(canonical(chunk).encode("utf-8")) + 256
         output_size = 1024 + min(8192, config.max_output_tokens // 4) + sum(
             2 * len(segment["text"].encode("utf-8")) + 256 for segment in chunk["editable_segments"])
-        return request_size <= input_limit and output_size <= config.max_output_tokens
+        return (request_size <= input_limit and output_size <= config.max_output_tokens
+                and len(chunk["editable_segments"]) <= config.max_chunk_segments
+                and sum(len(s["text"]) for s in chunk["editable_segments"]) <= config.max_chunk_chars)
     chunks, start = [], 0
     while start < len(body):
         low, high, chosen = start + 1, len(body), None

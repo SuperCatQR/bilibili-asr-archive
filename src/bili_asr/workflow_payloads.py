@@ -47,6 +47,10 @@ def validate_payload(kind: JobKind, payload: Mapping[str, Any], *,
         _positive_id(payload.get("transcript_id"), "transcript_id")
     elif kind is JobKind.PROOFREAD:
         _one_reference(payload, "input_id", "asr_job_id")
+        if "repair_of_job_id" in payload:
+            _text(payload["repair_of_job_id"], "repair_of_job_id")
+            if "input_id" not in payload:
+                raise ValueError("workflow repair requires an explicit frozen input")
         if "asr_job_id" in payload and not isinstance(payload.get("editorial_config"), Mapping):
             raise ValueError("workflow payload: automatic proofreading requires editorial_config")
     elif kind is JobKind.RENDER_DOCUMENT:

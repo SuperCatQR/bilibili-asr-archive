@@ -65,16 +65,16 @@ def database(tmp_path):
 
 def test_large_context_keeps_an_entire_long_transcript_in_one_chunk():
     base = record(tuple("中文讲述 " * 25 for _ in range(200)))
-    prepared = prepare_input(base, None, EditorialConfig())
+    prepared = prepare_input(base, None, EditorialConfig(max_chunk_chars=100_000))
     assert len(prepared["chunks"]) == 1
     assert len(prepared["chunks"][0]["editable_segments"]) == 200
     assert prepared["input_id"] == digest(prepared["snapshot"])
-    assert prepare_input(base, None, EditorialConfig()) == prepared
+    assert prepare_input(base, None, EditorialConfig(max_chunk_chars=100_000)) == prepared
 
 
 def test_output_reserve_can_split_text_that_fits_the_input_context():
     base = record(tuple("中文讲述 " * 60 for _ in range(200)))
-    assert len(prepare_input(base, None, EditorialConfig())["chunks"]) == 2
+    assert len(prepare_input(base, None, EditorialConfig(max_chunk_chars=100_000))["chunks"]) == 2
 
 
 def test_budgeted_chunks_assign_each_segment_once_with_readonly_neighbors():
