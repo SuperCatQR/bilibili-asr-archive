@@ -267,5 +267,398 @@
       "asr_calls": 0,
       "ai_calls": 0
     }
+  },
+  "restored-business-checks.json": {
+    "sha256": "08dce6f1ebbe0f22125c582fc02d3236c58095e0685e2517ec4d7a4d80d1a8ed",
+    "result": {
+      "valid": true,
+      "verify_identical_to_consistent_source": true,
+      "verified_work_items": 1982,
+      "defects": 0,
+      "backlog": 2,
+      "doctor_data_complete": true,
+      "checked_artifacts": 18235,
+      "model_load_tested": false,
+      "search": {
+        "metadata": {
+          "hits": 20,
+          "diagnostics": []
+        },
+        "transcripts": {
+          "hits": 20,
+          "diagnostics": []
+        },
+        "all": {
+          "hits": 20,
+          "diagnostics": []
+        }
+      },
+      "index_added": 2271652,
+      "index_count": 2271652,
+      "index_seconds": 1393.6370303509757,
+      "derived_index_only_in_separate_copy": true,
+      "restored_database_sha256": "aa45099b75b3b5074bfc929a418289851260d616043a4dc81bc84d560dc4f483",
+      "restored_database_unchanged": true,
+      "seconds": 1494.768693773076,
+      "max_rss_kib": 71124,
+      "download_calls": 0,
+      "asr_calls": 0,
+      "ai_calls": 0
+    }
+  },
+  "supplement-candidate-summary.json": {
+    "sha256": "1fc0364b6cf55d9b4c8d89f59e826727f223bead9fdeeedfa3ba383dbacc411e",
+    "result": {
+      "before": {
+        "entries": 690,
+        "skipped": 0,
+        "blocked": 413
+      },
+      "reasons": {
+        "source-supplement: title may be a video-title fallback; require explicit part evidence": 413
+      },
+      "fieldStats": {
+        "partTitle": {
+          "selected": 1103,
+          "knownBefore": 0,
+          "unknownBefore": 1103,
+          "eligible": 690,
+          "excludedNative": 0
+        }
+      },
+      "applied_in_this_drill": 2,
+      "remaining_original_heads_untouched": 1101
+    }
+  },
+  "search-pagination-real-data.json": {
+    "sha256": "e082f9a7461a98a5730716e4c68eb0956fbc520345a97d8e6b8c07677abc73b0",
+    "result": {
+      "scope": "read-only real restored business DB; empty connection-local TEMP ledger models fresh build pages",
+      "source_revision": "78f3d5facd62e636b0665164bb44327e0a94d913",
+      "rows_in_transcript_segments": 2271652,
+      "page_size": 500,
+      "concurrent_work": "isolated catalog upgrade uses CPU and file I/O",
+      "cases": [
+        {
+          "after_transcript": 0,
+          "after_ordinal": 0,
+          "before": {
+            "sqlite_vm_steps_rounded_down_to_1000": 47763000,
+            "seconds": 0.3027906911447644,
+            "rows": 500,
+            "rows_sha256": "7b0fef99020ed8ce907db738d3a829787318ae9e92bc7a77da6cd4bb780230eb",
+            "plan": [
+              "MULTI-INDEX OR",
+              "INDEX 1",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)",
+              "INDEX 2",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH v USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH s USING INDEX sqlite_autoindex_transcript_segments_1 (transcript_id=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH k USING COVERING INDEX sqlite_autoindex_source_transcript_index_keys_1 (transcript_id=? AND ordinal=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "after": {
+            "sqlite_vm_steps_rounded_down_to_1000": 17000,
+            "seconds": 0.0009405268356204033,
+            "rows": 500,
+            "rows_sha256": "7b0fef99020ed8ce907db738d3a829787318ae9e92bc7a77da6cd4bb780230eb",
+            "plan": [
+              "SEARCH s USING INDEX sqlite_autoindex_transcript_segments_1 ((transcript_id,ordinal)>(?,?) AND transcript_id<?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH k USING COVERING INDEX sqlite_autoindex_source_transcript_index_keys_1 (transcript_id=? AND ordinal=?)",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH v USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        },
+        {
+          "after_transcript": 1620,
+          "after_ordinal": 0,
+          "before": {
+            "sqlite_vm_steps_rounded_down_to_1000": 19361000,
+            "seconds": 0.1227115779183805,
+            "rows": 500,
+            "rows_sha256": "2689434da53ba9182df4e0da5e39394eaffb429d059344b6f69a529fb38ad64b",
+            "plan": [
+              "MULTI-INDEX OR",
+              "INDEX 1",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)",
+              "INDEX 2",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH v USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH s USING INDEX sqlite_autoindex_transcript_segments_1 (transcript_id=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH k USING COVERING INDEX sqlite_autoindex_source_transcript_index_keys_1 (transcript_id=? AND ordinal=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "after": {
+            "sqlite_vm_steps_rounded_down_to_1000": 19000,
+            "seconds": 0.0006905137561261654,
+            "rows": 500,
+            "rows_sha256": "2689434da53ba9182df4e0da5e39394eaffb429d059344b6f69a529fb38ad64b",
+            "plan": [
+              "SEARCH s USING INDEX sqlite_autoindex_transcript_segments_1 ((transcript_id,ordinal)>(?,?) AND transcript_id<?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH k USING COVERING INDEX sqlite_autoindex_source_transcript_index_keys_1 (transcript_id=? AND ordinal=?)",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH v USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        },
+        {
+          "after_transcript": 3221,
+          "after_ordinal": 0,
+          "before": {
+            "sqlite_vm_steps_rounded_down_to_1000": 189000,
+            "seconds": 0.0026007280685007572,
+            "rows": 500,
+            "rows_sha256": "5c4b996625db5f0c80e13a6abdd1f278834477ec8eedb2b1edfc470c5bb9e662",
+            "plan": [
+              "MULTI-INDEX OR",
+              "INDEX 1",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)",
+              "INDEX 2",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH v USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH s USING INDEX sqlite_autoindex_transcript_segments_1 (transcript_id=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH k USING COVERING INDEX sqlite_autoindex_source_transcript_index_keys_1 (transcript_id=? AND ordinal=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "after": {
+            "sqlite_vm_steps_rounded_down_to_1000": 19000,
+            "seconds": 0.0007488089613616467,
+            "rows": 500,
+            "rows_sha256": "5c4b996625db5f0c80e13a6abdd1f278834477ec8eedb2b1edfc470c5bb9e662",
+            "plan": [
+              "SEARCH s USING INDEX sqlite_autoindex_transcript_segments_1 ((transcript_id,ordinal)>(?,?) AND transcript_id<?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH k USING COVERING INDEX sqlite_autoindex_source_transcript_index_keys_1 (transcript_id=? AND ordinal=?)",
+              "SEARCH t USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+              "SEARCH v USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        }
+      ],
+      "valid": true
+    }
+  },
+  "catalog-upgrade-receipt.json": {
+    "sha256": "bd53b375afbd7642ceff3ed26459e1d9d99bb5e44dfa7396c31b18261169190f",
+    "result": {
+      "operation": "archive-upgrade",
+      "valid": true,
+      "plan_id": "c0a554446493c460c05efdf07af9f05b17351c7e854dc4d1f719646475acf29f",
+      "target_root": "/dev/shm/bili-issues-20261011-catalog",
+      "reused": false,
+      "receipt_id": "5e370de23227e50474d7fea5c36bd4d375b7d17944e6f8af9aaeaba2d2090952",
+      "control_state": {
+        "continuation_allowed": false,
+        "declaration": "external",
+        "handoff_required": true,
+        "records": [
+          {
+            "held_job_ids": [
+              "01ae2045-56f2-4c80-8d9d-78ccf24346a1",
+              "0fb2c544-66c5-4da2-b44c-0824f25c9574",
+              "56caab93-992b-464a-a4dd-7a1d5683ddef",
+              "bed24eff-e982-4731-8d78-a2e13ef6245f"
+            ],
+            "mapping": "identity",
+            "path": "/root/bili-issues-20261011-evidence/production-ops-state.json",
+            "sha256": "3646a9cf6e976c38bca5050535cbe1468a7c0c056001cd53f41dc31e836280bf",
+            "size": 104654
+          }
+        ]
+      },
+      "warnings": []
+    }
+  },
+  "catalog-upgrade-check.json": {
+    "sha256": "001bd30413319927058aa427b234e9752999d6d08ed15d9e7f0fc28edc6293fe",
+    "result": {
+      "operation": "archive-upgrade-check",
+      "valid": true,
+      "plan_id": "c0a554446493c460c05efdf07af9f05b17351c7e854dc4d1f719646475acf29f",
+      "receipt_id": "5e370de23227e50474d7fea5c36bd4d375b7d17944e6f8af9aaeaba2d2090952",
+      "target_contracts": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "control_state": {
+        "continuation_allowed": false,
+        "declaration": "external",
+        "handoff_required": true,
+        "records": [
+          {
+            "held_job_ids": [
+              "01ae2045-56f2-4c80-8d9d-78ccf24346a1",
+              "0fb2c544-66c5-4da2-b44c-0824f25c9574",
+              "56caab93-992b-464a-a4dd-7a1d5683ddef",
+              "bed24eff-e982-4731-8d78-a2e13ef6245f"
+            ],
+            "mapping": "identity",
+            "path": "/root/bili-issues-20261011-evidence/production-ops-state.json",
+            "sha256": "3646a9cf6e976c38bca5050535cbe1468a7c0c056001cd53f41dc31e836280bf",
+            "size": 104654
+          }
+        ]
+      },
+      "installation_baseline_matches": true
+    }
+  },
+  "catalog-upgrade-cost.json": {
+    "sha256": "4cfa66fc65fefe41e6cc659735f1fe2a2307087eb9f5b60684b4d765cb7c7220",
+    "result": {
+      "seconds": 982.6835417803377,
+      "max_rss_kib": 139124,
+      "download_calls": 0,
+      "asr_calls": 0,
+      "ai_calls": 0
+    }
+  },
+  "catalog-upgrade-admission.json": {
+    "sha256": "9cc9b67956cfb29db88b9724722922b1d1397667bbfa013fe154ca4da608f42f",
+    "result": {
+      "target_free": 42013614080,
+      "required_free_bytes": 37672481350,
+      "extra_margin": 4294967296,
+      "cgroup_limit": 128849018880,
+      "anon_plus_shmem": 23071252480,
+      "system_free": 11162157056
+    }
+  },
+  "catalog-business-checks.json": {
+    "sha256": "d371339d653666aacc7a2907a425c913950dea7d7b543197302712c7d30a45e8",
+    "result": {
+      "valid": true,
+      "catalog_and_online_contracts_valid": true,
+      "default_mode": "off",
+      "catalog_counts": {
+        "artifact_objects": 1510,
+        "artifact_audio_bindings": 1510,
+        "artifact_replicas": 1512,
+        "artifact_policies": 0,
+        "artifact_transfers": 0,
+        "artifact_policy_runs": 0
+      },
+      "verify_identical_to_restored": true,
+      "verified_work_items": 1982,
+      "defects": 0,
+      "backlog": 2,
+      "doctor_data_complete": true,
+      "checked_artifacts": 18235,
+      "model_load_tested": false,
+      "database_unchanged": true,
+      "database_sha256": "dedd8dd47b38c87ecb4fd67012a0e4390883cf949707fd4b0ac26aeedda6dd7b",
+      "seconds": 161.7267095549032,
+      "max_rss_kib": 97304,
+      "download_calls": 0,
+      "asr_calls": 0,
+      "ai_calls": 0
+    }
+  },
+  "temporary-snapshot-cleanup.json": {
+    "sha256": "f1bb74fc6e5cd2c86b87d8e756353a2e6f8f9d1ff8282a575fc96cf2b265a7bd",
+    "result": {
+      "path": "/dev/shm/bili-issues-20261011-full.zip",
+      "sha256": "38b8a18b1496e7999194e92779605338d694e29a7031cf83d2a47b47146f6298",
+      "reason": "verified full restore retained; free temporary space for formal catalog upgrade",
+      "production_source_untouched": true
+    }
+  },
+  "catalog-upgrade-plan.json": {
+    "sha256": "aef70425532d6fd48e0d7c1d0247cdfa9a8cff793947d7d969e21484deea6e9c",
+    "result": {
+      "plan_id": "c0a554446493c460c05efdf07af9f05b17351c7e854dc4d1f719646475acf29f",
+      "source_contracts": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1"
+      ],
+      "target_contracts": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "source_files": 18236,
+      "source_artifact_bytes": 31225524806,
+      "source_database": {
+        "sha256": "aa45099b75b3b5074bfc929a418289851260d616043a4dc81bc84d560dc4f483",
+        "size": 1603350528
+      },
+      "target_root": "/dev/shm/bili-issues-20261011-catalog",
+      "required_free_bytes": 37672481350,
+      "control_state": {
+        "continuation_allowed": false,
+        "declaration": "external",
+        "handoff_required": true,
+        "records": [
+          {
+            "held_job_ids": [
+              "01ae2045-56f2-4c80-8d9d-78ccf24346a1",
+              "0fb2c544-66c5-4da2-b44c-0824f25c9574",
+              "56caab93-992b-464a-a4dd-7a1d5683ddef",
+              "bed24eff-e982-4731-8d78-a2e13ef6245f"
+            ],
+            "mapping": "identity",
+            "path": "/root/bili-issues-20261011-evidence/production-ops-state.json",
+            "sha256": "3646a9cf6e976c38bca5050535cbe1468a7c0c056001cd53f41dc31e836280bf",
+            "size": 104654
+          }
+        ]
+      }
+    }
+  },
+  "catalog-source-split.json": {
+    "sha256": "f97ebd5d3ffec3c9df124eb4a7c45da628691b0b52f6646922e8a254f3e3a62c",
+    "result": {
+      "needed_bytes": 10411618886,
+      "moved_bytes": 10456689666,
+      "file_count": 511,
+      "retained_roots": [
+        "/dev/shm/bili-issues-20261011-restored",
+        "/root/bili-issues-20261011-restored-audio"
+      ]
+    }
+  },
+  "catalog-resource-samples.ndjson": {
+    "sha256": "c543030d96b16b6d0e84dee65b236b520968b00e091119a130053f3715317b8d",
+    "result": {
+      "samples": 187,
+      "interval_seconds": 5,
+      "first_at": 1791661341.1946294,
+      "last_at": 1791662270.7232296,
+      "scope": "began after initial cleanup; aggregate host/container occupancy includes other work; sampled peaks may miss transients",
+      "max_sampled": {
+        "VmRSS": 130284,
+        "VmHWM": 139124,
+        "shm_used": 62654877696,
+        "system_used": 25112657920,
+        "cgroup_current": 122961248256
+      }
+    }
+  },
+  "validation-source-revisions": {
+    "initial_upgrade": "150ff29",
+    "full_snapshot_restore": "a5483a8",
+    "catalog_upgrade_and_business": "4f2a616",
+    "search_query_comparison": "78f3d5facd62e636b0665164bb44327e0a94d913"
   }
 }
