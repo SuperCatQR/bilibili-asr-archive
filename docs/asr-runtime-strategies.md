@@ -69,9 +69,11 @@ it does not implement or advertise a deployed vLLM/SGLang shared service,
 cross-task batching, per-request shared abort, FP8 weights or FP8 KV.
 
 Offline tests verify formulas, configuration identity, finite admission, eager
-fallback, cache cleanup, final-pass alignment and real-process ownership. GPU
-quality, compiled-kernel execution, throughput, allocator peaks and Hygon/FP8
-hardware behavior remain explicitly unverified until measured on that hardware.
+fallback, cache cleanup, final-pass alignment and real-process ownership. The
+[2026-10-11 4090 record](asr-gpu-validation-2026-10-11.md) adds a short full-model
+sample with actual compiled Triton kernels, graph breaks, allocator peaks and
+baseline timings. Human-verified quality, sustained throughput and Hygon/FP8
+hardware behavior remain unverified; profiler timings do not establish speedups.
 
 Sources: [Transformers Qwen3-ASR compilation](https://huggingface.co/docs/transformers/v5.19.0/model_doc/qwen3_asr),
 [HF cache strategies](https://huggingface.co/docs/transformers/v5.19.0/kv_cache),

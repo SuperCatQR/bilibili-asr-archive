@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import Counter
+from contextlib import contextmanager
 from typing import Any
 
 from .alignment import _clean_text
@@ -37,15 +38,39 @@ class BatchExecutor:
         self.fallbacks = Counter()
         self.batch_index = 0
         self.evidence = report["batching"] = {
-            "schema_version": 1, "scope": "same_task_same_pass", "pending_windows": 1,
+            "schema_version": 2, "scope": "same_task_same_pass", "pending_windows": 1,
             "running_batches": 1, "build_workers": 1, "max_wait_s": 0,
+            "legacy_capacity_fields": ["pending_windows", "running_batches", "build_workers"],
+            "limits": {"active_windows": 1, "pending_windows": 1, "running_batches": 1, "build_workers": 1},
+            "current": {"active_windows": 0, "pending_windows": 0, "running_batches": 0, "build_workers": 0},
+            "peaks": {"active_windows": 0, "pending_windows": 0, "running_batches": 0, "build_workers": 0},
+            "activity_scope": "scheduler_windows_batch_stages_and_native_preparation; serial_fallback_preparation_delegated",
+            "dispatch": {"order": "original_chunk_fifo", "batch_fill_wait_s": 0,
+                         "deadline_owner": "parent_inference_session", "cross_task_fairness": "not_applicable_owned_task"},
             "asr_batch_size": self.config.asr_batch_size, "aligner_batch_size": self.config.aligner_batch_size,
             "max_audio_seconds": self.config.batch_max_audio_seconds,
             "max_input_bytes": self.config.batch_max_input_bytes, "max_output_tokens": self.config.batch_max_tokens,
             "memory_scope": "conservative_waveform_reservation_and_observed_inputs_not_total_rss_or_vram",
+            "resource_admission": {"scope": "additional_batch_preparation", "reservation_strategy": "waveform_x64_v1",
+                "requested_reservation_peak_bytes": 0, "total_cpu_rss": "not_enforced", "total_gpu_vram": "not_enforced",
+                "excluded": ["resident_models", "processor_temporaries", "kv_cache", "compiler_graph_state",
+                             "allocator_fragmentation", "other_processes"]},
             "fallback_counts": {}, "batches": [], "observed_input_peak_bytes": 0,
         }
         self.timings = report["batch_timings_s"] = {"decode": 0.0, "align": 0.0}
+
+    @contextmanager
+    def _active(self, *names):
+        """Observe synchronous ownership, including suspended/closed generators."""
+        current, peaks = self.evidence["current"], self.evidence["peaks"]
+        for name in names:
+            current[name] += 1
+            peaks[name] = max(peaks[name], current[name])
+        try:
+            yield
+        finally:
+            for name in names:
+                current[name] -= 1
 
     def _trace(self, phase: str, started: float, items: list[dict]) -> None:
         if self.runner._trace is not None:
@@ -61,8 +86,11 @@ class BatchExecutor:
     def _window_admitted(self, indices: list[int], chunks: list) -> bool:
         lengths = [max(len(chunks[index][0]), self.minimum) for index in indices]
         samples = sum(lengths)
+        reservation = estimate_preparation(samples * 4).reserved_bytes
+        admission = self.evidence["resource_admission"]
+        admission["requested_reservation_peak_bytes"] = max(admission["requested_reservation_peak_bytes"], reservation)
         return (samples / SAMPLE_RATE <= self.config.batch_max_audio_seconds
-                and estimate_preparation(samples * 4).reserved_bytes <= self.config.batch_max_input_bytes
+                and reservation <= self.config.batch_max_input_bytes
                 and max(lengths) <= 2 * min(lengths))
 
     def run(self, chunks: list):
@@ -71,30 +99,34 @@ class BatchExecutor:
         width = max(self.config.asr_batch_size, self.config.aligner_batch_size)
         cursor = 0
         while cursor < len(chunks):
-            indices = []
-            while cursor < len(chunks) and len(indices) < width:
-                if indices and not self._window_admitted(indices + [cursor], chunks):
-                    self._fallback("window_capacity_or_length_bucket")
-                    break
-                indices.append(cursor)
-                cursor += 1
-            items = []
-            for index in indices:
-                audio = np.asarray(chunks[index][0], dtype=np.float32)
-                if len(audio) < self.minimum:
-                    audio = np.pad(audio, (0, self.minimum - len(audio)))
-                items.append({"chunk_index": index, "audio": audio})
-            if len(items) == 1 and width > 1 and not self._window_admitted(indices, chunks):
-                self._fallback("single_chunk_exceeds_batch_reservation")
-            for offset in range(0, len(items), self.config.asr_batch_size):
-                self._decode(items[offset:offset + self.config.asr_batch_size])
-            voiced = [item for item in items if item["text"]]
-            for offset in range(0, len(voiced), self.config.aligner_batch_size):
-                self._align(voiced[offset:offset + self.config.aligner_batch_size])
-            for item in items:
-                item.setdefault("raw_units", [])
-                item.pop("audio")
-                yield item
+            with self._active("active_windows"):
+                with self._active("pending_windows", "build_workers"):
+                    indices = []
+                    while cursor < len(chunks) and len(indices) < width:
+                        if indices and not self._window_admitted(indices + [cursor], chunks):
+                            self._fallback("window_capacity_or_length_bucket")
+                            break
+                        indices.append(cursor)
+                        cursor += 1
+                    items = []
+                    for index in indices:
+                        audio = np.asarray(chunks[index][0], dtype=np.float32)
+                        if len(audio) < self.minimum:
+                            audio = np.pad(audio, (0, self.minimum - len(audio)))
+                        items.append({"chunk_index": index, "audio": audio})
+                    if len(items) == 1 and width > 1 and not self._window_admitted(indices, chunks):
+                        self._fallback("single_chunk_exceeds_batch_reservation")
+                for offset in range(0, len(items), self.config.asr_batch_size):
+                    with self._active("running_batches"):
+                        self._decode(items[offset:offset + self.config.asr_batch_size])
+                voiced = [item for item in items if item["text"]]
+                for offset in range(0, len(voiced), self.config.aligner_batch_size):
+                    with self._active("running_batches"):
+                        self._align(voiced[offset:offset + self.config.aligner_batch_size])
+                for item in items:
+                    item.setdefault("raw_units", [])
+                    item.pop("audio")
+                    yield item
 
     def _observe_inputs(self, inputs) -> bool:
         observed = prepared_input_bytes(inputs)
@@ -140,8 +172,9 @@ class BatchExecutor:
         hotwords = self.runner._prompt_hotwords()
         prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
         prepared_clock = time.perf_counter()
-        inputs = self.models.processor.apply_transcription_request(audio=[item["audio"] for item in items],
-            language=[self.config.language] * len(items), prompt=[prompt] * len(items))
+        with self._active("build_workers"):
+            inputs = self.models.processor.apply_transcription_request(audio=[item["audio"] for item in items],
+                language=[self.config.language] * len(items), prompt=[prompt] * len(items))
         budgets = [max(self.config.min_new_tokens, int(float(value) / _MEL_FRAMES_PER_SECOND * self.config.tokens_per_second))
                    for value in inputs["input_features_mask"].sum(-1)]
         self._trace("batch_asr_prepare", prepared_clock, items)
@@ -195,9 +228,10 @@ class BatchExecutor:
                 self._align_serial(items)
                 return
             prepared_clock = time.perf_counter()
-            inputs, word_lists = self.models.aligner_processor.prepare_forced_aligner_inputs(
-                audio=[item["audio"] for item in items], transcript=[item["text"] for item in items],
-                language=[item["language"] or "Chinese" for item in items])
+            with self._active("build_workers"):
+                inputs, word_lists = self.models.aligner_processor.prepare_forced_aligner_inputs(
+                    audio=[item["audio"] for item in items], transcript=[item["text"] for item in items],
+                    language=[item["language"] or "Chinese" for item in items])
             self._trace("batch_align_prepare", prepared_clock, items)
             if len(word_lists) != len(items):
                 raise ValueError("alignment batch processor changed item count")

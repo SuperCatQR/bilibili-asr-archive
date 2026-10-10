@@ -113,6 +113,8 @@ def test_native_batches_restore_offsets_text_language_and_independent_stage_caps
     assert all(c["generation"]["ended_with_eos"] for c in report["chunks"])
     assert report["batching"]["pending_windows"] == report["batching"]["running_batches"] == 1
     assert report["batching"]["max_wait_s"] == 0
+    assert report["batching"]["current"] == dict.fromkeys(report["batching"]["limits"], 0)
+    assert report["batching"]["peaks"] == report["batching"]["limits"]
     assert report["batching"]["fallback_counts"] == {}
     assert all(e["measurement"] == "wall" for e in report["trace"])
     assert "decode_s" not in report["chunks"][0]  # A batch wall time is counted once.
@@ -152,6 +154,8 @@ def test_partial_batch_result_rejects_task_and_leaves_no_publishable_segments(mo
         runner.transcribe("/virtual/other")
     assert runner._last_transcribed_segments is None
     assert runner.diagnostics()["passes"][0]["completed"] is False
+    evidence = runner.diagnostics()["passes"][0]["batching"]
+    assert evidence["current"] == dict.fromkeys(evidence["limits"], 0)
 
 
 def test_empty_item_is_not_aligned_or_written_into_neighbor(monkeypatch):
@@ -237,3 +241,41 @@ def test_cli_batch_policy_freezes_in_profile(database, tmp_path):
     config = WorkflowRepository(database).profile(profile_id).asr_config()
     assert (config.asr_batch_size, config.aligner_batch_size) == (4, 2)
     assert (config.batch_max_audio_seconds, config.batch_max_input_bytes, config.batch_max_tokens) == (60, 100000000, 4000)
+
+
+def test_dispatch_is_immediate_and_does_not_build_next_window_before_current_is_consumed(monkeypatch):
+    from bili_asr.asr.batching import BatchExecutor
+
+    runner, models = runner_for(monkeypatch, asr_batch_size=2, aligner_batch_size=2)
+    report = {}
+    executor = BatchExecutor(runner, models, report, minimum_samples=1600, bust_cache=False)
+    chunks = [(np.full(16000, marker, dtype=np.float32), index) for index, marker in enumerate((11, 12, 13))]
+    original = models.model.generate
+    observed = []
+    def generate(**kwargs):
+        observed.append(dict(report["batching"]["current"]))
+        return original(**kwargs)
+    models.model.generate = generate
+    # There is no batch fill timer or asynchronous queue to wait for capacity.
+    monkeypatch.setattr("time.sleep", lambda *_: pytest.fail("same-task batch must not wait to fill"))
+    pending = executor.run(chunks)
+    first = next(pending)
+    assert first["chunk_index"] == 0
+    assert len(models.model.calls) == 1 and len(models.processor.requests) == 1
+    assert report["batching"]["current"] == {"active_windows": 1, "pending_windows": 0,
+        "running_batches": 0, "build_workers": 0}
+    assert observed == [{"active_windows": 1, "pending_windows": 0, "running_batches": 1, "build_workers": 0}]
+    pending.close()
+    assert report["batching"]["current"] == dict.fromkeys(report["batching"]["limits"], 0)
+    assert len(models.model.calls) == 1  # Unconsumed tail never prepared or submitted.
+    admission = report["batching"]["resource_admission"]
+    assert admission["requested_reservation_peak_bytes"] == 16000 * 2 * 4 * 64
+    assert admission["total_gpu_vram"] == "not_enforced" and "other_processes" in admission["excluded"]
+
+
+def test_single_available_chunk_runs_immediately_when_batch_limit_is_larger(monkeypatch):
+    runner, models = runner_for(monkeypatch, lengths=(1,), identifiers=(11,), asr_batch_size=8, aligner_batch_size=8)
+    monkeypatch.setattr("time.sleep", lambda *_: pytest.fail("must not wait for a batch peer"))
+    assert runner.transcribe("/virtual/audio")
+    assert len(models.model.calls) == len(models.aligner.calls) == 1
+    assert runner.diagnostics()["passes"][0]["batching"]["dispatch"]["batch_fill_wait_s"] == 0
