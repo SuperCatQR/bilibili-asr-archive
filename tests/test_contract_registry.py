@@ -66,8 +66,21 @@ def test_unknown_catalog_versions_have_no_default_fallback(version):
         catalog_contract(version)
 
 
+@pytest.mark.parametrize("field", ["releaseId", "editionId", "aiRevisionId", "contentSha256",
+                                  "artifactSha256", "reviewArtifactSha256"])
+def test_public_article_identity_cannot_end_with_a_newline(field):
+    from bili_asr.export_snapshot import ExportSnapshotError, _validate_article
+    document = json.loads((ROOT / "docs/contracts/examples/publication-catalog.json").read_text(encoding="utf-8"))
+    article = document["articles"][0]
+    _validate_article(article)
+    article[field] += "\n"
+    with pytest.raises(ExportSnapshotError):
+        _validate_article(article)
+
+
 @pytest.mark.parametrize("imported", [False, True])
-def test_private_manifest_layouts_have_explicit_structural_contracts(imported):
+@pytest.mark.parametrize("damage", ["missing", "duplicate", "duplicate-different-hash", "extra"])
+def test_private_manifest_layouts_have_explicit_structural_contracts(imported, damage):
     names = ["ai-draft.md", "review.md", "edition.md", "edition.json", "review.json",
              "differences/ai.patch", "differences/parent.patch"]
     if imported:
@@ -76,7 +89,18 @@ def test_private_manifest_layouts_have_explicit_structural_contracts(imported):
              "files": [{"path": name, "sha256": "b" * 64} for name in names]}
     identity = manifest_contract("editorial-export", None, imported=imported)
     validate_json(identity, value)
-    value["files"].pop()
+    if damage == "missing":
+        value["files"].pop()
+    elif damage.startswith("duplicate"):
+        # Preserve the count while replacing a required path, including the
+        # import-origin evidence in the ten-file layout. Object uniqueness
+        # alone would still permit duplicate paths with different hashes.
+        index = names.index("import-origin.json") if imported else -1
+        value["files"][index] = dict(value["files"][0])
+        if damage == "duplicate-different-hash":
+            value["files"][index]["sha256"] = "c" * 64
+    else:
+        value["files"][-1]["path"] = "private-note.md"
     with pytest.raises(ContractValidationError):
         validate_json(identity, value)
 
@@ -91,8 +115,12 @@ def test_historical_materializer_is_independent_of_current_writers(monkeypatch, 
     expected = json.loads((ROOT / "tests/fixtures/data/bilibili-v1-frozen.json").read_text(encoding="utf-8"))
     assert sample.ids == expected["ids"]
     assert {name: hashlib.sha256(body).hexdigest() for name, body in sample.files.items()} == expected["files"]
-    assert all((tmp_path / "media" / name).read_bytes() == body for name, body in sample.files.items())
-    assert not any((tmp_path / "old" / name).exists() for name in sample.files)
+    for name, body in sample.files.items():
+        root, other = ("old", "media") if name.startswith("subtitles/") else ("media", "old")
+        assert (tmp_path / root / name).read_bytes() == body
+        assert not (tmp_path / other / name).exists()
+    assert any((tmp_path / "old" / name).is_file() for name in sample.files)
+    assert any((tmp_path / "media" / name).is_file() for name in sample.files)
 
 
 @pytest.mark.parametrize("kind", ["bilibili-v1", "universal-v2"])
