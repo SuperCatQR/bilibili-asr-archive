@@ -471,6 +471,32 @@ def restore_package_object(package_path: Path, object_id: str, destination_path:
                                             expected_size, parent_identity)
 
 
+def copy_package_object(package_path: Path, object_id: str, destination: BinaryIO, *,
+                        expected_size: int, package_id: str, manifest_sha256: str) -> dict:
+    """Stream one exact member into caller-owned staging, then verify its bytes.
+
+    The caller must discard staging on any error. This allows complete snapshots
+    to collect external audio directly without restoring it on the source disk.
+    """
+    with _package_errors():
+        if not _valid_hash(object_id) or type(expected_size) is not int or expected_size < 0:
+            raise ArtifactPackageError("invalid expected object identity")
+        with _open_regular(_absolute(package_path)) as stream:
+            _bounded_zip_directory(stream)
+            with zipfile.ZipFile(stream) as bundle:
+                manifest, encoded = _read_manifest(bundle)
+                if manifest["package_id"] != package_id or hashlib.sha256(encoded).hexdigest() != manifest_sha256:
+                    raise ArtifactPackageError("package differs from frozen catalog identity")
+                entry = next((entry for entry in manifest["objects"] if entry["object_id"] == object_id), None)
+                if entry is None or entry["size_bytes"] != expected_size:
+                    raise ArtifactPackageError("package is missing the expected object")
+                with bundle.open(entry["member"]) as incoming:
+                    size, digest = _hash_stream(incoming, expected_size=expected_size, destination=destination)
+                if digest != object_id:
+                    raise ArtifactPackageError("package object SHA-256 mismatch")
+        return {"size": size, "sha256": digest}
+
+
 def _restore_from_bundle(bundle: zipfile.ZipFile, object_id: str, destination: Path,
                          expected_sha256: str, expected_size: int,
                          parent_identity: tuple[int, int]) -> dict:
@@ -504,6 +530,7 @@ __all__ = [
     "PackageSource",
     "capture_source_generation",
     "check_artifact_package",
+    "copy_package_object",
     "create_artifact_package",
     "package_batches",
     "package_manifest",

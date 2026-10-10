@@ -172,11 +172,20 @@ copy/offload operation ID 由模式和计划摘要确定，已完成操作重复
 重复调用已经完成的 offload 不会再次删除随后恢复的工作副本；要迁出新本地代次应重新生成计划。
 不承诺包内任意断点续写。
 
-完整 snapshot 的自包含要求继续严格执行，当前 snapshot 不自动从外部包取缺失音频。
-创建完整 snapshot 前先恢复必需输入，否则失败；不能把缺文件的状态归档伪装成完整备份。
-外部副本接入完整 snapshot 和显式引用型备份分别属于
-[#323](https://github.com/SuperCatQR/bilibili-asr-archive/issues/323) 与
-[#325](https://github.com/SuperCatQR/bilibili-asr-archive/issues/325)。
+完整 snapshot 可通过显式 target 绑定直接流式读取外部包中的必需对象，不必先把音频回填生产盘：
+
+```powershell
+bili-asr snapshot save --archive-root D:/archives/catalog --storage-target cold-audio=E:/audio-store --out F:/backup/full.zip
+bili-asr snapshot check --file F:/backup/full.zip
+bili-asr snapshot restore --file F:/backup/full.zip --archive-root D:/archives/restored
+```
+
+每个缺失路径必须有数据库声明的 SHA-256 和 catalog 的准确对象/包身份。
+保存时重新读取所需成员并验证 SHA-256；目标离线、身份不符、成员损坏或空间不足均拒绝提交快照。
+完整快照仍保留原 v1 格式及严格必需文件校验，包内包含全部所需字节；恢复后读取不依赖原外部盘。
+没有 target 绑定时沿用严格本地检查，缺文件仍失败。绑定路径仅用于当前命令，不写进快照。
+库外 hold 不在现有完整快照范围内，换机时必须另行交接已经核验的运维控制记录。
+非自包含引用型备份由 [#325](https://github.com/SuperCatQR/bilibili-asr-archive/issues/325) 单独定义。
 
 ## 验证范围
 
