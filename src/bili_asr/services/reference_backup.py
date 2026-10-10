@@ -86,7 +86,13 @@ def _consumers(connection, dependencies):
             "JOIN editorial_inputs i USING(input_id) WHERE d.content_sha256=? "
             "UNION SELECT video_part_id FROM publication_releases WHERE artifact_sha256=?) ORDER BY j.job_id",
             (dep["object_id"],) * 3)
-        result[dep["object_id"]] = [dict(row) for row in rows]
+        jobs = {row["job_id"]: dict(row) for row in rows}
+        for row in connection.execute(
+            "SELECT DISTINCT j.job_id,j.kind,j.status FROM artifact_group_members m "
+            "JOIN artifact_publication_groups g USING(group_id) JOIN workflow_publications p USING(publication_id) "
+            "JOIN workflow_jobs j USING(video_part_id) WHERE m.object_id=? ORDER BY j.job_id", (dep["object_id"],)):
+            jobs[row["job_id"]] = dict(row)
+        result[dep["object_id"]] = [jobs[key] for key in sorted(jobs)]
     return result
 
 
@@ -368,8 +374,11 @@ def restore_reference_backup(path: Path, target: Path, *, source_workers_stopped
         stage.rename(target)
         sync_directory(target.parent)
     from bili_asr.services.archive_recovery import doctor_archive
+    from bili_asr.services.artifact_state import artifact_state
     doctor = doctor_archive(target)
+    with ArchiveSession(target, mode=ArchiveAccessMode.READ) as session:
+        readiness = artifact_state(session.connection, ArtifactRoots.of(target))
     return {"operation": "reference-restore", **_report(manifest), "installed": True,
             "source_workers_stopped_attested": source_workers_stopped,
             "ready_to_run": False, "next_steps": ["rebind-and-verify-targets", "restore-required-inputs", "doctor", "explicit-worker-handoff"],
-            "workflow_recovery_changes": [], "doctor": doctor}
+            "workflow_recovery_changes": [], "doctor": doctor, "artifact_readiness": readiness}

@@ -103,3 +103,5 @@ plan 检查包、目标是否为空及本地随包数据空间，不创建目标
 2026-10-11 在用户授权服务器的隔离 `/root/bili-issues-20261011-remote-target/run-*` 目录上，以严格 known_hosts 和交互密码认证完成 11 项真实检查：2 MiB 包上传、限流、fsync/无覆盖封存、客户端回读、源保留、幂等上传、整包/范围下载、中断不封存、同尺寸损坏拒绝、instance 错配、离线目标。未访问生产归档，凭据没有写入脚本、receipt 或仓库。远端 Python 使用显式路径，验证了非交互 shell 没有 `python3` PATH 时的行为。
 
 新增可选依赖为 Paramiko 5.x；锁文件仅加入 Paramiko、bcrypt、cryptography、invoke、PyNaCl，没有升级已有依赖。依据 [Paramiko 5.0 changelog](https://www.paramiko.org/changelog.html)核对不兼容变化，并用当前服务器完成连接验收；弱 SHA-1/RSA 与 DSA 不在此版本支持范围。主机密钥策略遵循[官方客户端接口](https://docs.paramiko.org/en/stable/api/client.html)。
+
+最终集成于全类型产物提交 `bb74922` 后，WSL 七组测试共 87 通过，覆盖新服务、contracts、原完整 snapshot/CLI 和 artifact groups。远端服务端假装成功但回传错误字节的反向测试，在移除客户端 SHA 检查时准确失败；恢复保护后通过。42 个 registry 条目和 22 个 schema 的文档镜像一致，新增代码 ruff 全检查通过。
