@@ -27,6 +27,10 @@ class WorkerDrainTimeout(RuntimeError):
     error_code = "worker_drain_timeout"
 
 
+class WorkerPreparingDrain(RuntimeError):
+    """Drain interrupted preparation before any business attempt existed."""
+
+
 def attempt_cancellation(job: WorkflowJob) -> threading.Event:
     """Return the current handler's loss-of-ownership token, never another attempt's."""
     current = getattr(_ATTEMPT_LOCAL, "attempt", None)
@@ -82,6 +86,7 @@ class WorkflowExecutor:
         heartbeat_interval_seconds: float | None = None,
         drain_requested: Callable[[], bool] | None = None,
         drain_timeout_seconds: float | None = None,
+        prepare_candidate: Callable[[WorkflowJob, Callable[[], None]], None] | None = None,
     ):
         if lease_seconds < 1:
             raise ValueError("lease_seconds must be positive")
@@ -99,6 +104,7 @@ class WorkflowExecutor:
             raise ValueError("drain_timeout_seconds must be finite and positive")
         self.drain_requested = drain_requested or (lambda: False)
         self.drain_timeout_seconds = drain_timeout_seconds
+        self.prepare_candidate = prepare_candidate
 
     def run(self, *, limit: int | None = None) -> ExecutionSummary:
         if limit is not None and limit < 1:
@@ -108,10 +114,26 @@ class WorkflowExecutor:
             if self.drain_requested():
                 return ExecutionSummary(succeeded, failed, idle=succeeded + failed + cancelled == 0,
                                         cancelled=cancelled)
+            claim_args = {}
+            if self.prepare_candidate is not None:
+                candidate = self.repository.peek_candidate(kinds=self.kinds)
+                if candidate is None:
+                    return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled)
+                def checkpoint():
+                    if self.drain_requested():
+                        raise WorkerPreparingDrain("worker drained before claim")
+                try:
+                    self.prepare_candidate(candidate, checkpoint)
+                    checkpoint()
+                except WorkerPreparingDrain:
+                    return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled)
+                claim_args["expected_candidate"] = candidate
             job = self.repository.claim(
-                self.worker_id, lease_seconds=self.lease_seconds, kinds=self.kinds
+                self.worker_id, lease_seconds=self.lease_seconds, kinds=self.kinds, **claim_args
             )
             if job is None:
+                if claim_args:
+                    continue  # Candidate changed while preparing; select again without an attempt.
                 return ExecutionSummary(succeeded, failed, idle=succeeded + failed + cancelled == 0,
                                         cancelled=cancelled)
             handler = self.handlers.get(job.kind)

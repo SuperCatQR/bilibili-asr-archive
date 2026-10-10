@@ -85,8 +85,13 @@ class ASRConfig:
     offline: bool = True
     local_source: str = "configured-local"
     model_id: str | None = None
+    model_dtype: str = "bfloat16"
+    aligner_dtype: str = "bfloat16"
 
     def __post_init__(self) -> None:
+        for name in ("model_dtype", "aligner_dtype"):
+            if getattr(self, name) not in ("bfloat16", "float16"):
+                raise ValueError(f"{name} must be bfloat16 or float16")
         for name, value in (("model_name", self.model_name), ("aligner_name", self.aligner_name)):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
@@ -205,6 +210,8 @@ def default_config(**overrides) -> ASRConfig:
             os.environ.get(_dependency_constants.ASR_INFERENCE_TIMEOUT_ENV_VAR)
         ),
         "model_id": (os.environ.get(_dependency_constants.ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
+        "model_dtype": os.environ.get("BILI_ASR_MODEL_DTYPE") or "bfloat16",
+        "aligner_dtype": os.environ.get("BILI_ASR_ALIGNER_DTYPE") or "bfloat16",
     }
     values.update(overrides)
     return ASRConfig(**values)

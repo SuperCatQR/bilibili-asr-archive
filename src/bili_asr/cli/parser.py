@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retry rate-control or transport failures up to 5 times with 30/60/120/240/300 second waits",
     )
     fetch_meta.add_argument(
+        "--operation-retries", type=int, default=0,
+        help="Retry necessary detail/parts transport failures up to 5 times within the shared request budget",
+    )
+    fetch_meta.add_argument(
         "--skip-failed-page", action="store_true",
         help="Skip a failed page",
     )
@@ -119,7 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--with-text", action="store_true")
     export.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
-    subparsers.add_parser("check-asr-env", help="Verify this host can run local ASR")
+    environment = subparsers.add_parser("check-asr-env", help="Inspect ASR deployment or verify the AMD WSL recipe")
+    environment.add_argument("--backend", choices=("amd-wsl", "cuda", "rocm", "hcu"), default="amd-wsl")
+    environment.add_argument("--probe-gpu", action="store_true", help="Explicit bounded tensor probe, no model loading")
+    environment.add_argument("--probe-timeout", type=float, default=20)
+    environment.add_argument("--cache-root", default=None)
 
     from bili_asr.cli.registry import add_policy_arguments
     add_policy_arguments(subparsers)

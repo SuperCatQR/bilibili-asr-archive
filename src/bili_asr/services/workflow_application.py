@@ -108,7 +108,9 @@ class WorkflowApplication:
             gpu_session: str = "persistent", config_resolver=None,
             asr_prefetch: bool = False, asr_prefetch_bytes: int = 64 * 1024 * 1024,
             poll_interval_seconds: float = 0, shutdown_event: threading.Event | None = None,
-            source_registry=None) -> ExecutionSummary:
+            source_registry=None, warmup_audio: str | None = None,
+            warmup_timeout_seconds: float = 300, cache_root: str | None = None,
+            cache_max_bytes: int = 10 * 1024**3) -> ExecutionSummary:
         from contextlib import ExitStack
 
         from bili_asr.editorial_runtime import EditorialWorkflowHandlers
@@ -122,6 +124,14 @@ class WorkflowApplication:
             raise ValueError("poll_interval_seconds must be finite and nonnegative")
         if limit is not None and (type(limit) is not int or limit < 1):
             raise ValueError("limit must be positive")
+        if gpu_session == "legacy" and (warmup_audio is not None or cache_root is not None):
+            raise ValueError("explicit warmup/cache options require a supervised inference session")
+        if not math.isfinite(warmup_timeout_seconds) or warmup_timeout_seconds <= 0:
+            raise ValueError("warmup timeout must be finite and positive")
+        if warmup_audio is not None:
+            sentinel = Path(warmup_audio)
+            if not sentinel.is_absolute() or not sentinel.is_file():
+                raise ValueError("warmup audio must be an existing absolute file")
         selected = WORKER_ROLES[role] if role is not None else (
             WORKER_ROLES["editorial"] if only_editorial else kinds)
         registered = {}
@@ -138,6 +148,7 @@ class WorkflowApplication:
                     self.session.connection, self.repository, archive_root=self.session.archive_root,
                     sessdata=sessdata, artifact_roots=self.session.artifact_roots,
                     gpu_session=gpu_session, config_resolver=config_resolver,
+                    cache_root=cache_root, cache_max_bytes=cache_max_bytes,
                     asr_prefetch=asr_prefetch, asr_prefetch_bytes=asr_prefetch_bytes)
                 resources.callback(archive.close)
                 registered.update(archive.handlers())
@@ -150,11 +161,16 @@ class WorkflowApplication:
                 for signum in (signal.SIGINT, signal.SIGTERM):
                     previous = signal.signal(signum, request_drain)
                     resources.callback(signal.signal, signum, previous)
+            def prepare(candidate, checkpoint):
+                if not only_editorial:
+                    archive.prepare_candidate(candidate, checkpoint, timeout_seconds=warmup_timeout_seconds,
+                                              audio_path=warmup_audio)
             executor = WorkflowExecutor(
                 self.repository, worker_id=worker_id, handlers=registered,
                 kinds=tuple(registered) if selected is None else tuple(dict.fromkeys(selected)),
                 drain_requested=lambda: stop.is_set() or (drain_file is not None and Path(drain_file).exists()),
-                drain_timeout_seconds=drain_timeout_seconds)
+                drain_timeout_seconds=drain_timeout_seconds,
+                prepare_candidate=prepare if not only_editorial and gpu_session != "legacy" else None)
             succeeded = failed = cancelled = 0
             while True:
                 remaining = None if limit is None else limit - succeeded - failed - cancelled
