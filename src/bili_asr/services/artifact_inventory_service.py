@@ -287,6 +287,8 @@ def _observe_file(path: Path, *, deep: bool, progress, rate: int | None) -> dict
                 return result
             digest, size, started = hashlib.sha256(), 0, time.monotonic()
             while chunk := source.read(_CHUNK):
+                from bili_asr.services.artifact_io import observe_io
+                observe_io(len(chunk))
                 size += len(chunk)
                 digest.update(chunk)
                 if progress is not None:

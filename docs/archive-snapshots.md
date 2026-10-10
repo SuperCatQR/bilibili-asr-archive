@@ -59,8 +59,12 @@ archive to avoid selecting products from the former device configuration.
 
 ## Contents and Format
 
-The ZIP uses stored entries so existing compressed audio is copied without
-expensive recompression. File contents are streamed, allowing large audio
+The ZIP defaults to stored entries so existing compressed audio is copied without
+expensive recompression. `snapshot save --compression deflate` selects lossless
+Deflate level 1 when the destination has limited space. This changes only container
+encoding; the same manifest records original sizes and SHA-256 hashes, and check
+and restore validate all original bytes. Compression may save little for existing
+compressed audio and consumes additional CPU. File contents are streamed, allowing large audio
 collections without loading them into memory. The package contains:
 
 ```text

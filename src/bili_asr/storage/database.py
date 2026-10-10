@@ -531,6 +531,8 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     """Bootstrap fresh databases; refuse incompatible tables before any DDL."""
     from bili_asr.storage.artifact_catalog import require_artifact_catalog
     require_artifact_catalog(connection)
+    from bili_asr.storage.artifact_online import require_artifact_online
+    require_artifact_online(connection)
     from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
     if runtime_contract(connection) == UNIVERSAL_V2:
         require_universal_contract(connection)
@@ -557,6 +559,8 @@ def require_archive_schema(connection: sqlite3.Connection, *, allow_empty: bool 
     """
     from bili_asr.storage.artifact_catalog import require_artifact_catalog
     require_artifact_catalog(connection)
+    from bili_asr.storage.artifact_online import require_artifact_online
+    require_artifact_online(connection)
     from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
     if runtime_contract(connection) == UNIVERSAL_V2:
         require_universal_contract(connection)

@@ -277,6 +277,16 @@ class ArchiveWorkflowHandlers:
         return result
 
     def local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
+        from bili_asr.services.artifact_coordination import consumer_pin
+        retained = retained_audio(self.connection, job.video_part_id,
+                                  self.repository.dependency_result(job, JobKind.AUDIO))
+        if retained is None:
+            return self._local_asr(job)
+        with consumer_pin(self.connection, self.artifact_roots, retained["object_id"],
+                          owner=f"asr:{job.job_id}:{job.attempt_count}"):
+            return self._local_asr(job)
+
+    def _local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
         decode_job_payload(job)
         self.repository.assert_lease(job)
         if job.profile_id is None:
@@ -321,6 +331,10 @@ class ArchiveWorkflowHandlers:
                 infer = self.timeout_transcriber if self.inference_session is None else self.inference_session.transcribe
                 session_args = {} if self.inference_session is None else {
                     "request": inference_request, "checkpoint": lambda: self._inference_checkpoint(job)}
+                if retained is not None:
+                    session_args["artifact_context"] = {"archive_root": str(self.artifact_roots.archive_root),
+                        "artifact_root": str(self.artifact_roots.artifact_root) if self.artifact_roots.configured else None,
+                        "object_id": retained["object_id"]}
                 segments, provenance, coverage = infer(
                     config,
                     os.fspath(audio_path),
@@ -395,6 +409,14 @@ class ArchiveWorkflowHandlers:
         }
 
     def publish(self, job: WorkflowJob) -> Mapping[str, Any]:
+        from bili_asr.services.artifact_coordination import resource_fence
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        if not require_artifact_catalog(self.connection):
+            return self._publish(job)
+        with resource_fence(self.artifact_roots, f"publication-part:{job.video_part_id}", exclusive=True):
+            return self._publish(job)
+
+    def _publish(self, job: WorkflowJob) -> Mapping[str, Any]:
         """Project the currently preferred stored transcript into an archive bundle."""
         decode_job_payload(job)
         self.repository.assert_lease(job)

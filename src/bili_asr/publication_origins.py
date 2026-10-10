@@ -6,6 +6,8 @@ import re
 from bili_asr.canonical_json import digest
 from bili_asr.contracts.registry import ORIGIN_PROFILE as PROFILE
 from bili_asr.source_supplements import POLICY as SUPPLEMENT_POLICY, KIND as SUPPLEMENT_KIND, validate_supplement
+from bili_asr.contracts.content_policies import content_policy, missing_value
+from bili_asr.contracts.registry import LEGACY_FACTS_POLICY
 
 COMMON = {"kind", "editionId", "aiRevisionId", "videoPartId", "contentSha256",
           "sourceMetadataSha256", "inputVersion", "aiTemplateVersion"}
@@ -107,7 +109,7 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
         for field, size in (("legacyEditionId", 32), ("legacyReleaseId", 64)):
             if entry[field] is not None and not hexadecimal(entry[field], size):
                 fail("invalid legacy identity")
-        if (entry["legacyAiRevisionId"] != article["aiRevisionId"] or entry["policyVersion"] not in {"legacy-frozen-facts-v1", SUPPLEMENT_POLICY}
+        if (entry["legacyAiRevisionId"] != article["aiRevisionId"] or entry["policyVersion"] not in {LEGACY_FACTS_POLICY, SUPPLEMENT_POLICY}
                 or entry["reviewArtifactSha256"] != article["reviewArtifactSha256"]
                 or type(entry["importedAt"]) is not int or not 0 <= entry["importedAt"] <= 2**53 - 1):
             fail("invalid import binding or time")
@@ -130,13 +132,11 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
             if not isinstance(field, str) or field not in article["sourceMetadata"]:
                 fail("unknown evidence field")
             fields.append(field)
-            known = field in {"version", "platform", "externalVideoId", "partIndex", "title"}
-            supplied = supplemented and field == "partTitle"
-            expected_kind = SUPPLEMENT_KIND if supplied else "legacy-input" if known else "unobserved"
+            expected_kind = content_policy(entry["policyVersion"]).field_kind(field)
             if (fact["kind"] != expected_kind or fact["observedAt"] is not None
                     or fact["valueSha256"] != digest(article["sourceMetadata"][field])):
                 fail("metadata evidence differs from frozen-facts policy")
-            if not known and not supplied and article["sourceMetadata"][field] != ([] if field == "tags" else None):
+            if expected_kind == "unobserved" and article["sourceMetadata"][field] != missing_value(field):
                 fail("unobserved source value is not unknown")
         if fields != sorted(article["sourceMetadata"]) or len(set(fields)) != len(fields):
             fail("metadata evidence is duplicated or unsorted")

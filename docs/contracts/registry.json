@@ -47,6 +47,47 @@
       "schema": "ssh-directory-v1.schema.json"
     },
     {
+      "identity": "artifact-policy-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/services/artifact_policy.py"
+      ],
+      "consumers": [
+        "cli.artifacts",
+        "services.artifact_consumer"
+      ],
+      "capabilities": [
+        "validate",
+        "read",
+        "write"
+      ],
+      "dependencies": [
+        "artifact-online-v1"
+      ],
+      "schema": "artifact-policy-v1.schema.json"
+    },
+    {
+      "identity": "artifact-online-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/storage/schema-artifact-online.sql"
+      ],
+      "consumers": [
+        "services.artifact_policy",
+        "services.artifact_consumer",
+        "storage.snapshots"
+      ],
+      "capabilities": [
+        "extension",
+        "snapshot",
+        "explicit-upgrade"
+      ],
+      "dependencies": [
+        "artifact-storage-v1"
+      ],
+      "schema": null
+    },
+    {
       "identity": "artifact-state-v1",
       "owner": "storage",
       "authority": [
@@ -261,6 +302,45 @@
       "dependencies": [
         "preserved-body-import-v1"
       ],
+      "schema": null
+    },
+    {
+      "identity": "legacy-frozen-facts-v1",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/content_policies.py",
+        "src/bili_asr/services/preserved_body_import.py"
+      ],
+      "consumers": [
+        "storage.import_origins",
+        "publication_origins"
+      ],
+      "capabilities": [
+        "content-upgrade",
+        "historical-read"
+      ],
+      "dependencies": [
+        "preserved-body-import-v1",
+        "publication-content/v1",
+        "publication-content/v2"
+      ],
+      "schema": null
+    },
+    {
+      "identity": "stored-segments-webvtt/v1",
+      "owner": "transcripts",
+      "authority": [
+        "src/bili_asr/services/transcript_derivatives.py",
+        "src/bili_asr/cues.py"
+      ],
+      "consumers": [
+        "cli.archive"
+      ],
+      "capabilities": [
+        "derive",
+        "export"
+      ],
+      "dependencies": [],
       "schema": null
     },
     {
@@ -868,6 +948,466 @@
       ],
       "sample": "tests/test_archive_upgrade.py",
       "reversible": false
+    },
+    {
+      "identity": "artifact-storage-native/v1",
+      "source": [
+        "universal-v2"
+      ],
+      "target": [
+        "universal-v2",
+        "artifact-storage-v1"
+      ],
+      "converter": "install-artifact-storage",
+      "revision": 1,
+      "authority": [
+        "services/artifact_catalog_upgrade.py",
+        "storage/schema-artifact-storage.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "artifact-object-and-replica-backfill"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-storage-preserved/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1"
+      ],
+      "converter": "install-artifact-storage",
+      "revision": 1,
+      "authority": [
+        "services/artifact_catalog_upgrade.py",
+        "storage/schema-artifact-storage.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "artifact-object-and-replica-backfill"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-storage-supplemented/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1"
+      ],
+      "converter": "install-artifact-storage",
+      "revision": 1,
+      "authority": [
+        "services/artifact_catalog_upgrade.py",
+        "storage/schema-artifact-storage.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "artifact-object-and-replica-backfill"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-native/v1",
+      "source": [
+        "universal-v2",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-preserved/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-supplemented/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_archive_upgrade.py",
+      "reversible": false
     }
-  ]
+  ],
+  "content_policies": [
+    {
+      "identity": "legacy-frozen-facts-v1",
+      "source_content": [
+        "publication-content/v1",
+        "frozen-input/v1"
+      ],
+      "target_content": "publication-content/v2",
+      "body_rule": "selected-body-utf8-identical",
+      "review_status": "pending-review",
+      "release_rule": "preserve-current-release",
+      "field_kinds": [
+        [
+          "aid",
+          "unobserved"
+        ],
+        [
+          "categoryId",
+          "unobserved"
+        ],
+        [
+          "coverUrl",
+          "unobserved"
+        ],
+        [
+          "creatorId",
+          "unobserved"
+        ],
+        [
+          "creatorName",
+          "unobserved"
+        ],
+        [
+          "description",
+          "unobserved"
+        ],
+        [
+          "durationMs",
+          "unobserved"
+        ],
+        [
+          "externalVideoId",
+          "legacy-input"
+        ],
+        [
+          "metadataObservedAt",
+          "unobserved"
+        ],
+        [
+          "partIndex",
+          "legacy-input"
+        ],
+        [
+          "partTitle",
+          "unobserved"
+        ],
+        [
+          "platform",
+          "legacy-input"
+        ],
+        [
+          "pubdateUnix",
+          "unobserved"
+        ],
+        [
+          "sourcePublishedAt",
+          "unobserved"
+        ],
+        [
+          "tags",
+          "unobserved"
+        ],
+        [
+          "title",
+          "legacy-input"
+        ],
+        [
+          "version",
+          "legacy-input"
+        ]
+      ],
+      "consumer_profile": "universal-origin-v1",
+      "converter": "services.preserved_body_import",
+      "sample": "tests/test_preserved_body_import.py"
+    },
+    {
+      "identity": "legacy-part-title-supplement-v1",
+      "source_content": [
+        "publication-content/v2",
+        "legacy-frozen-facts-v1"
+      ],
+      "target_content": "publication-content/v2",
+      "body_rule": "parent-body-utf8-identical",
+      "review_status": "pending-review",
+      "release_rule": "preserve-current-release",
+      "field_kinds": [
+        [
+          "aid",
+          "unobserved"
+        ],
+        [
+          "categoryId",
+          "unobserved"
+        ],
+        [
+          "coverUrl",
+          "unobserved"
+        ],
+        [
+          "creatorId",
+          "unobserved"
+        ],
+        [
+          "creatorName",
+          "unobserved"
+        ],
+        [
+          "description",
+          "unobserved"
+        ],
+        [
+          "durationMs",
+          "unobserved"
+        ],
+        [
+          "externalVideoId",
+          "legacy-input"
+        ],
+        [
+          "metadataObservedAt",
+          "unobserved"
+        ],
+        [
+          "partIndex",
+          "legacy-input"
+        ],
+        [
+          "partTitle",
+          "archive-part-projection"
+        ],
+        [
+          "platform",
+          "legacy-input"
+        ],
+        [
+          "pubdateUnix",
+          "unobserved"
+        ],
+        [
+          "sourcePublishedAt",
+          "unobserved"
+        ],
+        [
+          "tags",
+          "unobserved"
+        ],
+        [
+          "title",
+          "legacy-input"
+        ],
+        [
+          "version",
+          "legacy-input"
+        ]
+      ],
+      "consumer_profile": "universal-origin-v1",
+      "converter": "services.source_supplement",
+      "sample": "tests/test_source_supplement.py"
+    }
+  ],
+  "release_acceptance": {
+    "frozen_files": [
+      {
+        "path": "tests/fixtures/data/bilibili-v1-frozen.zip",
+        "sha256": "20790dfc0acec3dda5707cb534907374c458f99b04f1947dc865ffe67b93770b"
+      },
+      {
+        "path": "tests/fixtures/data/bilibili-v1-frozen.json",
+        "sha256": "2e2d67cac953c115d541e210cd663c91adc07327ff3c158947eb0e9621849844"
+      },
+      {
+        "path": "tests/fixtures/data/contracts-release-baseline-v1.json",
+        "sha256": "7ea6da1930354dbb5e871ae84828b189138d88a2b1467c33edd75174913f194e"
+      }
+    ],
+    "baseline": "tests/fixtures/data/contracts-release-baseline-v1.json",
+    "required_tests": [
+      "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
+      "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json",
+      "tests/test_upgrade_result_reuse.py::test_formal_upgrade_reuses_completed_ai_jobs_and_preserves_pending_work",
+      "tests/test_upgrade_result_reuse.py::test_explicit_refresh_or_changed_configuration_creates_current_input",
+      "tests/test_upgrade_result_reuse.py::test_upgrade_keeps_committed_chunks_and_only_explicit_retry_runs_missing_chunks",
+      "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[failed]",
+      "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[cancelled]",
+      "tests/test_content_upgrade_policies.py::test_formal_upgrade_and_registered_content_conversion_keep_original_review_and_body",
+      "tests/test_source_supplement.py::test_title_only_change_preserves_current_human_edits_and_historical_ai",
+      "tests/test_source_supplement.py::test_export_pair_and_snapshot_restore_keep_title_evidence",
+      "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[native]",
+      "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[preserved]",
+      "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[supplemented]"
+    ],
+    "upgrades": [
+      {
+        "edge": "bilibili-to-universal/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[native]",
+          "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install"
+        ]
+      },
+      {
+        "edge": "preserved-body-extension/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[preserved]",
+          "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install"
+        ]
+      },
+      {
+        "edge": "source-supplement-extension/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[supplemented]",
+          "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install"
+        ]
+      },
+      {
+        "edge": "artifact-storage-native/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-native]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-native]"
+        ]
+      },
+      {
+        "edge": "artifact-storage-preserved/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-preserved]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-preserved]"
+        ]
+      },
+      {
+        "edge": "artifact-storage-supplemented/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-supplemented]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-supplemented]"
+        ]
+      },
+      {
+        "edge": "artifact-online-native/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-native]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-native]"
+        ]
+      },
+      {
+        "edge": "artifact-online-preserved/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-preserved]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-preserved]"
+        ]
+      },
+      {
+        "edge": "artifact-online-supplemented/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-supplemented]",
+          "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-supplemented]"
+        ]
+      }
+    ],
+    "transitions": []
+  }
 }

@@ -38,6 +38,12 @@ def add_archive_parser(subparsers: argparse._SubParsersAction) -> None:
     check.set_defaults(database_policy=None)
     paths = actions.add_parser("upgrade-paths", help="List exact registered offline contract upgrade edges")
     paths.set_defaults(database_policy=None)
+    derivative = actions.add_parser("derive-vtt", help="Export WebVTT from verified stored segments without ASR")
+    derivative.add_argument("--source-root", required=True)
+    derivative.add_argument("--source-artifact-root")
+    derivative.add_argument("--transcript-id", type=int, required=True)
+    derivative.add_argument("--output", type=Path, required=True)
+    derivative.set_defaults(database_policy=None)
     plan = actions.add_parser("upgrade-plan", help="Bind an offline source, converter and target to a verifiable upgrade plan")
     plan.add_argument("--source-root", required=True)
     plan.add_argument("--source-artifact-root")
@@ -63,7 +69,11 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     from bili_asr.services.archive_migration import initialize_archive, migrate_archive, check_migrated_archive, migrate_snapshot
 
     try:
-        if args.archive_action.startswith("upgrade-"):
+        if args.archive_action == "derive-vtt":
+            from bili_asr.services.transcript_derivatives import export_transcript_vtt
+            report = export_transcript_vtt(Path(args.source_root), transcript_id=args.transcript_id, output=args.output,
+                artifact_root=Path(args.source_artifact_root) if args.source_artifact_root else None)
+        elif args.archive_action.startswith("upgrade-"):
             report = _cmd_upgrade(args)
         elif args.archive_action == "init":
             report = initialize_archive(Path(args.target_root))

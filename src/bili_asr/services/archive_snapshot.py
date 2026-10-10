@@ -168,9 +168,11 @@ def _summary(manifest: dict[str, object]) -> dict[str, object]:
 
 
 def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None = None,
-                  storage_targets: dict[str, Path] | None = None) -> dict:
+                  storage_targets: dict[str, Path] | None = None, compression: str = "stored") -> dict:
     """Save one consistent portable ZIP without changing its source archive."""
     with _snapshot_errors():
+        if compression not in {"stored", "deflate"}:
+            raise SnapshotError("snapshot compression must be stored or deflate")
         root, output = _absolute(archive_root), _absolute(out)
         bases = (root,) if artifact_root is None else tuple(dict.fromkeys((_absolute(artifact_root), root)))
         for base in bases:
@@ -207,7 +209,8 @@ def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None =
                         raise SnapshotError("snapshot target lacks space for the complete archive and container overhead")
                 archive = stage / "snapshot.zip"
                 files: list[dict[str, object]] = []
-                with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as bundle:
+                with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED if compression == "deflate" else zipfile.ZIP_STORED,
+                                     compresslevel=1 if compression == "deflate" else None, allowZip64=True) as bundle:
                     for key, source_path in sorted({"archive.db": database, **artifacts}.items()):
                         before = _regular_file(source_path)
                         with source_path.open("rb") as source, bundle.open(key, "w", force_zip64=True) as destination:

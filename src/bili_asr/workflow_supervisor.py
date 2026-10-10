@@ -75,6 +75,7 @@ def _controller(options: dict, role: str, worker_id: str):
                      daemon=True, name="workflow-supervisor-parent").start()
     try:
         from bili_asr.runtime_bindings import load_runtime_bindings
+        from bili_asr.services.artifact_access import parse_target_bindings
         bindings = load_runtime_bindings(options["runtime_bindings"])
         artifacts = roots_for(options["archive_root"], flag_value=options["artifact_root"], require_writable=True)
         with ArchiveSession(options["archive_root"], mode=ArchiveAccessMode.WRITE, artifact_roots=artifacts) as session:
@@ -85,7 +86,8 @@ def _controller(options: dict, role: str, worker_id: str):
                 gpu_session=options["gpu_session"], config_resolver=None if bindings is None else bindings.resolve,
                 asr_prefetch=options["asr_prefetch"], asr_prefetch_bytes=options["asr_prefetch_bytes"],
                 warmup_audio=options["warmup_audio"], warmup_timeout_seconds=options["warmup_timeout_seconds"],
-                cache_root=options["cache_root"], cache_max_bytes=options["cache_max_bytes"])
+                cache_root=options["cache_root"], cache_max_bytes=options["cache_max_bytes"],
+                storage_targets=parse_target_bindings(options.get("storage_targets")))
     except Exception as exc:  # noqa: BLE001 - bounded supervisor diagnostics contain no exception text.
         write_stderr(f"workflow worker startup/exit: role={role} error={type(exc).__name__}")
         raise SystemExit(70) from None
@@ -118,6 +120,7 @@ class WorkerSupervisor:
                  asr_prefetch_bytes: int = 64 * 1024 * 1024, runtime_bindings=None,
                  warmup_audio: str | None = None, warmup_timeout_seconds: float = 300,
                  cache_root: str | None = None, cache_max_bytes: int = 10 * 1024**3,
+                 storage_targets: list[str] | None = None,
                  context=None, controller: Callable = _controller):
         root = Path(archive_root).resolve(strict=True)
         if any(role not in {"asr", "cpu", "editorial", "acquisition"} for role in slots):
@@ -145,7 +148,7 @@ class WorkerSupervisor:
             "gpu_session": gpu_session, "asr_prefetch": asr_prefetch,
             "asr_prefetch_bytes": asr_prefetch_bytes, "runtime_bindings": runtime_bindings,
             "warmup_audio": warmup_audio, "warmup_timeout_seconds": warmup_timeout_seconds,
-            "cache_root": cache_root, "cache_max_bytes": cache_max_bytes}
+            "cache_root": cache_root, "cache_max_bytes": cache_max_bytes, "storage_targets": storage_targets}
         self.root, self.max_restarts = root, max_restarts
         self.context = context or multiprocessing.get_context("spawn")
         self.controller = controller

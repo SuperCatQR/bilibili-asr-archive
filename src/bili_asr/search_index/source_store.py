@@ -5,14 +5,15 @@ creates these rebuildable cache objects; every query is a read-only operation.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 import sqlite3
 import time
+from dataclasses import dataclass
 
 from bili_asr.platform_identity import ContentRef
 from bili_asr.source_identity import source_url
 from bili_asr.storage.archive_contracts import require_universal_contract
-from .common import _redact_text, _cjk_bigram_stream, _create_snippet
+
+from .common import _cjk_bigram_stream, _create_snippet, _redact_text
 from .errors import FTS5UnavailableError, SearchIndexMissingError, TranscriptStoreError
 
 TABLE = "source_transcript_fts"
@@ -109,12 +110,14 @@ def build(connection):
     total = 0
     after_id, after_ordinal = -1, -1
     while True:
+        # Seek the existing segment composite key in its own order. An OR on
+        # the parent ID makes SQLite sort all remaining segments for each page.
         rows = connection.execute(
             f"SELECT t.transcript_id,s.ordinal,s.start_ms,s.end_ms,s.text,p.video_part_id,p.platform,p.external_video_id,p.page_index,p.pubdate "
             "FROM transcript_segments s JOIN transcripts t USING(transcript_id) JOIN v_source_parts p USING(video_part_id) "
-            f"WHERE t.transcript_id<=? AND (t.transcript_id>? OR (t.transcript_id=? AND s.ordinal>?)) AND NOT EXISTS "
-            f"(SELECT 1 FROM {KEYS} k WHERE k.transcript_id=t.transcript_id AND k.ordinal=s.ordinal) "
-            "ORDER BY t.transcript_id,s.ordinal LIMIT 500", (upper, after_id, after_id, after_ordinal)).fetchall()
+            f"WHERE s.transcript_id<=? AND (s.transcript_id,s.ordinal)>(?,?) AND NOT EXISTS "
+            f"(SELECT 1 FROM {KEYS} k WHERE k.transcript_id=s.transcript_id AND k.ordinal=s.ordinal) "
+            "ORDER BY s.transcript_id,s.ordinal LIMIT 500", (upper, after_id, after_ordinal)).fetchall()
         if not rows:
             break
         with connection:

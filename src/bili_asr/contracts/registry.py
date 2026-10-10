@@ -13,7 +13,11 @@ ASR_EVIDENCE_VERSION = 1
 BUNDLE_SCHEMA = "archive-bundle-v2"
 ORIGIN_PROFILE = "universal-origin-v1"
 IMPORT_EXTENSION = "preserved-body-import-v1"
+LEGACY_FACTS_POLICY = "legacy-frozen-facts-v1"
+STORED_VTT_POLICY = "stored-segments-webvtt/v1"
 SOURCE_SUPPLEMENT_POLICY = "legacy-part-title-supplement-v1"
+ARTIFACT_STORAGE = "artifact-storage-v1"
+ARTIFACT_ONLINE = "artifact-online-v1"
 SCHEMA_BASE_URI = "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/"
 
 
@@ -41,6 +45,12 @@ _CONTRACTS = (
     Contract("ssh-directory/v1", "storage", ("src/bili_asr/remote_storage.py", "src/bili_asr/ssh_storage_agent.py"),
              ("services.remote_artifacts", "services.reference_backup"), ("validate", "upload", "read", "range-read"),
              ("artifact-package-v1",), "ssh-directory-v1.schema.json"),
+    Contract("artifact-policy-v1", "storage", ("src/bili_asr/services/artifact_policy.py",),
+             ("cli.artifacts", "services.artifact_consumer"), ("validate", "read", "write"),
+             ("artifact-online-v1",), "artifact-policy-v1.schema.json"),
+    Contract("artifact-online-v1", "storage", ("src/bili_asr/storage/schema-artifact-online.sql",),
+             ("services.artifact_policy", "services.artifact_consumer", "storage.snapshots"),
+             ("extension", "snapshot", "explicit-upgrade"), ("artifact-storage-v1",)),
     Contract("artifact-state-v1", "storage", ("src/bili_asr/services/artifact_state.py",),
              ("cli.artifacts",), ("read", "validate"), ("artifact-storage-v1",), "artifact-state-v1.schema.json"),
     Contract("artifact-publication-state-v1", "storage", ("src/bili_asr/services/artifact_state.py",),
@@ -73,6 +83,12 @@ _CONTRACTS = (
              "src/bili_asr/storage/schema-source-supplements.sql"),
              ("storage.source_supplements", "publication_origins", "storage.snapshots"),
              ("extension", "snapshot", "export"), (IMPORT_EXTENSION,)),
+    Contract(LEGACY_FACTS_POLICY, "publication", ("src/bili_asr/contracts/content_policies.py",
+             "src/bili_asr/services/preserved_body_import.py"),
+             ("storage.import_origins", "publication_origins"), ("content-upgrade", "historical-read"),
+             (IMPORT_EXTENSION, "publication-content/v1", "publication-content/v2")),
+    Contract(STORED_VTT_POLICY, "transcripts", ("src/bili_asr/services/transcript_derivatives.py", "src/bili_asr/cues.py"),
+             ("cli.archive",), ("derive", "export")),
     Contract("workflow-payload/v1", "workflow", ("src/bili_asr/workflow_payloads.py",),
              ("storage.workflow", "workflow"), ("read", "write")),
     Contract("asr-profile/v2", "workflow", ("src/bili_asr/workflow_models.py", "src/bili_asr/storage/schema-workflow.sql"),
@@ -155,8 +171,14 @@ def manifest_contract(kind: str, profile: str | None, *, imported: bool = False)
 
 
 def catalog() -> dict:
+    from bili_asr.contracts.content_policies import policy_catalog
     return {"format_version": 1, "contracts": [asdict(entry) for entry in _CONTRACTS],
-            "upgrades": [asdict(entry) for entry in UPGRADE_EDGES]}
+            "upgrades": [asdict(entry) for entry in UPGRADE_EDGES], "content_policies": policy_catalog(),
+            "release_acceptance": {"frozen_files": [asdict(entry) for entry in FROZEN_RELEASE_FILES],
+                "baseline": RELEASE_BASELINE,
+                "required_tests": RELEASE_REQUIRED_TESTS,
+                "upgrades": [asdict(entry) for entry in UPGRADE_ACCEPTANCE],
+                "transitions": [asdict(entry) for entry in CONTRACT_TRANSITIONS]}}
 
 
 @dataclass(frozen=True)
@@ -193,6 +215,97 @@ UPGRADE_EDGES = (
                 ("services/source_supplement.py", "storage/schema-source-supplements.sql"),
                 "snapshot-database", "snapshot-database", ("empty-extension-tables",),
                 "tests/test_archive_upgrade.py"),
+    *(UpgradeEdge("artifact-storage-" + suffix + "/v1", combination, (*combination, ARTIFACT_STORAGE),
+                  "install-artifact-storage", 1,
+                  ("services/artifact_catalog_upgrade.py", "storage/schema-artifact-storage.sql"),
+                  "snapshot-database", "snapshot-database", ("artifact-object-and-replica-backfill",),
+                  "tests/test_archive_upgrade.py")
+      for suffix, combination in (
+          ("native", (UNIVERSAL_V2,)),
+          ("preserved", (UNIVERSAL_V2, IMPORT_EXTENSION)),
+          ("supplemented", (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY)))),
+    *(UpgradeEdge("artifact-online-" + suffix + "/v1", (*combination, ARTIFACT_STORAGE),
+                  (*combination, ARTIFACT_STORAGE, ARTIFACT_ONLINE), "install-artifact-online", 1,
+                  ("storage/artifact_online.py", "storage/schema-artifact-online.sql"),
+                  "snapshot-database", "snapshot-database", ("empty-extension-tables",),
+                  "tests/test_archive_upgrade.py")
+      for suffix, combination in (
+          ("native", (UNIVERSAL_V2,)),
+          ("preserved", (UNIVERSAL_V2, IMPORT_EXTENSION)),
+          ("supplemented", (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY)))),
+)
+
+
+@dataclass(frozen=True)
+class FrozenReleaseFile:
+    path: str
+    sha256: str
+
+
+RELEASE_BASELINE = "tests/fixtures/data/contracts-release-baseline-v1.json"
+FROZEN_RELEASE_FILES = (
+    FrozenReleaseFile("tests/fixtures/data/bilibili-v1-frozen.zip",
+        "20790dfc0acec3dda5707cb534907374c458f99b04f1947dc865ffe67b93770b"),
+    FrozenReleaseFile("tests/fixtures/data/bilibili-v1-frozen.json",
+        "2e2d67cac953c115d541e210cd663c91adc07327ff3c158947eb0e9621849844"),
+    FrozenReleaseFile(RELEASE_BASELINE, "7ea6da1930354dbb5e871ae84828b189138d88a2b1467c33edd75174913f194e"),
+)
+
+
+@dataclass(frozen=True)
+class UpgradeAcceptance:
+    edge: str
+    frozen_files: tuple[str, ...]
+    # A function node admits itself and its parametrizations, never similarly
+    # named tests. Exact parametrized node IDs protect each concrete edge.
+    test_nodes: tuple[str, ...]
+
+
+_HISTORY = tuple(entry.path for entry in FROZEN_RELEASE_FILES[:2])
+_UPGRADE_TEST = "tests/test_archive_upgrade.py::"
+UPGRADE_ACCEPTANCE = (
+    *(UpgradeAcceptance(edge, _HISTORY, (
+        _UPGRADE_TEST + "test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[" + case + "]",
+        _UPGRADE_TEST + "test_changed_or_invalid_inputs_fail_before_target_install"))
+      for edge, case in (("bilibili-to-universal/v1", "native"),
+                        ("preserved-body-extension/v1", "preserved"),
+                        ("source-supplement-extension/v1", "supplemented"))),
+    *(UpgradeAcceptance("artifact-" + extension + "-" + case + "/v1", _HISTORY, tuple(
+        _UPGRADE_TEST + "test_artifact_catalog_is_reachable_from_each_actual_universal_combination[" + mode + "-" + origin + "-" + case + "]"
+        for origin in ("historical", "native")))
+      for extension, mode in (("storage", "stored"), ("online", "online"))
+      for case in ("native", "preserved", "supplemented")),
+)
+
+
+@dataclass(frozen=True)
+class ContractTransition:
+    """A deliberate replacement/reader retirement, with an executable path."""
+    contract: str
+    kind: str
+    source: tuple[str, ...]
+    target: tuple[str, ...]
+    path: tuple[str, ...]
+    acceptance: tuple[str, ...]
+    reason: str
+
+
+# New independent contracts need no artificial predecessor. Removing a known
+# identity, capability or consumer does require a reviewed declaration here.
+CONTRACT_TRANSITIONS: tuple[ContractTransition, ...] = ()
+RELEASE_REQUIRED_TESTS = (
+    "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
+    "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json",
+    "tests/test_upgrade_result_reuse.py::test_formal_upgrade_reuses_completed_ai_jobs_and_preserves_pending_work",
+    "tests/test_upgrade_result_reuse.py::test_explicit_refresh_or_changed_configuration_creates_current_input",
+    "tests/test_upgrade_result_reuse.py::test_upgrade_keeps_committed_chunks_and_only_explicit_retry_runs_missing_chunks",
+    "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[failed]",
+    "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[cancelled]",
+    "tests/test_content_upgrade_policies.py::test_formal_upgrade_and_registered_content_conversion_keep_original_review_and_body",
+    "tests/test_source_supplement.py::test_title_only_change_preserves_current_human_edits_and_historical_ai",
+    "tests/test_source_supplement.py::test_export_pair_and_snapshot_restore_keep_title_evidence",
+    *(_UPGRADE_TEST + "test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[" + case + "]"
+      for case in ("native", "preserved", "supplemented")),
 )
 
 

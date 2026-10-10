@@ -12,6 +12,8 @@ import pytest
 
 from bili_asr.canonical_json import digest
 from bili_asr.contracts.registry import (
+    ARTIFACT_ONLINE,
+    ARTIFACT_STORAGE,
     BILIBILI_V1,
     IMPORT_EXTENSION,
     SOURCE_SUPPLEMENT_POLICY,
@@ -41,7 +43,8 @@ def _bytes(root):
             for path in root.rglob("*") if path.is_file()}
 
 
-@pytest.mark.parametrize("target_contracts", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT])
+@pytest.mark.parametrize("target_contracts", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT],
+                         ids=["native", "preserved", "supplemented"])
 def test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots(tmp_path, target_contracts):
     source, target = tmp_path / "source", tmp_path / "target"
     expected = frozen_archive(source)
@@ -101,6 +104,64 @@ def test_unknown_and_ambiguous_paths_never_guess_by_version():
         upgrade_path((BILIBILI_V1,), ("universal-v99",))
     with pytest.raises(ValueError, match="no registered"):
         upgrade_path(CURRENT, (UNIVERSAL_V2,))
+
+
+@pytest.mark.parametrize("combination", [(UNIVERSAL_V2,), (UNIVERSAL_V2, IMPORT_EXTENSION), CURRENT],
+                         ids=["native", "preserved", "supplemented"])
+@pytest.mark.parametrize("native", [False, True], ids=["historical", "native"])
+@pytest.mark.parametrize("online", [False, True], ids=["stored", "online"])
+def test_artifact_catalog_is_reachable_from_each_actual_universal_combination(tmp_path, combination, native, online):
+    legacy, source, target = tmp_path / "legacy", tmp_path / "source", tmp_path / "target"
+    if native:
+        initialize_archive(source)
+        if IMPORT_EXTENSION in combination:
+            from bili_asr.services.preserved_body_import import install_preserved_body_extension
+            install_preserved_body_extension(source)
+        if SOURCE_SUPPLEMENT_POLICY in combination:
+            from bili_asr.services.source_supplement import install_source_supplement_extension
+            install_source_supplement_extension(source)
+    else:
+        frozen_archive(legacy)
+        upgrade.apply_upgrade(_plan(legacy, source, combination))
+    before = _bytes(source)
+    destination_contracts = (*combination, ARTIFACT_STORAGE, *((ARTIFACT_ONLINE,) if online else ()))
+    plan = _plan(source, target, destination_contracts)
+    assert upgrade.apply_upgrade(plan)["valid"]
+    assert upgrade.check_upgrade(target, expected_plan_id=plan["plan_id"])["valid"]
+    assert _bytes(source) == before
+    with closing(connect_database(target / "archive.db", readonly=True)) as connection:
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        from bili_asr.storage.artifact_online import require_artifact_online
+        assert require_artifact_catalog(connection)
+        assert require_artifact_online(connection) == online
+    package = tmp_path / "catalog.zip"
+    save_snapshot(target, package)
+    assert check_snapshot(package)["valid"]
+    restore_snapshot(package, tmp_path / "restored")
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_upgrade_retains_different_shadowed_source_bytes(tmp_path, native):
+    source, product, target = tmp_path / "source", tmp_path / "artifacts", tmp_path / "target"
+    if native:
+        initialize_archive(source)
+    else:
+        frozen_archive(source)
+    original = source / "documents" / "historical-unused.txt"
+    selected = product / "documents" / "historical-unused.txt"
+    original.parent.mkdir(exist_ok=True)
+    selected.parent.mkdir(parents=True)
+    original.write_bytes(b"historical version in archive root")
+    selected.write_bytes(b"currently selected artifact root version")
+    plan = _plan(source, target, artifact_root=product)
+    assert len(plan["actions"]["preserve_shadowed"]) == 1
+    alternate = plan["actions"]["preserve_shadowed"][0]
+    upgrade.apply_upgrade(plan)
+    assert (target / alternate["path"]).read_bytes() == original.read_bytes()
+    assert (target / "documents/historical-unused.txt").read_bytes() == selected.read_bytes()
+    (target / alternate["path"]).unlink()
+    with pytest.raises(ValueError):
+        upgrade.check_upgrade(target, expected_plan_id=plan["plan_id"])
 
 
 @pytest.mark.parametrize("damage", ["source", "plan", "converter", "wal", "unknown-extension", "missing-file"])

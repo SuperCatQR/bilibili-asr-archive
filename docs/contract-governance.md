@@ -118,3 +118,42 @@ uv lock --check --default-index https://pypi.org/simple
 跨模块契约继续按稳定边界逐项登记。版本变化须写明消费者能力；发生不兼容升级时先交付旧格式读取、
 目标 writer、转换和验证，再推进运行切换。来源采集规则、运行数据库的宽松政策和历史源的严格政策
 保持在各自所有者内，登记负责把它们关联成可查、可验的依赖图。
+
+## 发布验收矩阵与支持收缩门禁
+
+`contracts.registry` 的 `UPGRADE_ACCEPTANCE` 与同一份 `UPGRADE_EDGES` 一一对应，
+由 catalog 的 `release_acceptance` 发布到 `docs/contracts/registry.json`。每行指定
+固定历史 ZIP、expected JSON 与验收测试的实际 node ID。带参数的精确节点绑定具体的
+源/目标组合；无参数后缀的函数节点可匹配该函数的已收集参数化用例，不匹配相似名称。
+当前历史源、原生源和各扩展组合在 `test_archive_upgrade.py` 使用可读参数 ID。
+
+四个 CI 分片沿用 `scripts/pytest_shard.py`。它先完整执行 pytest collection，再验证
+所有升级边都有矩阵行、固定文件存在且 SHA256 一致、每个要求的 node ID 真正出现，
+最后才分配并执行测试。`collect_ignore`、删掉用例或删掉一个必要参数节点会阻断门禁；
+测试文件仍存在、注释提到测试、静态扫描到函数名，都不算覆盖。门禁通过只说明验收用例
+参与测试，不能替代分片执行成功、人工代码审查或真实运行环境验收。
+
+矩阵还要求真实隔离安装测试参与收集。该测试从 wheel 所在环境遍历全部登记 authority，
+通过 `importlib.resources` 读取 SQL/JSON 并与源码摘要逐项比较，同时验证所有 Schema
+离线可用。新增扩展忘记进入 package-data 会直接失败，源码树可读不能替代 wheel 证据。
+
+必需节点同时固定已完成/未完成工作的真实 planner 与 handler 复用、部分 AI chunk 显式
+重试、failed/cancelled 终态不被重新规划复活、正文与审核保留、标题补充的导出和快照恢复，
+以及 current/superseded/withdrawn release 的历史校验。仅保留升级结构测试而删除这些
+业务行为测试，也会在分片前被拒绝。
+
+`FROZEN_RELEASE_FILES` 独立固定旧 ZIP 与 expected JSON 的 SHA256；旧文件保持原字节。
+新增 `contracts-release-baseline-v1.json` 记录 `91aeb026` 的 capability/consumer 基线，
+也被固定摘要保护。正常 PR 还比较基分支完整提交中的 catalog，push 比较此前提交，
+CI 使用完整 Git 历史；指定基线读取失败会阻断。首次 push/手动本地运行仍有固定基线。
+历史 catalog 已发布的冻结证据不可通过同时修改样本和当前摘要来重新绑定。
+
+删除已知契约、减少 capability 或 consumer，必须在 `CONTRACT_TRANSITIONS` 中登记
+`replacement` 或 `reader-retirement`、原因、精确 source/target、完整已登记路径和逐边
+acceptance 证据。声明本身不能跳过矩阵：无路径、不连续路径、错误目标和缺验收均拒绝。
+新增独立契约可以直接登记，不强造不存在的迁移前身。变更语义仍由所属检查器和历史
+回归验证，门禁不会从版本号自动推断支持能力或自动执行升级。
+
+发布说明使用 [版本发布模板](version-release-template.md)，列出行为变化、消费者版本、
+剩余能力、昂贵补算、源到目标路径、历史保真证明以及运行交接。需要对任意历史提交
+进行额外基线比较时，可向分片脚本传 `--contract-baseline-ref` 加完整 Git SHA。

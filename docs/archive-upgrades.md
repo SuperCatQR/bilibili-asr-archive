@@ -8,16 +8,19 @@ typed-row ledger 和历史文件摘要不变。
 ## 当前登记的路径
 
 `archive upgrade-paths` 返回与 `python -m bili_asr.contracts` 相同的登记信息。
-目前有三条可组合边：
+目前登记以下转换，每条边要求精确源组合：
 
 1. 固定 `bilibili-v1` → `universal-v2`，调用既有迁移器。
 2. 原生或已迁移 `universal-v2` → 加装 `preserved-body-import-v1`。
 3. 已加装 preserved-body 的 v2 → 加装 `legacy-part-title-supplement-v1`。
+4. 原生 v2、preserved-body v2、标题补充 v2 各自 → 加装 `artifact-storage-v1`。
+5. 上述三个已安装 artifact-storage 的组合各自 → 加装 `artifact-online-v1`。
 
 边声明精确源/目标组合、转换器及版本、权威代码、reader/validator、允许差异及样本。
 版本数字不决定执行次序。多条路径同时适用时必须用重复 `--edge` 指定完整路径。
-源已经具有目标组合时不重做升级；复制应使用 snapshot。产物 catalog 升级接入和
-更全面的历史内容转换由后续登记交付，当前命令不会猜测未知扩展。
+源已经具有目标组合时不重做升级；复制应使用 snapshot。在线存储协调是独立扩展，
+不修改既有 artifact-storage-v1 的结构或指纹。安装后自动迁出仍默认关闭，需显式配置。
+当前命令不会猜测未知扩展，已带产物扩展的 bilibili-v1 目前只支持完整快照，不提供未登记转换。
 
 ## 执行
 
@@ -75,5 +78,7 @@ receipt 保存在 `documents/upgrades/PLAN_SHA256/receipt.json`，绑定计划�
 源不变、路径歧义、源/计划/转换器变化、WAL、未知扩展、缺文件、空间不足、复制/转换/
 核验/安装中断、错误 receipt 和新业务写入拒绝复用，以及库外 hold 的原样绑定。
 
-这些是离线固定样本验证。真实生产全量副本、所有 planner/handler 的零重跑、产物多
-副本组合和真实阅读站消费验收仍由 #329/#331 记录；本模块不以固定样本测试替代它们。
+这些是离线固定样本验证。真实生产全量副本、阅读站消费与完整快照往返见
+[2026-10-11 实际验收记录](production-upgrade-validation-2026-10-11.md)。
+完成/未完成任务及部分校对的真实 planner/handler 零重跑回归登记在 #314 发布必测清单；
+固定样本、生产副本和硬件实验分别保留各自的证据范围。

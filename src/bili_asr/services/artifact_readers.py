@@ -7,6 +7,15 @@ from bili_asr.manuscript_files import read_artifact
 def read_retained_text(connection, relative_path, sha256, roots):
     """Read current local bytes, or identify the exact immutable group to restore."""
     try:
+        installed = connection.execute("SELECT 1 FROM sqlite_master WHERE name='artifact_online_contract'").fetchone()
+        if installed:
+            from pathlib import Path
+
+            from bili_asr.artifact_root import ArtifactRoots
+            from bili_asr.services.artifact_coordination import object_fence
+            database = next(row[2] for row in connection.execute("PRAGMA database_list") if row[1] == "main")
+            with object_fence(ArtifactRoots.of(Path(database).parent), sha256, exclusive=False):
+                return read_artifact(relative_path, sha256, roots)
         return read_artifact(relative_path, sha256, roots)
     except ValueError as error:
         if "artifact is missing:" not in str(error):
