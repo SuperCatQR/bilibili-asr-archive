@@ -80,5 +80,11 @@ def test_shared_capacity_admission_accounts_for_another_reservation(tmp_path, mo
               pytest.raises(ValueError, match="unreserved"),
               reserve_local_space(session.connection, archive.roots, 300, owner="download")):
             pass
+        alternative = tmp_path / "other-local-root"
+        alternative.mkdir()
+        with (reserve_local_space(session.connection, archive.roots, 800, owner="archive-root"),
+              pytest.raises(ValueError, match="unreserved"),
+              reserve_local_space(session.connection, ArtifactRoots.of(archive.root, alternative), 300, owner="artifact-root")):
+            pass
         with reserve_local_space(session.connection, archive.roots, 1000, owner="after-release"):
             pass

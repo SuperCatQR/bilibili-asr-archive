@@ -2,7 +2,7 @@
 
 本轮实现 [#319](https://github.com/SuperCatQR/bilibili-asr-archive/issues/319)、
 [#320](https://github.com/SuperCatQR/bilibili-asr-archive/issues/320) 和
-[#321](https://github.com/SuperCatQR/bilibili-asr-archive/issues/321) 的闭环，并扩展到 #322 完整文本组和 #323 外部产物快照。
+[#321](https://github.com/SuperCatQR/bilibili-asr-archive/issues/321) 的闭环，并扩展到 #322 完整文本组、#323 外部产物快照和 #324 显式在线策略。
 生产状态继续由现有 `archive.db` 中的业务表管理；外部音频包与本地工作副本由可选的
 `artifact-storage-v1` catalog 登记。迁出不会将已成功任务改成未完成，也不会清空失败次数、重试记录、审核或发布历史。
 
@@ -172,7 +172,65 @@ storage key 必须对应保留的音频身份，恢复到本次 `roots.write_bas
 新 ASR profile 可消费相同摘要输入，旧成功 audio job/attempt 保持原样。
 Bilibili 和 YouTube 生产者、ASR 输入都会检查已登记身份，坏的优先根不能遮住正确的 fallback 副本。
 如果已登记输入在所有本地根都不可用，会报告 `artifact_input_unavailable`，要求显式 restore。
-首版尚未在 claim 前实现存储 readiness：已被 claim 的新消费 attempt 仍会失败并留下该输入错误，预恢复后再 retry；过去成功生产不因此失效。
+仅有 `artifact-storage-v1` 时应先显式恢复再安排新消费。另行安装 `artifact-online-v1` 后，公共 workflow 在 claim 前核对已登记输入，使用明确的 target binding 自动恢复同一 SHA-256；可预见的输入或容量阻塞不会创建业务 attempt。
+
+## 显式在线策略
+
+在线协调是独立的 `artifact-online-v1` 扩展，依赖 `artifact-storage-v1`。
+先停止源归档写入，使用 `archive upgrade-plan` / `upgrade-apply` 安装到独立空目标；旧源保持不变。
+例如原生 universal 归档指定完整目标组合如下。带 import/supplement 的归档应保留其全部契约，可先查看 `archive upgrade-paths`。
+
+```powershell
+bili-asr archive upgrade-plan --source-root D:/archives/catalog --target-root D:/archives/online --target-contract universal-v2 --target-contract artifact-storage-v1 --target-contract artifact-online-v1 --no-external-control-state --output C:/plans/online-upgrade.json
+bili-asr archive upgrade-apply --plan C:/plans/online-upgrade.json
+bili-asr artifacts policy-show --archive-root D:/archives/online > C:/plans/policy.json
+```
+
+没有保存策略时返回完整默认配置，`mode=off`，不安排扫描或迁移。
+策略 JSON 对应发布的 `artifact-policy-v1` schema；`policy-set` 要求已安装 online 扩展，不执行 DDL。
+从默认配置开始，先限定 `selection.kinds=["audio"]`、一个 `selection.part_ids` 或小范围业务选择，配置真实 `target_id`，使用 `mode=copy` 验证目标。
+各选择器与手动 inventory/plan 相同；空数组表示不限该维度。
+
+| 配置 | 含义 |
+| --- | --- |
+| `mode` | `off` 停止安排；`copy` 只增加已核验副本；`offload` 才允许有条件释放 |
+| `minimum_age_seconds`、`priority` | 最短本地保留期；按 `oldest` 或 `largest` 排序 |
+| `trigger_free_bytes`、`stop_free_bytes` | free space 低于前者开始迁出，达到较高的后者停止；中间保持上次压力状态 |
+| `minimum_free_bytes` | 恢复、下载和 ASR 工作空间预留后仍须保留的空间 |
+| `batch_bytes`、`batch_objects` | 每次最多选择的唯一载荷字节与对象数；超限的完整连通组跳过，不拆散组 |
+| `max_concurrency` | 同策略最多 1–8 个执行 lane；同对象仍只允许一个迁移者 |
+| `bytes_per_second` | 每次执行的载荷读取限速，包含扫描、复制及重复核验；0 显式不限速 |
+| `scan_interval_seconds`、`backoff_seconds` | 成功后扫描间隔、无候选或失败后退避；后者不能小于前者 |
+| `download_bytes_per_second`、`download_workspace_multiplier` | 按时长估计下载峰值，乘数同时覆盖 staging、转换和安装工作空间 |
+
+```powershell
+bili-asr artifacts policy-set --archive-root D:/archives/online --config C:/plans/policy.json
+bili-asr artifacts policy-run --archive-root D:/archives/online --target-root E:/audio-store --holds-file C:/ops/holds.json
+bili-asr artifacts policy-run --archive-root D:/archives/online --target-root E:/audio-store --holds-file C:/ops/holds.json --watch --drain-file C:/ops/offload.stop
+bili-asr workflow run --archive-root D:/archives/online --storage-target cold-audio=E:/audio-store
+```
+
+每次策略执行保存配置摘要、完整配置、冻结 plan、结果和下一次允许运行时间。
+调整配置不会扩大旧计划；批次开始和最后删除前再次核对当前配置摘要，变更或停用可中断未完成释放。
+复用手动 planner/executor 和同一包/释放意图协议。进程退出后锁由操作系统释放；重启在退避期限后复用原计划对账，真实释放字节只统计本次确认删除的最后硬链接。
+完成 copy 核验后再将策略配置改成 `offload`。上线从一个 part、单 lane、小批次开始，保留人工 hold 文件和独立完整快照，并核对报告中的 `scan.bytes_read`、`io.bytes_read`、耗时及 `released_bytes`。
+这些测量包含重复核验成本，不承诺固定速度或 free-space 增量。
+
+读取与迁移通过跨进程共享/独占内核锁协调，同对象的多个 profile 可以同时读。
+read pin 从 claim 前核验/恢复持续到 handler 与业务提交结束；实际解码子进程另持对象锁并核对 SHA-256，即便父进程失去执行租约也不会因计时过期被回收。
+自动清理只处理已无内核 reader 的运行时 pin，人工 pin/hold 永不自动解除。
+发布覆盖与迁出共同锁住 part 的可变发布槽，迁移还锁定冻结对象身份，并在最终删除前用短数据库写锁复验队列/pin，防止新消费者插入最后观察窗口。
+POSIX 使用 flock、Windows 使用 LockFileEx；释放仍以具体 inode/文件标识、大小、mtime/ctime 和摘要核验约束源代次。
+支持的归档访问者必须使用这些边界；外部程序绕过锁直接修改源或目标目录仍应停止后人工核查。
+
+公共 workflow 的 audio/ASR 候选在 claim 前检查本地字节，缺失时按显式 `--storage-target ID=PATH` 绑定恢复准确对象。
+恢复按对象去重，并与下载及 ASR 解码工作空间共享磁盘预留。目标离线/损坏、未知下载时长、磁盘压力或剩余预留不足时记录独立 `artifact_input_states`，保留 queued 状态和 attempt_count，60 秒观察退避内跳过它，其他可执行任务继续运行。
+实际恢复操作仍单独登记 `artifact_transfers`；业务执行开始后的真实失败仍保留实际 attempt 证据。
+`workflow supervise` 同样接受 storage target binding；目录位置仅属于当前运行配置，策略和快照不携带机器路径或凭据。
+
+预留按已知恢复成员大小、ASR PCM 工作量、配置的下载时长上界估计计算；它是协作进程的 admission control，不是文件系统硬配额。
+应按实际 provider 最大码率调高下载系数并保留空间余量，外部进程的磁盘写入仍可能导致真实空间不足。压力未解除时禁止新增大下载；已有本地可用输入、字幕等不依赖新增大文件的工作可继续。
+完整 snapshot 保存 online 扩展及审计状态；恢复本身不启动策略或消费任务，也不解除生产 hold。
 
 ## 中断对账与边界
 
@@ -213,6 +271,6 @@ bili-asr snapshot restore --file F:/backup/full.zip --archive-root D:/archives/r
 
 测试使用隔离的 SQLite 与小字节 fixture，覆盖两类归档契约、源库/原表保真、共享消费者、未知/显式 hold、active pin、硬链接、坏摘要和路径边界。
 CLI 闭环与复制/核验/登记/隔离/删除故障注入检查没有外部有效副本时不释放，以及恢复同一字节后可继续新 profile。
-Windows 和 POSIX 分别验证 filesystem 原语；模型和下载使用离线替身，不触发生产任务。
+在线多进程与进程崩溃测试在 WSL/POSIX 验证；Windows 使用既有 LockFileEx 和拒绝覆盖的 rename 协议，Windows 生产启用前应在其实际文件系统运行同组测试。模型和下载使用离线替身，不触发生产任务。
 独立审查覆盖正确性、可读性、架构、安全与 I/O；SHA 校验 mutation 证明坏成员和坏输入测试会在保护被移除时失败。
 

@@ -79,7 +79,9 @@ def reserve_local_space(connection, roots, byte_count: int, *, owner: str, minim
     with resource_fence(roots, "reservation:" + identity, exclusive=False):
         with resource_fence(roots, "capacity", exclusive=True):
             _retire_dead_reservations(connection, roots)
-            reserved = connection.execute("SELECT COALESCE(SUM(byte_count),0) FROM artifact_reservations WHERE scope=? AND released_at IS NULL", (scope,)).fetchone()[0]
+            # Different root bindings can share one filesystem. Conservatively
+            # count both scopes instead of treating their names as disk identity.
+            reserved = connection.execute("SELECT COALESCE(SUM(byte_count),0) FROM artifact_reservations WHERE released_at IS NULL").fetchone()[0]
             if shutil.disk_usage(roots.write_base).free - reserved - byte_count < minimum_free_bytes:
                 raise ValueError("artifact_space_reserved: insufficient unreserved local space")
             with connection:

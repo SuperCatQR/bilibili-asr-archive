@@ -11,6 +11,7 @@ import math
 import threading
 import time
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -29,6 +30,10 @@ class WorkerDrainTimeout(RuntimeError):
 
 class WorkerPreparingDrain(RuntimeError):
     """Drain interrupted preparation before any business attempt existed."""
+
+
+class WorkerInputUnavailable(ValueError):
+    """An observed input or capacity block prevents creating a business attempt."""
 
 
 def attempt_cancellation(job: WorkflowJob) -> threading.Event:
@@ -70,6 +75,7 @@ class ExecutionSummary:
     failed: int
     idle: bool
     cancelled: int = 0
+    blocked: int = 0
 
 
 class WorkflowExecutor:
@@ -87,6 +93,7 @@ class WorkflowExecutor:
         drain_requested: Callable[[], bool] | None = None,
         drain_timeout_seconds: float | None = None,
         prepare_candidate: Callable[[WorkflowJob, Callable[[], None]], None] | None = None,
+        candidate_access: Callable[[WorkflowJob], AbstractContextManager[None]] | None = None,
     ):
         if lease_seconds < 1:
             raise ValueError("lease_seconds must be positive")
@@ -105,78 +112,87 @@ class WorkflowExecutor:
         self.drain_requested = drain_requested or (lambda: False)
         self.drain_timeout_seconds = drain_timeout_seconds
         self.prepare_candidate = prepare_candidate
+        self.candidate_access = candidate_access
 
     def run(self, *, limit: int | None = None) -> ExecutionSummary:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive")
         succeeded = failed = cancelled = 0
+        blocked = set()
         while limit is None or succeeded + failed + cancelled < limit:
             if self.drain_requested():
                 return ExecutionSummary(succeeded, failed, idle=succeeded + failed + cancelled == 0,
-                                        cancelled=cancelled)
-            claim_args = {}
-            if self.prepare_candidate is not None:
-                candidate = self.repository.peek_candidate(kinds=self.kinds)
-                if candidate is None:
-                    return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled)
-                def checkpoint():
-                    if self.drain_requested():
-                        raise WorkerPreparingDrain("worker drained before claim")
+                                        cancelled=cancelled, blocked=len(blocked))
+            with ExitStack() as resources:
+                claim_args = {}
+                if self.prepare_candidate is not None or self.candidate_access is not None:
+                    candidate = self.repository.peek_candidate(kinds=self.kinds, **({"exclude_job_ids": tuple(blocked)} if blocked else {}))
+                    if candidate is None:
+                        return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled, len(blocked))
+                    def checkpoint():
+                        if self.drain_requested():
+                            raise WorkerPreparingDrain("worker drained before claim")
+                    try:
+                        if self.candidate_access is not None:
+                            resources.enter_context(self.candidate_access(candidate))
+                        if self.prepare_candidate is not None:
+                            self.prepare_candidate(candidate, checkpoint)
+                        checkpoint()
+                    except WorkerInputUnavailable:
+                        blocked.add(candidate.job_id)
+                        continue
+                    except WorkerPreparingDrain:
+                        return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled, len(blocked))
+                    claim_args["expected_candidate"] = candidate
+                job = self.repository.claim(
+                    self.worker_id, lease_seconds=self.lease_seconds, kinds=self.kinds, **claim_args
+                )
+                if job is None:
+                    if claim_args:
+                        continue  # Candidate changed while preparing; select again without an attempt.
+                    return ExecutionSummary(succeeded, failed, idle=succeeded + failed + cancelled == 0,
+                                            cancelled=cancelled, blocked=len(blocked))
+                handler = self.handlers.get(job.kind)
+                if handler is None:
+                    if self._fail(job, "no_handler"):
+                        cancelled += 1
+                    else:
+                        failed += 1
+                    continue
+                heartbeat = _LeaseHeartbeat(
+                    self.repository,
+                    job,
+                    lease_seconds=self.lease_seconds,
+                    interval_seconds=self.heartbeat_interval_seconds,
+                    drain_requested=self.drain_requested,
+                    drain_timeout_seconds=self.drain_timeout_seconds,
+                )
+                heartbeat.start()
+                _ATTEMPT_LOCAL.attempt = ((job.job_id, job.lease_owner, job.attempt_count), heartbeat.cancelled, heartbeat)
                 try:
-                    self.prepare_candidate(candidate, checkpoint)
-                    checkpoint()
-                except WorkerPreparingDrain:
-                    return ExecutionSummary(succeeded, failed, succeeded + failed + cancelled == 0, cancelled)
-                claim_args["expected_candidate"] = candidate
-            job = self.repository.claim(
-                self.worker_id, lease_seconds=self.lease_seconds, kinds=self.kinds, **claim_args
-            )
-            if job is None:
-                if claim_args:
-                    continue  # Candidate changed while preparing; select again without an attempt.
-                return ExecutionSummary(succeeded, failed, idle=succeeded + failed + cancelled == 0,
-                                        cancelled=cancelled)
-            handler = self.handlers.get(job.kind)
-            if handler is None:
-                if self._fail(job, "no_handler"):
-                    cancelled += 1
+                    result = handler(job)
+                except Exception as exc:  # noqa: BLE001 - injected handlers return bounded typed diagnostics.
+                    from bili_asr.workflow_errors import JobExecutionError
+                    details = {"diagnostic": exc.safe_details} if isinstance(exc, JobExecutionError) else None
+                    if self._fail(job, str(getattr(exc, "error_code", ""))[:64] or type(exc).__name__[:64],
+                                  details if isinstance(details, Mapping) else None):
+                        cancelled += 1
+                    else:
+                        failed += 1
                 else:
-                    failed += 1
-                continue
-            heartbeat = _LeaseHeartbeat(
-                self.repository,
-                job,
-                lease_seconds=self.lease_seconds,
-                interval_seconds=self.heartbeat_interval_seconds,
-                drain_requested=self.drain_requested,
-                drain_timeout_seconds=self.drain_timeout_seconds,
-            )
-            heartbeat.start()
-            _ATTEMPT_LOCAL.attempt = ((job.job_id, job.lease_owner, job.attempt_count), heartbeat.cancelled, heartbeat)
-            try:
-                result = handler(job)
-            except Exception as exc:  # noqa: BLE001 - injected handlers return bounded typed diagnostics.
-                from bili_asr.workflow_errors import JobExecutionError
-                details = {"diagnostic": exc.safe_details} if isinstance(exc, JobExecutionError) else None
-                if self._fail(job, str(getattr(exc, "error_code", ""))[:64] or type(exc).__name__[:64],
-                              details if isinstance(details, Mapping) else None):
-                    cancelled += 1
-                else:
-                    failed += 1
-            else:
-                try:
-                    self.repository.finish(job.job_id, worker_id=self.worker_id, result=result,
-                                           expected_attempt_count=job.attempt_count)
-                except JobCancelledError:
-                    cancelled += 1
-                except LeaseLostError:
-                    failed += 1
-                else:
-                    succeeded += 1
-            finally:
-                del _ATTEMPT_LOCAL.attempt
-                heartbeat.stop()
-        return ExecutionSummary(succeeded, failed, idle=False, cancelled=cancelled)
+                    try:
+                        self.repository.finish(job.job_id, worker_id=self.worker_id, result=result,
+                                               expected_attempt_count=job.attempt_count)
+                    except JobCancelledError:
+                        cancelled += 1
+                    except LeaseLostError:
+                        failed += 1
+                    else:
+                        succeeded += 1
+                finally:
+                    del _ATTEMPT_LOCAL.attempt
+                    heartbeat.stop()
+        return ExecutionSummary(succeeded, failed, idle=False, cancelled=cancelled, blocked=len(blocked))
 
     def _fail(self, job: WorkflowJob, error_code: str, details: Mapping[str, Any] | None = None) -> bool:
         """Return whether the terminal write observed authoritative cancellation."""
