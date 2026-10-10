@@ -658,6 +658,14 @@ class WorkflowRepository:
                         or precision["schema_version"] != 1):
                     raise ValueError("unsupported ASR precision schema")
                 values.update({name: precision[name] for name in ("model_dtype", "aligner_dtype")})
+            batching = values.pop("batching", None)
+            if batching is not None:
+                names = {"asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",
+                         "batch_max_input_bytes", "batch_max_tokens"}
+                if (not isinstance(batching, dict) or set(batching) != names | {"schema_version"}
+                        or type(batching["schema_version"]) is not int or batching["schema_version"] != 1):
+                    raise ValueError("unsupported ASR batching schema")
+                values.update({name: batching[name] for name in names})
             values["hotwords"] = tuple(values["hotwords"])
             profile = AsrProfile(profile_key=str(row["profile_key"]), **values)
             if hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest() != row["config_sha256"]:

@@ -87,8 +87,23 @@ class ASRConfig:
     model_id: str | None = None
     model_dtype: str = "bfloat16"
     aligner_dtype: str = "bfloat16"
+    asr_batch_size: int = 1
+    aligner_batch_size: int = 1
+    batch_max_audio_seconds: float = 360.0
+    batch_max_input_bytes: int = 64 * 1024**2
+    batch_max_tokens: int = 8192
 
     def __post_init__(self) -> None:
+        for name in ("asr_batch_size", "aligner_batch_size"):
+            if type(getattr(self, name)) is not int or not 1 <= getattr(self, name) <= 8:
+                raise ValueError(f"{name} must be an integer within 1..8")
+        if (isinstance(self.batch_max_audio_seconds, bool)
+                or not isinstance(self.batch_max_audio_seconds, (int, float))
+                or not math.isfinite(self.batch_max_audio_seconds) or not 0 < self.batch_max_audio_seconds <= 1800):
+            raise ValueError("batch_max_audio_seconds must be finite and within 0..1800")
+        for name in ("batch_max_input_bytes", "batch_max_tokens"):
+            if type(getattr(self, name)) is not int or getattr(self, name) < 1:
+                raise ValueError(f"{name} must be a positive integer")
         for name in ("model_dtype", "aligner_dtype"):
             if getattr(self, name) not in ("bfloat16", "float16"):
                 raise ValueError(f"{name} must be bfloat16 or float16")

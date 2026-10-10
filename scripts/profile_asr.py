@@ -59,13 +59,13 @@ def marked_stage(torch, name: str):
 
 
 def install_ranges(runner, torch) -> None:
-    for attribute, label in (("_prepare_decode_inputs", "asr.prepare"),
-                             ("_transcribe_chunk", "asr.decode"), ("_align_chunk", "asr.align")):
-        original = getattr(runner, attribute)
+    for owner, attribute, label in ((runner, "_prepare_decode_inputs", "asr.prepare"),
+            (runner.backend, "generate", "asr.decode"), (runner.backend, "align", "asr.align")):
+        original = getattr(owner, attribute)
         def wrapped(*args, _method=original, _label=label, **kwargs):
             with marked_stage(torch, _label):
                 return _method(*args, **kwargs)
-        setattr(runner, attribute, wrapped)
+        setattr(owner, attribute, wrapped)
 
 
 def run(args) -> dict:
@@ -89,7 +89,10 @@ def run(args) -> dict:
     torch.set_num_threads(args.cpu_threads)
     config = ASRConfig(model_name=str(args.model.resolve()), aligner_name=str(args.aligner.resolve()),
                        device=args.device, language=args.language, chunk_seconds=args.chunk_seconds,
-                       second_pass_use_cache=args.second_pass_use_cache, hotwords=tuple(args.hotword))
+                       second_pass_use_cache=args.second_pass_use_cache, hotwords=tuple(args.hotword),
+                       asr_batch_size=args.asr_batch_size, aligner_batch_size=args.aligner_batch_size,
+                       batch_max_audio_seconds=args.batch_max_audio_seconds,
+                       batch_max_input_bytes=args.batch_max_input_bytes, batch_max_tokens=args.batch_max_tokens)
     runner = ASRRunner(config)
     runner.configure_prefetch(enabled=args.prefetch, max_bytes=args.prefetch_bytes)
     args.output.mkdir(parents=True)
@@ -163,6 +166,11 @@ def main() -> int:
     parser.add_argument("--second-pass-use-cache", action="store_true")
     parser.add_argument("--prefetch", action="store_true")
     parser.add_argument("--prefetch-bytes", type=int, default=64 * 1024**2)
+    parser.add_argument("--asr-batch-size", type=int, default=1)
+    parser.add_argument("--aligner-batch-size", type=int, default=1)
+    parser.add_argument("--batch-max-audio-seconds", type=float, default=360)
+    parser.add_argument("--batch-max-input-bytes", type=int, default=64 * 1024**2)
+    parser.add_argument("--batch-max-tokens", type=int, default=8192)
     parser.add_argument("--ack-exclusive-device", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.cpu_threads <= 64 or not math.isfinite(args.max_audio_seconds) or not 0 < args.max_audio_seconds <= 1800:

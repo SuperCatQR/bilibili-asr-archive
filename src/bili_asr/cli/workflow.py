@@ -53,6 +53,11 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     plan.add_argument("--tokens-per-second", type=float, default=None)
     plan.add_argument("--min-new-tokens", type=int, default=None)
     plan.add_argument("--second-pass-cache", action=argparse.BooleanOptionalAction, default=None)
+    plan.add_argument("--asr-batch-size", type=int, default=None)
+    plan.add_argument("--aligner-batch-size", type=int, default=None)
+    plan.add_argument("--batch-max-audio-seconds", type=float, default=None)
+    plan.add_argument("--batch-max-input-bytes", type=int, default=None)
+    plan.add_argument("--batch-max-tokens", type=int, default=None)
     plan.add_argument("--proofread", action="store_true", help="Queue AI proofreading after ASR and then render Markdown")
     _add_editorial_arguments(plan)
 
@@ -346,7 +351,9 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 for name in ("model", "model_revision", "aligner", "aligner_revision",
                              "device", "language", "chunk_seconds", "inference_timeout",
                              "hotword", "offline", "model_id", "tokens_per_second",
-                             "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype"):
+                             "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype",
+                             "asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",
+                             "batch_max_input_bytes", "batch_max_tokens"):
                     value = getattr(args, name)
                     if value is not None:
                         overrides[names.get(name, name)] = tuple(value) if name == "hotword" else value

@@ -24,6 +24,7 @@ from bili_asr.asr.provenance import _redact
 from bili_asr.asr.preparation import DecodeInputs, InputPrefetch, ProcessorReuse
 from bili_asr.asr.execution import clock_anchor, execution_policy, hardware_evidence
 from bili_asr.asr.backend import HuggingFaceBackend, InferenceBackend
+from bili_asr.asr.batching import BatchExecutor
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -583,6 +584,7 @@ class ASRRunner:
         audio_clock = time.perf_counter()
         path, temporary = _dependency_audio._materialize_input(audio_path)
         prefetch = None
+        batch_results = None
         try:
             audio_key = self._audio_identity(path) if self._audio_reuse_scope else None
             cached = self._prepared_audio if self._audio_reuse_scope else None
@@ -632,11 +634,16 @@ class ASRRunner:
             minimum = int(_dependency_constants._CHUNK_MIN_SECONDS * _dependency_constants.SAMPLE_RATE)
             pieces: list[dict[str, Any]] = []
             languages: set[str] = set()
+            batched = self.config.asr_batch_size > 1 or self.config.aligner_batch_size > 1
+            batch_results = (iter(BatchExecutor(self, models, report, minimum_samples=minimum,
+                             bust_cache=bust_cache).run(chunks)) if batched else None)
             prefetch = InputPrefetch(models.processor if self._prefetch_enabled else None,
                 lambda processor, audio: self._prepare_decode_inputs(processor, audio, record_trace=False),
-                enabled=self._prefetch_enabled, budget_bytes=self._prefetch_bytes,
+                enabled=self._prefetch_enabled and not batched, budget_bytes=self._prefetch_bytes,
                 processor_reuse=self._prefetch_processor_reuse)
             report["prefetch"] = prefetch.report
+            if batched and self._prefetch_enabled:
+                report["prefetch"].update(requested_enabled=True, fallback="batch_scheduler_owns_preparation")
             report["resources"] = {"decoded_waveform_bytes": int(samples.nbytes),
                                    "prefetch_input_peak_bytes": 0, "prefetch_memory_bound": "reservation_and_observed_input"}
 
@@ -664,18 +671,26 @@ class ASRRunner:
                             "clock": "process_perf_counter", "measurement": "wall"})
                 else:
                     prepared_inputs = None
-                if chunk_index + 1 < len(chunks):
+                if not batched and chunk_index + 1 < len(chunks):
                     prefetch.submit(chunk_index + 1, chunks[chunk_index + 1][0], minimum_samples=minimum)
                 self._last_generation = {}
                 decode_clock = time.perf_counter()
                 # Processors accept decoded arrays. Paths would invoke their
                 # optional decoder backend and repeat our own audio preparation.
                 decode_kwargs = {} if prepared_inputs is None else {"prepared_inputs": prepared_inputs}
-                text, language = self._transcribe_chunk(models, audio, bust_cache=bust_cache, **decode_kwargs)
+                batch_result = next(batch_results) if batch_results is not None else None
+                if batch_result is None:
+                    text, language = self._transcribe_chunk(models, audio, bust_cache=bust_cache, **decode_kwargs)
+                    chunk_report["decode_s"] = time.perf_counter() - decode_clock
+                    self._trace_stage("decode", decode_clock, chunk_index=chunk_index)
+                else:
+                    if batch_result["chunk_index"] != chunk_index:
+                        raise ValueError("ASR batch chunk identity mismatch")
+                    text, language = batch_result["text"], batch_result["language"]
+                    self._last_generation = batch_result["generation"]
+                    chunk_report["decode_batch_index"] = batch_result.get("decode_batch_index")
                 prepared_inputs = None
                 decode_kwargs.clear()
-                chunk_report["decode_s"] = time.perf_counter() - decode_clock
-                self._trace_stage("decode", decode_clock, chunk_index=chunk_index)
                 chunk_report["text"] = text
                 chunk_report["language"] = language
                 chunk_report["generation"] = dict(self._last_generation)
@@ -689,9 +704,13 @@ class ASRRunner:
                 if language.strip():
                     languages.add(language.strip())
                 align_clock = time.perf_counter()
-                raw_units = self._align_chunk(models, audio, text, language)
-                chunk_report["align_s"] = time.perf_counter() - align_clock
-                self._trace_stage("align", align_clock, chunk_index=chunk_index)
+                if batch_result is None:
+                    raw_units = self._align_chunk(models, audio, text, language)
+                    chunk_report["align_s"] = time.perf_counter() - align_clock
+                    self._trace_stage("align", align_clock, chunk_index=chunk_index)
+                else:
+                    raw_units = batch_result["raw_units"]
+                    chunk_report["align_batch_index"] = batch_result.get("align_batch_index")
                 chunk_report["alignment"] = _dependency_diagnostics.alignment_evidence(
                     raw_units, len(audio) / _dependency_constants.SAMPLE_RATE
                 )
@@ -718,8 +737,8 @@ class ASRRunner:
             # is deliberately unchanged.
             self._last_coverage = _dependency_coverage._coverage_record(decoded_seconds, cues)
             report["span_coverage_short"] = bool(self._last_coverage and self._last_coverage["coverage_short"])
-            report["timings_s"]["decode"] = sum(c.get("decode_s", 0.0) for c in report["chunks"])
-            report["timings_s"]["align"] = sum(c.get("align_s", 0.0) for c in report["chunks"])
+            report["timings_s"]["decode"] = report.get("batch_timings_s", {}).get("decode", sum(c.get("decode_s", 0.0) for c in report["chunks"]))
+            report["timings_s"]["align"] = report.get("batch_timings_s", {}).get("align", sum(c.get("align_s", 0.0) for c in report["chunks"]))
             report["completed"] = True
             # Preserve the engine's detected language for automatic-language
             # runs. Multiple languages are explicit; no evidence stays unset.
@@ -729,6 +748,8 @@ class ASRRunner:
                 self._last_language = "mul"
             return cues
         finally:
+            if batch_results is not None:
+                batch_results.close()
             if prefetch is not None:
                 prefetch.close()
                 report["resources"]["prefetch_input_peak_bytes"] = prefetch.peak_bytes

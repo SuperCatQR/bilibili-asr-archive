@@ -99,6 +99,10 @@ def execution_policy(config: Any, models: Any, *, prefetch: bool, prefetch_bytes
                                  "cross_request_past_key_values": False},
             "compile": {"requested": False, "runner_enabled": False},
             "cuda_graph": {"requested": False, "runner_enabled": False},
-            "chunk_seconds": config.chunk_seconds, "asr_batch_size": 1, "aligner_batch_size": 1,
+            "chunk_seconds": config.chunk_seconds, "asr_batch_size": config.asr_batch_size,
+            "aligner_batch_size": config.aligner_batch_size,
+            "batch_limits": {"audio_seconds": config.batch_max_audio_seconds,
+                             "input_bytes": config.batch_max_input_bytes, "tokens": config.batch_max_tokens},
             "prefetch": {"enabled": prefetch, "depth": 1, "budget_bytes": prefetch_bytes,
+                         "resolved_enabled": prefetch and config.asr_batch_size == config.aligner_batch_size == 1,
                          "estimate_strategy": "waveform_x64_v1"}}

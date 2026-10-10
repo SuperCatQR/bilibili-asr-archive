@@ -68,6 +68,11 @@ class AsrProfile:
     second_pass_use_cache: bool = False
     model_dtype: str = "bfloat16"
     aligner_dtype: str = "bfloat16"
+    asr_batch_size: int = 1
+    aligner_batch_size: int = 1
+    batch_max_audio_seconds: float = 360.0
+    batch_max_input_bytes: int = 64 * 1024**2
+    batch_max_tokens: int = 8192
 
     def asr_config(self):
         """Reconstruct the frozen configuration without consulting the environment."""
@@ -77,7 +82,7 @@ class AsrProfile:
         values.pop("profile_key")
         values["model_revision"] = self.model_revision or None
         ASRConfig(**values)  # Reject bool/string values before numeric normalization.
-        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
+        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second", "batch_max_audio_seconds"):
             values[name] = float(values[name])
         return ASRConfig(**values)
 
@@ -90,6 +95,12 @@ class AsrProfile:
         precision = {name: values.pop(name) for name in ("model_dtype", "aligner_dtype")}
         if any(value != "bfloat16" for value in precision.values()):
             values["precision"] = {"schema_version": 1, **precision}
+        batch_defaults = {"asr_batch_size": 1, "aligner_batch_size": 1, "batch_max_audio_seconds": 360.0,
+                          "batch_max_input_bytes": 64 * 1024**2, "batch_max_tokens": 8192}
+        batching = {name: values.pop(name) for name in batch_defaults}
+        batching["batch_max_audio_seconds"] = float(batching["batch_max_audio_seconds"])
+        if batching != batch_defaults:
+            values["batching"] = {"schema_version": 1, **batching}
         for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
             values[name] = float(values[name])
         return json.dumps(
