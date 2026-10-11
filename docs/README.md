@@ -54,6 +54,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [ASR 参数与诊断](asr-configuration.md) | 完整配置快照、独立模型版本、逐次运行证据与质量标记 |
+| [ASR 双声道混音优化](asr-stereo-mix-performance.md) | float32 混音快速路径、数值兼容、生产实验依据及可复现 CPU 基准 |
 | [ASR worker](asr-workers.md) | 角色、固定 slot、持久模型会话、drain、准备预算与运行限制 |
 | [ASR 吞吐汇总](asr-performance.md) | 已有 evidence 的只读窗口报告、重试成本、缺失值与预取回退统计 |
 | [4090 实际验证记录](asr-gpu-validation-2026-10-11.md) | 13 组固定样本、GPU 时间线、真实策略回退、计数器权限限制及生产恢复证据 |

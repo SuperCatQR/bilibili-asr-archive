@@ -610,9 +610,7 @@ class ASRRunner:
                 samples = cached[1]
             else:
                 samples, rate = _dependency_audio._read_audio(path)
-                samples = np.asarray(samples, dtype=np.float32)
-                if samples.ndim > 1:
-                    samples = samples.mean(-1).astype(np.float32)
+                samples = _dependency_audio._mono_float32(samples)
                 if int(rate) != _dependency_constants.SAMPLE_RATE:
                 # ``soxr`` is what ``librosa.resample`` calls underneath at its default
                 # ``res_type="soxr_hq"``; measured bit-identical on this corpus, and it drops a
