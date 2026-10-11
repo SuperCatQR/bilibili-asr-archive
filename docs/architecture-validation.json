@@ -23,7 +23,7 @@
       "type": "architecture",
       "specification": "docs/architecture.json",
       "output": "docs/architecture.html",
-      "specification_sha256": "dc3700452b270d1593191bae6876f8cd25b9acc8a34255b74bbdd94e80e57bcb",
+      "specification_sha256": "c95bab2e7acd8f978bf36487c3e7a0c799d8a77e54e76c952c7cddde816b6583",
       "artifact_sha256": "3213279dda7f4ba49b2e3ace640fe6f5595d9ce0880c94129900cfc129b38be1",
       "validation": "pass",
       "gates": {
@@ -58,7 +58,7 @@
       "type": "sequence",
       "specification": "docs/sequences/01-cli-bootstrap.json",
       "output": "docs/sequences/01-cli-bootstrap.html",
-      "specification_sha256": "7d04110741fcccf50676cd118b9ec4553d6f168ed80c9381b2aef5866e60b316",
+      "specification_sha256": "9bec0a597b5867a361456cfe6305264c7a23504986be216063bfac26e4b17e7a",
       "artifact_sha256": "5515c2c52272fcaf1b15c883dc413b3b41a9c70cb477841a9e2c6a80e2e31a4b",
       "validation": "pass",
       "gates": {
@@ -75,7 +75,7 @@
       "type": "sequence",
       "specification": "docs/sequences/02-metadata-tags.json",
       "output": "docs/sequences/02-metadata-tags.html",
-      "specification_sha256": "44449a0f6f89795dabe05092ff814c7da8e07d0b759d4182128a9813944adc99",
+      "specification_sha256": "122101644056b4c72725cff385cd09d266417061d944087e5d594d85f584587f",
       "artifact_sha256": "2f3d54ed7dc1a18f42861b0a6e90761b1aed82edab3a5b2edc156b3c0426580f",
       "validation": "pass",
       "gates": {
@@ -92,7 +92,7 @@
       "type": "sequence",
       "specification": "docs/sequences/03-workflow-plan.json",
       "output": "docs/sequences/03-workflow-plan.html",
-      "specification_sha256": "b5552cad95076530fb7f224d21773bca7f7daed9778413b5a23ffc9bab304ed6",
+      "specification_sha256": "dfbfd7603a1db61aa64297061e1f2b3a977cf18b28567606c49593204793d464",
       "artifact_sha256": "8eb256544adf232b16219d78df5706e189e022c8504bcf553a7f5d039db187e6",
       "validation": "pass",
       "gates": {
@@ -109,7 +109,7 @@
       "type": "sequence",
       "specification": "docs/sequences/04-lease-cancel-retry.json",
       "output": "docs/sequences/04-lease-cancel-retry.html",
-      "specification_sha256": "c93b3044fea849659aac2d3f565b5f6077a5dc650ebfcab735e6b2b9d0698e2e",
+      "specification_sha256": "2236deeda2aed21dd6f7db8d84a022253ed6f68e636540d7e7e79b37c8cc3f58",
       "artifact_sha256": "4effde385cbc4b1afbccc548dd717976451e25ba3727b22244902f99de75188e",
       "validation": "pass",
       "gates": {
@@ -126,7 +126,7 @@
       "type": "sequence",
       "specification": "docs/sequences/05-subtitle-ingest.json",
       "output": "docs/sequences/05-subtitle-ingest.html",
-      "specification_sha256": "8e3548b60b98c1378b60dae1ee50af55e167184fea1ddb2f5650949b535df2ca",
+      "specification_sha256": "f58d99aba4137315d49399630192264997104d5090e6961ee56eca8f18911451",
       "artifact_sha256": "c4b1032c60a76421fdea13958d4b833773453f09586d56aa8f498777c741e7cc",
       "validation": "pass",
       "gates": {
@@ -143,7 +143,7 @@
       "type": "sequence",
       "specification": "docs/sequences/06-audio-download.json",
       "output": "docs/sequences/06-audio-download.html",
-      "specification_sha256": "642e92f479e35753a8c59253d273468629038be56acad240c0f7e06baedb6cd8",
+      "specification_sha256": "0f778295f47ddef7871d70d57785d613e716cbdeb30b49a7cb06c2fbd4d80d2c",
       "artifact_sha256": "8bf29a98cd28bab8e651a177df872e40a76e67008b9061f2d98ed64645354ba0",
       "validation": "pass",
       "gates": {
@@ -160,7 +160,7 @@
       "type": "sequence",
       "specification": "docs/sequences/07-asr-runtime.json",
       "output": "docs/sequences/07-asr-runtime.html",
-      "specification_sha256": "3b248f2f37291e399b30acd3ca00357859aa5f9eec721721b07111f4843ed01f",
+      "specification_sha256": "cae657d2f25bc2a307a6725d166b4a9c790e7cdf016e657953596d16be50355b",
       "artifact_sha256": "286ef2ed35bcc6a673c2a66ebbd0c1a4141d0f64865225f08a877f50cd1dba8a",
       "validation": "pass",
       "gates": {
@@ -177,7 +177,7 @@
       "type": "sequence",
       "specification": "docs/sequences/08-transcript-bundle.json",
       "output": "docs/sequences/08-transcript-bundle.html",
-      "specification_sha256": "fa3533ef41e4a7c3d8a5924bd36fd8dec6a2ee32b4964faeaad9dd80620370e2",
+      "specification_sha256": "66a12558afe70e05c1449c238c46c1ede590b0101bc9841b7d141ec6d7cf7993",
       "artifact_sha256": "bfe5792a1d00e20b02bae94b2be8f2b3977c6aba1a76ac8411cc196b0eca12f8",
       "validation": "pass",
       "gates": {
@@ -194,7 +194,7 @@
       "type": "sequence",
       "specification": "docs/sequences/09-ai-proofread.json",
       "output": "docs/sequences/09-ai-proofread.html",
-      "specification_sha256": "2dc1e5b0b9ef2e1ad365df7f7e13e716f709fb41849009dfba6b4160637b198c",
+      "specification_sha256": "bae1a452d6a70d1740572aa4029dcf2650dd578b089e80dd95df4566897908d2",
       "artifact_sha256": "d66d868586f7069c8221f0df9be2dc2309e3ad8e536be7f5ab168156c4d844c5",
       "validation": "pass",
       "gates": {
@@ -211,7 +211,7 @@
       "type": "sequence",
       "specification": "docs/sequences/10-document-render.json",
       "output": "docs/sequences/10-document-render.html",
-      "specification_sha256": "bf70cbbba6070f91115727cabf624332021f0d02965883e63bf4b39847508532",
+      "specification_sha256": "2d963fe7beae1e62a8ea0923053a89bd56cdd3c45ae3c3c0d5aed15c0900dea4",
       "artifact_sha256": "506d4987471a1700e85b5ab22e51f71653625c1215e82e00aa038ca977db6b77",
       "validation": "pass",
       "gates": {
@@ -228,7 +228,7 @@
       "type": "sequence",
       "specification": "docs/sequences/11-publication-lifecycle.json",
       "output": "docs/sequences/11-publication-lifecycle.html",
-      "specification_sha256": "6201d9703a869ea1a0bf790e1291f0832fd12f5b8977edab6b9ccbb82df64c58",
+      "specification_sha256": "95f6d72db379f4a31fbb2122a71e436065db56c1444f119aac1da66272bb7945",
       "artifact_sha256": "bb97f16c9cdb01f9df2a84d4b3e2b1466fed99537a967034f46313395fd019f4",
       "validation": "pass",
       "gates": {
@@ -245,7 +245,7 @@
       "type": "sequence",
       "specification": "docs/sequences/12-reader-private-export.json",
       "output": "docs/sequences/12-reader-private-export.html",
-      "specification_sha256": "ec7704c26f4000fbd680ca21012c1db3c36dbc0cbfd3219bb8cc88d9e391f4ce",
+      "specification_sha256": "ef88cd516bbe580b5d48bfc483097df915011509829353afe2731c27d8ad08a3",
       "artifact_sha256": "7aad8e8462885cd13100ca27519c7b08bec65416a44b357b981b91f2befd350d",
       "validation": "pass",
       "gates": {
@@ -262,7 +262,7 @@
       "type": "sequence",
       "specification": "docs/sequences/13-projection-verify.json",
       "output": "docs/sequences/13-projection-verify.html",
-      "specification_sha256": "767cff3a88731a30b7fa566d5845744cce3726d40fea25c0b4bc8c62b013053d",
+      "specification_sha256": "937df0316dceca3d6d11c0cab37b871aa4a796f2865925ec95ff303646320a07",
       "artifact_sha256": "fcae555e25be33477f61d55b749cad4e233e055a64ca3e81b0900fd5bb4b4161",
       "validation": "pass",
       "gates": {
@@ -279,7 +279,7 @@
       "type": "sequence",
       "specification": "docs/sequences/14-search-index.json",
       "output": "docs/sequences/14-search-index.html",
-      "specification_sha256": "625df604e38ca10354f7fabdcbfc539fd5f923d50225429f938e46c7a2cc9803",
+      "specification_sha256": "3d44295a1590244cec78e1170edd4931181934ac6b51161b3ff9b69eb457dda3",
       "artifact_sha256": "c798139faa8d66a24dd2e1efb76e5d36ff7f2dc779871a96a27f8bf35a4ee5f5",
       "validation": "pass",
       "gates": {
@@ -296,7 +296,7 @@
       "type": "sequence",
       "specification": "docs/sequences/15-archive-snapshot.json",
       "output": "docs/sequences/15-archive-snapshot.html",
-      "specification_sha256": "e0a02f2755b88e344774550a8f4fc472e3f5f1f1822acabd7bb7088bc85051d2",
+      "specification_sha256": "8ae604f125ad67cf62bcbf7b48ef36c71728d8f3f693a0ab6bd1d21eb553f98f",
       "artifact_sha256": "0d978f4f71bbbbd04c14b3312b44d130a02a866eb699316603e897e48af67514",
       "validation": "pass",
       "gates": {
@@ -313,7 +313,7 @@
       "type": "sequence",
       "specification": "docs/sequences/16-library-and-operations.json",
       "output": "docs/sequences/16-library-and-operations.html",
-      "specification_sha256": "ca07cee5a925fe5c4e155e1bd015c495fd63e899897780898f9915ba783de6cc",
+      "specification_sha256": "43e29e5fb31288878773d25e67c786d2468aeca92303430cbaa389feb57dad78",
       "artifact_sha256": "26b2fefe5e89ab4b9e807a6cac7e9ba1cc9ec1b78323ba2c26c1c4e922bf08ee",
       "validation": "pass",
       "gates": {
@@ -330,7 +330,7 @@
       "type": "sequence",
       "specification": "docs/sequences/17-migration-preflight.json",
       "output": "docs/sequences/17-migration-preflight.html",
-      "specification_sha256": "2ee65788b1209309ec1777bb454991befb50096591bb66c2916a55403be1242f",
+      "specification_sha256": "89ae911de93da81e2462f1e6f478ae5653619c04bce0ada634f09504df9151f2",
       "artifact_sha256": "dcda33bbac087c20029c4b1552a8fbc367919b2d81138cc5e2f098946e1f5fcb",
       "validation": "pass",
       "gates": {
@@ -347,7 +347,7 @@
       "type": "sequence",
       "specification": "docs/sequences/18-universal-migration.json",
       "output": "docs/sequences/18-universal-migration.html",
-      "specification_sha256": "68ef2faad87e20656899f4cfe83eed2fa5bf1ad318c2da2b99638d16a455f264",
+      "specification_sha256": "a4995f76862e718612f4b2d5fbf3f61b6140ab6616d4df023787176cb3b8b199",
       "artifact_sha256": "a7fb2e58fff7e49dfdfc2cc862d1635d34e5addfa583202008de666eab7cd042",
       "validation": "pass",
       "gates": {
@@ -364,7 +364,7 @@
       "type": "sequence",
       "specification": "docs/sequences/19-persistent-asr.json",
       "output": "docs/sequences/19-persistent-asr.html",
-      "specification_sha256": "7066fdb08d7a00c9f904e05f850992e1be40f61a714987235f9ab72d0738db74",
+      "specification_sha256": "2a3558ecbbe6de331cfe44fd0f2ce4f2c5aeced0e6538dabff2b82db20fa107a",
       "artifact_sha256": "8b9e602f8a7f37c686cfedcbdb4e6434bd8649984e8eaf57cdaa7d206f3a6be9",
       "validation": "pass",
       "gates": {
@@ -381,7 +381,7 @@
       "type": "sequence",
       "specification": "docs/sequences/20-recovery-plan.json",
       "output": "docs/sequences/20-recovery-plan.html",
-      "specification_sha256": "31a524bb097c3b014e2f791027296c7c8a3400b0c44a55e2ac604578a34562e8",
+      "specification_sha256": "fe70295da42df403c9bdaa85e9a0f03492340d1dcfbb89b82fbc3491914a3080",
       "artifact_sha256": "ed033b8168fd9adf63d95bfae1572264168448262c390bc65128cb81a7b6fd28",
       "validation": "pass",
       "gates": {
@@ -398,7 +398,7 @@
       "type": "sequence",
       "specification": "docs/sequences/21-youtube-workflow.json",
       "output": "docs/sequences/21-youtube-workflow.html",
-      "specification_sha256": "3ec2d588d24d601504e27f10902cc4ea8109afddc35420a9c8658ed71ef870ce",
+      "specification_sha256": "2cfa5788ea5ec019c748381924eab06adb87c5ecda45c15f5c19016bf2dbb616",
       "artifact_sha256": "f09065e3a5b51968712697b0181308d7a7ecbb2fd57180f77a1375c6c6c4d1c3",
       "validation": "pass",
       "gates": {
@@ -415,7 +415,7 @@
       "type": "sequence",
       "specification": "docs/sequences/22-subtitle-candidates.json",
       "output": "docs/sequences/22-subtitle-candidates.html",
-      "specification_sha256": "6d92937cb62df0efd962c987d35af80410723e3ffd73f41d7eb259bca6db6a2a",
+      "specification_sha256": "39edb7403520a05c531b473cc09fa7232bca757e9c997ac07bf927fb35c4fd4b",
       "artifact_sha256": "ac8545b3e2a239720600fb2032ad0b6b63b5734873c9b1e8313d09f06f715cd4",
       "validation": "pass",
       "gates": {
@@ -432,7 +432,7 @@
       "type": "sequence",
       "specification": "docs/sequences/23-metadata-refresh.json",
       "output": "docs/sequences/23-metadata-refresh.html",
-      "specification_sha256": "e519818630969d449915c2a345d678c3486d51be0453fea18b5c28b3fdfd25c9",
+      "specification_sha256": "c8e81e6fe4b3fac3c324338e8c16a6551744c5ce7d43b0ff14a07964629d520f",
       "artifact_sha256": "7154268075bd4c3d38fb2aae2cd2098d807f2875642825241e69717c49180640",
       "validation": "pass",
       "gates": {
@@ -449,7 +449,7 @@
       "type": "sequence",
       "specification": "docs/sequences/24-artifact-storage.json",
       "output": "docs/sequences/24-artifact-storage.html",
-      "specification_sha256": "834279286aae4044171a66199c5bcab57d2cf5b7fc9c399af5ce60c6991204a7",
+      "specification_sha256": "8814e045ba28991be873dd61212e527e2f5a84ae47d37be01a7fbbc86c7bd6ef",
       "artifact_sha256": "45aa40ed0ebaf2debeb88470dec5e0bdc7fb89140524f5eff4cd0fccb3d16725",
       "validation": "pass",
       "gates": {
@@ -466,7 +466,7 @@
       "type": "sequence",
       "specification": "docs/sequences/25-contract-upgrade.json",
       "output": "docs/sequences/25-contract-upgrade.html",
-      "specification_sha256": "ad24b893a83d7a2548d8ae5a724110f3299d43ba26fd8d2b7ddb7d52f21f0198",
+      "specification_sha256": "4e061e7f0814602efda701d77ed0178adc5b2a106bc32debb163bbbc31e35d4f",
       "artifact_sha256": "33878fe9923dd17b05d0328e143919928ec399c400f04686e6f6089b15915aff",
       "validation": "pass",
       "gates": {
@@ -483,7 +483,7 @@
       "type": "sequence",
       "specification": "docs/sequences/26-asr-batching.json",
       "output": "docs/sequences/26-asr-batching.html",
-      "specification_sha256": "a838b6a72a25f550f15a89c989a2ee45deaad2c4c5ccf40f257fb838f0ac8211",
+      "specification_sha256": "3058a30039473636fc770bf3a0487cd5200dbd6d5997a4f7e6c3fa585bd1c346",
       "artifact_sha256": "6e288b4a627811f49c4f198506dc05c7671c976f9845efa98226dd6a92a060ec",
       "validation": "pass",
       "gates": {
@@ -500,7 +500,7 @@
       "type": "sequence",
       "specification": "docs/sequences/27-reference-backup.json",
       "output": "docs/sequences/27-reference-backup.html",
-      "specification_sha256": "e5b65f28ac4326c3c4984f4d55bde57f2ca497a6c7e23ea4005076670439ffa7",
+      "specification_sha256": "134a3c55a2090788b3e9c4023a64f4b5073488bd4b5c5818a114678d2508ad8c",
       "artifact_sha256": "d114c59cffb70973d58eb2609a10049b5ee6d33ee3186863c9358061109f6eaf",
       "validation": "pass",
       "gates": {
@@ -517,7 +517,7 @@
       "type": "sequence",
       "specification": "docs/sequences/28-preserved-body.json",
       "output": "docs/sequences/28-preserved-body.html",
-      "specification_sha256": "daca04ffe4aec3aa9654b92618978d0883da16813565764af393ac27befd8a8c",
+      "specification_sha256": "fa35949b84bd1fd6f352a9c838f01a8aba35133a92e07c7d39b6d2596e722146",
       "artifact_sha256": "3d1048fc5bb05cc12cc6d7ab4d49d53aef04540ac8e8938841561d13b07f97a8",
       "validation": "pass",
       "gates": {
@@ -534,7 +534,7 @@
       "type": "sequence",
       "specification": "docs/sequences/29-publication-series.json",
       "output": "docs/sequences/29-publication-series.html",
-      "specification_sha256": "b15bc6880b484f7238852d1797e023f3169270e0b81920d364ec8a5dfa77788d",
+      "specification_sha256": "4497393c344aca8fd15fcddd311fc102fb23b6cc426561fc6ce9ded10455f2a0",
       "artifact_sha256": "7daed079a7952cc827de38c2b605c276d3ed9f9e21caf94b96c27181d6337682",
       "validation": "pass",
       "gates": {
@@ -551,7 +551,7 @@
       "type": "sequence",
       "specification": "docs/sequences/30-editorial-repair.json",
       "output": "docs/sequences/30-editorial-repair.html",
-      "specification_sha256": "101c070a8bcafb400758ac8bf24b0aa9e3df36172c2dd5a35b9e60d6d7e7329f",
+      "specification_sha256": "703ac4ee15b75c731f1d5a8a47ade00678e0d1682dd95e6bc804505d04d604d4",
       "artifact_sha256": "156d5aa4670c81f345abebebc943146d329a619b842646155ddf14670001438c",
       "validation": "pass",
       "gates": {
