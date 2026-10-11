@@ -120,6 +120,10 @@ class EditorialRepository:
             # comparison supplies the fixed compatibility defaults; neither the
             # historical JSON nor its identity is rewritten.
             comparison_config = dict(stored_config)
+            # ``thinking_mode`` was added after the first frozen editorial
+            # inputs were written.  The historical default is enabled, so
+            # comparing it here must not manufacture a new input identity.
+            comparison_config.setdefault("thinking_mode", "enabled")
             comparison_config.setdefault("max_chunk_segments", 256)
             comparison_config.setdefault("max_chunk_chars", 20_000)
             if comparison_config != config.to_dict():
@@ -205,22 +209,76 @@ class EditorialRepository:
 
     def begin_call(self, job: WorkflowJob, input_id: str, chunk_id: str, request: dict[str, Any]) -> str:
         now, call_id = int(time.time()), uuid4().hex
+        request_fingerprint = self.request_fingerprint(input_id, chunk_id, request)
         with self.owned_transaction(job):
             attempt = self.connection.execute(
                 "SELECT attempt_id FROM workflow_attempts WHERE job_id = ? AND worker_id = ? AND outcome = 'running'",
                 (job.job_id, job.lease_owner)).fetchone()
             if attempt is None:
                 raise RuntimeError("running editorial attempt missing")
-            self.connection.execute("INSERT INTO editorial_model_calls(call_id, attempt_id, input_id, chunk_id, request_json, started_at) "
-                                    "VALUES (?, ?, ?, ?, ?, ?)",
-                                    (call_id, attempt["attempt_id"], input_id, chunk_id, canonical(request), now))
+            # Keep the fixed manuscript schema compatible with existing
+            # archives.  The fingerprint is carried in the durable request
+            # envelope rather than adding columns to the contract.
+            stored_request = {"request": request, "request_fingerprint": request_fingerprint}
+            self.connection.execute(
+                "INSERT INTO editorial_model_calls(call_id, attempt_id, input_id, chunk_id, request_json, started_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (call_id, attempt["attempt_id"], input_id, chunk_id, canonical(stored_request), now))
         return call_id
+
+    @staticmethod
+    def request_fingerprint(input_id: str, chunk_id: str, request: dict[str, Any]) -> str:
+        """Derive the stable identity used to avoid paid duplicate requests."""
+        return digest({"input_id": input_id, "chunk_id": chunk_id, "request": request})
 
     def finish_call(self, call_id: str, response: dict[str, Any] | None, error_code: str | None = None) -> None:
         require_editorial_schema(self.connection)
         with self.connection:
-            self.connection.execute("UPDATE editorial_model_calls SET response_json = ?, error_code = ?, finished_at = ? WHERE call_id = ?",
-                                    (None if response is None else canonical(response), error_code, int(time.time()), call_id))
+            self.connection.execute(
+                "UPDATE editorial_model_calls SET response_json = ?, error_code = ?, finished_at = ? "
+                "WHERE call_id = ?",
+                (None if response is None else canonical(response), error_code, int(time.time()), call_id))
+
+    def usage_for_call(self, call_id: str) -> dict[str, Any] | None:
+        """Return normalized provider usage while retaining the raw response.
+
+        Usage fields intentionally remain derived from ``response_json`` so the
+        fixed manuscript schema stays readable by existing archives.
+        """
+        row = self.connection.execute(
+            "SELECT response_json FROM editorial_model_calls WHERE call_id = ?", (call_id,)
+        ).fetchone()
+        if row is None or row["response_json"] is None:
+            return None
+        try:
+            from bili_asr.deepseek import normalize_usage
+            return normalize_usage(json.loads(row["response_json"]))
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid stored editorial model response") from exc
+
+    def completed_call_for_request(self, request_fingerprint: str) -> dict[str, Any] | None:
+        """Return an accepted provider response for a stable request identity.
+
+        A response can exist without a chunk checkpoint when a worker crashed
+        between provider completion and local validation.  Runtime code may use
+        this read-only lookup to validate that response before issuing a paid
+        duplicate request.
+        """
+        require_editorial_schema(self.connection)
+        rows = self.connection.execute(
+            "SELECT request_json, response_json FROM editorial_model_calls "
+            "WHERE response_json IS NOT NULL AND error_code IS NULL "
+            "ORDER BY finished_at DESC, rowid DESC"
+        )
+        for row in rows:
+            try:
+                stored = json.loads(row["request_json"])
+                if stored.get("request_fingerprint") != request_fingerprint:
+                    continue
+                return json.loads(row["response_json"])
+            except (AttributeError, TypeError, json.JSONDecodeError) as exc:
+                raise ValueError("invalid stored editorial model response") from exc
+        return None
 
     def assert_lease(self, job: WorkflowJob) -> None:
         self.commit_guard.assert_lease(job)
