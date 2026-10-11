@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 
 
 def _node_ids() -> list[str]:
@@ -73,6 +74,22 @@ def _previous_catalog(ref: str | None) -> dict | None:
     return json.loads(result.stdout)
 
 
+def _write_node_ids(node_ids: list[str]) -> Path:
+    """Write one pytest node id per line for an argv-length-safe invocation."""
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", newline="\n", prefix="bili-asr-pytest-", suffix=".args",
+        delete=False,
+    )
+    try:
+        with handle:
+            handle.write("\n".join(node_ids))
+            handle.write("\n")
+    except BaseException:
+        Path(handle.name).unlink(missing_ok=True)
+        raise
+    return Path(handle.name)
+
+
 def main(argv: list[str] | None = None) -> int:
     args, pytest_args = _parse_args(argv)
     node_ids = _node_ids()
@@ -95,11 +112,18 @@ def main(argv: list[str] | None = None) -> int:
         command.extend(["-m", "coverage", "run", "--branch", "--parallel-mode", "-m"])
     else:
         command.extend(["-m"])
-    command.extend(["pytest", *pytest_args, *selected])
-    return subprocess.run(
-        command,
-        check=False,
-    ).returncode
+    node_file = _write_node_ids(selected)
+    try:
+        # Passing thousands of node ids directly exceeds Windows' command-line
+        # limit. Pytest's @file syntax keeps each line as one argument and works
+        # on every CI and developer platform.
+        command.extend(["pytest", *pytest_args, f"@{node_file}"])
+        return subprocess.run(
+            command,
+            check=False,
+        ).returncode
+    finally:
+        node_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
