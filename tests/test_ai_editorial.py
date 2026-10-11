@@ -273,6 +273,46 @@ def test_missing_key_does_not_make_network_request(monkeypatch):
         client.close()
 
 
+@responses.activate
+def test_opencode_endpoint_uses_own_key_and_stable_session(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "direct-secret")
+    monkeypatch.setenv("OPENCODE_API_KEY", "go-secret")
+    config = EditorialConfig(model="deepseek-v4.1-flash",
+                             base_url="https://opencode.ai/zen/go/v1/")
+    chunk = prepare_input(record(), None, config)["chunks"][0]
+    request = request_body(chunk, config)
+    responses.post("https://opencode.ai/zen/go/v1/chat/completions", json=envelope(no_changes(chunk)))
+    responses.post("https://api.deepseek.com/chat/completions", json=envelope(no_changes(chunk)))
+    client = DeepSeekClient()
+    try:
+        for _ in range(2):
+            assert parse_response(client.complete(request, config)) == no_changes(chunk)
+        client.complete({}, EditorialConfig())
+    finally:
+        client.close()
+    first, second, direct = [call.request for call in responses.calls]
+    assert first.headers["Authorization"] == "Bearer go-secret"
+    assert first.headers["User-Agent"].startswith("bilibili-asr-archive/")
+    assert first.headers["x-opencode-session"] == second.headers["x-opencode-session"]
+    assert direct.headers["Authorization"] == "Bearer direct-secret"
+    assert "x-opencode-session" not in direct.headers
+    assert json.loads(first.body)["model"] == "deepseek-v4.1-flash"
+    assert "go-secret" not in canonical(request)
+
+
+@responses.activate
+def test_opencode_requires_own_key(monkeypatch):
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "direct-secret")
+    client = DeepSeekClient()
+    try:
+        with pytest.raises(DeepSeekError, match="OPENCODE_API_KEY is not configured"):
+            client.complete({}, EditorialConfig(base_url="https://opencode.ai/zen/go/v1"))
+        assert not responses.calls
+    finally:
+        client.close()
+
+
 class FakeClient:
     def __init__(self, *, fail_call=None):
         self.requests = []
