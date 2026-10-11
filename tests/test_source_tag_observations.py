@@ -19,6 +19,9 @@ from tests.test_ai_editorial import insert_record, record, runtime, FakeClient
 from bili_asr.editorial import EditorialConfig
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.mark.parametrize("tags,state,success,failure", [
     (None, "unavailable", 0, 1), ((), "success_empty", 1, 0),
     ((VideoTag(1, "original", "type"),), "success_nonempty", 1, 0),

@@ -169,6 +169,7 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     review.add_argument("--issue-url", default=None)
 
     publish = actions.add_parser("publish", help="Materialize publish.md from an approved edition")
+    publish.set_defaults(requires_publication_enabled=True)
     _common(publish, archive_root, artifacts=ArtifactPolicy.WRITE, actor=True, database=ArchiveAccessMode.WRITE)
     publish.add_argument("--edition-id", required=True)
     publish.add_argument("--expected-release-id", default=None)
@@ -182,9 +183,11 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     show.add_argument("--edition-id", required=True)
 
     export = actions.add_parser("export", help="Export only currently released 发布稿")
+    export.set_defaults(requires_publication_enabled=True)
     _common(export, archive_root, artifacts=ArtifactPolicy.READ)
     export.add_argument("--out", required=True)
 
     drafts = actions.add_parser("export-drafts", help="Export current reader drafts that have never been released")
+    drafts.set_defaults(requires_publication_enabled=True)
     _common(drafts, archive_root, artifacts=ArtifactPolicy.READ)
     drafts.add_argument("--out", required=True)

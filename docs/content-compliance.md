@@ -2,14 +2,25 @@
 
 项目默认没有任何 B 站内容再发布授权。私有归档、ASR 和内部审核不产生公开授权；软件 GPL 和 CC 内容政策也不替代权利人授权。代码实现记录与发布约束，不能验证操作者提交的法律依据真实性。
 
+内容权限台账和公开发布功能本身也默认关闭。只有在部署环境中明确设置
+`BILI_PUBLICATION_ENABLED=1` 后，才允许初始化台账、登记授权、发布 edition 或生成读者
+快照；未设置时这些入口在写入台账、发布文件或替换快照前直接拒绝。这个开关不是授权，
+也不会把现有内容自动变成可公开内容。私有编辑、审核和内部 review 导出不依赖该开关。
+
 ## 登记与发布
 
 权利台账独立于编辑审核，显式初始化时只增加空的追加式台账，不迁移、删除或自动批准原始转录、工作流和 release：
 
+在确认部署审查完成后，显式启用公开模块：
+
 ```bash
+export BILI_PUBLICATION_ENABLED=1
 bili-asr publication rights init --archive-root /srv/archive
 bili-asr publication rights show --archive-root /srv/archive --edition-id E --format json
 ```
+
+PowerShell 使用 `$env:BILI_PUBLICATION_ENABLED='1'`。关闭模块时清除该变量；`.env` 不会自动加载。
+关闭开关本身不会删除已存在的公开快照或线上缓存，已有内容的下架仍须完成下文的替换与部署流程。
 
 取得真实授权后准备私有 `permission.json`，所有字段必填：
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import time
 from contextlib import contextmanager, nullcontext
@@ -27,10 +28,20 @@ PERMISSION_FIELDS = frozenset({
     'includes_source_transcript',
 })
 _SCHEMA = resources.files('bili_asr.storage').joinpath('schema-rights.sql')
+PUBLICATION_ENABLED_ENV_VAR = 'BILI_PUBLICATION_ENABLED'
 
 
 class ContentRightsError(ValueError):
     """Missing, stale, expired or suspended public-content permission."""
+
+
+def require_publication_enabled() -> None:
+    """Require an explicit deployment opt-in for rights and public output."""
+    if os.environ.get(PUBLICATION_ENABLED_ENV_VAR) != '1':
+        raise ContentRightsError(
+            f'content-rights: content permission and public publication are disabled by default; '
+            f'set {PUBLICATION_ENABLED_ENV_VAR}=1 only after reviewing the release and access basis'
+        )
 
 
 @contextmanager
@@ -48,6 +59,7 @@ def distribution_lock(connection):
 def serialized_distribution(function):
     @wraps(function)
     def wrapped(connection, *args, **kwargs):
+        require_publication_enabled()
         if connection.in_transaction:
             raise ContentRightsError('content-rights: finish caller transaction before public export')
         with distribution_lock(connection):
@@ -57,6 +69,7 @@ def serialized_distribution(function):
 
 def initialize_rights(connection: sqlite3.Connection) -> None:
     """Explicit additive initialization; never infer permissions for old releases."""
+    require_publication_enabled()
     PublicationRepository(connection)
     if connection.in_transaction:
         raise ValueError('content-rights: finish caller transaction before initialization')
@@ -116,6 +129,7 @@ def normalize_permission(permission: dict) -> dict:
 def record_rights(connection: sqlite3.Connection, *, action: str, actor: str, note: str,
                   edition_id: str | None = None, video_part_id: int | None = None,
                   permission: dict | None = None, artifact_roots=()) -> dict:
+    require_publication_enabled()
     if action not in {'grant', 'revoke', 'hold', 'clear'}:
         raise ContentRightsError('content-rights: unsupported decision')
     actor = normalize_text(actor, 'actor', nonempty=True, multiline=False)

@@ -4,7 +4,13 @@ from bili_asr.cli.registry import ArtifactPolicy
 
 
 def rights_command(connection, args):
-    from bili_asr.content_rights import initialize_rights, record_rights, rights_status
+    from bili_asr.content_rights import (
+        initialize_rights,
+        record_rights,
+        require_publication_enabled,
+        rights_status,
+    )
+    require_publication_enabled()
     from bili_asr.publication import get_edition
     action = args.rights_action
     if action == 'init':
@@ -24,6 +30,7 @@ def rights_command(connection, args):
 
 def add_rights_parser(actions, *, archive_root, common):
     parser = actions.add_parser('rights', help='Record content permissions independently of editorial review')
+    parser.set_defaults(requires_publication_enabled=True)
     subparsers = parser.add_subparsers(dest='rights_action', required=True)
     init = subparsers.add_parser('init', help='Add empty rights ledger without changing existing evidence')
     common(init, archive_root, database=ArchiveAccessMode.WRITE)

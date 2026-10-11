@@ -20,6 +20,9 @@ from tests.test_ai_editorial import FakeClient, runtime
 from tests.test_publication import approve, seeded_publication
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 def catalog(output):
     return json.loads((output / "catalog.json").read_bytes())
 

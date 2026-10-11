@@ -11,6 +11,7 @@ from bili_asr.content_rights import (
     distribution_lock,
     initialize_rights,
     record_rights,
+    require_publication_enabled,
     rights_status,
 )
 from bili_asr.export_snapshot import ExportSnapshotError
@@ -35,6 +36,8 @@ from bili_asr.storage.snapshots import (
 from tests.support.content_permissions import grant_test_permission
 from tests.test_publication import seeded_publication
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
 
 @pytest.fixture
 def manuscript(tmp_path):
@@ -53,6 +56,28 @@ def editorial_approve(connection, edition):
                        content_sha256=edition['content_sha256'], expected_status=expected, actor='reviewer')
 
 
+def test_content_permission_and_publication_are_disabled_without_explicit_opt_in(manuscript, monkeypatch):
+    connection, edition, _root, roots, output = manuscript
+    monkeypatch.delenv('BILI_PUBLICATION_ENABLED', raising=False)
+    with pytest.raises(ContentRightsError, match='disabled by default'):
+        initialize_rights(connection)
+    assert connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'content_rights_events'").fetchone() is None
+    with pytest.raises(ContentRightsError, match='disabled by default'):
+        record_rights(connection, action='grant', edition_id=edition['edition_id'],
+                      actor='admin', note='Disabled', permission={})
+    with pytest.raises(ContentRightsError, match='disabled by default'):
+        export_publication_drafts(connection, artifact_roots=roots, output=output)
+    with pytest.raises(ContentRightsError, match='disabled by default'):
+        publish_edition(connection, edition_id=edition['edition_id'], artifact_roots=roots,
+                        write_root=_root, actor='publisher')
+    assert not output.exists()
+    export_editorial(connection, revision_id=edition['revision_id'], edition_id=edition['edition_id'],
+                     artifact_roots=roots, output=output.parent / 'private-disabled-review')
+    assert (output.parent / 'private-disabled-review' / 'review.md').exists()
+    with pytest.raises(ContentRightsError, match='disabled by default'):
+        require_publication_enabled()
+
+
 def test_approval_does_not_authorize_publication_and_private_review_remains_available(manuscript):
     connection, edition, root, roots, output = manuscript
     editorial_approve(connection, edition)
@@ -67,6 +92,26 @@ def test_approval_does_not_authorize_publication_and_private_review_remains_avai
     export_editorial(connection, revision_id=edition['revision_id'], edition_id=edition['edition_id'],
                      artifact_roots=roots, output=output.parent / 'private-review')
     assert (output.parent / 'private-review' / 'review.md').exists()
+
+
+def test_deactivation_blocks_existing_authorized_release_without_mutating_it(manuscript, monkeypatch):
+    connection, edition, root, roots, output = manuscript
+    grant_test_permission(connection, edition, roots)
+    editorial_approve(connection, edition)
+    release = publish_edition(connection, edition_id=edition['edition_id'], artifact_roots=roots,
+                              write_root=root, actor='publisher')
+    assert export_publications(connection, artifact_roots=roots, output=output) == 1
+    catalog = (output / 'catalog.json').read_bytes()
+    changes = connection.total_changes
+    monkeypatch.delenv('BILI_PUBLICATION_ENABLED')
+    with pytest.raises(ContentRightsError, match='disabled by default'):
+        publish_edition(connection, edition_id=edition['edition_id'], artifact_roots=roots,
+                        write_root=root, actor='publisher')
+    with pytest.raises(ContentRightsError, match='disabled by default'):
+        export_publications(connection, artifact_roots=roots, output=output)
+    assert connection.total_changes == changes
+    assert (output / 'catalog.json').read_bytes() == catalog
+    withdraw_release(connection, release_id=release['release_id'], actor='operator', note='Stop publication')
 
 
 def test_authorized_publication_revocation_and_hold_remove_old_managed_files(manuscript):

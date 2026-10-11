@@ -28,6 +28,9 @@ from tests.test_workflow_control_plane import _profile, _seed_part
 from tests.test_publication import approve
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.mark.parametrize("configured", [False, True])
 def test_relative_archive_audio_records_a_relative_key(tmp_path, monkeypatch, configured):
     monkeypatch.chdir(tmp_path)

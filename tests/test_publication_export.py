@@ -24,6 +24,9 @@ from tests.test_ai_editorial import FakeClient, insert_record, record, runtime
 from tests.test_workflow_control_plane import _seed_part
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.fixture
 def manuscript(tmp_path):
     root = tmp_path / "archive"

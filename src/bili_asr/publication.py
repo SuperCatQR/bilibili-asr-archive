@@ -135,18 +135,18 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
                     artifact_roots: Iterable[Path], write_root: Path, actor: str,
                     expected_release_id: str | None = None) -> dict:
     actor = _actor(actor)
+    from bili_asr.content_rights import require_publication_enabled, require_public_rights
+    require_publication_enabled()
     roots = _roots(artifact_roots)
     repository = PublicationRepository(connection)
     existing = repository.release_for_edition(edition_id)
     if existing:
         release, edition, _ = verify_release(connection, existing["release_id"], roots)
-        from bili_asr.content_rights import require_public_rights
         require_public_rights(connection, edition, get_ai_artifacts(connection, edition['revision_id'], roots)['review.md'])
         return {**release, "idempotent": True}
     edition = get_edition(connection, edition_id)
     if edition["review_status"] != "approved":
         raise ValueError("publication-approval: edition has not been approved")
-    from bili_asr.content_rights import require_public_rights
     require_public_rights(connection, edition, get_ai_artifacts(connection, edition['revision_id'], roots)['review.md'])
     if edition["current_release_id"] != expected_release_id:
         raise PublicationConflictError("publication-conflict: effective release differs from expected release")

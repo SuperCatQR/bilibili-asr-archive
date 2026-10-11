@@ -22,6 +22,9 @@ from tests.test_publication import approve, seeded_publication
 from tests.support.content_permissions import grant_test_permission
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.fixture
 def draft_archive(tmp_path):
     root = tmp_path / "archive"

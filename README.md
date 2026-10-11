@@ -36,7 +36,9 @@ Third-party components retain their original licenses. This software license
 does not grant rights to downloaded videos, audio, subtitles, or other archived
 content.
 
-Public manuscript release and draft export now require separately recorded
+Content permission registration, public manuscript release and reader draft
+export are disabled by default. Explicitly set `BILI_PUBLICATION_ENABLED=1`
+to enable the module; public output still requires separately recorded
 content permissions. Existing and new content defaults to private-only;
 editorial approval does not authorize redistribution. See
 [content compliance](docs/content-compliance.md), [content license](CONTENT-LICENSE.md)

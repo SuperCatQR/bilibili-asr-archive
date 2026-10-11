@@ -15,6 +15,9 @@ from bili_asr.storage.workflow import WorkflowRepository
 from tests.fixtures.migration_archive import build_migration_archive, capture_table_rows
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.mark.parametrize("separate_artifacts", [False, True])
 def test_legacy_fixture_preserves_history_and_both_heads(tmp_path, separate_artifacts):
     fixture = build_migration_archive(tmp_path / "source", tmp_path / "media" if separate_artifacts else None)
