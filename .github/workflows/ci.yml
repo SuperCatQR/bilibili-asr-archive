@@ -197,11 +197,19 @@ jobs:
               "schema-transcripts.sql",
               "schema-workflow.sql",
               "schema-editorial.sql",
+              "schema-rights.sql",
               "migration-source-bilibili-v1.json",
           }
           missing = sorted(name for name in required if not storage.joinpath(name).is_file())
           if missing:
               raise SystemExit(f"packaged storage resources missing: {missing}")
+          from importlib.metadata import metadata
+
+          package = metadata("bili-asr")
+          if package.get("License-Expression") != "GPL-3.0-only":
+              raise SystemExit("package must declare GPL-3.0-only")
+          if "LICENSE" not in package.get_all("License-File", []):
+              raise SystemExit("package must include its license text")
           PY
 
       - name: Write build provenance and checksums

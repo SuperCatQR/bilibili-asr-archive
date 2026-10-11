@@ -106,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--out", default=None)
     export.add_argument("--status", action="append", default=None)
     export.add_argument("--with-text", action="store_true")
+    export.add_argument("--private", action="store_true", help="Acknowledge text export is private operator material")
     export.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
     subparsers.add_parser("check-asr-env", help="Verify this host can run local ASR")

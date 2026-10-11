@@ -82,7 +82,7 @@ def test_publication_preference_is_shared_by_projection_coverage_and_export(
     assert row["transcript_text"] == expected_text
     assert (tmp_path / row["txt_path"]).read_text("utf-8").strip() == expected_text
     assert CoverageReport.build(tmp_path).data["cumulative"]["complete"] == 1
-    exported = json.loads(export_records(tmp_path, "json", with_text=True))[0]
+    exported = json.loads(export_records(tmp_path, "json", with_text=True, private=True))[0]
     assert exported["language"] == row["language"]
     assert exported["transcript_text"] == expected_text
     assert IntegrityVerifier().verify(tmp_path).defect_count == 0
@@ -103,7 +103,7 @@ def test_new_preference_preserves_the_published_identity_until_republication(tmp
         assert row["publication_current"] is False
         assert row["transcript_text"] == "published English"
         assert CoverageReport.build(tmp_path).data["cumulative"]["complete"] == 1
-        assert json.loads(export_records(tmp_path, "json", with_text=True))[0]["transcript_text"] == "published English"
+        assert json.loads(export_records(tmp_path, "json", with_text=True, private=True))[0]["transcript_text"] == "published English"
         result = _publish(connection, tmp_path, part_id, latest.transcript_id)
         assert result["transcript_id"] == latest.transcript_id
     finally:
@@ -213,7 +213,7 @@ def test_same_second_republication_updates_the_actual_bundle_identity(tmp_path, 
     assert row["transcript_text"] == "English publication"
     assert row["status"] == "archived"
     assert CoverageReport.build(tmp_path).data["cumulative"]["complete"] == 1
-    assert json.loads(export_records(tmp_path, "json", with_text=True))[0]["transcript_text"] == "English publication"
+    assert json.loads(export_records(tmp_path, "json", with_text=True, private=True))[0]["transcript_text"] == "English publication"
 
 
 @pytest.mark.parametrize("damage", ["missing", "wrong-part"])
@@ -268,7 +268,7 @@ def test_corrupt_published_transcript_relation_stays_visible_as_a_defect(tmp_pat
     assert integrity.defect_count == 1
     assert integrity.backlog_count == 0
     assert integrity.defects[0].code == code
-    exported = next(row for row in json.loads(export_records(tmp_path, "json", with_text=True))
+    exported = next(row for row in json.loads(export_records(tmp_path, "json", with_text=True, private=True))
                     if row["work_id"] == "BVdamagedrelation:p0")
     assert exported["publication_error"] == code
     assert exported["transcript_text"] == ""

@@ -1056,6 +1056,9 @@ def bilibili_api_seam(monkeypatch) -> FakeUpstreamScript:
     between the test imports and the adapter imports.
     """
 
+    # These references apply only to this fake upstream, never a live request.
+    monkeypatch.setenv("BILI_PLATFORM_ACCESS_REFERENCE", "test:offline-platform")
+    monkeypatch.setenv("BILI_CONTENT_PROCESSING_REFERENCE", "test:offline-content")
     script = FakeUpstreamScript()
     for name, module in build_fake_package(script).items():
         monkeypatch.setitem(sys.modules, name, module)

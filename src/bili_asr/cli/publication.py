@@ -61,10 +61,13 @@ def _cmd_publication(args: argparse.Namespace) -> int:
     from bili_asr import publication
 
     action = args.publication_action
-    readonly = action in {"show", "export", "export-drafts"}
+    readonly = action in {"show", "export", "export-drafts"} or (action == 'rights' and args.rights_action == 'show')
     try:
         with closing(archive_connection(args.archive_root, readonly=readonly)) as connection:
-            if action == "create":
+            if action == 'rights':
+                from bili_asr.cli.rights import rights_command
+                result = rights_command(connection, args)
+            elif action == "create":
                 result = publication.create_edition(
                     connection, revision_id=args.revision_id,
                     artifact_roots=args.artifact_roots.read_bases(),
@@ -137,6 +140,8 @@ def _common(parser, archive_root, *, artifacts=ArtifactPolicy.NONE, actor=False,
 def add_publication_parser(subparsers, *, archive_root: str) -> None:
     parser = subparsers.add_parser("publication", help="Edit, review and explicitly release 发布稿")
     actions = parser.add_subparsers(dest="publication_action", required=True)
+    from bili_asr.cli.rights import add_rights_parser
+    add_rights_parser(actions, archive_root=archive_root, common=_common)
     create = actions.add_parser("create", help="Create a pending edition from AI 合成稿件")
     _common(create, archive_root, artifacts=ArtifactPolicy.READ, actor=True, database=ArchiveAccessMode.WRITE)
     create.add_argument("--revision-id", required=True)

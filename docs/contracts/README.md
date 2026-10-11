@@ -1,5 +1,12 @@
 # Manuscript Export Contracts
 
+Public release and draft exports also require independently recorded content
+permission. Editorial review is not a copyright grant. `content-rights.json`
+follows `content-rights.schema.json` and covers each exported edition, including
+its full original transcript in `review.md`. Consumers must preserve and display
+the license, attribution, source and scope. Permission evidence stays private.
+An archive without the optional rights ledger produces empty public catalogs.
+
 The public reader consumes `catalog.json` matching
 `publication-catalog.schema.json`. The root is an object with
 `schemaVersion: 2`, `manuscriptType: "publication"`, and `articles`. A legacy

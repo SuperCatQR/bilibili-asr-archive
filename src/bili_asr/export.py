@@ -403,8 +403,11 @@ def export_records(
     max_text_length: int | None = None,
     *,
     artifact_roots: ArtifactRoots | None = None,
+    private: bool = False,
 ) -> str:
     """Export a read-only projection of workflow records to JSON or CSV."""
+    if with_text and not private:
+        raise ValueError('content-rights: text exports require --private; use publication export for public content')
     fmt_lower = fmt.lower().strip()
     if fmt_lower not in {"json", "csv"}:
         raise ValueError(f"unsupported export format: {fmt!r}; choose 'json' or 'csv'")

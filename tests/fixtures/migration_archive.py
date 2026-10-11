@@ -22,7 +22,7 @@ from typing import Any
 from bili_asr import archive
 from bili_asr.editorial import EditorialConfig
 from bili_asr.publication import (
-    create_edition, edit_edition, publish_edition, review_edition, withdraw_release,
+    create_edition, edit_edition, review_edition, withdraw_release,
 )
 from bili_asr.storage import (
     AcquisitionRunRecord, MetadataRepository, TranscriptRepository,
@@ -35,6 +35,7 @@ from tests.fixtures.metadata_records import (
 )
 from tests.test_ai_editorial import FakeClient, runtime
 from tests.test_publication import approve
+from tests.support.legacy_publication import publish_legacy_edition
 
 
 @dataclass(frozen=True)
@@ -174,8 +175,8 @@ def _publication_history(connection: sqlite3.Connection, roots: tuple[Path, ...]
         if text is not None:
             edition = edit_edition(connection, edition_id=edition["edition_id"],
                                    markdown_text=text, actor="fixture-editor", note=name)
-        approve(connection, edition)
-        release = publish_edition(
+        approve(connection, edition, authorize=False)
+        release = publish_legacy_edition(
             connection, edition_id=edition["edition_id"], artifact_roots=roots,
             write_root=roots[0], actor="fixture-publisher", expected_release_id=previous,
         )

@@ -1195,6 +1195,8 @@ class BilibiliApiGateway:
         """
 
         if mid not in self._w_webid_by_mid:
+            from bili_asr.platform_access import require_platform_access
+            require_platform_access()
             try:
                 access_id: object = await User(
                     uid=mid, credential=self._credential
@@ -1221,6 +1223,8 @@ class BilibiliApiGateway:
         or a fixed reason. Upstream text, URLs and payload content stay local.
         """
 
+        from bili_asr.platform_access import require_platform_access
+        require_platform_access()
         try:
             return await call()
         except NetworkException as exc:

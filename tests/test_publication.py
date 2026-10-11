@@ -37,7 +37,10 @@ def seeded_publication(root: Path):
     return connection, repository.revision_for_job(proof_id), (root,)
 
 
-def approve(connection, edition: dict) -> dict:
+def approve(connection, edition: dict, *, roots=None, authorize=True) -> dict:
+    from tests.support.content_permissions import grant_test_permission
+    if authorize:
+        grant_test_permission(connection, edition, roots)
     review_edition(connection, edition_id=edition["edition_id"], status="in-review",
                    content_sha256=edition["content_sha256"], expected_status="pending-review", actor="reviewer")
     return review_edition(connection, edition_id=edition["edition_id"], status="approved",
@@ -86,6 +89,8 @@ def test_a_b_lifecycle_keeps_publication_head_independent_from_drafts(archive):
     review_edition(connection, edition_id=b["edition_id"], status="approved",
                    content_sha256=b["content_sha256"], expected_status="in-review", actor="reviewer")
     assert get_edition(connection, b["edition_id"])["current_release_id"] == release_a["release_id"]
+    from tests.support.content_permissions import grant_test_permission
+    grant_test_permission(connection, b)
     release_b = _publish(archive, b, release_a["release_id"])
     assert verify_release(connection, release_a["release_id"], roots)[0]["status"] == "superseded"
     assert verify_release(connection, release_b["release_id"], roots)[2] == render_publication(b["content"])
@@ -340,6 +345,8 @@ def test_database_failure_after_file_write_keeps_old_release_and_retry_reuses_or
     assert len(paths) == 2
     before = {p: p.read_bytes() for p in paths}
     monkeypatch.setattr(PublicationRepository, "event", original)
+    from tests.support.content_permissions import grant_test_permission
+    grant_test_permission(connection, b)
     release_b = _publish(archive, b, release_a["release_id"])
     assert before == {p: p.read_bytes() for p in paths}
     assert _publish(archive, b)["release_id"] == release_b["release_id"]

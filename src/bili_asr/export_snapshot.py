@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import stat
-from typing import Iterator, Mapping
+from typing import Callable, Iterator, Mapping
 import uuid
 
 
@@ -78,9 +78,9 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
 
 def _allowed_file(name: str, kind: str) -> bool:
     if kind == "publication-export":
-        return name == "catalog.json" or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
+        return name in {"catalog.json", "content-rights.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
     if kind == "publication-draft-export":
-        return name == "catalog.json" or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
+        return name in {"catalog.json", "content-rights.json"} or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
     return name in _REVIEW_FILES
 
 
@@ -207,7 +207,36 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
                 record = next((record for record in records if record["path"] == article[file_field]), None)
                 if record is None or record["sha256"] != article[hash_field]:
                     raise ExportSnapshotError("public article and manifest hashes differ")
-        if article_files != expected_files - {manifest_name, "catalog.json"}:
+        if 'content-rights.json' in expected_files:
+            notices = read_json(directory / 'content-rights.json')
+            if (not isinstance(notices, dict) or set(notices) != {'schemaVersion', 'notices'}
+                    or type(notices['schemaVersion']) is not int or notices['schemaVersion'] != 1
+                    or not isinstance(notices['notices'], list)):
+                raise ExportSnapshotError('invalid public rights notices')
+            expected_ids = {a['editionId'] for a in catalog['articles']}
+            if len(notices['notices']) != len(expected_ids):
+                raise ExportSnapshotError('public rights notices do not cover catalog')
+            for notice, article in zip(notices['notices'], sorted(catalog['articles'], key=lambda a: a['videoPartId'])):
+                from bili_asr.content_rights import LICENSE_URLS
+                fields = {'editionId', 'videoPartId', 'contentSha256', 'license', 'licenseUrl',
+                          'rightsHolder', 'sourceCreator', 'attribution', 'sourceUrl', 'scope', 'expiresAt'}
+                if (not isinstance(notice, dict)
+                        or set(notice) != fields
+                        or notice.get('editionId') != article['editionId']
+                        or type(notice.get('videoPartId')) is not int
+                        or notice.get('videoPartId') != article['videoPartId']
+                        or notice.get('contentSha256') != article['contentSha256']
+                        or not isinstance(notice.get('license'), str)
+                        or notice.get('license') not in LICENSE_URLS
+                        or notice.get('licenseUrl') != LICENSE_URLS.get(notice.get('license'))
+                        or notice.get('sourceUrl') != article['sourceUrl']
+                        or notice.get('scope') != ['reader-document', 'full-source-transcript']
+                        or any(not isinstance(notice.get(key), str) or not notice[key].strip()
+                               for key in ('rightsHolder', 'sourceCreator', 'attribution'))
+                        or (notice.get('expiresAt') is not None and
+                            (type(notice['expiresAt']) is not int or notice['expiresAt'] < 1))):
+                    raise ExportSnapshotError('public rights notice identity mismatch')
+        if article_files != expected_files - {manifest_name, "catalog.json", 'content-rights.json'}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
     elif expected_files != _REVIEW_FILES | {manifest_name}:
         raise ExportSnapshotError("private editorial snapshot is incomplete")
@@ -276,7 +305,12 @@ def _exclusive_lock(output: Path) -> Iterator[None]:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ExportSnapshotError("export lock is not a regular file")
         os.lseek(descriptor, 0, os.SEEK_SET)
-        if os.read(descriptor, len(marker) + 1) != marker:
+        try:
+            lock_marker = os.read(descriptor, len(marker) + 1)
+        except PermissionError as exc:
+            # Windows rejects reads overlapping another process's byte lock.
+            raise ExportSnapshotError("another export holds the output lock") from exc
+        if lock_marker != marker:
             raise ExportSnapshotError("export lock file is unmanaged or damaged")
         try:
             if os.name == "nt":
@@ -364,7 +398,8 @@ def _recover(output: Path, kind: str) -> None:
     _fsync_directory(output.parent)
 
 
-def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes]) -> str:
+def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes],
+                     before_install: Callable[[], None] | None = None) -> str:
     """Install one exact snapshot, or restore the previous directory on failure.
 
     Recovery artifacts are siblings of the public directory. OS advisory locks
@@ -409,6 +444,9 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes]) -> 
             if had_output:
                 if _validate_snapshot(output, kind, allow_empty=True) != previous_id:
                     raise ExportSnapshotError("output changed while the export was prepared")
+            if before_install is not None:
+                before_install()
+            if had_output:
                 os.replace(output, backup)
                 moved_old = True
             os.replace(stage, output)

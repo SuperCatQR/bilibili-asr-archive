@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,10 +13,8 @@ dependencies = [
     "bilibili-api-python==17.4.2",
     "curl_cffi>=0.16",
 ]
-license = { text = "GNU General Public License v3.0" }
-classifiers = [
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 
 [project.scripts]
 bili-asr = "bili_asr.cli:main"
@@ -74,7 +72,7 @@ exclude-dependencies = ["torch"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "migration-source-bilibili-v1.json"]
+"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "schema-rights.sql", "migration-source-bilibili-v1.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

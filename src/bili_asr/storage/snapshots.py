@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import closing
 from functools import lru_cache
 import hashlib
+from importlib import resources
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -141,10 +142,13 @@ def _schema(connection: sqlite3.Connection) -> dict[str, Any]:
     return objects
 
 
-@lru_cache(maxsize=1)
-def _current_contract() -> tuple[dict[str, Any], str]:
+@lru_cache(maxsize=2)
+def _current_contract(with_content_rights: bool = False) -> tuple[dict[str, Any], str]:
     with closing(sqlite3.connect(":memory:")) as connection:
         initialize_schema(connection)
+        if with_content_rights:
+            schema = resources.files('bili_asr.storage').joinpath('schema-rights.sql')
+            connection.executescript(schema.read_text(encoding='utf-8'))
         required = _schema(connection)
     canonical = json.dumps(required, sort_keys=True, separators=(",", ":"))
     return required, "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -152,9 +156,6 @@ def _current_contract() -> tuple[dict[str, Any], str]:
 
 def validate_snapshot_database(database_path: Path, expected_contract: str | None = None) -> str:
     """Require the current shipped schema and healthy data without changing it."""
-    required, contract = _current_contract()
-    if expected_contract is not None and expected_contract != contract:
-        raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
     try:
         with closing(_connect(database_path)) as connection:
             integrity = connection.execute("PRAGMA integrity_check").fetchall()
@@ -162,6 +163,11 @@ def validate_snapshot_database(database_path: Path, expected_contract: str | Non
                 details = "; ".join(str(row[0]) for row in integrity[:5])
                 raise SnapshotDatabaseError(f"archive database integrity check failed: {details}")
             actual = _schema(connection)
+            has_rights = any(name == 'content_rights_events' or name.startswith(
+                ('idx_content_rights_', 'immutable_content_rights_')) for name in actual)
+            required, contract = _current_contract(has_rights)
+            if expected_contract is not None and expected_contract != contract:
+                raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             for name, shape in actual.items():
                 if shape["kind"] == "trigger" and name not in required:
                     raise SnapshotDatabaseError(f"archive database has unsupported trigger {name}")

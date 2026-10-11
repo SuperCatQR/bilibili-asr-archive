@@ -36,6 +36,13 @@ Third-party components retain their original licenses. This software license
 does not grant rights to downloaded videos, audio, subtitles, or other archived
 content.
 
+Public manuscript release and draft export now require separately recorded
+content permissions. Existing and new content defaults to private-only;
+editorial approval does not authorize redistribution. See
+[content compliance](docs/content-compliance.md), [content license](CONTENT-LICENSE.md)
+and [third-party notices](THIRD_PARTY_NOTICES.md). The project cannot grant
+rights belonging to uploaders, platforms or other third parties.
+
 The workflow tables are the only job scheduler. `workflow_jobs` stores producer jobs and prerequisite links; `workflow_attempts` stores attempt outcomes and lease ownership. Each ASR job references an immutable profile snapshot and a fixed input transcript when one exists. Publication records identify the transcript version and bundle paths that were written.
 
 Package boundaries:

@@ -43,6 +43,8 @@ def manuscript(tmp_path):
 
 
 def approve(connection, edition):
+    from tests.support.content_permissions import grant_test_permission
+    grant_test_permission(connection, edition)
     review_edition(connection, edition_id=edition["edition_id"], status="in-review",
                    content_sha256=edition["content_sha256"], expected_status="pending-review", actor="test-reviewer")
     review_edition(connection, edition_id=edition["edition_id"], status="approved",

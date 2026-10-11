@@ -13,6 +13,8 @@ from typing import Iterator
 from bili_asr.export_snapshot import ExportSnapshotError, guard_output, json_bytes, replace_snapshot
 from bili_asr.publication import content_from_ai, get_ai_artifacts, get_edition, render_publication, verify_release
 from bili_asr.storage.database import require_manuscript_schema
+from bili_asr.content_rights import ContentRightsError, public_notice, require_public_rights, rights_status, serialized_distribution
+from bili_asr.storage.publication import PublicationRepository, verify_release_identity
 
 
 @contextmanager
@@ -58,6 +60,7 @@ def _public_entry(release: dict, edition: dict, review_document: bytes) -> dict:
     }
 
 
+@serialized_distribution
 def export_publications(
     connection: sqlite3.Connection,
     *,
@@ -69,6 +72,7 @@ def export_publications(
     output = guard_output(connection, output, artifact_roots)
     files: dict[str, bytes] = {}
     articles = []
+    notices = []
     with _read_snapshot(connection):
         broken_release = connection.execute(
             "SELECT r.release_id FROM publication_releases r "
@@ -83,13 +87,22 @@ def export_publications(
             "SELECT video_part_id, current_release_id FROM publication_heads "
             "WHERE current_release_id IS NOT NULL ORDER BY video_part_id"
         ).fetchall()
+        repository = PublicationRepository(connection)
         for head in heads:
-            release, edition, document = verify_release(connection, str(head["current_release_id"]), artifact_roots)
+            release = repository.release(str(head["current_release_id"]))
+            edition = verify_release_identity(connection, release)
             if release["status"] != "published" or release["video_part_id"] != head["video_part_id"]:
                 raise ExportSnapshotError("publication head does not identify a valid current release")
+            if not rights_status(connection, edition)['public']:
+                continue
+            release, edition, document = verify_release(connection, str(head["current_release_id"]), artifact_roots)
             artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
+            permission = rights_status(connection, edition, review_document)
+            if not permission['public']:
+                continue
+            notices.append(public_notice(edition, permission))
             entry = _public_entry(release, edition, review_document)
             if entry["file"] in files:
                 raise ExportSnapshotError("duplicate public article identity")
@@ -100,11 +113,10 @@ def export_publications(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["publishedAt"], entry["videoPartId"]))
-    files["catalog.json"] = json_bytes({"schemaVersion": 2, "manuscriptType": "publication", "articles": articles})
-    replace_snapshot(output, kind="publication-export", files=files)
-    return len(articles)
+    return _install_public_snapshot(connection, output, 'publication', articles, notices, files)
 
 
+@serialized_distribution
 def export_publication_drafts(
     connection: sqlite3.Connection,
     *,
@@ -116,6 +128,7 @@ def export_publication_drafts(
     output = guard_output(connection, output, artifact_roots)
     files: dict[str, bytes] = {}
     articles = []
+    notices = []
     with _read_snapshot(connection):
         missing_head = connection.execute(
             "SELECT e.video_part_id FROM publication_editions e "
@@ -147,11 +160,17 @@ def export_publication_drafts(
             ).fetchone()
             if released is not None:
                 continue
+            if not rights_status(connection, edition)['public']:
+                continue
             # Verify both immutable AI artifacts before exporting the original
             # review reference. Model-call audits remain outside the snapshot.
             artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
+            permission = rights_status(connection, edition, review_document)
+            if not permission['public']:
+                continue
+            notices.append(public_notice(edition, permission))
             content = edition["content"]
             source = content["source"]
             document = render_publication(content)
@@ -176,9 +195,43 @@ def export_publication_drafts(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["createdAt"], entry["videoPartId"], entry["editionId"]))
-    files["catalog.json"] = json_bytes({"schemaVersion": 2, "manuscriptType": "publication-draft", "articles": articles})
-    replace_snapshot(output, kind="publication-draft-export", files=files)
-    return len(articles)
+    return _install_public_snapshot(connection, output, 'publication-draft', articles, notices, files)
+
+
+def _install_public_snapshot(connection, output, manuscript_type, articles, notices, files) -> int:
+    """Prune permissions that expire during staging and replace old public text."""
+    while True:
+        denied = {article['editionId'] for article in articles
+                  if not rights_status(connection, get_edition(connection, article['editionId']))['public']}
+        for article in articles:
+            if article['editionId'] in denied:
+                del files[article['file']]
+                del files[article['reviewFile']]
+        articles = [a for a in articles if a['editionId'] not in denied]
+        notices = [n for n in notices if n['editionId'] not in denied]
+        files['catalog.json'] = json_bytes({'schemaVersion': 2, 'manuscriptType': manuscript_type, 'articles': articles})
+        if notices:
+            files['content-rights.json'] = json_bytes({'schemaVersion': 1, 'notices': notices})
+        else:
+            files.pop('content-rights.json', None)
+        try:
+            replace_snapshot(output, kind=manuscript_type + '-export', files=files,
+                             before_install=lambda: _require_current_rights(connection, articles, files))
+            return len(articles)
+        except ContentRightsError:
+            # The distribution lock excludes ledger/head writes. Retry only
+            # when at least one selected permission has expired; each retry
+            # removes an article, so the loop is bounded by the initial set.
+            if not any(rights_status(connection, get_edition(connection, a['editionId']))['status'] == 'expired'
+                       for a in articles):
+                raise
+
+
+def _require_current_rights(connection, articles: list[dict], files: dict[str, bytes]) -> None:
+    """Recheck expiry after staging, immediately before the snapshot swap."""
+    for article in articles:
+        require_public_rights(connection, get_edition(connection, article['editionId']),
+                              files[article['reviewFile']])
 
 
 def _difference(before: str, after: str, before_name: str, after_name: str) -> bytes:

@@ -177,7 +177,7 @@ def test_cli_editorial_run_writes_configured_root_and_export_verifies_hash(tmp_p
         output = tmp_path / "content"
         edition = create_edition(connection, revision_id=revision,
                                  artifact_roots=(products, root), actor="editor")
-        approve(connection, edition)
+        approve(connection, edition, roots=(products, root))
         release = publish_edition(connection, edition_id=edition["edition_id"],
                                   artifact_roots=(products, root), write_root=products, actor="publisher")
         export_args = ["publication", "export", "--archive-root", str(root), "--out", str(output)]
