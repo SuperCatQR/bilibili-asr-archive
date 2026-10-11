@@ -115,11 +115,54 @@ def test_failed_replace_preserves_original_editorial_file(tmp_path, monkeypatch)
     original = write(tmp_path / "original.json")
     before = original.read_bytes()
     replacement = write(tmp_path / "input.json")
+    syncs = []
+    monkeypatch.setattr(module, "sync_directory", syncs.append)
     monkeypatch.setattr(module.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("synthetic failure")))
     with pytest.raises(OSError):
         edit_series(replacement, original, actor="new editor", expected_sha256=hashlib.sha256(before).hexdigest())
     assert original.read_bytes() == before
+    assert syncs == []
     assert {p.name for p in tmp_path.glob(".original.json.*")} == {".original.json.export.lock"}
+
+
+def test_series_edit_syncs_replaced_parent_while_lock_is_held(tmp_path, monkeypatch):
+    import bili_asr.publication_series as module
+    from bili_asr.export_snapshot import _exclusive_lock
+    input_path = write(tmp_path / "input.json")
+    output = tmp_path / "series.json"
+    calls = []
+
+    def sync_parent(parent):
+        assert parent == output.parent
+        assert read_series(output)["updatedBy"] == "new editor"
+        with pytest.raises(ExportSnapshotError, match="holds the output lock"):
+            with _exclusive_lock(output):
+                pytest.fail("series edit released its lock before directory sync")
+        calls.append(parent)
+
+    monkeypatch.setattr(module, "sync_directory", sync_parent)
+    result = edit_series(input_path, output, actor="new editor", expected_sha256="new")
+    assert result["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert calls == [output.parent]
+
+
+def test_directory_sync_failure_does_not_report_series_edit_success(tmp_path, monkeypatch, capsys):
+    import bili_asr.publication_series as module
+    input_path = write(tmp_path / "input.json")
+    output = tmp_path / "series.json"
+
+    def fail_sync(parent):
+        raise OSError("synthetic directory sync failure")
+
+    monkeypatch.setattr(module, "sync_directory", fail_sync)
+    assert main(["publication", "series", "edit", "--input", str(input_path), "--out", str(output),
+                 "--actor", "new editor", "--expected-sha256", "new"]) == 1
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert "synthetic directory sync failure" in captured.err
+    # The replace already happened. A retry must reload its current version.
+    assert read_series(output)["updatedBy"] == "new editor"
+    assert {p.name for p in tmp_path.glob(".series.json.*")} == {".series.json.export.lock"}
 
 
 def test_projection_requires_all_exact_parts_in_category_and_version():

@@ -203,6 +203,8 @@ bili-asr fetch-meta --archive-root universal-archive --refresh-failed
 
 定向 BVID 必须已经归档；summary/details 共用一次 view 元数据，parts 优先复用该响应已校验的 pages，缺少时才请求 pagelist。每个成功 operation 独立事务提交，失败保留旧事实并输出 operation/state/error_code，不改分页游标。
 
+定向补采在任何上游请求和写入前检查所选 operations 的必需能力。兼容旧 v1 库可供 READ/WRITE 使用，但若缺少可选 `video_tag_observations` 表，默认补采（含 tags）或显式 tags 补采会报契约错误；不会先提交 summary/details/parts，也不会隐式建表。可先用 `--fields summary details parts` 补采非 tags 字段，或显式运行 `fetch-tags` 的 BOOTSTRAP 为兼容库补齐该表；需要更换归档契约时使用 `archive upgrade-plan` / `upgrade-apply` 到独立空目标。
+
 显式 v2 的 `source_metadata_observations` 保存字段 state、当前观察、last-success 和最后成功 value；`metadata_refresh_attempts` 追加 operation 尝试。失败补采按每个 BVID/operation 的最新失败选择，不因有更老成功就忽略失败。首次新视频在 page fan-out 失败时，ledger 在页载荷外保留安全 mid/page_number；`--refresh-failed` 整页重新采集，成功后解决对应失败。已有游标若已越过该页，则保留后续游标；源页变动后找不到原 BV 时保留 `metadata_retry_context_changed`，需要重新发现或人工确认，不能当作修复成功。
 
 默认 v1 不新增上述 observation 表，`--refresh-failed` 明确拒绝；可使用已打印的 BVID/operation 和 `--start-page` 重放，或先保真迁移到独立 v2 目标。attempt details 只保存受限代码、数值和安全标识，不保存 URL、路径、Cookie、正文或原始错误。

@@ -10,6 +10,7 @@ from bili_asr.services._common import _now
 from bili_asr.services.video_tags import read_tags
 from bili_asr.sources.models import BilibiliGateway, GatewayError, GatewayShapeError
 from bili_asr.storage.metadata import MetadataRepository
+from bili_asr.storage.database import SchemaContractError
 from bili_asr.storage.models import VideoRecord, VideoPartRecord, VideoDetailRecord, VideoTagRecord, UserRecord
 
 
@@ -35,6 +36,17 @@ class MetadataRefreshService:
         operations = tuple(dict.fromkeys(operations))
         if not operations or any(operation not in {"summary", "details", "parts", "tags"} for operation in operations):
             raise ValueError("unknown metadata refresh operation")
+        # Legacy v1 WRITE sessions may omit this optional extension. Check the
+        # whole operation set before any upstream reads or partial commits.
+        if "tags" in operations and self.repository.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='video_tag_observations'"
+        ).fetchone() is None:
+            raise SchemaContractError(
+                "metadata refresh tags requires video_tag_observations; "
+                "run explicit BOOTSTRAP (fetch-tags) on a compatible archive, "
+                "or archive upgrade-plan / upgrade-apply into a separate empty target; "
+                "--fields summary details parts can refresh without tags"
+            )
         for bvid in selected:
             if self.repository.connection.execute("SELECT 1 FROM videos WHERE bvid=?", (bvid,)).fetchone() is None:
                 raise ValueError("metadata refresh requires archived BVIDs")

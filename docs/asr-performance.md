@@ -16,6 +16,10 @@ bili-asr workflow asr-performance --archive-root /srv/archive \
 | `unique_success_audio_s` | 完整落在窗口内的成功 workflow ASR attempt，以 evidence 中已有音频 SHA256 去重后的原始音频秒。相同输入重复执行或双遍不会重复计音频。 |
 | `audio_s_per_wall_s` | 上述原始音频秒 / 窗口共同墙钟秒。成功输入身份/时长缺失时为 `null`，而非假设音频为零。 |
 | `known_audio_s_per_wall_s_lower_bound` | 已知输入的窗口吞吐下界，可结合 unknown 数量查看。跨边界成功明确排除在该采样口径外。 |
+| `audio_credit_complete` | 完整在窗内的成功 attempt 均有可靠音频身份/时长时为 true；缺失或冲突时为 false，完整吞吐 `audio_s_per_wall_s` 为 null。 |
+| `unknown_success_audio_attempts` | 完整在窗内成功但缺少可靠音频 credit 的 attempt 数，包含所有涉及冲突身份的成功 attempt。 |
+| `conflicting_audio_identity_count` | 完整在窗内的成功 evidence 对同一 SHA256 声明不同时长的唯一身份数；组内统计参与该报告窗口冲突的身份。 |
+| `conflicting_success_audio_attempts` | 涉及上述冲突身份的完整在窗内成功 attempt 数，是 unknown 的子集，不能与 unknown 相加。 |
 | `overlapping_attempt_wall_s` | 所有与窗口重叠的 attempt 耗时截入窗口后求和；并行时可能大于窗口，**不是吞吐分母**。 |
 | `failure_cancelled_attempt_wall_s` | 失败/取消 attempt 在窗口内的耗时。 |
 | `retry_attempt_wall_s` | retry attempt 在窗口内的耗时，可能与失败耗时重叠，二者不相加当总成本。 |
@@ -36,7 +40,7 @@ bili-asr workflow asr-performance --archive-root /srv/archive \
 
 报告按冻结 profile SHA256、runtime binding 身份 SHA256 和已记录 execution policy SHA256 分组。整个报告的音频去重独立于分组；跨配置同输入会在各自组内计一次，**不能相加各组音频量当总量**。每组仍用共同窗口分母，表示该组对窗口的贡献，不是该配置独占设备的 benchmark。
 
-缺失 binding/有效 policy 为 `unknown`，不会根据另一成功 attempt 猜测失败的配置。缺少有效策略时分组不能用作后端排名。旧 evidence 能读取，未知 schema、缺失、无效结构和不完整音频身份显式计数。不同记录对同一 SHA256 声明冲突时长时拒绝报告，避免静默选取更大的值。
+缺失 binding/有效 policy 为 `unknown`，不会根据另一成功 attempt 猜测失败的配置。缺少有效策略时分组不能用作后端排名。旧 evidence 能读取，未知 schema、缺失、无效结构和不完整音频身份显式计数。完整在窗内的成功 evidence 对同一 SHA256 声明冲突时长时，该身份在总体及所有参与组中的音频 credit 全部撤回；后续相同时长的记录不会恢复 credit，结果不依赖读取顺序。冲突计数显式保留，其他可靠身份、成败、耗时和预取指标继续报告；不选择第一条或最大时长，也不改写历史证据。冲突域统一为报告窗口的完整成功样本，跨边界或失败 attempt 不参与时长比较。仅当前 audio 表与历史 evidence 的时长不同不会产生该冲突。
 
 `evidence_counts` 的诊断计数不互斥：缺失 evidence 同时无法按支持的 schema 读取，会计入 `missing` 和 `invalid_or_unsupported`，两者不能相加作为缺证据 attempt 总数。
 

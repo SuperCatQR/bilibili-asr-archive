@@ -14,7 +14,8 @@ from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.services.metadata_refresh import MetadataRefreshService
 from bili_asr.source_metadata import SourceMetadataSnapshot
 from bili_asr.sources.models import GatewayTransportError, TagRead, VideoMetadataRead, VideoPart, VideoSummary
-from bili_asr.storage import MetadataRepository, open_database
+from bili_asr.storage import MetadataRepository, SchemaContractError, open_database
+from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
 from bili_asr.storage.models import VideoDetailRecord
 from tests.test_workflow_control_plane import _seed_part
 from tests.fixtures.fake_bilibili_gateway import FakeGateway
@@ -105,6 +106,71 @@ class Gateway:
     async def read_video_tags(self, bvid):
         self.calls.append(("tags", bvid))
         return TagRead(())
+
+
+@pytest.fixture
+def legacy_archive(tmp_path):
+    connection = open_database(tmp_path)
+    _seed_part(connection)
+    with connection:
+        connection.execute("DROP TABLE video_tag_observations")
+    connection.close()
+    return tmp_path
+
+
+@pytest.mark.parametrize("operations", [("summary", "details", "parts", "tags"), ("tags",)])
+def test_legacy_tag_refresh_fails_before_requests_or_writes(legacy_archive, operations):
+    connection = open_archive_connection(legacy_archive, mode=ArchiveAccessMode.WRITE)
+    try:
+        repository = MetadataRepository(connection)
+        before = tuple(connection.iterdump())
+        statements = []
+        connection.set_trace_callback(statements.append)
+        gateway = Gateway()
+        with pytest.raises(SchemaContractError, match="video_tag_observations.*BOOTSTRAP.*upgrade-plan"):
+            MetadataRefreshService(gateway, repository).refresh(
+                ("BVtest",), operations=operations)
+        assert gateway.calls == []
+        assert all(statement.lstrip().upper().startswith("SELECT") for statement in statements)
+        assert tuple(connection.iterdump()) == before
+        assert not connection.in_transaction
+    finally:
+        connection.close()
+
+
+def test_legacy_non_tag_refresh_works_and_explicit_bootstrap_enables_tags(legacy_archive):
+    connection = open_archive_connection(legacy_archive, mode=ArchiveAccessMode.WRITE)
+    try:
+        outcomes = MetadataRefreshService(Gateway(), MetadataRepository(connection)).refresh(
+            ("BVtest",), operations=("summary", "details", "parts"))
+        assert [outcome.state for outcome in outcomes] == ["present"] * 3
+        assert connection.execute("SELECT title FROM videos").fetchone()[0] == "刷新视频"
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='video_tag_observations'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+    connection = open_archive_connection(legacy_archive, mode=ArchiveAccessMode.BOOTSTRAP)
+    try:
+        gateway = Gateway()
+        outcomes = MetadataRefreshService(gateway, MetadataRepository(connection)).refresh(("BVtest",))
+        assert outcomes[-1].state == "empty"
+        assert gateway.calls[-1] == ("tags", "BVtest")
+        assert connection.execute("SELECT state FROM video_tag_observations").fetchone()[0] == "success_empty"
+    finally:
+        connection.close()
+
+
+def test_legacy_tag_refresh_cli_reports_contract_guidance_without_requests(legacy_archive, monkeypatch, capsys):
+    from bili_asr.cli import main
+    from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
+    gateway = Gateway()
+    monkeypatch.setattr(BilibiliApiGateway, "get_video_metadata", gateway.get_video_metadata)
+    assert main(["fetch-meta", "--archive-root", str(legacy_archive), "--bvid", "BVtest"]) == 1
+    output = capsys.readouterr()
+    assert "video_tag_observations" in output.err and "fetch-tags" in output.err
+    assert "upgrade-plan" in output.err and "--fields summary details parts" in output.err
+    assert not output.out and gateway.calls == []
 
 
 def test_target_refresh_changes_pubdate_preserves_missing_fields_and_cursor(database):

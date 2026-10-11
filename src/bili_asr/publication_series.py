@@ -11,6 +11,7 @@ import tempfile
 from urllib.parse import urlsplit
 
 from bili_asr.export_snapshot import ExportSnapshotError, checked_path, json_bytes, _exclusive_lock
+from bili_asr.storage_targets import sync_directory
 
 
 def _object(value, fields, name):
@@ -155,6 +156,7 @@ def edit_series(input_path: Path, output: Path, *, actor: str, expected_sha256: 
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, output)
+            sync_directory(output.parent)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
