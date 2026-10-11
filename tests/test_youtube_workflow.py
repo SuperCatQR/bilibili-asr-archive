@@ -61,7 +61,11 @@ def test_youtube_caption_real_process_to_bundle_fts_export_and_snapshot(tmp_path
     markdown = (root / entry["md_path"]).read_text()
     assert "platform: \"youtube\"" in markdown and "bvid:" not in markdown and "cid:" not in markdown
     raw = json.loads((root / entry["raw_path"]).read_text())
-    assert raw["sourceMetadata"]["externalVideoId"] == REF.external_video_id
+    assert "sourceMetadata" not in raw
+    source_metadata = json.loads(
+        (root / entry["raw_path"]).with_name("source-metadata.json").read_text()
+    )
+    assert source_metadata["externalVideoId"] == REF.external_video_id
     before = (root / "archive.db").read_bytes()
     missing = search_archive(root,"English")
     assert not missing.hits and missing.diagnostics

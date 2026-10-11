@@ -12,13 +12,18 @@ import stat
 import sys
 import threading
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, ContextManager, Mapping
 
 from .cues import segments_to_srt, segments_to_vtt, segments_to_txt
 from .artifacts import (
-    BUNDLE_SCHEMA, BUNDLE_MARKER_NAME, BUNDLE_BASENAMES as _BUNDLE_BASENAMES,
-    REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS, owns_bundle_paths as _owned_bundle_parts,
+    BUNDLE_SCHEMA, BUNDLE_SCHEMA_V3, BUNDLE_MARKER_NAME,
+    BUNDLE_BASENAMES as _BUNDLE_BASENAMES,
+    BUNDLE_BASENAMES_V3 as _BUNDLE_BASENAMES_V3,
+    REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS,
+    SOURCE_METADATA_KEY as _SOURCE_METADATA_KEY,
+    V3_ARTIFACT_KEYS as _V3_ARTIFACT_KEYS,
+    owns_bundle_paths as _owned_bundle_parts,
 )
 from .artifact_root import ArtifactRoots
 from .page_identity import artifact_stem, page_identity, page_query_index
@@ -153,12 +158,27 @@ def _replace_at(stage_fd: int, stage_name: str, target_fd: int, target_name: str
     _fsync_fd(target_fd)
 
 
-def _marker_payload(finals: Mapping[str, Path], root: Path, contents: Mapping[str, bytes]) -> bytes:
+def _marker_payload(finals: Mapping[str, Path], root: Path, contents: Mapping[str, bytes], *, schema: str) -> bytes:
     artifacts = {
         key: {"path": finals[key].relative_to(root).as_posix(), "sha256": hashlib.sha256(contents[key]).hexdigest()}
-        for key in _REQUIRED_ARTIFACT_KEYS
+        for key in contents
     }
-    return (json.dumps({"schema": BUNDLE_SCHEMA, "artifacts": artifacts}, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+    return (json.dumps({"schema": schema, "artifacts": artifacts}, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+
+
+def _bundle_marker_keys(document: object) -> tuple[str, tuple[str, ...]] | None:
+    if not isinstance(document, dict):
+        return None
+    schema = document.get("schema")
+    if schema == BUNDLE_SCHEMA:
+        return schema, _REQUIRED_ARTIFACT_KEYS
+    if schema == BUNDLE_SCHEMA_V3:
+        return schema, _V3_ARTIFACT_KEYS
+    return None
+
+
+def _declared_v3_metadata_path(paths: Mapping[str, str]) -> str:
+    return f"{PurePosixPath(paths['srt_path']).parent.as_posix()}/{_BUNDLE_BASENAMES_V3[_SOURCE_METADATA_KEY]}"
 
 
 def _read_fd(fd: int, limit: int) -> bytes:
@@ -252,13 +272,15 @@ def archive_bundle_complete(
             document = json.loads(
                 _read_regular_at(None, marker, limit=_MARKER_MAX_BYTES).decode("ascii")
             )
-            artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == BUNDLE_SCHEMA else None
-            if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
+            declaration = _bundle_marker_keys(document)
+            artifacts = document.get("artifacts") if declaration is not None else None
+            keys = declaration[1] if declaration is not None else ()
+            if not isinstance(artifacts, dict) or set(artifacts) != set(keys):
                 return False
-            for key in _REQUIRED_ARTIFACT_KEYS:
+            for key in keys:
                 item = artifacts[key]
-                target = root / paths[key]
-                expected_path = os.fspath(paths[key]).replace(os.sep, "/")
+                expected_path = (paths[key] if key in paths else _declared_v3_metadata_path(paths)).replace(os.sep, "/")
+                target = root / expected_path
                 if not isinstance(item, dict) or set(item) != {"path", "sha256"} or item.get("path") != expected_path or _regular_digest(target) != item.get("sha256"):
                     return False
             return True
@@ -291,12 +313,21 @@ def archive_bundle_complete(
                 if marker_item is None:
                     return False
                 document = json.loads(_read_regular_at(*marker_item, limit=_MARKER_MAX_BYTES).decode("ascii"))
-                artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == BUNDLE_SCHEMA else None
-                if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
+                declaration = _bundle_marker_keys(document)
+                artifacts = document.get("artifacts") if declaration is not None else None
+                keys = declaration[1] if declaration is not None else ()
+                if not isinstance(artifacts, dict) or set(artifacts) != set(keys):
                     return False
-                for key in _REQUIRED_ARTIFACT_KEYS:
+                if _SOURCE_METADATA_KEY in keys:
+                    metadata_path = _declared_v3_metadata_path(paths)
+                    metadata_item = _open_declared(root, metadata_path)
+                    if metadata_item is None:
+                        return False
+                    opened[_SOURCE_METADATA_KEY] = metadata_item
+                for key in keys:
                     item = artifacts[key]
-                    if not isinstance(item, dict) or set(item) != {"path", "sha256"} or item["path"] != paths[key] or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
+                    expected_path = paths[key] if key in paths else _declared_v3_metadata_path(paths)
+                    if not isinstance(item, dict) or set(item) != {"path", "sha256"} or item["path"] != expected_path or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
                         return False
                     directory_fd, name = opened[key]
                     if _regular_digest(name, dir_fd=directory_fd) != item["sha256"]:
@@ -379,7 +410,7 @@ def _publish_bundle(
     before_replace: Callable[[], None] | None = None,
     publication_guard: Callable[[Callable[[], None]], ContextManager[Any]] | None = None,
 ) -> None:
-    """Publish five products with a marker that certifies the complete bundle.
+    """Publish the selected bundle data members with a complete marker.
 
     Encoding, hashes and staging happen outside ``publication_guard``. The
     optional guard serializes every final replacement and marker commit with
@@ -406,14 +437,17 @@ def _publish_bundle(
                     marker.unlink(missing_ok=True)
 
             try:
-                for key in _REQUIRED_ARTIFACT_KEYS:
+                for key in contents:
                     target = finals[key]
                     temporary = target.with_name(f".{target.name}.{secrets.token_hex(16)}.tmp")
                     staged[target] = temporary
                     _write_staged_path(temporary, contents[key])
                 temporary = work / f".{BUNDLE_MARKER_NAME}.{secrets.token_hex(16)}.tmp"
                 staged[marker] = temporary
-                _write_staged_path(temporary, _marker_payload(finals, root, contents))
+                _write_staged_path(temporary, _marker_payload(
+                    finals, root, contents,
+                    schema=BUNDLE_SCHEMA_V3 if _SOURCE_METADATA_KEY in contents else BUNDLE_SCHEMA,
+                ))
                 with _publication_guard(publication_guard, invalidate):
                     if before_replace is not None:
                         before_replace()
@@ -433,7 +467,7 @@ def _publish_bundle(
         stage_name = ""
         work_name = finals["srt_path"].parent.name
         work_fd = None
-        names = {key: finals[key].name for key in _REQUIRED_ARTIFACT_KEYS}
+        names = {key: finals[key].name for key in contents}
         marker_name = BUNDLE_MARKER_NAME
         publication_started = False
 
@@ -443,9 +477,12 @@ def _publish_bundle(
 
         try:
             stage_name, stage_fd = _create_bundle_stage(transcripts_fd)
-            for key in _REQUIRED_ARTIFACT_KEYS:
+            for key in contents:
                 _write_at(stage_fd, names[key], contents[key])
-            _write_at(stage_fd, marker_name, _marker_payload(finals, root, contents))
+            _write_at(stage_fd, marker_name, _marker_payload(
+                finals, root, contents,
+                schema=BUNDLE_SCHEMA_V3 if _SOURCE_METADATA_KEY in contents else BUNDLE_SCHEMA,
+            ))
             _fsync_fd(stage_fd)
 
             # The work directory is created once and reused across republishes.
@@ -461,7 +498,7 @@ def _publish_bundle(
                     before_replace()
                 publication_started = True
                 _invalidate_marker(work_fd, marker_name)
-                for key in _REQUIRED_ARTIFACT_KEYS:
+                for key in contents:
                     if before_replace is not None:
                         before_replace()
                     _replace_at(stage_fd, names[key], work_fd, names[key])
@@ -860,9 +897,13 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     if entry.get("platform", "bilibili") != "bilibili":
         frontmatter.pop("bvid")
         frontmatter.update(platform=entry["platform"], external_video_id=entry["external_video_id"])
-    if "sourceMetadata" in entry:
+    source_metadata = entry.get("sourceMetadata")
+    if source_metadata is not None:
+        from bili_asr.source_metadata import SourceMetadataSnapshot
+
+        source_metadata = SourceMetadataSnapshot.from_dict(source_metadata).to_dict()
         frontmatter.update(pubdateUnix=entry["pubdateUnix"], sourcePublishedAt=entry["sourcePublishedAt"],
-                           sourceMetadata=entry["sourceMetadata"])
+                           sourceMetadata=source_metadata)
     if source == "asr":
         frontmatter.update(_capture_summary(segments, frontmatter["duration_s"]))
     frontmatter.update(_confidence_summary(segments))
@@ -884,9 +925,12 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
             raw["provenance"] = dict(asr_provenance)
         if coverage:
             raw["coverage"] = dict(coverage)
-        if "sourceMetadata" in entry:
-            raw.update(pubdateUnix=entry["pubdateUnix"], sourcePublishedAt=entry["sourcePublishedAt"],
-                       sourceMetadata=entry["sourceMetadata"])
+    if source_metadata is not None and isinstance(raw, dict):
+        # v3 has one authoritative source snapshot. A caller-provided raw
+        # document must not reintroduce the legacy duplicate field.
+        raw.pop("sourceMetadata", None)
+        raw.pop("pubdateUnix", None)
+        raw.pop("sourcePublishedAt", None)
     # The character-level record rides only on the ASR path: a subtitle-derived raw has no
     # character timings, and inventing them would be a claim about audio nobody aligned.
     block = characters_for(segments, characters) if source == "asr" else {}
@@ -894,8 +938,13 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         raw["characters"] = block
         raw["schema"] = "archive-raw-v2"
     contents = {"srt_path": segments_to_srt(segments).encode(), "vtt_path": segments_to_vtt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, separators=(",", ":")) + "\n").encode()}
+    if source_metadata is not None:
+        metadata_path = _declared_v3_metadata_path({key: path.relative_to(root).as_posix() for key, path in finals.items()})
+        metadata_bytes = (json.dumps(source_metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        finals = {**finals, _SOURCE_METADATA_KEY: root / metadata_path}
+        contents[_SOURCE_METADATA_KEY] = metadata_bytes
     _publish_bundle(root, finals, contents, before_replace=before_replace, publication_guard=publication_guard)
     return {
-        key: os.path.relpath(path, root).replace(os.sep, "/")
-        for key, path in finals.items()
+        key: os.path.relpath(finals[key], root).replace(os.sep, "/")
+        for key in _REQUIRED_ARTIFACT_KEYS
     }

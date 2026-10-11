@@ -11,6 +11,7 @@ WORKFLOW_PAYLOAD_VERSION = 1
 ASR_PROFILE_VERSION = 2
 ASR_EVIDENCE_VERSION = 1
 BUNDLE_SCHEMA = "archive-bundle-v2"
+BUNDLE_SCHEMA_V3 = "archive-bundle-v3"
 ORIGIN_PROFILE = "universal-origin-v1"
 IMPORT_EXTENSION = "preserved-body-import-v1"
 LEGACY_FACTS_POLICY = "legacy-frozen-facts-v1"
@@ -99,6 +100,9 @@ _CONTRACTS = (
              ("editorial", "publication_identity", "storage.migration_artifacts"), ("hash", "historical-read")),
     Contract(BUNDLE_SCHEMA, "transcripts", ("src/bili_asr/artifacts.py",),
              ("archive", "services.bundle_verification", "services.archive_snapshot"), ("read", "write")),
+    Contract(BUNDLE_SCHEMA_V3, "transcripts", ("src/bili_asr/artifacts.py", "src/bili_asr/archive.py"),
+             ("archive", "services.bundle_verification", "services.archive_snapshot"), ("read", "write"),
+             (BUNDLE_SCHEMA, "source-metadata/v1")),
     Contract("frozen-input/v1", "editorial", ("src/bili_asr/editorial.py", "src/bili_asr/storage/migration_artifacts.py"),
              ("storage.editorial", "manuscript_templates"), ("historical-read", "write"), ("canonical-json/v1",)),
     Contract("frozen-input/v2", "editorial", ("src/bili_asr/storage/editorial.py",),

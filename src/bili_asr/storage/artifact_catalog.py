@@ -128,12 +128,18 @@ def require_artifact_catalog(connection: sqlite3.Connection, *, required: bool =
         try:
             from pathlib import PurePosixPath
 
-            from bili_asr.artifacts import BUNDLE_MARKER_NAME, REQUIRED_ARTIFACT_KEYS
+            from bili_asr.artifacts import BUNDLE_MARKER_NAME, REQUIRED_ARTIFACT_KEYS, SOURCE_METADATA_KEY
             declared = json.loads(row[5])
             expected_paths = {role: declared[role] for role in REQUIRED_ARTIFACT_KEYS}
             expected_paths["marker"] = str(PurePosixPath(declared["srt_path"]).parent / BUNDLE_MARKER_NAME)
             actual_paths = dict(connection.execute("SELECT role,relative_key FROM artifact_group_paths WHERE group_id=?", (row[4],)))
-            if row[1] != "bundle" or row[2] != f"bundle:{row[0]}" or row[3] != 6 or actual_paths != expected_paths:
+            metadata_paths = {role: path for role, path in actual_paths.items() if role == SOURCE_METADATA_KEY}
+            if metadata_paths:
+                expected_metadata = str(PurePosixPath(declared["srt_path"]).parent / "source-metadata.json")
+                if metadata_paths[SOURCE_METADATA_KEY] != expected_metadata:
+                    raise ValueError("publication metadata sidecar path differs")
+            expected_paths.update(metadata_paths)
+            if row[1] != "bundle" or row[2] != f"bundle:{row[0]}" or row[3] != len(expected_paths) or actual_paths != expected_paths:
                 raise ValueError("publication group identity differs")
         except (TypeError, ValueError, KeyError) as exc:
             raise SchemaContractError("artifact-storage-v1: invalid publication group binding") from exc

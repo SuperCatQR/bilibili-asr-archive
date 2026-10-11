@@ -432,6 +432,28 @@
       "schema": null
     },
     {
+      "identity": "archive-bundle-v3",
+      "owner": "transcripts",
+      "authority": [
+        "src/bili_asr/artifacts.py",
+        "src/bili_asr/archive.py"
+      ],
+      "consumers": [
+        "archive",
+        "services.bundle_verification",
+        "services.archive_snapshot"
+      ],
+      "capabilities": [
+        "read",
+        "write"
+      ],
+      "dependencies": [
+        "archive-bundle-v2",
+        "source-metadata/v1"
+      ],
+      "schema": null
+    },
+    {
       "identity": "frozen-input/v1",
       "owner": "editorial",
       "authority": [

@@ -19,7 +19,7 @@ from bili_asr.artifact_inventory import (
     stream_hash,
 )
 from bili_asr.artifact_root import ArtifactRoots
-from bili_asr.artifacts import BUNDLE_MARKER_NAME, REQUIRED_ARTIFACT_KEYS
+from bili_asr.artifacts import BUNDLE_MARKER_NAME, REQUIRED_ARTIFACT_KEYS, SOURCE_METADATA_KEY, BUNDLE_SCHEMA_V3
 from bili_asr.canonical_json import digest
 from bili_asr.services.artifact_access import ArtifactAccess
 from bili_asr.services.artifact_inventory_service import inventory_artifacts
@@ -104,6 +104,12 @@ def preserve_transcript_bundle(connection: sqlite3.Connection, roots: ArtifactRo
     marker = json.loads(encoded)
     members = {role: (paths[role], marker["artifacts"][role]["sha256"], base / paths[role])
                for role in REQUIRED_ARTIFACT_KEYS}
+    if marker.get("schema") == BUNDLE_SCHEMA_V3:
+        metadata_key = str(Path(paths["srt_path"]).parent / "source-metadata.json").replace("\\", "/")
+        item = marker.get("artifacts", {}).get(SOURCE_METADATA_KEY)
+        if not isinstance(item, dict) or item.get("path") != metadata_key:
+            raise ValueError("transcript bundle metadata sidecar is not declared")
+        members[SOURCE_METADATA_KEY] = (metadata_key, item["sha256"], base / metadata_key)
     members["marker"] = (marker_key, hashlib.sha256(encoded).hexdigest(), marker_path)
     group_id = preserve_group(connection, roots, owner_kind="bundle", owner_id=f"bundle:{publication_id}", members=members)
     connection.execute("INSERT INTO artifact_publication_groups VALUES (?,?) ON CONFLICT(publication_id) DO UPDATE SET group_id=excluded.group_id",
