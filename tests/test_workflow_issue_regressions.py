@@ -237,10 +237,10 @@ def test_incompatible_database_cli_fails_before_modifying_schema(tmp_path, capsy
     with sqlite3.connect(path) as old:
         old.execute("CREATE TABLE transcripts(transcript_id INTEGER PRIMARY KEY)")
     before = path.read_bytes()
-    with pytest.raises(SchemaContractError, match="discarded"):
+    with pytest.raises(SchemaContractError, match="preserve archive.db"):
         open_database(tmp_path)
     assert cli.main(["workflow", "status", "--archive-root", str(tmp_path)]) == 1
-    assert "delete archive.db" in capsys.readouterr().err
+    assert "separate empty target" in capsys.readouterr().err
     assert path.read_bytes() == before
 
 
@@ -297,7 +297,7 @@ def _hold_write_lock(path, ready):
         connection.close()
 
 
-def test_heartbeat_inherits_timeout_and_survives_process_write_contention(tmp_path, monkeypatch):
+def test_heartbeat_bounds_inherited_timeout_and_survives_process_write_contention(tmp_path, monkeypatch):
     monkeypatch.setenv("BILI_SQLITE_BUSY_TIMEOUT_MS", "2000")
     connection = open_database(tmp_path)
     try:
@@ -310,7 +310,7 @@ def test_heartbeat_inherits_timeout_and_survives_process_write_contention(tmp_pa
         monkeypatch.setenv("BILI_SQLITE_BUSY_TIMEOUT_MS", "1")
         heartbeat = repo.open_lease_repository()
         assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 2000
-        assert heartbeat.connection.execute("PRAGMA busy_timeout").fetchone()[0] == 2000
+        assert heartbeat.connection.execute("PRAGMA busy_timeout").fetchone()[0] == 1000
         ctx = multiprocessing.get_context("spawn")
         ready = ctx.Event()
         writer = ctx.Process(target=_hold_write_lock, args=(str(tmp_path / "archive.db"), ready))

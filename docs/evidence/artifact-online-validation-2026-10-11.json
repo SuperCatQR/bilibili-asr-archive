@@ -1,0 +1,133 @@
+{
+  "schema": "isolated-artifact-online-soak/v1",
+  "source_head": "8d6ab213e9a1fea380d8c1b0ec95f6d643da2ab8",
+  "platform": "WSL Linux POSIX flock; temporary local filesystem",
+  "fixture_object_bytes": 4194304,
+  "rate_bytes_per_second_per_process": 33554432,
+  "concurrent_processes": 4,
+  "workers": [
+    {
+      "role": "reader",
+      "index": 1,
+      "reads": 156,
+      "busy": 4,
+      "corrupt_reads": 0,
+      "read_bytes": 654311424,
+      "peak_rss_kib": 44096
+    },
+    {
+      "role": "reader",
+      "index": 0,
+      "reads": 156,
+      "busy": 4,
+      "corrupt_reads": 0,
+      "read_bytes": 654311424,
+      "peak_rss_kib": 44096
+    },
+    {
+      "role": "migrator",
+      "index": 0,
+      "cycles": 6,
+      "busy": 92,
+      "released_bytes": 25165824,
+      "scan_bytes": 180355072,
+      "scan_seconds": 5.4979027570001335,
+      "io_bytes": 276837576,
+      "io_seconds": 8.306919651999806,
+      "observations": {
+        "no_candidate_or_live_pin": 23
+      },
+      "peak_rss_kib": 44096
+    },
+    {
+      "role": "migrator",
+      "index": 1,
+      "cycles": 6,
+      "busy": 254,
+      "released_bytes": 25165824,
+      "scan_bytes": 213909504,
+      "scan_seconds": 6.514997441000219,
+      "io_bytes": 276837576,
+      "io_seconds": 8.31111183600001,
+      "observations": {
+        "no_candidate_or_live_pin": 27
+      },
+      "peak_rss_kib": 44096
+    }
+  ],
+  "concurrency_seconds": 27.309756291999975,
+  "total_seconds": 37.06689244300003,
+  "aggregate_peak_sampled_rss_kib": 199844,
+  "aggregate_rss_sample_interval_seconds": 0.02,
+  "authority_unchanged": true,
+  "source_sha256_exact": true,
+  "policy_measurements": {
+    "copy": {
+      "state": "complete",
+      "scan": {
+        "bytes_read": 16777216,
+        "elapsed_seconds": 0.502129932999992
+      },
+      "io": {
+        "bytes_read": 83887205,
+        "elapsed_seconds": 2.5085389159999067,
+        "bytes_per_second_limit": 33554432
+      },
+      "released_bytes": 0
+    },
+    "offload": {
+      "state": "complete",
+      "scan": {
+        "bytes_read": 16777216,
+        "elapsed_seconds": 0.5017749049999338
+      },
+      "io": {
+        "bytes_read": 184551632,
+        "elapsed_seconds": 5.5089369990000705,
+        "bytes_per_second_limit": 33554432
+      },
+      "released_bytes": 16777216
+    }
+  },
+  "limitations": [
+    "Bounded 12-cycle soak, not a production-duration or large-catalog benchmark.",
+    "RSS is sampled aggregate; each worker also records ru_maxrss.",
+    "Transfer meter measures repeated payload reads, not device writes or wall-clock free-space gain.",
+    "This POSIX soak did not execute Windows native semantics; the later native_windows entry records separate native regression evidence."
+  ],
+  "native_windows": {
+    "source_head": "8d6ab213e9a1fea380d8c1b0ec95f6d643da2ab8",
+    "platform": "Windows 11 build 26100",
+    "filesystem": "NTFS local fixed disk",
+    "python": "CPython 3.12.13",
+    "passed": 216,
+    "skipped": 1,
+    "failed": 0,
+    "errors": 0,
+    "elapsed_seconds": 113.71,
+    "skipped_reason": "test_archive_snapshot.py symlink scenario: platform cannot create symlinks",
+    "fixture_environment": "git archive of fixed source revision into writable isolated checkout; original tests unchanged; explicit writable TEMP/TMP/base/cache and separate jsonschema dependency directory",
+    "test_files": [
+      "tests/test_artifact_coordination.py",
+      "tests/test_artifact_online.py",
+      "tests/test_artifact_policy.py",
+      "tests/test_artifact_review_target_generation.py",
+      "tests/test_artifact_review_regressions.py",
+      "tests/test_artifact_transfer.py",
+      "tests/test_artifact_catalog.py",
+      "tests/test_snapshot_external_artifacts.py",
+      "tests/test_artifact_groups.py",
+      "tests/test_artifact_online_contract.py",
+      "tests/test_archive_snapshot.py",
+      "tests/test_archive_recovery.py",
+      "tests/test_snapshot_e2e.py",
+      "tests/test_snapshot_storage.py",
+      "tests/test_migration_preservation_baseline.py"
+    ],
+    "limitations": [
+      "Native regression suite, not the POSIX multi-cycle RSS/rate soak.",
+      "Windows symlink scenario skipped for account capability; network filesystems not exercised.",
+      "Generated fixture media and test doubles; no production models or downloads."
+    ]
+  }
+}

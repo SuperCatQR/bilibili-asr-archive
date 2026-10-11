@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import multiprocessing as _multiprocessing
 import os
 import queue as _queue
 import time
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from typing import Any, NamedTuple
 
@@ -19,6 +21,10 @@ import bili_asr.asr.diagnostics as _dependency_diagnostics
 import bili_asr.asr.errors as _dependency_errors
 import bili_asr.asr.hotwords as _dependency_hotwords
 from bili_asr.asr.provenance import _redact
+from bili_asr.asr.preparation import DecodeInputs, InputPrefetch, ProcessorReuse
+from bili_asr.asr.execution import clock_anchor, execution_policy, hardware_evidence
+from bili_asr.asr.backend import HuggingFaceBackend, InferenceBackend
+from bili_asr.asr.batching import BatchExecutor
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -29,14 +35,16 @@ class ASRInferenceTimeoutError(TimeoutError):
     error_code = "inference_timeout"
 
 
-def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_text: str | None, result_queue: Any) -> None:
+def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_text: str | None, result_queue: Any, artifact_context=None) -> None:
     """Run model loading, decoding, and forced alignment outside the worker process."""
 
     try:
         runner = ASRRunner(config)
-        segments = two_pass_transcribe(
-            runner, audio_path, paired_subtitle_text=paired_subtitle_text
-        )
+        from bili_asr.services.artifact_child import child_artifact_access
+        with child_artifact_access(artifact_context, audio_path):
+            segments = two_pass_transcribe(
+                runner, audio_path, paired_subtitle_text=paired_subtitle_text
+            )
         result_queue.put(
             {
                 "ok": True,
@@ -61,6 +69,7 @@ def transcribe_with_timeout(
     paired_subtitle_text: str | None,
     timeout_seconds: float,
     diagnostics_sink: dict[str, Any] | None = None,
+    artifact_context: dict | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any] | None]:
     """Run one ASR attempt in a killable child process.
 
@@ -76,7 +85,7 @@ def transcribe_with_timeout(
     result_queue = context.Queue(maxsize=1)
     process = context.Process(
         target=_isolated_transcribe_worker,
-        args=(config, audio_path, paired_subtitle_text, result_queue),
+        args=(config, audio_path, paired_subtitle_text, result_queue, artifact_context),
         name="bili-asr-inference",
     )
     process.start()
@@ -189,11 +198,13 @@ def _load_qwen_models(**kwargs: Any) -> _ModelSet:
 
     processor = AutoProcessor.from_pretrained(model_name, revision=revision, local_files_only=local_files_only)
     model = AutoModelForMultimodalLM.from_pretrained(
-        model_name, revision=revision, dtype=torch.bfloat16, device_map=device, local_files_only=local_files_only
+        model_name, revision=revision, dtype=getattr(torch, kwargs.get("model_dtype", "bfloat16")),
+        device_map=device, local_files_only=local_files_only
     )
     aligner_processor = AutoProcessor.from_pretrained(aligner_name, revision=aligner_revision, local_files_only=local_files_only)
     aligner = AutoModelForTokenClassification.from_pretrained(
-        aligner_name, revision=aligner_revision, dtype=torch.bfloat16, device_map=device, local_files_only=local_files_only
+        aligner_name, revision=aligner_revision, dtype=getattr(torch, kwargs.get("aligner_dtype", "bfloat16")),
+        device_map=device, local_files_only=local_files_only
     )
     model.eval()
     aligner.eval()
@@ -220,6 +231,7 @@ class ASRRunner:
         *,
         model_factory: Callable[..., Any] | None = None,
         model_name: str | None = None,
+        backend: InferenceBackend | None = None,
     ) -> None:
         if config is None:
             config = _dependency_config.ASRConfig(model_name=model_name or _dependency_constants.DEFAULT_MODEL)
@@ -232,6 +244,17 @@ class ASRRunner:
         if not isinstance(config, _dependency_config.ASRConfig):
             raise TypeError("config must be an ASRConfig")
         self.config = config
+        self.backend = backend if backend is not None else HuggingFaceBackend()
+        capabilities = self.backend.capabilities
+        if capabilities.schema_version != 1:
+            raise ValueError("unsupported inference backend capability schema")
+        if any(dtype not in self.backend.capabilities.precisions for dtype in (config.model_dtype, config.aligner_dtype)):
+            raise ValueError("selected inference backend does not support the requested precision")
+        for requested, supported in ((config.asr_compile, capabilities.compiled_generation),
+                (config.aligner_compile, capabilities.compiled_alignment),
+                (config.asr_cache_implementation == "static", capabilities.static_cache)):
+            if requested and not supported:
+                raise ValueError("selected inference backend does not support the requested runtime strategy")
         self._model_factory = model_factory
         self._models: _ModelSet | None = None
         # Monotonic, never reset by release(): a runner that released and rebuilt paid two
@@ -262,6 +285,74 @@ class ASRRunner:
         self._last_language: str | None = None
         self._diagnostic_passes: list[dict[str, Any]] = []
         self._last_generation: dict[str, Any] = {}
+        self._audio_reuse_scope = False
+        self._prepared_audio = None
+        self._prefetch_enabled = False
+        self._prefetch_bytes = 64 * 1024 * 1024
+        self._prefetch_processor_reuse = None
+        self._trace: list[dict[str, Any]] | None = None
+        self._trace_origin = 0.0
+        self._trace_chunk_index = None
+
+    def configure_prefetch(self, *, enabled: bool, max_bytes: int = 64 * 1024 * 1024) -> None:
+        """Experimental depth-one CPU input preparation; no concurrent GPU calls."""
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise ValueError("max_bytes must be a positive integer")
+        self._prefetch_enabled, self._prefetch_bytes = bool(enabled), max_bytes
+
+    @contextmanager
+    def audio_reuse(self):
+        """Keep audio and an isolated CPU processor only for this two-pass task."""
+        if self._audio_reuse_scope:
+            raise RuntimeError("two-pass reuse scope is already active")
+        self._audio_reuse_scope = True
+        self._prepared_audio = None
+        processor_reuse = ProcessorReuse()
+        self._prefetch_processor_reuse = processor_reuse
+        try:
+            yield
+        finally:
+            processor_reuse.close()
+            self._prefetch_processor_reuse = None
+            self._prepared_audio = None
+            self._audio_reuse_scope = False
+
+    def _audio_identity(self, path: str) -> tuple | None:
+        digest = hashlib.sha256()
+        try:
+            with open(path, "rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+        except OSError:
+            # An injected decoder may support a virtual path. No identity means no
+            # reuse; the real reader remains responsible for its ordinary error.
+            return None
+        return (digest.hexdigest(), _dependency_constants.SAMPLE_RATE, self.config.chunk_seconds)
+
+    def _trace_stage(self, phase: str, started: float, *, chunk_index: int | None = None) -> None:
+        if self._trace is not None:
+            self._trace.append({"phase": phase, "start_s": started - self._trace_origin,
+                "end_s": time.perf_counter() - self._trace_origin,
+                "chunk_index": self._trace_chunk_index if chunk_index is None else chunk_index,
+                "clock": "process_perf_counter", "measurement": "wall"})
+
+    def _prepare_decode_inputs(self, processor: Any, audio: Any, *, record_trace: bool = True):
+        hotwords = self._prompt_hotwords()
+        prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
+        started = time.perf_counter()
+        result = processor.apply_transcription_request(audio=audio, language=self.config.language, prompt=prompt)
+        prepared = self._decode_input_budget(result)
+        if record_trace:
+            self._trace_stage("cpu_input_prepare", started)
+        return prepared
+
+    def _decode_input_budget(self, inputs: Any) -> DecodeInputs:
+        # Preserve the original mask formula, including padding and the minimum.
+        # Native processors return CPU tensors here: evaluating the scalar before
+        # .to() avoids a device-to-host synchronization solely for token budgeting.
+        seconds = float(inputs["input_features_mask"].sum(-1).max()) / _dependency_constants._MEL_FRAMES_PER_SECOND
+        budget = max(self.config.min_new_tokens, int(seconds * self.config.tokens_per_second))
+        return DecodeInputs(inputs, budget, seconds)
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -293,6 +384,8 @@ class ASRRunner:
             "aligner_revision": self.config.aligner_revision,
             "offline": self.config.offline,
         }
+        if self.config.model_dtype != "bfloat16" or self.config.aligner_dtype != "bfloat16":
+            kwargs.update(model_dtype=self.config.model_dtype, aligner_dtype=self.config.aligner_dtype)
         if self.config.model_revision is not None:
             kwargs["model_revision"] = self.config.model_revision
 
@@ -308,7 +401,11 @@ class ASRRunner:
                 )
             self.model_load_attempts += 1
             _progress("load")
-            self._models = factory(**kwargs)
+            models = factory(**kwargs)
+            configure = getattr(self.backend, "configure", None)
+            if callable(configure):
+                configure(self.config, models)
+            self._models = models
         except (_dependency_errors.ASRDependencyError, _dependency_errors.ASRModelError):
             raise
         # Third-party loaders expose many exception classes.  Keep their
@@ -324,7 +421,7 @@ class ASRRunner:
     # -- the pipeline ------------------------------------------------------------------
 
     def _transcribe_chunk(
-        self, models: _ModelSet, audio: Any, *, bust_cache: bool = False
+        self, models: _ModelSet, audio: Any, *, bust_cache: bool = False, prepared_inputs: Any = None
     ) -> tuple[str, str]:
         """One chunk through the decoder: ``(text, detected_language)``.
 
@@ -340,24 +437,30 @@ class ASRRunner:
 
         import torch
 
-        hotwords = self._prompt_hotwords()
-        prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
         # Decoded chunks already contain mono 16 kHz audio.
-        inputs = models.processor.apply_transcription_request(
-            audio=audio, language=self.config.language, prompt=prompt
-        )
+        prepared = prepared_inputs if prepared_inputs is not None else self._prepare_decode_inputs(models.processor, audio)
+        # Custom/injected processors can still supply the historical mapping.
+        if not isinstance(prepared, DecodeInputs):
+            prepared = self._decode_input_budget(prepared)
+        inputs, budget = prepared.inputs, prepared.max_new_tokens
+        transfer_clock = time.perf_counter()
         inputs = inputs.to(models.model.device, models.model.dtype)
-        seconds = float(inputs["input_features_mask"].sum(-1).max()) / _dependency_constants._MEL_FRAMES_PER_SECOND
-        budget = max(self.config.min_new_tokens, int(seconds * self.config.tokens_per_second))
+        self._trace_stage("device_transfer", transfer_clock)
         with torch.inference_mode():
             _progress("decode")
-            generated = models.model.generate(**inputs, max_new_tokens=budget, **(
-                {"use_cache": False} if bust_cache and not self.config.second_pass_use_cache else {}
-            ))
+            generate_clock = time.perf_counter()
+            generated = self.backend.generate(models.model, inputs, max_new_tokens=budget,
+                disable_cache=bust_cache and not self.config.second_pass_use_cache)
+            self._trace_stage("model_generate", generate_clock)
+        post_clock = time.perf_counter()
         tokens = generated[:, inputs["input_ids"].shape[1]:]
         self._last_generation = _dependency_diagnostics.generation_evidence(tokens, models.model, budget)
+        self._last_generation["budget_metadata"] = {
+            "source": "processor_mask_before_transfer", "feature_seconds": prepared.feature_seconds,
+        }
         text = _dependency_alignment._clean_text(models.processor.decode(tokens, return_format="transcription_only")[0])
         parsed = models.processor.decode(tokens, return_format="parsed")[0]
+        self._trace_stage("decode_postprocess", post_clock)
         return text, str(parsed.get("language") or "")
 
     def _align_chunk(self, models: _ModelSet, audio: Any, text: str, language: str) -> list[dict[str, Any]]:
@@ -365,19 +468,28 @@ class ASRRunner:
 
         import torch
 
+        started = time.perf_counter()
         inputs, word_lists = models.aligner_processor.prepare_forced_aligner_inputs(
             audio=audio, transcript=text, language=language or "Chinese"
         )
+        self._trace_stage("align_prepare", started)
+        started = time.perf_counter()
         inputs = inputs.to(models.aligner.device, models.aligner.dtype)
+        self._trace_stage("align_transfer", started)
         with torch.inference_mode():
             _progress("align")
-            logits = models.aligner(**inputs).logits
-        return list(models.aligner_processor.decode_forced_alignment(
+            started = time.perf_counter()
+            logits = self.backend.align(models.aligner, inputs)
+            self._trace_stage("align_forward", started)
+        started = time.perf_counter()
+        units = list(models.aligner_processor.decode_forced_alignment(
             logits=logits,
             input_ids=inputs["input_ids"],
             word_lists=word_lists,
             timestamp_token_id=models.aligner.config.timestamp_token_id,
         )[0])
+        self._trace_stage("align_postprocess", started)
+        return units
 
     def characters(self) -> dict[str, Any] | None:
         """The character-level record for the **last** :meth:`transcribe`, or ``None``.
@@ -442,6 +554,11 @@ class ASRRunner:
         report: dict[str, Any] = {"chunks": [], "timings_s": {}, "completed": False}
         self._diagnostic_passes.append(report)
         run_clock = time.perf_counter()
+        self._trace_origin = run_clock
+        report["clock"] = clock_anchor(monotonic=run_clock)
+        report["pass_kind"] = "hotword_second" if bust_cache else "first"
+        self._trace_chunk_index = None
+        self._trace = report["trace"] = []
         load_clock = time.perf_counter()
         report["model_reused"] = self._models is not None
         # The model pair first: a host without the extra must fail with the documented
@@ -450,7 +567,22 @@ class ASRRunner:
         # is reported the same way.
         models = self._get_models()
         report["timings_s"]["model_load"] = time.perf_counter() - load_clock
+        self._trace_stage("model_load", load_clock)
         report["environment"] = _dependency_diagnostics.runtime_environment()
+        report["execution_policy"] = execution_policy(self.config, models,
+            prefetch=self._prefetch_enabled, prefetch_bytes=self._prefetch_bytes)
+        report["execution_policy"]["backend"] = {
+            "requested": self.backend.capabilities.name, "resolved": self.backend.capabilities.name,
+            "capabilities": self.backend.capabilities.evidence(),
+        }
+        report["hardware"] = hardware_evidence(getattr(models.model, "device", None))
+        report["execution_policy"]["runtime"] = {
+            "environment": report["environment"], "hardware": report["hardware"], "source_commit": None,
+        }
+        report["resource_observation"] = {
+            "cpu_rss_peak_bytes": None, "gpu_allocator_peak_bytes": None,
+            "gpu_sampled_peak_bytes": None, "sampling": "disabled",
+        }
         report["model_dtype"] = str(models.model.dtype)
         report["aligner_dtype"] = str(models.aligner.dtype)
         for key, model in (("resolved_model_revision", models.model), ("resolved_aligner_revision", models.aligner)):
@@ -466,22 +598,36 @@ class ASRRunner:
 
         audio_clock = time.perf_counter()
         path, temporary = _dependency_audio._materialize_input(audio_path)
+        prefetch = None
+        batch_results = None
         try:
-            samples, rate = _dependency_audio._read_audio(path)
-            samples = np.asarray(samples, dtype=np.float32)
-            if samples.ndim > 1:
-                samples = samples.mean(-1).astype(np.float32)
-            if int(rate) != _dependency_constants.SAMPLE_RATE:
+            audio_key = self._audio_identity(path) if self._audio_reuse_scope else None
+            cached = self._prepared_audio if self._audio_reuse_scope else None
+            if cached is not None and cached[0] != audio_key:
+                raise _dependency_errors.AudioDecodeError("audio input changed between transcription passes")
+            report["waveform_reused"] = bool(audio_key is not None and cached is not None and cached[0] == audio_key)
+            if report["waveform_reused"]:
+                samples = cached[1]
+            else:
+                samples, rate = _dependency_audio._read_audio(path)
+                samples = _dependency_audio._mono_float32(samples)
+                if int(rate) != _dependency_constants.SAMPLE_RATE:
                 # ``soxr`` is what ``librosa.resample`` calls underneath at its default
                 # ``res_type="soxr_hq"``; measured bit-identical on this corpus, and it drops a
                 # dependency whose version range could change the resampler silently.
-                samples = soxr.resample(samples, int(rate), _dependency_constants.SAMPLE_RATE)
-                samples = np.asarray(samples, dtype=np.float32)
+                    samples = soxr.resample(samples, int(rate), _dependency_constants.SAMPLE_RATE)
+                    samples = np.asarray(samples, dtype=np.float32)
+                if self._audio_reuse_scope and audio_key is not None:
+                    if self._audio_identity(path) != audio_key:
+                        raise _dependency_errors.AudioDecodeError("audio input changed during preparation")
+                    self._prepared_audio = (audio_key, samples)
 
             report["timings_s"]["audio_prepare"] = time.perf_counter() - audio_clock
+            self._trace_stage("audio_prepare", audio_clock)
             split_clock = time.perf_counter()
             chunks = _dependency_audio._split_audio(samples, _dependency_constants.SAMPLE_RATE, self.config.chunk_seconds)
             report["timings_s"]["split"] = time.perf_counter() - split_clock
+            self._trace_stage("split", split_clock)
             if not chunks:
                 self._last_characters = None
                 self._last_transcribed_segments = None
@@ -501,25 +647,63 @@ class ASRRunner:
             minimum = int(_dependency_constants._CHUNK_MIN_SECONDS * _dependency_constants.SAMPLE_RATE)
             pieces: list[dict[str, Any]] = []
             languages: set[str] = set()
+            batched = self.config.asr_batch_size > 1 or self.config.aligner_batch_size > 1
+            batch_results = (iter(BatchExecutor(self, models, report, minimum_samples=minimum,
+                             bust_cache=bust_cache).run(chunks)) if batched else None)
+            prefetch = InputPrefetch(models.processor if self._prefetch_enabled else None,
+                lambda processor, audio: self._prepare_decode_inputs(processor, audio, record_trace=False),
+                enabled=self._prefetch_enabled and not batched, budget_bytes=self._prefetch_bytes,
+                processor_reuse=self._prefetch_processor_reuse)
+            report["prefetch"] = prefetch.report
+            if batched and self._prefetch_enabled:
+                report["prefetch"].update(requested_enabled=True, fallback="batch_scheduler_owns_preparation")
+            report["resources"] = {"decoded_waveform_bytes": int(samples.nbytes),
+                                   "prefetch_input_peak_bytes": 0, "prefetch_memory_bound": "reservation_and_observed_input"}
+
+            def padded_audio(chunk):
+                value = np.asarray(chunk, dtype=np.float32)
+                return np.pad(value, (0, minimum - value.shape[0])) if value.shape[0] < minimum else value
+
             for chunk_index, (chunk, offset) in enumerate(chunks):
+                self._trace_chunk_index = chunk_index
                 chunk_report: dict[str, Any] = {
                     "chunk_index": chunk_index, "start_s": offset,
                     "end_s": offset + len(chunk) / _dependency_constants.SAMPLE_RATE,
                     "flags": [],
                 }
                 report["chunks"].append(chunk_report)
-                audio = np.asarray(chunk, dtype=np.float32)
-                if audio.shape[0] < minimum:
-                    # The aligner refuses a degenerate window.  The splitter deliberately does not
-                    # pad — that would break its tiling promise — so the pad happens here, where the
-                    # requirement comes from.
-                    audio = np.pad(audio, (0, minimum - audio.shape[0]))
+                audio = padded_audio(chunk)
+                if prefetch.pending is not None:
+                    wait_clock = time.perf_counter()
+                    prepared_inputs, prepared = prefetch.consume()
+                    self._trace_stage("cpu_input_wait", wait_clock, chunk_index=chunk_index)
+                    if prepared is not None:
+                        self._trace.append({"phase": "cpu_input_prepare",
+                            "start_s": prepared.started - self._trace_origin,
+                            "end_s": prepared.finished - self._trace_origin, "chunk_index": chunk_index,
+                            "clock": "process_perf_counter", "measurement": "wall"})
+                else:
+                    prepared_inputs = None
+                if not batched and chunk_index + 1 < len(chunks):
+                    prefetch.submit(chunk_index + 1, chunks[chunk_index + 1][0], minimum_samples=minimum)
                 self._last_generation = {}
                 decode_clock = time.perf_counter()
                 # Processors accept decoded arrays. Paths would invoke their
                 # optional decoder backend and repeat our own audio preparation.
-                text, language = self._transcribe_chunk(models, audio, bust_cache=bust_cache)
-                chunk_report["decode_s"] = time.perf_counter() - decode_clock
+                decode_kwargs = {} if prepared_inputs is None else {"prepared_inputs": prepared_inputs}
+                batch_result = next(batch_results) if batch_results is not None else None
+                if batch_result is None:
+                    text, language = self._transcribe_chunk(models, audio, bust_cache=bust_cache, **decode_kwargs)
+                    chunk_report["decode_s"] = time.perf_counter() - decode_clock
+                    self._trace_stage("decode", decode_clock, chunk_index=chunk_index)
+                else:
+                    if batch_result["chunk_index"] != chunk_index:
+                        raise ValueError("ASR batch chunk identity mismatch")
+                    text, language = batch_result["text"], batch_result["language"]
+                    self._last_generation = batch_result["generation"]
+                    chunk_report["decode_batch_index"] = batch_result.get("decode_batch_index")
+                prepared_inputs = None
+                decode_kwargs.clear()
                 chunk_report["text"] = text
                 chunk_report["language"] = language
                 chunk_report["generation"] = dict(self._last_generation)
@@ -533,8 +717,13 @@ class ASRRunner:
                 if language.strip():
                     languages.add(language.strip())
                 align_clock = time.perf_counter()
-                raw_units = self._align_chunk(models, audio, text, language)
-                chunk_report["align_s"] = time.perf_counter() - align_clock
+                if batch_result is None:
+                    raw_units = self._align_chunk(models, audio, text, language)
+                    chunk_report["align_s"] = time.perf_counter() - align_clock
+                    self._trace_stage("align", align_clock, chunk_index=chunk_index)
+                else:
+                    raw_units = batch_result["raw_units"]
+                    chunk_report["align_batch_index"] = batch_result.get("align_batch_index")
                 chunk_report["alignment"] = _dependency_diagnostics.alignment_evidence(
                     raw_units, len(audio) / _dependency_constants.SAMPLE_RATE
                 )
@@ -561,8 +750,8 @@ class ASRRunner:
             # is deliberately unchanged.
             self._last_coverage = _dependency_coverage._coverage_record(decoded_seconds, cues)
             report["span_coverage_short"] = bool(self._last_coverage and self._last_coverage["coverage_short"])
-            report["timings_s"]["decode"] = sum(c.get("decode_s", 0.0) for c in report["chunks"])
-            report["timings_s"]["align"] = sum(c.get("align_s", 0.0) for c in report["chunks"])
+            report["timings_s"]["decode"] = report.get("batch_timings_s", {}).get("decode", sum(c.get("decode_s", 0.0) for c in report["chunks"]))
+            report["timings_s"]["align"] = report.get("batch_timings_s", {}).get("align", sum(c.get("align_s", 0.0) for c in report["chunks"]))
             report["completed"] = True
             # Preserve the engine's detected language for automatic-language
             # runs. Multiple languages are explicit; no evidence stays unset.
@@ -572,7 +761,17 @@ class ASRRunner:
                 self._last_language = "mul"
             return cues
         finally:
+            if batch_results is not None:
+                batch_results.close()
+            strategy_evidence = getattr(self.backend, "execution_evidence", None)
+            if callable(strategy_evidence):
+                report["runtime_strategies"] = strategy_evidence()
+            if prefetch is not None:
+                prefetch.close()
+                report["resources"]["prefetch_input_peak_bytes"] = prefetch.peak_bytes
             report["timings_s"]["total"] = time.perf_counter() - run_clock
+            self._trace = None
+            self._trace_chunk_index = None
             for leftover in (temporary,):
                 if leftover:
                     try:
@@ -587,7 +786,37 @@ class ASRRunner:
     def release(self) -> None:
         """Drop the owned model pair.  The counters are monotonic and are **not** reset."""
 
+        release = getattr(self.backend, "release", None)
+        if callable(release):
+            release()
         self._models = None
+        self._prepared_audio = None
+        if self._prefetch_processor_reuse is not None:
+            self._prefetch_processor_reuse.close()
+
+    def prepare(self, audio_path: str | None = None) -> dict[str, Any]:
+        """Load both models and optionally run an explicit, non-business sentinel."""
+        started = time.perf_counter()
+        models = self._get_models()
+        result = {"state": "loaded", "model_dtype": str(models.model.dtype),
+                  "aligner_dtype": str(models.aligner.dtype)}
+        if audio_path is not None:
+            try:
+                cues = self.transcribe(audio_path)
+                if not cues or not self.characters():
+                    raise _dependency_errors.ASRModelError("warmup sample produced no aligned transcript")
+                result["state"] = "ready"
+            finally:
+                # Warmup output and hotword evidence must never enter a business request.
+                self._diagnostic_passes.clear()
+                self._last_characters = self._last_transcribed_segments = self._last_coverage = None
+                self._last_language = None
+                self._last_generation = {}
+                self._hotwords_effective = None
+                self._hotwords_dropped = ()
+                self._hotwords_evidence_text = self._hotwords_subtitle_text = None
+        result["wall_s"] = time.perf_counter() - started
+        return result
 
     def _prompt_hotwords(self) -> tuple[str, ...]:
         """The vocabulary that may reach the prompt for the next chunk.
@@ -690,6 +919,8 @@ class ASRRunner:
             "offline": str(config.offline),
             "local_source": _redact(config.local_source),
         }
+        if config.model_dtype != "bfloat16" or config.aligner_dtype != "bfloat16":
+            provenance.update(model_dtype=config.model_dtype, aligner_dtype=config.aligner_dtype)
         if self._hotwords_dropped:
             provenance["hotword_dropped_no_evidence"] = ",".join(
                 _redact(term) for term in self._hotwords_dropped
@@ -712,6 +943,12 @@ def two_pass_transcribe(
     no candidate terms, pass 2 is skipped and pass 1's segments are the result.
     """
 
+    reuse = getattr(runner, "audio_reuse", None)
+    with reuse() if callable(reuse) else nullcontext():
+        return _two_pass_transcribe(runner, audio_path, paired_subtitle_text=paired_subtitle_text)
+
+
+def _two_pass_transcribe(runner, audio_path, *, paired_subtitle_text):
     runner.set_hotword_evidence(
         evidence_text=None, paired_subtitle_text=paired_subtitle_text
     )

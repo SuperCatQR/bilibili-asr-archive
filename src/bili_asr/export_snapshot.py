@@ -10,23 +10,20 @@ from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import stat
-from typing import Callable, Iterator, Mapping
+from typing import Iterator, Mapping
 import uuid
+
+from bili_asr.contracts.json_schema import validate_json
+from bili_asr.contracts.registry import catalog_contract, manifest_contract
 
 
 class ExportSnapshotError(ValueError):
     """The output is unsafe, unmanaged, or inconsistent with its manifest."""
 
 
-_ARTICLE_FIELDS = frozenset({
-    "manuscriptType", "slug", "title", "summary", "tags", "attribution", "editorNote",
-    "releaseId", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl",
-    "contentSha256", "artifactSha256", "templateVersion", "publishedAt", "file",
-    "reviewFile", "reviewArtifactSha256",
-})
-_DRAFT_FIELDS = (_ARTICLE_FIELDS - {"releaseId", "templateVersion", "publishedAt"}) | {"reviewStatus", "createdAt"}
 _REVIEW_STATUSES = frozenset({"pending-review", "in-review", "changes-requested", "approved", "rejected"})
 _REVIEW_FILES = frozenset({"ai-draft.md", "review.md", "edition.md", "edition.json", "review.json", "differences/ai.patch", "differences/parent.patch"})
+_IMPORT_REVIEW_FILES = frozenset({"import-origin.json", "preserved-body.md", "differences/preserved.patch"})
 
 
 def json_bytes(value: object) -> bytes:
@@ -76,32 +73,65 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
     return output
 
 
-def _allowed_file(name: str, kind: str) -> bool:
+def _allowed_file(name: str, kind: str, profile: str | None = None) -> bool:
+    if name == "origins.json":
+        return profile in {"universal-origin-v1", "universal-origin-v2"} and kind in {"publication-export", "publication-draft-export"}
     if kind == "publication-export":
-        return name in {"catalog.json", "content-rights.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
+        return name in {"catalog.json", "content-rights.json", "series.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
     if kind == "publication-draft-export":
-        return name in {"catalog.json", "content-rights.json"} or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
-    return name in _REVIEW_FILES
+        return name in {"catalog.json", "content-rights.json", "series.json"} or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
+    return name in _REVIEW_FILES | _IMPORT_REVIEW_FILES
 
 
-def _validate_article(article: object, *, draft: bool = False) -> dict:
-    fields = _DRAFT_FIELDS if draft else _ARTICLE_FIELDS
-    if not isinstance(article, dict) or set(article) != fields:
-        raise ExportSnapshotError("public article fields differ from the contract")
-    hashes = ("aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256") if draft else ("releaseId", "aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256")
-    for key in hashes:
-        if not isinstance(article[key], str) or not re.fullmatch(r"[0-9a-f]{64}", article[key]):
+def _contract_json(identity: str, value: object) -> None:
+    try:
+        validate_json(identity, value)
+    except ValueError as exc:
+        raise ExportSnapshotError(str(exc)) from exc
+
+
+def _validate_article(article: object, *, draft: bool = False, catalog_version: int = 2) -> dict:
+    _contract_json(catalog_contract(catalog_version, draft=draft), {
+        "schemaVersion": catalog_version, "manuscriptType": "publication-draft" if draft else "publication",
+        "articles": [article],
+    })
+    return _validate_article_semantics(article, draft=draft, catalog_version=catalog_version)
+
+
+def _validate_article_semantics(article: dict, *, draft: bool, catalog_version: int) -> dict:
+    """Check domain identities and file relations after structural validation."""
+    universal = catalog_version == 3 and isinstance(article, dict) and article.get("contentVersion") == 2
+    # JSON Schema patterns use search semantics: `$` can match before a final
+    # newline. Preserve the original exact identity checks at this boundary.
+    hashes = ("aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256")
+    for key in hashes if draft else ("releaseId", *hashes):
+        if re.fullmatch(r"[0-9a-f]{64}", article[key]) is None:
             raise ExportSnapshotError(f"invalid public article hash: {key}")
-    if not isinstance(article["editionId"], str) or not re.fullmatch(r"[0-9a-f]{32}", article["editionId"]):
+    if re.fullmatch(r"[0-9a-f]{32}", article["editionId"]) is None:
         raise ExportSnapshotError("invalid public edition ID")
-    for key, minimum in (("videoPartId", 1), ("pageIndex", 0), ("createdAt" if draft else "publishedAt", 0)):
+    for key, minimum in (("videoPartId", 1), ("partIndex" if universal else "pageIndex", 0), ("createdAt" if draft else "publishedAt", 0)):
         if type(article[key]) is not int or article[key] < minimum:
             raise ExportSnapshotError(f"invalid public article integer: {key}")
-    for key in ("title", "summary", "attribution", "editorNote", "bvid"):
-        if not isinstance(article[key], str):
-            raise ExportSnapshotError(f"invalid public article text: {key}")
-    if not article["title"].strip() or not article["attribution"].strip() or not re.fullmatch(r"[A-Za-z0-9_-]+", article["bvid"]):
+    if not article["title"].strip() or not article["attribution"].strip():
         raise ExportSnapshotError("invalid public article title, attribution, or source")
+    if universal:
+        from bili_asr.platform_identity import ContentRef
+        from bili_asr.source_identity import source_url
+        from bili_asr.source_metadata import SourceMetadataSnapshot
+        try:
+            ref = ContentRef(article["platform"], article["externalVideoId"], article["partIndex"])
+            metadata = SourceMetadataSnapshot.from_dict(article["sourceMetadata"])
+            if (type(article["contentVersion"]) is not int or metadata.ref != ref
+                    or article["sourcePublishedAt"] != metadata.to_dict()["sourcePublishedAt"]
+                    or article["pubdateUnix"] != metadata.pubdate):
+                raise ValueError("source snapshot mismatch")
+            expected_url = source_url(ref)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ExportSnapshotError("invalid universal public source") from exc
+    else:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", article["bvid"]):
+            raise ExportSnapshotError("invalid public article source")
+        expected_url = f"https://www.bilibili.com/video/{article['bvid']}/?p={article['pageIndex'] + 1}"
     tags = article["tags"]
     if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag.strip() for tag in tags) or len(set(tags)) != len(tags):
         raise ExportSnapshotError("invalid public article tags")
@@ -112,24 +142,25 @@ def _validate_article(article: object, *, draft: bool = False) -> dict:
     if draft:
         if not isinstance(article["reviewStatus"], str) or article["reviewStatus"] not in _REVIEW_STATUSES:
             raise ExportSnapshotError("invalid draft review status")
-    elif article["templateVersion"] != "publish-v1":
+    elif article["templateVersion"] != ("publish-v2" if universal else "publish-v1"):
         raise ExportSnapshotError("invalid public article template")
     if (article["manuscriptType"] != manuscript_type
             or article["slug"] != slug or article["file"] != filename or article["reviewFile"] != review_filename
-            or article["sourceUrl"] != f"https://www.bilibili.com/video/{article['bvid']}/?p={article['pageIndex'] + 1}"):
+            or article["sourceUrl"] != expected_url):
         raise ExportSnapshotError("public article identity or source URL mismatch")
     return article
 
 
-def _file_parts(name: str, kind: str) -> tuple[str, ...]:
+def _file_parts(name: str, kind: str, profile: str | None = None) -> tuple[str, ...]:
     parts = PurePosixPath(name).parts
-    if not _allowed_file(name, kind) or PurePosixPath(name).as_posix() != name or any(part in {".", ".."} for part in parts):
+    if not _allowed_file(name, kind, profile) or PurePosixPath(name).as_posix() != name or any(part in {".", ".."} for part in parts):
         raise ExportSnapshotError(f"unmanaged export file: {name}")
     return parts
 
 
-def _snapshot_id(files: list[dict[str, str]]) -> str:
-    canonical = json.dumps(files, sort_keys=True, separators=(",", ":"))
+def _snapshot_id(files: list[dict[str, str]], kind: str | None = None, profile: str | None = None) -> str:
+    value = files if profile is None else {"schemaVersion": 3 if profile == "universal-origin-v2" else 2, "manuscriptType": kind, "contractProfile": profile, "files": files}
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -162,9 +193,14 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
     if manifest_name not in actual_files:
         raise ExportSnapshotError(f"output is not a managed {kind} snapshot; legacy exports and manual files are refused")
     manifest = read_json(directory / manifest_name)
-    if not isinstance(manifest, dict) or set(manifest) != {"schemaVersion", "manuscriptType", "snapshotId", "files"}:
-        raise ExportSnapshotError("invalid export manifest fields")
-    if type(manifest["schemaVersion"]) is not int or manifest["schemaVersion"] != 1 or manifest["manuscriptType"] != kind:
+    profile = manifest.get("contractProfile") if isinstance(manifest, dict) else None
+    imported = bool(actual_files & _IMPORT_REVIEW_FILES) and kind == "editorial-export"
+    try:
+        identity = manifest_contract(kind, profile, imported=imported)
+    except ValueError as exc:
+        raise ExportSnapshotError(str(exc)) from exc
+    _contract_json(identity, manifest)
+    if type(manifest["schemaVersion"]) is not int or manifest["manuscriptType"] != kind:
         raise ExportSnapshotError("unsupported export manifest contract")
     records = manifest["files"]
     if not isinstance(records, list) or not records:
@@ -177,7 +213,7 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         name, digest = record["path"], record["sha256"]
         if not isinstance(name, str) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ExportSnapshotError("invalid export file identity")
-        _file_parts(name, kind)
+        _file_parts(name, kind, profile)
         if name in expected_files:
             raise ExportSnapshotError("duplicate export manifest file")
         expected_files.add(name)
@@ -185,7 +221,7 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         path = directory / name
         if name not in actual_files or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise ExportSnapshotError(f"export file is missing or modified: {name}")
-    if records != sorted(records, key=lambda item: item["path"]) or manifest["snapshotId"] != _snapshot_id(records):
+    if records != sorted(records, key=lambda item: item["path"]) or manifest["snapshotId"] != _snapshot_id(records, kind, profile):
         raise ExportSnapshotError("export snapshot identity mismatch")
     if actual_files != expected_files or actual_directories != expected_directories:
         raise ExportSnapshotError("export contains unmanaged files or directories")
@@ -195,11 +231,16 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         catalog = read_json(directory / "catalog.json")
         draft = kind == "publication-draft-export"
         manuscript_type = "publication-draft" if draft else "publication"
-        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] != 2 or catalog["manuscriptType"] != manuscript_type or not isinstance(catalog["articles"], list):
+        if not isinstance(catalog, dict):
             raise ExportSnapshotError("unsupported public catalog contract")
+        try:
+            identity = catalog_contract(catalog.get("schemaVersion"), draft=draft)
+        except ValueError as exc:
+            raise ExportSnapshotError("unsupported public catalog contract") from exc
+        _contract_json(identity, catalog)
         article_files: set[str] = set()
         for article in catalog["articles"]:
-            article = _validate_article(article, draft=draft)
+            article = _validate_article_semantics(article, draft=draft, catalog_version=catalog["schemaVersion"])
             for file_field, hash_field in (("file", "artifactSha256"), ("reviewFile", "reviewArtifactSha256")):
                 if article[file_field] in article_files:
                     raise ExportSnapshotError("invalid public catalog article file")
@@ -207,39 +248,67 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
                 record = next((record for record in records if record["path"] == article[file_field]), None)
                 if record is None or record["sha256"] != article[hash_field]:
                     raise ExportSnapshotError("public article and manifest hashes differ")
-        if 'content-rights.json' in expected_files:
-            notices = read_json(directory / 'content-rights.json')
-            if (not isinstance(notices, dict) or set(notices) != {'schemaVersion', 'notices'}
-                    or type(notices['schemaVersion']) is not int or notices['schemaVersion'] != 1
-                    or not isinstance(notices['notices'], list)):
-                raise ExportSnapshotError('invalid public rights notices')
-            expected_ids = {a['editionId'] for a in catalog['articles']}
-            if len(notices['notices']) != len(expected_ids):
-                raise ExportSnapshotError('public rights notices do not cover catalog')
-            for notice, article in zip(notices['notices'], sorted(catalog['articles'], key=lambda a: a['videoPartId'])):
+        if "content-rights.json" in expected_files:
+            rights_document = read_json(directory / "content-rights.json")
+            try:
+                _contract_json("content-rights/v1", rights_document)
+            except ExportSnapshotError as exc:
+                raise ExportSnapshotError("invalid rights notice") from exc
+            required_notice_fields = {
+                "editionId", "videoPartId", "contentSha256", "license", "licenseUrl",
+                "rightsHolder", "sourceCreator", "attribution", "sourceUrl", "scope", "expiresAt",
+            }
+            try:
                 from bili_asr.content_rights import LICENSE_URLS
-                fields = {'editionId', 'videoPartId', 'contentSha256', 'license', 'licenseUrl',
-                          'rightsHolder', 'sourceCreator', 'attribution', 'sourceUrl', 'scope', 'expiresAt'}
-                if (not isinstance(notice, dict)
-                        or set(notice) != fields
-                        or notice.get('editionId') != article['editionId']
-                        or type(notice.get('videoPartId')) is not int
-                        or notice.get('videoPartId') != article['videoPartId']
-                        or notice.get('contentSha256') != article['contentSha256']
-                        or not isinstance(notice.get('license'), str)
-                        or notice.get('license') not in LICENSE_URLS
-                        or notice.get('licenseUrl') != LICENSE_URLS.get(notice.get('license'))
-                        or notice.get('sourceUrl') != article['sourceUrl']
-                        or notice.get('scope') != ['reader-document', 'full-source-transcript']
-                        or any(not isinstance(notice.get(key), str) or not notice[key].strip()
-                               for key in ('rightsHolder', 'sourceCreator', 'attribution'))
-                        or (notice.get('expiresAt') is not None and
-                            (type(notice['expiresAt']) is not int or notice['expiresAt'] < 1))):
-                    raise ExportSnapshotError('public rights notice identity mismatch')
-        if article_files != expected_files - {manifest_name, "catalog.json", 'content-rights.json'}:
+                notices = rights_document["notices"]
+                if (rights_document["schemaVersion"] != 1
+                        or set(rights_document) != {"schemaVersion", "notices"}
+                        or not isinstance(notices, list)
+                        or len(notices) != len(catalog["articles"])):
+                    raise ValueError
+                articles_by_edition = {article["editionId"]: article for article in catalog["articles"]}
+                if len(articles_by_edition) != len(catalog["articles"]):
+                    raise ValueError
+                for notice in notices:
+                    if set(notice) != required_notice_fields:
+                        raise ValueError
+                    article = articles_by_edition[notice["editionId"]]
+                    if (type(notice["videoPartId"]) is not int
+                            or notice["videoPartId"] != article["videoPartId"]
+                            or notice["contentSha256"] != article["contentSha256"]
+                            or notice["license"] not in LICENSE_URLS
+                            or notice["licenseUrl"] != LICENSE_URLS[notice["license"]]
+                            or not all(isinstance(notice[field], str) and notice[field].strip()
+                                       for field in ("rightsHolder", "sourceCreator", "attribution", "sourceUrl"))
+                            or notice["sourceUrl"] != article["sourceUrl"]
+                            or notice["scope"] != ["reader-document", "full-source-transcript"]
+                            or (notice["expiresAt"] is not None
+                                and (type(notice["expiresAt"]) is not int or notice["expiresAt"] <= 0))):
+                        raise ValueError
+            except (KeyError, TypeError, ValueError):
+                raise ExportSnapshotError("invalid rights notice")
+        if profile is not None:
+            from bili_asr.publication_origins import validate_origins
+            if catalog["schemaVersion"] != 3 or "origins.json" not in expected_files:
+                raise ExportSnapshotError("origin profile requires catalog v3 and origins.json")
+            origins = read_json(directory / "origins.json")
+            _contract_json(profile, origins)
+            if origins["contractProfile"] != profile:
+                raise ExportSnapshotError("origins and manifest profiles differ")
+            validate_origins(origins, catalog["articles"], manuscript_type)
+        if article_files != expected_files - {manifest_name, "catalog.json", "content-rights.json", "series.json", "origins.json"}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
-    elif expected_files != _REVIEW_FILES | {manifest_name}:
+        if "series.json" in expected_files:
+            from bili_asr.publication_series import validate_public_series
+            series = read_json(directory / "series.json")
+            _contract_json("publication-series/v1", series)
+            validate_public_series(series, catalog["articles"], manuscript_type)
+    elif expected_files not in (_REVIEW_FILES | {manifest_name}, _REVIEW_FILES | _IMPORT_REVIEW_FILES | {manifest_name}):
         raise ExportSnapshotError("private editorial snapshot is incomplete")
+    else:
+        review = read_json(directory / "review.json")
+        universal = isinstance(review, dict) and isinstance(review.get("ai"), dict) and review["ai"].get("templateVersion") == "ai-draft-v2"
+        _contract_json("editorial-review-universal/v1" if universal else "editorial-review/v1", review)
     return str(manifest["snapshotId"])
 
 
@@ -306,11 +375,11 @@ def _exclusive_lock(output: Path) -> Iterator[None]:
             raise ExportSnapshotError("export lock is not a regular file")
         os.lseek(descriptor, 0, os.SEEK_SET)
         try:
-            lock_marker = os.read(descriptor, len(marker) + 1)
+            actual_marker = os.read(descriptor, len(marker) + 1)
         except PermissionError as exc:
-            # Windows rejects reads overlapping another process's byte lock.
+            # Windows byte-range locks reject even reading the locked marker.
             raise ExportSnapshotError("another export holds the output lock") from exc
-        if lock_marker != marker:
+        if actual_marker != marker:
             raise ExportSnapshotError("export lock file is unmanaged or damaged")
         try:
             if os.name == "nt":
@@ -399,7 +468,7 @@ def _recover(output: Path, kind: str) -> None:
 
 
 def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes],
-                     before_install: Callable[[], None] | None = None) -> str:
+                     profile: str | None = None, before_install=None) -> str:
     """Install one exact snapshot, or restore the previous directory on failure.
 
     Recovery artifacts are siblings of the public directory. OS advisory locks
@@ -407,14 +476,19 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes],
     """
     if kind not in {"publication-export", "publication-draft-export", "editorial-export"} or not files:
         raise ExportSnapshotError("unsupported or empty export snapshot")
+    if profile is not None and (profile not in {"universal-origin-v1", "universal-origin-v2"} or kind == "editorial-export"):
+        raise ExportSnapshotError("unsupported export origin profile")
     output = checked_path(output)
     for name, content in files.items():
-        _file_parts(name, kind)
+        _file_parts(name, kind, profile)
         if not isinstance(content, bytes):
             raise ExportSnapshotError("export content must be bytes")
     records = [{"path": name, "sha256": hashlib.sha256(files[name]).hexdigest()} for name in sorted(files)]
-    snapshot_id = _snapshot_id(records)
-    manifest = {"schemaVersion": 1, "manuscriptType": kind, "snapshotId": snapshot_id, "files": records}
+    snapshot_id = _snapshot_id(records, kind, profile)
+    manifest = {"schemaVersion": 3 if profile == "universal-origin-v2" else 2 if profile is not None else 1,
+                "manuscriptType": kind, "snapshotId": snapshot_id, "files": records}
+    if profile is not None:
+        manifest["contractProfile"] = profile
     output.parent.mkdir(parents=True, exist_ok=True)
     checked_path(output.parent)
     with _exclusive_lock(output):
@@ -428,11 +502,13 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes],
         installed = moved_old = journal_written = False
         try:
             for name, content in files.items():
-                target = stage.joinpath(*_file_parts(name, kind))
+                target = stage.joinpath(*_file_parts(name, kind, profile))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 _write_file(target, content)
             _write_file(stage / f"{kind}-manifest.json", json_bytes(manifest))
             _validate_snapshot(stage, kind)
+            if before_install is not None:
+                before_install()
             for current, _, _ in os.walk(stage, topdown=False):
                 _fsync_directory(Path(current))
             journal = {"schemaVersion": 1, "manuscriptType": kind, "token": token, "snapshotId": snapshot_id, "previousSnapshotId": previous_id, "hadOutput": had_output}
@@ -444,9 +520,6 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes],
             if had_output:
                 if _validate_snapshot(output, kind, allow_empty=True) != previous_id:
                     raise ExportSnapshotError("output changed while the export was prepared")
-            if before_install is not None:
-                before_install()
-            if had_output:
                 os.replace(output, backup)
                 moved_old = True
             os.replace(stage, output)

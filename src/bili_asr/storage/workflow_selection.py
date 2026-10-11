@@ -18,12 +18,16 @@ _QUERY_CHUNK = 900
 @dataclass(frozen=True)
 class WorkflowTarget:
     video_part_id: int
-    bvid: str
+    bvid: str | None
     page_index: int
+    platform: str = "bilibili"
+    external_video_id: str | None = None
 
     @property
     def work_id(self) -> str:
-        return f"{self.bvid}:p{self.page_index}"
+        from bili_asr.source_identity import display_work_id
+        from bili_asr.platform_identity import ContentRef
+        return display_work_id(ContentRef(self.platform, self.external_video_id or self.bvid, self.page_index))
 
 
 @dataclass(frozen=True)
@@ -36,12 +40,17 @@ class WorkflowSelection:
         return tuple(target.video_part_id for target in self.targets)
 
 
-def _target(row: sqlite3.Row) -> WorkflowTarget:
+def _target(row: sqlite3.Row, connection: sqlite3.Connection) -> WorkflowTarget:
+    if row["bvid"] is None:
+        from bili_asr.storage.sources import SourceRepository
+        part = SourceRepository(connection).part(int(row["video_part_id"]))
+        return WorkflowTarget(part["video_part_id"], None, part["page_index"], part["platform"], part["external_video_id"])
     return WorkflowTarget(int(row["video_part_id"]), str(row["bvid"]), int(row["page_index"]))
 
 
 def _ordered(targets: Iterable[WorkflowTarget]) -> tuple[WorkflowTarget, ...]:
-    return tuple(sorted(targets, key=lambda target: (target.bvid, target.page_index, target.video_part_id)))
+    return tuple(sorted(targets, key=lambda target: (target.platform, target.external_video_id or target.bvid,
+                                                   target.page_index, target.video_part_id)))
 
 
 def resolve_workflow_selection(
@@ -101,9 +110,9 @@ def resolve_workflow_selection(
             if row is None:
                 errors.append(f"unknown video_part_id={part_id}")
             elif row["processing_status"] == "gone":
-                errors.append(f"video_part_id={part_id} ({_target(row).work_id}) is gone")
+                errors.append(f"video_part_id={part_id} ({_target(row, connection).work_id}) is gone")
             else:
-                selected.append(_target(row))
+                selected.append(_target(row, connection))
     else:
         by_video: dict[str, list[sqlite3.Row]] = {bvid: [] for bvid in videos}
         for row in rows.values():
@@ -129,8 +138,8 @@ def resolve_workflow_selection(
             if not active:
                 errors.append(f"BVID={bvid} has no processable stored parts (all are gone)")
                 continue
-            selected.extend(_target(row) for row in active)
-            excluded.extend(_target(row) for row in parts if row["processing_status"] == "gone")
+            selected.extend(_target(row, connection) for row in active)
+            excluded.extend(_target(row, connection) for row in parts if row["processing_status"] == "gone")
     if errors:
         raise ValueError("unresolved workflow selection: " + "; ".join(errors))
     return WorkflowSelection(_ordered(selected), _ordered(excluded))

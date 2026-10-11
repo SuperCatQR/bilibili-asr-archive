@@ -27,6 +27,8 @@ import pytest
 
 from bili_asr.services import subtitle_ingest
 from bili_asr.services import transcript_projection
+from bili_asr import subtitle_policy, transcript_selection
+from bili_asr.sources.models import SubtitleTrack
 from bili_asr.services.transcript_projection import (
     ARCHIVED_STATUS,
     LANGUAGE_FAMILY_ORDER,
@@ -391,17 +393,30 @@ def test_projection_row_carries_the_declared_fifteen_keys_and_the_derived_field_
 
 
 def test_the_declared_language_family_order_matches_the_harvesters():
-    """§3.2 key 2: the order is declared here and pinned equal to its home.
+    """Acquisition and publication share the pure family policy and use it.
 
-    The projection may not import ``subtitle_ingest`` — that module holds the
-    gateway and repository sides, and this one is pure (§8) — so the constant is
-    declared and this case is what stops the two drifting: the harvester's
-    default preference is what makes an uploader caption outrank a machine one
-    (``subtitle_ingest.py:59``), and a change to it that is not mirrored here
-    has to fail in this file instead of silently re-ranking the store's rows.
+    The harvester delegates candidate ranking to subtitle_policy, while
+    projection delegates stored-version preference to transcript_selection.
+    The common family order has one home; no duplicated private constant is
+    required in the I/O service. Acquisition ranks family before CC/AI, while
+    publication ranks source kind first, so these remain different policies.
     """
     assert LANGUAGE_FAMILY_ORDER == ("zh", "en")
-    assert LANGUAGE_FAMILY_ORDER == subtitle_ingest._DEFAULT_LANGUAGE_FAMILY_ORDER
+    assert LANGUAGE_FAMILY_ORDER is transcript_selection.LANGUAGE_FAMILY_ORDER
+    assert subtitle_policy.LANGUAGE_FAMILY_ORDER is transcript_selection.LANGUAGE_FAMILY_ORDER
+    tracks = (
+        SubtitleTrack("ja-JP", "Japanese", False, "ja"),
+        SubtitleTrack("en-US", "English", False, "en"),
+        SubtitleTrack("ai-zh", "Chinese", True, "zh"),
+    )
+    remaining = tracks
+    chosen_languages = []
+    while remaining:
+        chosen = subtitle_ingest.select_subtitle_track(remaining)
+        assert chosen is not None
+        chosen_languages.append(chosen.language)
+        remaining = tuple(track for track in remaining if track != chosen)
+    assert chosen_languages == ["ai-zh", "en-US", "ja-JP"]
 
 
 def test_an_asr_local_row_is_mapped_without_inventing_provenance():
@@ -469,22 +484,11 @@ def test_the_rendered_day_is_utc_regardless_of_the_runners_zone(monkeypatch):
 
 
 def test_the_mirrored_family_rule_agrees_with_the_harvesters_over_its_codes():
-    """§3.2 key 2's rule is a copy, and this is what makes it a pinned copy.
+    """The row wrapper and acquisition use the same pure normalization.
 
-    ``_language_family`` mirrors ``subtitle_ingest.language_family``'s body
-    because the projection may not import that module (case 9; §8), and case 9
-    pins the *order tuple* only: an edit to the function's body — a new prefix
-    convention, or a policy that splits ``zh-Hans``/``zh-Hant`` into families —
-    would then leave this module ranking the store's rows by a stale copy with
-    every case still green.  So the comparison here runs against the harvester's
-    own function, and each row's expected family is a literal as well, which
-    keeps the loop from being satisfied by two agreeing defects.
-
-    The codes are §3.2's own where it names them: ``zh-CN``/``zh-Hant`` and the
-    machine caption's ``ai-zh``/``ai-en`` are its consequences, ``zh-Hans`` is a
-    spelling from the cited ``language_family`` docstring, ``en-US``/``de-DE``
-    are the codes case 3 ranks, and ``asr-local`` carries §6's stored kind.  This
-    file is the only place the coupling may exist.
+    Literal expected families still discriminate against a shared defect,
+    including an AI prefix treated as the primary language and regional
+    Chinese tags incorrectly ranked as separate families.
     """
     codes = (
         ("zh-CN", "subtitle-cc", "zh"),

@@ -49,12 +49,18 @@ def _build_workflow_data(root: Path, *, scope: str | None, artifact_roots: Artif
         artifact_present = len(paths) == len(REQUIRED_ARTIFACT_KEYS) and any(archive_bundle_complete(base, paths) for base in artifact_roots.read_bases())
         status = str(entry.get("status") or "unknown")
         publication_error = entry.get("publication_error")
-        terminal = status == "archived" and artifact_present and publication_error is None
+        storage = entry.get("artifact_state")
+        retained = storage is not None and storage["durability"] == "verified_group_recorded"
+        terminal = status == "archived" and (artifact_present or retained) and publication_error is None
         if publication_error is not None:
             diagnostics.append({"code": str(publication_error), "category": "database"})
-        elif status == "archived" and not artifact_present:
+        elif status == "archived" and not artifact_present and not retained:
             diagnostics.append({"code": "terminal_missing_artifact", "category": "transcript"})
         rows.append({"work_id": work_id, "category": "defect" if publication_error else ("complete" if terminal else "backlog"), "status": status, "artifact_present": artifact_present, "reclaimed_audio": False, "coverage": entry.get("coverage"), "coverage_short": entry.get("coverage_short"), "cumulative_complete": terminal, "batch_complete": terminal})
+        if storage is not None:
+            rows[-1]["artifact_state"] = {**storage,
+                "locality": "local_complete" if artifact_present else storage["locality"],
+                "readiness": "ready" if artifact_present else storage["readiness"]}
     total = len(rows) if scope_available else 0
     complete = sum(1 for row in rows if row["cumulative_complete"])
     state = "unavailable" if not scope_available else ("complete" if complete == total and not diagnostics else "incomplete")

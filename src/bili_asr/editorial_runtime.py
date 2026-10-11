@@ -7,13 +7,17 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 from bili_asr.artifact_root import ArtifactRoots
+from bili_asr.editorial_quality import check_source_quality
+from bili_asr.workflow_errors import JobExecutionError
 
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
-from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION, render_documents, validate_revision
+from bili_asr.editorial import EditorialConfig, local_revision, validate_revision
 from bili_asr.manuscript_files import stage_artifact
-from bili_asr.storage.editorial import EditorialRepository
+from bili_asr.storage.editorial import EditorialRepository, template_for_input
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
 from bili_asr.workflow_payloads import decode_job_payload
+from bili_asr.workflow import attempt_checkpoint
+from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
 
 
 class EditorialWorkflowHandlers:
@@ -37,8 +41,10 @@ class EditorialWorkflowHandlers:
         decode_job_payload(job)
         self.workflow.assert_lease(job)
         prepared = self.repository.freeze_job_input(job)
+        check_source_quality(prepared)
         config = EditorialConfig(**prepared["snapshot"]["config"])
         for chunk in prepared["chunks"]:
+            attempt_checkpoint(job)
             self.workflow.assert_lease(job)
             if self.repository.chunk_result(prepared["input_id"], chunk["chunk_id"]) is not None:
                 continue
@@ -47,15 +53,39 @@ class EditorialWorkflowHandlers:
             call_id = self.repository.begin_call(job, prepared["input_id"], chunk["chunk_id"], request)
             envelope = None
             try:
-                envelope = self.client.complete(request, config)
+                attempt_checkpoint(job)
+                local_blocks = local_revision(chunk)
+                if local_blocks is not None:
+                    # Mechanical formatting-only chunks need no provider call,
+                    # but retain an auditable call row and the same checkpoint
+                    # contract as model-produced blocks.
+                    envelope = {"id": "local-precheck", "model": "local-precheck",
+                                "choices": [], "usage": {"prompt_tokens": 0,
+                                "completion_tokens": 0}}
+                    self.repository.finish_call(call_id, envelope)
+                    self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, local_blocks)
+                    continue
+                fingerprint = self.repository.request_fingerprint(
+                    prepared["input_id"], chunk["chunk_id"], request)
+                # A worker can die after the provider response is durably
+                # recorded but before the validated chunk checkpoint commits.
+                # Reuse that response and run the normal parser/validator so a
+                # recovery never trusts an unvalidated provider payload.
+                envelope = self.repository.completed_call_for_request(fingerprint)
+                if envelope is None:
+                    envelope = self.client.complete(request, config)
                 # Persist the actual envelope (including usage/model identifiers)
                 # before accepting content or raising a validation error.
                 self.repository.finish_call(call_id, envelope)
+                attempt_checkpoint(job)
                 self.workflow.assert_lease(job)
                 blocks = validate_revision(chunk, parse_response(envelope))
                 self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, blocks)
             except Exception as exc:
                 self.repository.finish_call(call_id, envelope, type(exc).__name__[:64])
+                if hasattr(exc, "safe_details"):
+                    details = dict(exc.safe_details, call_id=call_id, chunk_id=chunk["chunk_id"])
+                    raise JobExecutionError(type(exc).__name__, details) from None
                 raise
         revision_id = self.repository.commit_revision(job, prepared)
         return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
@@ -64,17 +94,18 @@ class EditorialWorkflowHandlers:
         decode_job_payload(job)
         self.workflow.assert_lease(job)
         template = job.payload["template_version"]
-        if template != TEMPLATE_VERSION:
-            raise ValueError("unsupported document template version")
         revision_id = str(job.payload["revision_id"]) if "revision_id" in job.payload else self.repository.revision_for_job(
             str(job.payload["proofread_job_id"]))
         prepared, blocks = self.repository.revision(revision_id)
+        expected_template = template_for_input(self.repository.connection, prepared["input_id"])
+        if template != expected_template:
+            raise ValueError("unsupported document template version for frozen input")
         part_id = prepared["snapshot"]["video_part_id"]
         if part_id != job.video_part_id:
             raise ValueError("revision belongs to a different part")
         metadata = prepared["snapshot"]["metadata"]
-        documents = render_documents(metadata, prepared, blocks, revision_id)
-        relative = Path("documents") / f"part-{part_id}" / revision_id / TEMPLATE_VERSION
+        documents = renderer_for(AI_RENDERERS, template)(metadata, prepared, blocks, revision_id)
+        relative = Path("documents") / f"part-{part_id}" / revision_id / template
         write_root = self.artifact_roots.write_base
         artifacts = {
             name: ((relative / name).as_posix(), hashlib.sha256(content.encode("utf-8")).hexdigest())

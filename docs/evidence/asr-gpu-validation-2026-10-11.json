@@ -1,0 +1,2171 @@
+{
+  "schema_version": 1,
+  "measured_code_commit": "5bde828",
+  "code_archive_sha256": "8650ac03dd9001a850b7ae0137a10420d532a6e1a913139b66fcddfd062bdc34",
+  "sample": {
+    "audio_seconds": 25.393,
+    "audio_sha256": "6f7f9892fb8983a3bd11af2258ed6352171fcded7c1d94522351dc3641efa244",
+    "requested_cut_ms": [
+      0,
+      25460
+    ],
+    "warmup_requested_cut_ms": [
+      0,
+      6000
+    ],
+    "warmup_sha256": "6e289cafe1232671aaf1074ff758fbf6e94607ba28ac03ffaec6d3c99ed642e8",
+    "source_audio_sha256": "359e1a5b9f1d5fe8e57ddfaca605d32ee26baeeddf92744f3f3e99a667cc52bb",
+    "reference_sha256": "ccb9cde763323550a4d0a92bbd1755c213957b0edeef29fab8df2851d1db74f7",
+    "reference_source_kind": "subtitle-ai",
+    "reference_transcript_id": 2,
+    "reference_transcript_content_sha256": "7dd0629f947203e549765e1b76f8d1bdbe473b34910c3d4f9225dcd6e417dd0f",
+    "reference_segment_ordinals": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "human_verified": false,
+    "cer_interpretation": "Disagreement with historical upstream subtitle-ai; not a human-verified accuracy benchmark."
+  },
+  "hardware": {
+    "name": "NVIDIA GeForce RTX 4090",
+    "compute_capability": "8.9",
+    "memory_mib": 24564,
+    "driver": "595.71.05",
+    "exclusive_gpu": true,
+    "whole_host_idle": false
+  },
+  "runtime": {
+    "python": "3.12.3",
+    "platform": "Linux",
+    "packages": {
+      "torch": "2.8.0+cu128",
+      "transformers": "5.19.0",
+      "accelerate": "1.15.0",
+      "numpy": "2.3.2",
+      "soundfile": "0.14.0",
+      "soxr": "1.1.0"
+    },
+    "cuda": "12.8",
+    "hip": null
+  },
+  "models": {
+    "qwen3-asr-1.7b": {
+      "path": "/root/autodl-tmp/models/qwen3-asr-1.7b",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 2399,
+          "sha256": "117ac8e63e2af7cae3665e5a632d6eb03f5f384915519ceb6403c15ec6533f63"
+        },
+        {
+          "name": "generation_config.json",
+          "bytes": 165,
+          "sha256": "9939fc9388b79bd70757f938b87381e817173d6a6158f5af6506c0b73e775c3c"
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 4076193080,
+          "sha256": null
+        },
+        {
+          "name": "processor_config.json",
+          "bytes": 487,
+          "sha256": "bc0b230081b44e629dd5b9045b78495615c1831b4b9f4cffe97bd37e82a6156a"
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 11429653,
+          "sha256": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 998,
+          "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11"
+        }
+      ]
+    },
+    "qwen3-aligner-0.6b": {
+      "path": "/root/autodl-tmp/models/qwen3-aligner-0.6b",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 248029,
+          "sha256": "82ac390b36a8f80c5a0c4e202367debd149e5d8c30abe4cf5eed439101b1c5ce"
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 1835545960,
+          "sha256": null
+        },
+        {
+          "name": "processor_config.json",
+          "bytes": 487,
+          "sha256": "bc0b230081b44e629dd5b9045b78495615c1831b4b9f4cffe97bd37e82a6156a"
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 11429842,
+          "sha256": "cadfb9cbd9ff8f4e309075ec6a71b063295ff796afb4b5dbc0fd2873fbb301f2"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 998,
+          "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11"
+        }
+      ]
+    }
+  },
+  "production_configured_revisions": {
+    "asr": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3",
+    "aligner": "c07281df297b9905d24a508279258cccf987a064",
+    "provenance": "read existing production GPU parent environment; checkpoint tensors were not rehashed"
+  },
+  "coincident_load": "Parent agent concurrently creates full source snapshot ZIP with deflate, approximately one busy CPU core and /dev/shm reads. GPU exclusivity is not whole-host idleness.",
+  "counter_access": {
+    "observed_at": 1791658791.9286404,
+    "argv": [
+      "/usr/local/cuda-12.8/bin/ncu",
+      "--query-metrics",
+      "--query-metrics-mode",
+      "suffix",
+      "--metrics",
+      "sm__throughput,sm__pipe_tensor_cycles_active,dram__throughput,lts__t_sector_hit_rate"
+    ],
+    "exit_code": 0,
+    "stdout": "Device NVIDIA GeForce RTX 4090 (AD102)\n==ERROR== ERR_NVGPUCTRPERM - The user does not have permission to access NVIDIA GPU Performance Counters on the target device 0. For instructions on enabling permissions and to get more information see https://developer.nvidia.com/ERR_NVGPUCTRPERM\n\n",
+    "stderr": ""
+  },
+  "artifact_package": {
+    "file": "/root/bili-issues-20261011-asr/evidence-artifacts.tar.gz",
+    "bytes": 44037267,
+    "sha256": "715ea3e45ce76716bde8fcfbb3f2cb69c457f4f6602c9c0c7023f8f450504070",
+    "files": 45
+  },
+  "windows": [
+    {
+      "script_sha256": "923eab2bc255c247f8a0ce4c1b3eef394043bdc10ae2bb5de98c9dfca6be8290",
+      "hard_deadline_utc": "2026-10-10T19:10:45.310070+00:00",
+      "restored_utc": "2026-10-10T18:57:33.626951+00:00",
+      "restoration_reason": "controller_finally",
+      "root_count": 6,
+      "root_identities_preserved": true,
+      "root_states_after": [
+        "S",
+        "S",
+        "S",
+        "S",
+        "S",
+        "S"
+      ],
+      "before": {
+        "running_jobs": 0,
+        "active_attempts": 0,
+        "table_hashes": {
+          "workflow_jobs": "74959e66df799faca35ccd0c8ad9784631951a0e585b3705935fad29122dca9c",
+          "workflow_attempts": "6d64ab2f82c5c3b22591a308e2a5b30c43fc68c414dbd8d6804202800ee67459"
+        }
+      },
+      "frozen": {
+        "running_jobs": 0,
+        "active_attempts": 0,
+        "table_hashes": {
+          "workflow_jobs": "74959e66df799faca35ccd0c8ad9784631951a0e585b3705935fad29122dca9c",
+          "workflow_attempts": "6d64ab2f82c5c3b22591a308e2a5b30c43fc68c414dbd8d6804202800ee67459"
+        }
+      },
+      "after": {
+        "running_jobs": 0,
+        "active_attempts": 0,
+        "table_hashes": {
+          "workflow_jobs": "74959e66df799faca35ccd0c8ad9784631951a0e585b3705935fad29122dca9c",
+          "workflow_attempts": "6d64ab2f82c5c3b22591a308e2a5b30c43fc68c414dbd8d6804202800ee67459"
+        }
+      },
+      "gpu_owners_after": [],
+      "watchdog_fault_tests": [
+        "WSL actual orphan child remains after leader exit: cleanup passed",
+        "WSL actual controller SIGKILL: independent watchdog resumed stopped process"
+      ]
+    },
+    {
+      "script_sha256": "6dc18be1357ee9507d8943291aa5a5965f2a751f82b4df257f621e6ded8c846c",
+      "hard_deadline_utc": "2026-10-10T19:10:45.310070+00:00",
+      "restored_utc": "2026-10-10T19:02:20.300635+00:00",
+      "restoration_reason": "controller_finally",
+      "root_count": 6,
+      "root_identities_preserved": true,
+      "root_states_after": [
+        "S",
+        "S",
+        "S",
+        "S",
+        "S",
+        "S"
+      ],
+      "before": {
+        "running_jobs": 0,
+        "active_attempts": 0,
+        "table_hashes": {
+          "workflow_jobs": "74959e66df799faca35ccd0c8ad9784631951a0e585b3705935fad29122dca9c",
+          "workflow_attempts": "6d64ab2f82c5c3b22591a308e2a5b30c43fc68c414dbd8d6804202800ee67459"
+        }
+      },
+      "frozen": {
+        "running_jobs": 0,
+        "active_attempts": 0,
+        "table_hashes": {
+          "workflow_jobs": "74959e66df799faca35ccd0c8ad9784631951a0e585b3705935fad29122dca9c",
+          "workflow_attempts": "6d64ab2f82c5c3b22591a308e2a5b30c43fc68c414dbd8d6804202800ee67459"
+        }
+      },
+      "after": {
+        "running_jobs": 0,
+        "active_attempts": 0,
+        "table_hashes": {
+          "workflow_jobs": "74959e66df799faca35ccd0c8ad9784631951a0e585b3705935fad29122dca9c",
+          "workflow_attempts": "6d64ab2f82c5c3b22591a308e2a5b30c43fc68c414dbd8d6804202800ee67459"
+        }
+      },
+      "gpu_owners_after": [],
+      "watchdog_fault_tests": [
+        "WSL actual orphan child remains after leader exit: cleanup passed",
+        "WSL actual controller SIGKILL: independent watchdog resumed stopped process"
+      ]
+    }
+  ],
+  "experiments": [
+    {
+      "name": "bf16-baseline",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/bf16-baseline/measurement.json",
+      "measurement_sha256": "87554be8b17389c44b9edaa2b73413bb5b3ac768b33fbd84e58f90e74be6df46",
+      "model_load_wall_s": 6.322532856836915,
+      "warmup_wall_s": 0.8213400109671056,
+      "median_wall_s": 0.9580975300632417,
+      "policy": {
+        "runtime_config_sha256": "f4bc43f90d4c5a11a42152a9b108ee1941e61665655d2cd5632f4fc93e355950",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        0.9763411809690297,
+        0.9561633449047804,
+        0.9580975300632417
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127276544,
+      "gpu_allocator_peak_reserved_bytes": 6371147776,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 8.740462362766266e-07,
+            "audio_prepare": 0.0026353332214057446,
+            "split": 5.529262125492096e-06,
+            "decode": 0.9032815350219607,
+            "align": 0.04642608994618058,
+            "total": 0.9579439591616392
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-batch-chunks",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/bf16-batch-chunks/measurement.json",
+      "measurement_sha256": "7db6a32507c780987b06a78f3e0560d85c6bbf42c646f1e9ae0dfe71410e37ef",
+      "model_load_wall_s": 6.45736122271046,
+      "warmup_wall_s": 0.8388252281583846,
+      "median_wall_s": 1.173658404033631,
+      "policy": {
+        "runtime_config_sha256": "86b8c47551bcc2c2fe3a29d9dd08d5e4641ae7222f7447f98f8d9aae9e3602a8",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 12.73,
+        "asr_batch_size": 2,
+        "aligner_batch_size": 2,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        1.2044276371598244,
+        1.1428891709074378
+      ],
+      "output_sha256_set": [
+        "babe0d2eaeef02c4109f2f7f763ed0e469aca8a3d965bac0283053860d7aff78"
+      ],
+      "cue_counts": [
+        4,
+        4
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 72,
+        "edit_distance": 28,
+        "cer": 0.5,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6018841600,
+      "gpu_allocator_peak_reserved_bytes": 6169821184,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 6.211921572685242e-07,
+            "audio_prepare": 0.0027244798839092255,
+            "split": 0.022787414025515318,
+            "decode": 0.9935460374690592,
+            "align": 0.11762149073183537,
+            "total": 1.142702546902001
+          },
+          "batching": {
+            "schema_version": 1,
+            "scope": "same_task_same_pass",
+            "pending_windows": 1,
+            "running_batches": 1,
+            "build_workers": 1,
+            "max_wait_s": 0,
+            "asr_batch_size": 2,
+            "aligner_batch_size": 2,
+            "max_audio_seconds": 360,
+            "max_input_bytes": 67108864,
+            "max_output_tokens": 8192,
+            "memory_scope": "conservative_waveform_reservation_and_observed_inputs_not_total_rss_or_vram",
+            "fallback_counts": {
+              "window_capacity_or_length_bucket": 2
+            },
+            "batches": [],
+            "observed_input_peak_bytes": 0
+          },
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-dynamic-cache",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/bf16-dynamic-cache/measurement.json",
+      "measurement_sha256": "11ebed526b9c59185b4f0533a1e4da1649411af1c0a90a8ce4a0d589cb9860ed",
+      "model_load_wall_s": 6.375250056851655,
+      "warmup_wall_s": 0.8338579069823027,
+      "median_wall_s": 1.028393626678735,
+      "policy": {
+        "runtime_config_sha256": "13fc720ffb66a0c0a22004ed86c0dfb919dde15599f946c18505497efd1058ad",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "checkpoint_default",
+          "implementation_requested": "dynamic",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        1.053104897029698,
+        1.0036823563277721
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127276544,
+      "gpu_allocator_peak_reserved_bytes": 6371147776,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 6.128102540969849e-07,
+            "audio_prepare": 0.0026462399400770664,
+            "split": 5.557667464017868e-06,
+            "decode": 0.949579986743629,
+            "align": 0.045653092209249735,
+            "total": 1.0034964918158948
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-sdpa",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/bf16-sdpa/measurement.json",
+      "measurement_sha256": "8c77546114a35dbd27c7ee2b34b990212a6a395e338e91c419bfcd1e9b91629e",
+      "model_load_wall_s": 6.313542341347784,
+      "warmup_wall_s": 0.8745819288305938,
+      "median_wall_s": 0.9878263385035098,
+      "policy": {
+        "runtime_config_sha256": "e0fd7af823790e5a3d9c7e6fe8f2d2990d82d664e8ed3571a900130905a32dbb",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "sdpa",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "sdpa",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        0.9841825347393751,
+        0.9914701422676444
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127276544,
+      "gpu_allocator_peak_reserved_bytes": 6371147776,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 6.789341568946838e-07,
+            "audio_prepare": 0.0026805889792740345,
+            "split": 5.637761205434799e-06,
+            "decode": 0.9368460420519114,
+            "align": 0.04608603520318866,
+            "total": 0.9912902433425188
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-serial-chunks",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/bf16-serial-chunks/measurement.json",
+      "measurement_sha256": "766480c6fe94138af9c251d3d0cb64735ad578341a108e05a081024d1ec32cfc",
+      "model_load_wall_s": 6.29618807695806,
+      "warmup_wall_s": 0.8246973580680788,
+      "median_wall_s": 1.196537244366482,
+      "policy": {
+        "runtime_config_sha256": "808bdcb7cc7843c89fb5194f0c9e4f64a8bd81678d2879b7af5a566cd6fa81b8",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 12.73,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        1.2130505349487066,
+        1.1800239537842572
+      ],
+      "output_sha256_set": [
+        "babe0d2eaeef02c4109f2f7f763ed0e469aca8a3d965bac0283053860d7aff78"
+      ],
+      "cue_counts": [
+        4,
+        4
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 72,
+        "edit_distance": 28,
+        "cer": 0.5,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6018501632,
+      "gpu_allocator_peak_reserved_bytes": 6188695552,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 7.529743015766144e-07,
+            "audio_prepare": 0.0027423882856965065,
+            "split": 0.02924486994743347,
+            "decode": 1.0195766831748188,
+            "align": 0.12241358403116465,
+            "total": 1.1798354620113969
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-static-cache",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/bf16-static-cache/measurement.json",
+      "measurement_sha256": "3d9e2c920a9f00cb20312f4e01337aa096a5a38d3ef3dca4d4b4b09e3014401f",
+      "model_load_wall_s": 6.374961797147989,
+      "warmup_wall_s": 0.8880995572544634,
+      "median_wall_s": 1.1551589884329587,
+      "policy": {
+        "runtime_config_sha256": "8756a3b306bff7b54cdc1028739db24499e32408a555399843acb5f902547600",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "checkpoint_default",
+          "implementation_requested": "static",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        1.1669351658783853,
+        1.1433828109875321
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127276544,
+      "gpu_allocator_peak_reserved_bytes": 6362759168,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 7.636845111846924e-07,
+            "audio_prepare": 0.002678947988897562,
+            "split": 5.316920578479767e-06,
+            "decode": 1.0870604272931814,
+            "align": 0.04778233915567398,
+            "total": 1.1432107579894364
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 2,
+              "align": 0
+            },
+            "cache_cleanup_calls": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-timeline",
+      "status": "completed",
+      "mode": "timeline",
+      "measurement_path": "/root/bili-issues-20261011-asr/bf16-timeline/measurement.json",
+      "measurement_sha256": "a54bd1c29e3396771b3ee8c6e73cbd4b85e26de6c928503ae9143c1c83060120",
+      "model_load_wall_s": 6.438661596737802,
+      "warmup_wall_s": 0.8162574428133667,
+      "median_wall_s": null,
+      "policy": {
+        "runtime_config_sha256": "f4bc43f90d4c5a11a42152a9b108ee1941e61665655d2cd5632f4fc93e355950",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        3.5143309701234102
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127276544,
+      "gpu_allocator_peak_reserved_bytes": 6362759168,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 1.935753971338272e-06,
+            "audio_prepare": 0.003365960903465748,
+            "split": 7.152091711759567e-06,
+            "decode": 1.5753205576911569,
+            "align": 0.07672685896977782,
+            "total": 1.6629603230394423
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "fp16-baseline",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/fp16-baseline/measurement.json",
+      "measurement_sha256": "2852d835a6dd5bc26e26d6a0a7ba13670573bc4d7b22f3b501aa81c7b342ca80",
+      "model_load_wall_s": 6.008403341751546,
+      "warmup_wall_s": 0.9309815769083798,
+      "median_wall_s": 0.9729373077861965,
+      "policy": {
+        "runtime_config_sha256": "38e674b8bfcbcae0936bdb81977bc158d5cb9d4dd1fcb1cfa879aef364c3f2d7",
+        "asr_precision": {
+          "requested": "float16",
+          "resolved": "torch.float16"
+        },
+        "aligner_precision": {
+          "requested": "float16",
+          "resolved": "torch.float16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        1.0112651898525655,
+        0.9729373077861965,
+        0.9717938769608736
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127276544,
+      "gpu_allocator_peak_reserved_bytes": 6371147776,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 7.869675755500793e-07,
+            "audio_prepare": 0.002619055099785328,
+            "split": 5.325768142938614e-06,
+            "decode": 0.9154590433463454,
+            "align": 0.04804321704432368,
+            "total": 0.9716265350580215
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-compiled-static-timeline",
+      "status": "completed",
+      "mode": "timeline",
+      "measurement_path": "/root/bili-issues-20261011-asr/followup/bf16-compiled-static-timeline/measurement.json",
+      "measurement_sha256": "b78607f563ab91c6c526b4c67e11584930df6bb8bf27f5d30a7633d701d35126",
+      "model_load_wall_s": 6.264567365404218,
+      "warmup_wall_s": 52.180836816783994,
+      "median_wall_s": null,
+      "policy": {
+        "runtime_config_sha256": "36159d08048d177d2221a839adad0917f5aa39dd74bba9c2bc1d364fe861e604",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "static",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": true,
+          "asr_requested": true,
+          "aligner_requested": true,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        48.28426318662241,
+        4.309300652239472
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6239072768,
+      "gpu_allocator_peak_reserved_bytes": 6471811072,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 6.863847374916077e-07,
+            "audio_prepare": 0.002760975155979395,
+            "split": 6.829854100942612e-06,
+            "decode": 1.9292702190577984,
+            "align": 0.06353578809648752,
+            "total": 2.00150325614959
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 3,
+              "align": 3
+            },
+            "first_bucket_call_wall_s": [
+              {
+                "stage": "asr",
+                "wall_s": 22.695321548730135,
+                "includes_execution_and_possible_fallback": true
+              },
+              {
+                "stage": "align",
+                "wall_s": 29.447924678213894,
+                "includes_execution_and_possible_fallback": true
+              },
+              {
+                "stage": "asr",
+                "wall_s": 20.427530555985868,
+                "includes_execution_and_possible_fallback": true
+              },
+              {
+                "stage": "align",
+                "wall_s": 26.00250115711242,
+                "includes_execution_and_possible_fallback": true
+              }
+            ],
+            "admitted_shapes": {
+              "asr": 2,
+              "align": 2
+            },
+            "cache_cleanup_calls": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-native-batch-chunks",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/followup/bf16-native-batch-chunks/measurement.json",
+      "measurement_sha256": "5247ff67eeed7854e392abbfab236ae779673bc4f17ad60e5e6a325b19b6d5d4",
+      "model_load_wall_s": 6.550188523251563,
+      "warmup_wall_s": 0.9602355300448835,
+      "median_wall_s": 1.0175102492794394,
+      "policy": {
+        "runtime_config_sha256": "206a8b8ab07158fad155444237e27b54235424fd5242cfe088cb7f363a2a1cbf",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 12.73,
+        "asr_batch_size": 2,
+        "aligner_batch_size": 2,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 134217728,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        1.0425815735943615,
+        0.9924389249645174
+      ],
+      "output_sha256_set": [
+        "babe0d2eaeef02c4109f2f7f763ed0e469aca8a3d965bac0283053860d7aff78"
+      ],
+      "cue_counts": [
+        4,
+        4
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 72,
+        "edit_distance": 28,
+        "cer": 0.5,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6112212480,
+      "gpu_allocator_peak_reserved_bytes": 6341787648,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 8.409842848777771e-07,
+            "audio_prepare": 0.002649269998073578,
+            "split": 0.022678907960653305,
+            "decode": 0.8746390268206596,
+            "align": 0.0866614431142807,
+            "total": 0.9922761600464582
+          },
+          "batching": {
+            "schema_version": 1,
+            "scope": "same_task_same_pass",
+            "pending_windows": 1,
+            "running_batches": 1,
+            "build_workers": 1,
+            "max_wait_s": 0,
+            "asr_batch_size": 2,
+            "aligner_batch_size": 2,
+            "max_audio_seconds": 360,
+            "max_input_bytes": 134217728,
+            "max_output_tokens": 8192,
+            "memory_scope": "conservative_waveform_reservation_and_observed_inputs_not_total_rss_or_vram",
+            "fallback_counts": {},
+            "batches": [
+              {
+                "batch_index": 0,
+                "stage": "asr",
+                "chunk_indices": [
+                  0,
+                  1
+                ],
+                "max_new_tokens": 256
+              },
+              {
+                "batch_index": 1,
+                "stage": "align",
+                "chunk_indices": [
+                  0,
+                  1
+                ]
+              }
+            ],
+            "observed_input_peak_bytes": 1246048
+          },
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-prefetch",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/followup/bf16-prefetch/measurement.json",
+      "measurement_sha256": "827ad23c8627ff0ffb7b552eca60edebd2a732b480866535272db29f8a62382b",
+      "model_load_wall_s": 6.333009370137006,
+      "warmup_wall_s": 0.8050953107886016,
+      "median_wall_s": 1.7832698510028422,
+      "policy": {
+        "runtime_config_sha256": "808bdcb7cc7843c89fb5194f0c9e4f64a8bd81678d2879b7af5a566cd6fa81b8",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 12.73,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": true,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": true,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        1.8462550840340555,
+        1.720284617971629
+      ],
+      "output_sha256_set": [
+        "babe0d2eaeef02c4109f2f7f763ed0e469aca8a3d965bac0283053860d7aff78"
+      ],
+      "cue_counts": [
+        4,
+        4
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 72,
+        "edit_distance": 28,
+        "cer": 0.5,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6018501632,
+      "gpu_allocator_peak_reserved_bytes": 6188695552,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 7.26897269487381e-07,
+            "audio_prepare": 0.002707798033952713,
+            "split": 0.022476624697446823,
+            "decode": 0.987667019944638,
+            "align": 0.1168896690942347,
+            "total": 1.6963013713248074
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 2,
+            "consumed": 2,
+            "discarded": 0,
+            "input_wait_s": 2.467213198542595e-05,
+            "processor_clone_attempts": 1,
+            "processor_clone_s": 0.5598053769208491,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-two-pass-default",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/followup/bf16-two-pass-default/measurement.json",
+      "measurement_sha256": "68cdcd6b8d599691dd171b6204fe471e3ca7c20119abdf117cae8d6ec85e8500",
+      "model_load_wall_s": 6.308484822046012,
+      "warmup_wall_s": 0.8252834230661392,
+      "median_wall_s": 2.5434370459988713,
+      "policy": {
+        "runtime_config_sha256": "deaa305ba69c8b855f20ecb5f48843e2ae37b4d5a7e806d10b6707745f68e78d",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "disabled",
+          "implementation_requested": "default",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        2.558777838014066,
+        2.5280962539836764
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127892480,
+      "gpu_allocator_peak_reserved_bytes": 6371147776,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 7.241033017635345e-07,
+            "audio_prepare": 0.0027420860715210438,
+            "split": 1.0093208402395248e-05,
+            "decode": 0.9228037828579545,
+            "align": 0.046273706946522,
+            "total": 0.977658964227885
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        },
+        {
+          "pass_kind": "hotword_second",
+          "timings_s": {
+            "model_load": 7.431954145431519e-07,
+            "audio_prepare": 0.0007932400330901146,
+            "split": 8.189119398593903e-06,
+            "decode": 1.4961473071016371,
+            "align": 0.04758272832259536,
+            "total": 1.5501372530125082
+          },
+          "batching": null,
+          "waveform_reused": true,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {},
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 0,
+              "align": 0
+            },
+            "cache_cleanup_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "bf16-two-pass-static",
+      "status": "completed",
+      "mode": "baseline",
+      "measurement_path": "/root/bili-issues-20261011-asr/followup/bf16-two-pass-static/measurement.json",
+      "measurement_sha256": "51ad5038015730e04b387678bf70eda26592e80f5c7729ec783f8968eea512a2",
+      "model_load_wall_s": 6.237692217808217,
+      "warmup_wall_s": 0.8453487250953913,
+      "median_wall_s": 2.0884541869163513,
+      "policy": {
+        "runtime_config_sha256": "73a2c16b8f667e285bdcfb6ff7af6ccf8b4ff37c86819a3bef2b187950d99a7b",
+        "asr_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "aligner_precision": {
+          "requested": "bfloat16",
+          "resolved": "torch.bfloat16"
+        },
+        "asr_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "aligner_attention": {
+          "requested": "checkpoint_default",
+          "resolved": "sdpa"
+        },
+        "generation_cache": {
+          "first_pass": "checkpoint_default",
+          "checkpoint_default": true,
+          "second_pass": "checkpoint_default",
+          "implementation_requested": "static",
+          "cross_request_past_key_values": false
+        },
+        "compile": {
+          "requested": false,
+          "asr_requested": false,
+          "aligner_requested": false,
+          "resolved_observation": "runtime_strategies"
+        },
+        "cuda_graph": {
+          "requested": false,
+          "runner_enabled": false
+        },
+        "chunk_seconds": 180,
+        "asr_batch_size": 1,
+        "aligner_batch_size": 1,
+        "batch_limits": {
+          "audio_seconds": 360,
+          "input_bytes": 67108864,
+          "tokens": 8192
+        },
+        "prefetch": {
+          "enabled": false,
+          "depth": 1,
+          "budget_bytes": 67108864,
+          "resolved_enabled": false,
+          "estimate_strategy": "waveform_x64_v1"
+        }
+      },
+      "wall_s": [
+        2.0865053278394043,
+        2.0904030459932983
+      ],
+      "output_sha256_set": [
+        "6b2831a916903fb321a67efd3929b46127687e080d28128d744ddf3d239f614d"
+      ],
+      "cue_counts": [
+        3,
+        3
+      ],
+      "character_quality": {
+        "status": "measured",
+        "normalization": "NFC_remove_whitespace_preserve_case_and_punctuation",
+        "reference_characters": 56,
+        "hypothesis_characters": 75,
+        "edit_distance": 27,
+        "cer": 0.48214285714285715,
+        "semantic_quality_accepted": false
+      },
+      "gpu_allocator_peak_allocated_bytes": 6127276544,
+      "gpu_allocator_peak_reserved_bytes": 6371147776,
+      "last_run_observations": [
+        {
+          "pass_kind": "first",
+          "timings_s": {
+            "model_load": 7.548369467258453e-07,
+            "audio_prepare": 0.002805545926094055,
+            "split": 6.707850843667984e-06,
+            "decode": 1.0775222601369023,
+            "align": 0.04673052625730634,
+            "total": 1.1328905867412686
+          },
+          "batching": null,
+          "waveform_reused": false,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {
+              "asr_compile_bucket_limit": 1,
+              "asr_static_cache_capacity_or_device": 1
+            },
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 2,
+              "align": 0
+            },
+            "cache_cleanup_calls": 4
+          }
+        },
+        {
+          "pass_kind": "hotword_second",
+          "timings_s": {
+            "model_load": 7.771886885166168e-07,
+            "audio_prepare": 0.0008232020772993565,
+            "split": 1.1357013136148453e-05,
+            "decode": 0.9044425897300243,
+            "align": 0.046073734760284424,
+            "total": 0.9572662520222366
+          },
+          "batching": null,
+          "waveform_reused": true,
+          "prefetch": {
+            "submitted": 0,
+            "consumed": 0,
+            "discarded": 0,
+            "input_wait_s": 0.0,
+            "processor_clone_attempts": 0,
+            "processor_clone_s": 0.0,
+            "fallback_counts": {}
+          },
+          "runtime_strategies": {
+            "scope": "model_lifetime_cumulative",
+            "fallback_counts": {
+              "asr_compile_bucket_limit": 2,
+              "asr_static_cache_capacity_or_device": 2
+            },
+            "compile_api_calls": {
+              "asr": 0,
+              "align": 0
+            },
+            "first_bucket_call_wall_s": [],
+            "admitted_shapes": {
+              "asr": 2,
+              "align": 0
+            },
+            "cache_cleanup_calls": 5
+          }
+        }
+      ]
+    }
+  ],
+  "traces": [
+    {
+      "path": "/root/bili-issues-20261011-asr/bf16-timeline/timeline-0.json",
+      "bytes": 158786358,
+      "sha256": "4b8d32177eef72db821ab4103906cef157e67b1804a4c864c7b66632023e990e",
+      "event_count": 551295,
+      "kernel_count": 71419,
+      "categories": {
+        "user_annotation": 3,
+        "cpu_op": 257861,
+        "overhead": 28,
+        "gpu_memcpy": 392,
+        "ac2g": 146670,
+        "cuda_runtime": 74334,
+        "kernel": 71419,
+        "cuda_driver": 294,
+        "gpu_memset": 231,
+        "gpu_user_annotation": 2,
+        "": 60,
+        "Trace": 1
+      },
+      "marked_phases": [
+        {
+          "name": "asr.prepare",
+          "host_range_ms": 15.470360000000001,
+          "kernel_count": 0,
+          "cumulative_kernel_ms": 0.0,
+          "kernel_interval_union_ms": 0.0
+        },
+        {
+          "name": "asr.decode",
+          "host_range_ms": 1558.1945,
+          "kernel_count": 69279,
+          "cumulative_kernel_ms": 275.327288,
+          "kernel_interval_union_ms": 275.3271533203125
+        },
+        {
+          "name": "asr.align",
+          "host_range_ms": 60.177621,
+          "kernel_count": 2132,
+          "cumulative_kernel_ms": 13.487135,
+          "kernel_interval_union_ms": 13.487128784179687
+        }
+      ],
+      "interpretation": "Profiler-instrumented sample; kernel duration sums may overlap. These are trace intervals, not SM/Tensor/DRAM/L2 hardware utilization counters.",
+      "top_kernel_sample": [
+        {
+          "name": "std::enable_if<!(false), void>::type internal::gemvx::kernel<int, int, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, float, false, true, true, false, 6, false, cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16>, float> >(cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16>, float>)",
+          "milliseconds": 166.05844200000098
+        },
+        {
+          "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+          "milliseconds": 13.405866999999523
+        },
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8::Params)",
+          "milliseconds": 11.529365000000006
+        }
+      ],
+      "compiled_kernel_name_sample": []
+    },
+    {
+      "path": "/root/bili-issues-20261011-asr/followup/bf16-compiled-static-timeline/timeline-0.json",
+      "bytes": 146490535,
+      "sha256": "cd5370eb2d8b4fb60340d0323d425d2d11162c0c1d4b9d5ec4352e55b9a3d09c",
+      "event_count": 610598,
+      "kernel_count": 44196,
+      "categories": {
+        "user_annotation": 1296,
+        "cpu_op": 324215,
+        "overhead": 93,
+        "gpu_memcpy": 2678,
+        "ac2g": 142429,
+        "cuda_runtime": 79045,
+        "kernel": 44196,
+        "cuda_driver": 16279,
+        "gpu_memset": 231,
+        "gpu_user_annotation": 75,
+        "": 60,
+        "Trace": 1
+      },
+      "marked_phases": [
+        {
+          "name": "asr.prepare",
+          "host_range_ms": 15.780571,
+          "kernel_count": 0,
+          "cumulative_kernel_ms": 0.0,
+          "kernel_interval_union_ms": 0.0
+        },
+        {
+          "name": "asr.decode",
+          "host_range_ms": 20466.655921,
+          "kernel_count": 26215,
+          "cumulative_kernel_ms": 363.286174,
+          "kernel_interval_union_ms": 363.2861513671875
+        },
+        {
+          "name": "asr.align",
+          "host_range_ms": 25963.545572,
+          "kernel_count": 17973,
+          "cumulative_kernel_ms": 865.043767,
+          "kernel_interval_union_ms": 865.0437742919922
+        }
+      ],
+      "interpretation": "Profiler-instrumented sample; kernel duration sums may overlap. These are trace intervals, not SM/Tensor/DRAM/L2 hardware utilization counters.",
+      "top_kernel_sample": [
+        {
+          "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<int>, std::array<char*, 1ul> >(int, at::native::FillFunctor<int>, std::array<char*, 1ul>)",
+          "milliseconds": 902.820905
+        },
+        {
+          "name": "std::enable_if<!(false), void>::type internal::gemvx::kernel<int, int, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, float, false, true, true, false, 6, false, cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16>, float> >(cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16>, float>)",
+          "milliseconds": 166.07591800000066
+        },
+        {
+          "name": "fmha_cutlassF_bf16_aligned_64x128_rf_sm80(PyTorchMemEffAttention::AttentionKernel<cutlass::bfloat16_t, cutlass::arch::Sm80, true, 64, 128, 128, true, true>::Params)",
+          "milliseconds": 34.752612999999975
+        }
+      ],
+      "compiled_kernel_name_sample": [
+        "triton_per_fused__scaled_dot_product_efficient_attention__to_copy_add_cat_mean_mul_pow_1",
+        "triton_per_fused__scaled_dot_product_efficient_attention__to_copy_add_cat_mean_mul_pow_2",
+        "triton_per_fused__to_copy_add_cat_index_copy_mean_mul_pow_4",
+        "triton_per_fused__to_copy_add_cat_mean_mul_pow_2",
+        "triton_per_fused__to_copy_add_mean_mul_pow_rsqrt_0",
+        "triton_per_fused__to_copy_add_mean_mul_pow_rsqrt_10"
+      ]
+    },
+    {
+      "path": "/root/bili-issues-20261011-asr/followup/bf16-compiled-static-timeline/timeline-1.json",
+      "bytes": 185415718,
+      "sha256": "9914f284cece721c167cb94edead7936c9de2721e45c054d06fdf20bd7b366bb",
+      "event_count": 648923,
+      "kernel_count": 79785,
+      "categories": {
+        "user_annotation": 4,
+        "cpu_op": 315919,
+        "overhead": 17,
+        "cuda_runtime": 84339,
+        "ac2g": 166460,
+        "kernel": 79785,
+        "gpu_memcpy": 1559,
+        "cuda_driver": 546,
+        "gpu_memset": 231,
+        "gpu_user_annotation": 2,
+        "": 60,
+        "Trace": 1
+      },
+      "marked_phases": [
+        {
+          "name": "asr.prepare",
+          "host_range_ms": 16.799619999999997,
+          "kernel_count": 0,
+          "cumulative_kernel_ms": 0.0,
+          "kernel_interval_union_ms": 0.0
+        },
+        {
+          "name": "asr.decode",
+          "host_range_ms": 1910.934168,
+          "kernel_count": 78890,
+          "cumulative_kernel_ms": 328.29306099999997,
+          "kernel_interval_union_ms": 328.29354638671873
+        },
+        {
+          "name": "asr.align",
+          "host_range_ms": 43.238163,
+          "kernel_count": 895,
+          "cumulative_kernel_ms": 10.126818,
+          "kernel_interval_union_ms": 10.126813354492187
+        }
+      ],
+      "interpretation": "Profiler-instrumented sample; kernel duration sums may overlap. These are trace intervals, not SM/Tensor/DRAM/L2 hardware utilization counters.",
+      "top_kernel_sample": [
+        {
+          "name": "std::enable_if<!(false), void>::type internal::gemvx::kernel<int, int, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, float, false, true, true, false, 6, false, cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16>, float> >(cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16 const>, cublasGemvTensorStridedBatched<__nv_bfloat16>, float>)",
+          "milliseconds": 167.3244879999998
+        },
+        {
+          "name": "fmha_cutlassF_bf16_aligned_64x128_rf_sm80(PyTorchMemEffAttention::AttentionKernel<cutlass::bfloat16_t, cutlass::arch::Sm80, true, 64, 128, 128, true, true>::Params)",
+          "milliseconds": 37.59777299999981
+        },
+        {
+          "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+          "milliseconds": 13.441544999999936
+        }
+      ],
+      "compiled_kernel_name_sample": [
+        "triton_per_fused__scaled_dot_product_efficient_attention__to_copy_add_cat_mean_mul_pow_1",
+        "triton_per_fused__to_copy_add_cat_mean_mul_pow_2",
+        "triton_per_fused__to_copy_add_mean_mul_pow_rsqrt_0",
+        "triton_per_fused__to_copy_add_mean_mul_pow_rsqrt_10",
+        "triton_per_fused__to_copy_add_mean_mul_pow_rsqrt_11",
+        "triton_per_fused__to_copy_add_mean_mul_pow_rsqrt_5"
+      ]
+    }
+  ],
+  "production_after": {
+    "captured_at": 1791659102.679428,
+    "running_jobs": 0,
+    "active_attempts": 0,
+    "ready_asr_jobs": 0,
+    "gpu_owners": ""
+  },
+  "interpretation": "Compact projection of original measurements; last_run_observations are explicitly the last measured repetition, not the sum of repetitions. Full measurements and traces are retained in the hashed artifact package."
+}

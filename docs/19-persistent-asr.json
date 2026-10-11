@@ -1,0 +1,546 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "持久 GPU 会话：租约、热模型与故障回收",
+    "locale": "zh-CN",
+    "output": "docs/19-persistent-asr.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "W",
+      "label": "Worker ",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 130,
+          "end_line": 135,
+          "label": "WorkflowApplication.render"
+        },
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 128,
+          "end_line": 210,
+          "label": "WorkflowExecutor.run"
+        },
+        {
+          "path": "src/bili_asr/workflow_supervisor.py",
+          "line": 1,
+          "end_line": 250,
+          "label": "模块定义"
+        }
+      ],
+      "sublabel": "Worker 父进程"
+    },
+    {
+      "id": "D",
+      "label": "SQLite ",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/job_commit.py",
+          "line": 23,
+          "end_line": 36,
+          "label": "JobCommitGuard.assert_lease"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 262,
+          "end_line": 316,
+          "label": "WorkflowRepository.claim"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 820,
+          "end_line": 881,
+          "label": "WorkflowRepository._terminal"
+        }
+      ],
+      "sublabel": "SQLite 任务与"
+    },
+    {
+      "id": "H",
+      "label": "ASR Han",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 118,
+          "end_line": 122,
+          "label": "ArchiveWorkflowHandlers._inference_checkpoint"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 279,
+          "end_line": 287,
+          "label": "ArchiveWorkflowHandlers.local_asr"
+        },
+        {
+          "path": "src/bili_asr/runtime_bindings.py",
+          "line": 95,
+          "end_line": 156,
+          "label": "ModelBindings._checkpoint"
+        }
+      ],
+      "sublabel": "ASR Handle"
+    },
+    {
+      "id": "S",
+      "label": "Session",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/session.py",
+          "line": 157,
+          "end_line": 179,
+          "label": "AsrInferenceSession.__init__"
+        }
+      ],
+      "sublabel": "Session 父端"
+    },
+    {
+      "id": "G",
+      "label": "GPU 子进程",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/session.py",
+          "line": 80,
+          "end_line": 151,
+          "label": "_session_worker"
+        },
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 530,
+          "end_line": 780,
+          "label": "ASRRunner.transcribe"
+        },
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 931,
+          "end_line": 948,
+          "label": "two_pass_transcribe"
+        }
+      ],
+      "sublabel": "GPU 子进程 模型"
+    },
+    {
+      "id": "E",
+      "label": "Linux 清",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/session.py",
+          "line": 61,
+          "end_line": 64,
+          "label": "InferenceRequest.identity"
+        },
+        {
+          "path": "src/bili_asr/asr/session.py",
+          "line": 326,
+          "end_line": 366,
+          "label": "AsrInferenceSession.terminate"
+        }
+      ],
+      "sublabel": "Linux 清理守护"
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "D",
+      "y": 235,
+      "label": "peek 精确 candidate",
+      "variant": "default",
+      "note": "peek 精确 candidate；未领取时读取冻结 profile 与绑定；条件：主流程",
+      "from": "W"
+    },
+    {
+      "id": "m2",
+      "to": "S",
+      "y": 301,
+      "label": "prepare 冷加载/显式 warmup",
+      "variant": "default",
+      "note": "prepare 冷加载/显式 warmup；可随 drain 中断；条件：主流程",
+      "from": "W"
+    },
+    {
+      "id": "m3",
+      "to": "G",
+      "y": 367,
+      "label": "创建或复用准确配置的模型",
+      "variant": "security",
+      "note": "创建或复用准确配置的模型；不持有执行 lease；条件：主流程",
+      "from": "S"
+    },
+    {
+      "id": "m4",
+      "to": "D",
+      "y": 433,
+      "label": "expected_candidate claim",
+      "variant": "default",
+      "note": "expected_candidate claim；候选变化重新选择；条件：主流程",
+      "from": "W"
+    },
+    {
+      "id": "m5",
+      "to": "W",
+      "y": 499,
+      "label": "owner + attempt",
+      "variant": "return",
+      "note": "owner + attempt；条件：主流程",
+      "from": "D"
+    },
+    {
+      "id": "m6",
+      "to": "H",
+      "y": 565,
+      "label": "local_asr(job)",
+      "variant": "default",
+      "note": "local_asr(job)；条件：主流程",
+      "from": "W"
+    },
+    {
+      "id": "m7",
+      "to": "D",
+      "y": 631,
+      "label": "读取冻结配置与音频",
+      "variant": "default",
+      "note": "读取冻结配置与音频；条件：主流程",
+      "from": "H"
+    },
+    {
+      "id": "m8",
+      "to": "H",
+      "y": 697,
+      "label": "profile / 音频身份",
+      "variant": "return",
+      "note": "profile / 音频身份；条件：主流程",
+      "from": "D"
+    },
+    {
+      "id": "m9",
+      "to": "D",
+      "y": 763,
+      "label": "租约内登记本次运行",
+      "variant": "security",
+      "note": "租约内登记本次运行；条件：主流程",
+      "from": "H"
+    },
+    {
+      "id": "m10",
+      "to": "S",
+      "y": 829,
+      "label": "完整请求身份与期限",
+      "variant": "default",
+      "note": "完整请求身份与期限；条件：主流程",
+      "from": "H"
+    },
+    {
+      "id": "m11",
+      "to": "G",
+      "y": 960,
+      "label": "首次/配置变更才启动",
+      "variant": "default",
+      "note": "首次/配置变更才启动；条件：alt 首次请求、配置或绑定改变、既有子进程已退出",
+      "from": "S"
+    },
+    {
+      "id": "m12",
+      "to": "E",
+      "y": 1026,
+      "label": "建立 EOF 清理守护",
+      "variant": "default",
+      "note": "建立 EOF 清理守护；条件：alt 首次请求、配置或绑定改变、既有子进程已退出",
+      "from": "G"
+    },
+    {
+      "id": "m13",
+      "to": "G",
+      "y": 1157,
+      "label": "IPC",
+      "variant": "default",
+      "note": "IPC：身份 + 音频；条件：主流程",
+      "from": "S"
+    },
+    {
+      "id": "m14",
+      "to": "H",
+      "y": 1288,
+      "label": "轮询 checkpoint",
+      "variant": "default",
+      "note": "轮询 checkpoint；条件：loop 等待响应；有界轮询，检查总期限",
+      "from": "S"
+    },
+    {
+      "id": "m15",
+      "to": "D",
+      "y": 1354,
+      "label": "校验租约与取消状态",
+      "variant": "security",
+      "note": "校验租约与取消状态；条件：loop 等待响应；有界轮询，检查总期限",
+      "from": "H"
+    },
+    {
+      "id": "m16",
+      "to": "D",
+      "y": 1420,
+      "label": "独立线程续约同一尝试",
+      "variant": "return",
+      "note": "独立线程续约同一尝试；条件：loop 等待响应；有界轮询，检查总期限",
+      "from": "W"
+    },
+    {
+      "id": "m17",
+      "to": "H",
+      "y": 1486,
+      "label": "仍持有当前尝试",
+      "variant": "return",
+      "note": "仍持有当前尝试；条件：loop 等待响应；有界轮询，检查总期限",
+      "from": "D"
+    },
+    {
+      "id": "m18",
+      "to": "S",
+      "y": 1552,
+      "label": "继续等候有界响应",
+      "variant": "return",
+      "note": "继续等候有界响应；条件：loop 等待响应；有界轮询，检查总期限",
+      "from": "H"
+    },
+    {
+      "id": "m19",
+      "to": "S",
+      "y": 1683,
+      "label": "身份 + 分段 + 证据",
+      "variant": "return",
+      "note": "身份 + 分段 + 证据；条件：alt 身份相同、仍在期限内、未取消且当前租约有效",
+      "from": "G"
+    },
+    {
+      "id": "m20",
+      "to": "H",
+      "y": 1749,
+      "label": "身份/期限检查通过",
+      "variant": "return",
+      "note": "身份/期限检查通过；条件：alt 身份相同、仍在期限内、未取消且当前租约有效",
+      "from": "S"
+    },
+    {
+      "id": "m21",
+      "to": "D",
+      "y": 1815,
+      "label": "围栏事务保存转录与证据",
+      "variant": "security",
+      "note": "围栏事务保存转录与证据；条件：alt 身份相同、仍在期限内、未取消且当前租约有效",
+      "from": "H"
+    },
+    {
+      "id": "m22",
+      "to": "D",
+      "y": 1881,
+      "label": "持有租约才排入发布",
+      "variant": "security",
+      "note": "持有租约才排入发布；条件：alt 身份相同、仍在期限内、未取消且当前租约有效",
+      "from": "H"
+    },
+    {
+      "id": "m23",
+      "to": "W",
+      "y": 1947,
+      "label": "transcript / publish job",
+      "variant": "return",
+      "note": "transcript / publish job；条件：alt 身份相同、仍在期限内、未取消且当前租约有效",
+      "from": "H"
+    },
+    {
+      "id": "m24",
+      "to": "D",
+      "y": 2013,
+      "label": "同 owner/attempt 才 finish",
+      "variant": "security",
+      "note": "同 owner/attempt 才 finish；条件：alt 身份相同、仍在期限内、未取消且当前租约有效",
+      "from": "W"
+    },
+    {
+      "id": "m25",
+      "to": "S",
+      "y": 2144,
+      "label": "下一任务",
+      "variant": "default",
+      "note": "下一任务：相同配置；条件：alt 身份相同、仍在期限内、未取消且当前租约有效 / opt 下一任务相同配置；persistent 模式",
+      "from": "H"
+    },
+    {
+      "id": "m26",
+      "to": "G",
+      "y": 2210,
+      "label": "保留模型，重置任务态",
+      "variant": "default",
+      "note": "保留模型，重置任务态；条件：alt 身份相同、仍在期限内、未取消且当前租约有效 / opt 下一任务相同配置；persistent 模式",
+      "from": "S"
+    },
+    {
+      "id": "m27",
+      "to": "G",
+      "y": 2341,
+      "label": "超时/取消/失租",
+      "variant": "default",
+      "note": "超时/取消/失租：终止；条件：else 超时、取消、失租、drain 到期、子进程错误或坏响应",
+      "from": "S"
+    },
+    {
+      "id": "m28",
+      "to": "H",
+      "y": 2407,
+      "label": "迟到/身份错",
+      "variant": "return",
+      "note": "迟到/身份错：拒绝结果；条件：else 超时、取消、失租、drain 到期、子进程错误或坏响应",
+      "from": "S"
+    },
+    {
+      "id": "m29",
+      "to": "W",
+      "y": 2473,
+      "label": "失败",
+      "variant": "return",
+      "note": "失败；Session 下次重建；条件：else 超时、取消、失租、drain 到期、子进程错误或坏响应",
+      "from": "H"
+    },
+    {
+      "id": "m30",
+      "to": "D",
+      "y": 2539,
+      "label": "失败写入仍校验当前尝试",
+      "variant": "security",
+      "note": "失败写入仍校验当前尝试；条件：else 超时、取消、失租、drain 到期、子进程错误或坏响应",
+      "from": "W"
+    },
+    {
+      "id": "m31",
+      "to": "E",
+      "y": 2670,
+      "label": "GPU 退出后管道 EOF",
+      "variant": "return",
+      "note": "GPU 退出后管道 EOF；条件：opt 父进程死亡或 GPU 子进程退出",
+      "from": "G"
+    },
+    {
+      "id": "m32",
+      "to": "G",
+      "y": 2736,
+      "label": "清理同组解码后代",
+      "variant": "default",
+      "note": "清理同组解码后代；条件：opt 父进程死亡或 GPU 子进程退出",
+      "from": "E"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 875,
+      "label": "B1 · 主流程"
+    },
+    {
+      "from": 932,
+      "to": 1072,
+      "label": "B2 · alt 首次请求、配置或绑定改变、既有子进程已退出"
+    },
+    {
+      "from": 1129,
+      "to": 1203,
+      "label": "B3 · 主流程"
+    },
+    {
+      "from": 1260,
+      "to": 1598,
+      "label": "B4 · loop 等待响应；有界轮询，检查总期限"
+    },
+    {
+      "from": 1655,
+      "to": 2059,
+      "label": "B5 · alt 身份相同、仍在期限内、未取消且当前租约有效"
+    },
+    {
+      "from": 2116,
+      "to": 2256,
+      "label": "B6 · opt 下一任务相同配置；persistent 模式"
+    },
+    {
+      "from": 2313,
+      "to": 2585,
+      "label": "B7 · else 超时、取消、失租、drain 到期、子进程错"
+    },
+    {
+      "from": 2642,
+      "to": 2777,
+      "label": "B8 · opt 父进程死亡或 GPU 子进程退出"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "准入；已请求 drain 时不再领取新任务",
+        "B1 条件路径：主流程",
+        "图示 cuda/rocm 的 Session 分支；单会话只允许一个活动请求",
+        "B2 条件路径：alt 首次请求、配置或绑定改变、既有子进程已退出",
+        "保留模型；generation 不变，本次 request_id 必须更新",
+        "B3 条件路径：主流程",
+        "processor 不可复制或输入超预算时回退串行；当前任务结束回收准备线程",
+        "不跨任务或跨两轮传递 Transformers KV prefix cache",
+        "B4 条件路径：loop 等待响应；有界轮询，检查总期限",
+        "先检查权威 cancelled，再检查心跳失租 token 与 drain 宽限期",
+        "B5 条件路径：alt 身份相同、仍在期限内、未取消且当前租约有效",
+        "BEGIN IMMEDIATE；事务前后检查同一 owner/attempt 和期限",
+        "B6 条件路径：alt 身份相同、仍在期限内、未取消且当前租约有效 / opt 下一任务相同配置；persistent 模式",
+        "每个新任务重新取得自己的租约和 IPC 身份，重复完整校验",
+        "B7 条件路径：else 超时、取消、失租、drain 到期、子进程错误或坏响应",
+        "迟到、错 generation/request/identity、ok=false、无响应退出也终止会话",
+        "cancelled 保留取消终态；失租旧 worker 不覆盖新尝试的结果",
+        "Linux 父死信号不依赖 Python GIL；父守护线程另查存活与父 PID",
+        "B8 条件路径：opt 父进程死亡或 GPU 子进程退出",
+        "父端只清理自有进程组/句柄；不扫描或终止无关 PID",
+        "宽限期耗尽时 checkpoint 抛错，进入上述终止与围栏失败路径",
+        "oneshot 每次成功后也 close；正常退出释放 runner、模型和队列"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "内部动作",
+      "items": [
+        "ASR Handler 父进程结果写入：检查 payload、音频文件；解析并核验模型绑定（主流程）",
+        "Session 父端 串行 IPC 与期限：checkpoint；按完整 ASRConfig + runtime_binding 计算配置 key（主流程）",
+        "Session 父端 串行 IPC 与期限：如存在旧会话，先 terminate、join 并关闭旧队列（alt 首次请求、配置或绑定改变、既有子进程已退出）",
+        "GPU 子进程 模型与双轮推理：POSIX setsid；Linux prctl 父死 SIGKILL；复查父 PID（alt 首次请求、配置或绑定改变、既有子进程已退出）",
+        "GPU 子进程 模型与双轮推理：检查 protocol 与 generation；首次请求创建 runner（主流程）",
+        "GPU 子进程 模型与双轮推理：重置任务热词与诊断；仅本次双轮范围复用解码波形（主流程）",
+        "GPU 子进程 模型与双轮推理：独立 processor；单准备线程、深度一、输入字节预算（opt CPU 预取开启；默认关闭）",
+        "GPU 子进程 模型与双轮推理：第一轮推理；保留候选热词时才执行第二轮新 generation call（主流程）",
+        "Session 父端 串行 IPC 与期限：比较完整 envelope；再次 checkpoint；复查期限与 ok（alt 身份相同、仍在期限内、未取消且当前租约有效）",
+        "ASR Handler 父进程结果写入：再次 assert_lease；转换分段；空转录作为失败（alt 身份相同、仍在期限内、未取消且当前租约有效）",
+        "Worker 父进程调度器：停止 claim；活动尝试在宽限期内继续心跳（opt drain 或正常关闭）",
+        "Session 父端 串行 IPC 与期限：close 发送停止哨兵并有界 join；必要时 TERM 后 KILL（opt drain 或正常关闭）"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
+  ]
+}

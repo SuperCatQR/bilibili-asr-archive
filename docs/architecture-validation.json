@@ -1,1115 +1,896 @@
 {
-  "schema_version": 2,
-  "checked_on": "2026-10-09",
+  "schema_version": 3,
+  "checked_on": "2026-10-11",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
-  "implementation_baseline": "6544eb85ea3e95e5b9571930fefaf35bde6b7dc1",
+  "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
   "archify_version": "3.0.1",
   "coverage": {
-    "top_level_commands": 16,
-    "command_paths": 35,
-    "python_modules": 122,
-    "schema_files": 4,
-    "schema_tables": 38,
-    "schema_views": 8,
-    "runtime_search_objects": 2,
-    "sequence_flows": 17,
-    "interactive_diagrams": 19
+    "sequence_flows": 31,
+    "interactive_diagrams": 34
   },
   "content_checks": {
-    "pinned_source_ranges_checked": 269,
-    "exact_ast_symbols_checked": 257,
-    "local_markdown_links_checked": 698,
-    "module_inventory": "pass",
     "command_registry_and_parser": "pass",
-    "sql_object_names_and_columns": "pass",
-    "committed_source_bytes": "pass",
-    "mermaid_branch_balance_and_participants": "pass",
+    "source_module_inventory": "pass",
+    "contract_resources": "pass",
+    "mermaid_branch_balance": "pass",
     "git_diff_check": "pass",
-    "tracked_changes_only_in_docs": false
-  },
-  "implementation_validation": {
-    "environment": "WSL Ubuntu-24.04, native Linux files, isolated Python 3.12 environment",
-    "pytest": {
-      "passed": 2112,
-      "skipped": 11,
-      "failed": 0,
-      "errors": 0,
-      "seconds": 405.125
-    },
-    "coverage": {
-      "line_percent": 81.87,
-      "branch_percent": 71.06,
-      "line_minimum": 75,
-      "branch_minimum": 63
-    },
-    "ruff_E9": "pass",
-    "compileall": "pass",
-    "sdist_and_wheel_build": "pass",
-    "isolated_wheel_install_and_resources": "pass",
-    "installed_read_only_bytes_and_missing_database": "pass",
-    "dependency_audit": "pass; no known vulnerabilities found",
-    "condition_mutations": "read-only mode, platform comparison, lease expiry, real transcript shared context and control deadline regressions detected",
-    "earlier_failures": "Old installed-test expectations were corrected. Borrowed dependency .pth failed subprocess coverage startup; final run installed all dependencies directly in the isolated environment."
+    "artifact_receipt_hashes": "pass",
+    "pinned_source_ranges_checked": 402,
+    "local_markdown_links_checked": 992,
+    "local_source_line_links_checked": 274,
+    "mermaid_flows_checked": 31
   },
   "artifacts": [
     {
       "type": "architecture",
       "specification": "docs/architecture.json",
       "output": "docs/architecture.html",
-      "specification_sha256": "bb96873d81fc557d26f35249c1c4028b69da697664d58b1382029f01c3c48608",
-      "artifact_sha256": "6d2bb4d9e6e456b307624dad8f2e7eb120d239342eac9951f4c09f9081fa9f19",
+      "specification_sha256": "fc10bddf785668987fdc7c4d68c9f6094cd9634f46ce5d4d13e6c8bb40e31e99",
+      "artifact_sha256": "bbbca8260658b7b1d22f627e089a2ea5fc8d9fa13607aec4abd803e8fa817faf",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        }
-      ],
-      "visual_review": "partial",
-      "visual_review_scope": "Actual endpoint-theme desktop captures inspected; long-page lower sections were not exhaustively traced.",
-      "correction_rounds": 1,
+      "visual_review": "not_requested",
+      "correction_rounds": 0,
       "layout_advisory": {
-        "routes": {
-          "resolvedCrossovers": 14,
-          "routesOverSuggestedBends": 10
-        },
-        "layout": {}
-      },
-      "capture_checks": {
-        "containment": "pass",
-        "readability": "pass",
-        "viewerChrome": "pass",
-        "themeStates": "pass",
-        "captures": "pass"
+        "resolvedCrossovers": 22,
+        "routesOverSuggestedBends": 11,
+        "routesOverSuggestedStretch": 1
       }
     },
     {
       "type": "architecture",
       "specification": "docs/ai-proofreading-architecture.json",
       "output": "docs/ai-proofreading-architecture.html",
-      "specification_sha256": "9f820d74694762e2720f717819278057460e4420999f4245794adf040bdb1d1e",
-      "artifact_sha256": "b6473d5eab10006460d840ea45fa60cef5c24ae1a328a5c08ded870e0e726572",
+      "specification_sha256": "d37d851fa862e9e623d12480cdf4ba89fbd98aa748e49698e29a7c41da1e2989",
+      "artifact_sha256": "528962ea58eb9e295bc7c8d1d5066604902239b8642d3fe862abaadd15aeb64e",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        }
-      ],
-      "visual_review": "partial",
-      "visual_review_scope": "Actual endpoint-theme desktop captures inspected; long-page lower sections were not exhaustively traced.",
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {
-          "routesOverSuggestedBends": 6
-        },
-        "layout": {}
-      },
-      "capture_checks": {
-        "containment": "pass",
-        "readability": "pass",
-        "viewerChrome": "pass",
-        "themeStates": "pass",
-        "captures": "pass"
-      }
-    },
-    {
-      "type": "sequence",
-      "specification": "docs/sequences/01-cli-bootstrap.json",
-      "output": "docs/sequences/01-cli-bootstrap.html",
-      "specification_sha256": "f905ca1f6f868a7ffb17270f810ad4880027b261ad4d770bed2e03501385586c",
-      "artifact_sha256": "c8b5e7b70f5a887ae26e42131113bc1cbc45e4e70e16468b06330265fd1826ff",
-      "validation": "pass",
-      "quality": "showcase",
-      "gates": {
-        "validate": "pass",
-        "deliver": "pass",
-        "check": "pass",
-        "browser-check": "pass"
-      },
-      "diagnostics": [],
-      "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
       "correction_rounds": 0,
       "layout_advisory": {
-        "routes": {},
-        "layout": {}
+        "routesOverSuggestedBends": 6
       }
     },
     {
-      "type": "sequence",
-      "specification": "docs/sequences/02-metadata-tags.json",
-      "output": "docs/sequences/02-metadata-tags.html",
-      "specification_sha256": "6db03720b42b0fc8a198505eeeaf1432367c6f159a19cc11f213b0dc532f4714",
-      "artifact_sha256": "f608c2fb53f9f6385a331280724ea1dd59b13ce7b2f2e6788749399e21f9201f",
+      "type": "architecture",
+      "specification": "docs/contract-governance.json",
+      "output": "docs/contract-governance.html",
+      "specification_sha256": "7e2370b8d458e859638968690554475ed1adc32c9b026ad235effdc14af7bb8d",
+      "artifact_sha256": "edca0b8cfa3c5be07b9345617bdf697800bde86a03ddd4c9c0fbd118114a113b",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/03-workflow-plan.json",
-      "output": "docs/sequences/03-workflow-plan.html",
-      "specification_sha256": "40457d2ffee87912f7b17f89289295f01075fe8662e678cc82b3907f54529d69",
-      "artifact_sha256": "b7b4a059d9716af676715661d6ac25000f79ff8ce5862c140e50eee7e9e325f7",
+      "specification": "docs/01-cli-bootstrap.json",
+      "output": "docs/01-cli-bootstrap.html",
+      "specification_sha256": "d917c4cc21ce025188991dd8aee9a104dd288e7e1f338bd567cd9cbbd131573d",
+      "artifact_sha256": "0867dc3fea134a66c38a351d8d10df8617770d4c691c77265441d3d0a6d96efa",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
-      "visual_review": "partial",
-      "visual_review_scope": "Actual endpoint-theme desktop captures inspected; long-page lower sections were not exhaustively traced.",
-      "correction_rounds": 1,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      },
-      "capture_checks": {
-        "containment": "pass",
-        "readability": "pass",
-        "viewerChrome": "pass",
-        "themeStates": "pass",
-        "captures": "pass"
-      }
-    },
-    {
-      "type": "sequence",
-      "specification": "docs/sequences/04-lease-cancel-retry.json",
-      "output": "docs/sequences/04-lease-cancel-retry.html",
-      "specification_sha256": "3e7fb5ecfbfd8d6c7dc80997fb095624a4b245f1a9f1e09c19e891a2cc2e2568",
-      "artifact_sha256": "0577e50ae249742eb59fce174e82307d699c29682f02793e3d813154776546d2",
-      "validation": "pass",
-      "quality": "showcase",
-      "gates": {
-        "validate": "pass",
-        "deliver": "pass",
-        "check": "pass",
-        "browser-check": "pass"
-      },
-      "diagnostics": [],
-      "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/05-subtitle-ingest.json",
-      "output": "docs/sequences/05-subtitle-ingest.html",
-      "specification_sha256": "23ac8a83ab381abdae5d9c381e76fa247dd429e706e1fb4d2538525991128606",
-      "artifact_sha256": "c5fffa2931cde62ac7014d7b93f8caa931a5b6f754a73219b14a0c7d78d2a852",
+      "specification": "docs/02-metadata-tags.json",
+      "output": "docs/02-metadata-tags.html",
+      "specification_sha256": "7362a1faefc91986bd5141a9455ad6da1e58e9c5be461dc4e8d3b9703a4d597a",
+      "artifact_sha256": "d6ef575efb8dc15d206678bba37a2a51fe1585a7ef51b8639b2562d2b9838cc7",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": true
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/06-audio-download.json",
-      "output": "docs/sequences/06-audio-download.html",
-      "specification_sha256": "dbd4c6273f810905ee8792f1eac6e1da2f5a6564c07f7c0b710a57c31bdf5706",
-      "artifact_sha256": "1a9aa41972db05af105a1e324669b1f0bb96c70e74faef0cd8c600978bccf9ba",
+      "specification": "docs/03-workflow-plan.json",
+      "output": "docs/03-workflow-plan.html",
+      "specification_sha256": "0f5ef889fc800ca2270e3172ca692bb80cb3a4398f51b96122df0fc3b5a7da7f",
+      "artifact_sha256": "4329d044285fbece56baa8a4f5b381bd2b57bba054c3892a12c68f11eefe17a8",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/07-asr-runtime.json",
-      "output": "docs/sequences/07-asr-runtime.html",
-      "specification_sha256": "c018359ebbb7dbcad92e6887354b1b9e83b7a5eaa69aa8e5dc880653494138d3",
-      "artifact_sha256": "9e7190b8e34f52f528a67b04835e5b22cc89416094754fcb12516e2f8950c4e0",
+      "specification": "docs/04-lease-cancel-retry.json",
+      "output": "docs/04-lease-cancel-retry.html",
+      "specification_sha256": "e890da471e38380ec7509b5b4c942f672b1ae1709353ac8055edfbe418964a1a",
+      "artifact_sha256": "04070e652bcc645d2601626a4e785959cae0d2be80b309dbca91db448fb5da38",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/08-transcript-bundle.json",
-      "output": "docs/sequences/08-transcript-bundle.html",
-      "specification_sha256": "ba20c111e4a347006536e98d9fb02446ab95b5a34fb03ce41018703b38b81829",
-      "artifact_sha256": "b37650cb5f836fea753305427b19efb6db0a853912ed3373d35a8b8f6acd9f03",
+      "specification": "docs/05-subtitle-ingest.json",
+      "output": "docs/05-subtitle-ingest.html",
+      "specification_sha256": "cc0ba64bbeeefbbb01e229054482dc0b31c29dd73bf7bd55435f4a2f6346ebd8",
+      "artifact_sha256": "f05bbb3cdfd294153741ea5ce53291097f12b4553fe3f005dc5c903e8f709463",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/09-ai-proofread.json",
-      "output": "docs/sequences/09-ai-proofread.html",
-      "specification_sha256": "87db78e669a44e8bcbbdb2e43801baf0de4f52e17817d339cf1b7409adeda6e7",
-      "artifact_sha256": "a3061a1191181a92e045aa6891b3c86d778fd3f58a60a98c26a7a463a0118887",
+      "specification": "docs/06-audio-download.json",
+      "output": "docs/06-audio-download.html",
+      "specification_sha256": "8624d73fde5074033f0a16ca4c1d026c6a904bfbea25161b1eecf13410fbd0d8",
+      "artifact_sha256": "aec33d5f487e1f490f51ebe7df506d7c2f59632913510f874541f454c1873568",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/10-document-render.json",
-      "output": "docs/sequences/10-document-render.html",
-      "specification_sha256": "0caba75b4033f52520640bb09185e85eeb8c6aa9e48b16ed30ad33e7c2ee2dee",
-      "artifact_sha256": "bf454f3a3921928e4d5247f518aacf3ad01e27776f9d17f561d0d02485d3937f",
+      "specification": "docs/07-asr-runtime.json",
+      "output": "docs/07-asr-runtime.html",
+      "specification_sha256": "0f1f62f487671354a1259ce930b1cd11febe90058b4bcdf24141939656866395",
+      "artifact_sha256": "485bde7cde8c36b7115c16b68d2b627dceefd151da736246e00f8be8bcc2d686",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/11-publication-lifecycle.json",
-      "output": "docs/sequences/11-publication-lifecycle.html",
-      "specification_sha256": "b8d011c1bcecc801843cd0976ea49c971bd52b951a8332a8fe872d330c021798",
-      "artifact_sha256": "6faae733c176b8785d309637ac6db2bc5820b702a9aed65bb86e0d4ce8ccdf89",
+      "specification": "docs/08-transcript-bundle.json",
+      "output": "docs/08-transcript-bundle.html",
+      "specification_sha256": "bd91c805750feeb439562579b6634671eca5f544929af31834655e613ea886e1",
+      "artifact_sha256": "7459a7da654fb5257ddb56e02ef916def0b28cf0b75859265498cad49c97b69d",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/12-reader-private-export.json",
-      "output": "docs/sequences/12-reader-private-export.html",
-      "specification_sha256": "127db514edc4497197aecb87d5ff3c5c8d38551e4aab66c7f151d006d85bf718",
-      "artifact_sha256": "1128e7e9ef25068a7140f5bc50643627af470059d83c2fd6ad99d0de6aea04c3",
+      "specification": "docs/09-ai-proofread.json",
+      "output": "docs/09-ai-proofread.html",
+      "specification_sha256": "20ef1deb3b9214e6a70051fb73b61d2ed03622fc67251c457d45a0f8644eda06",
+      "artifact_sha256": "d99a085467433cac5b0fa2da4c70f4871642f12c6c4e65ba08fdc4854a969a0d",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/13-projection-verify.json",
-      "output": "docs/sequences/13-projection-verify.html",
-      "specification_sha256": "c6396d22af48dc3ad0816bff0f6302999c4d4d8569928c1fe8bc1a2a2ca91a70",
-      "artifact_sha256": "dda8dea100630f7c480ee302467d2231325b7c06dfb9125362c6545394e2fc46",
+      "specification": "docs/10-document-render.json",
+      "output": "docs/10-document-render.html",
+      "specification_sha256": "fc3ec5ce46555fd5aa28990222df831a6b2ac2edc168328c9828b7f0f9349244",
+      "artifact_sha256": "6ec3f1518108e381c0be8af9740be6e5323e902d423428c6961d6b6cd58cce5e",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/14-search-index.json",
-      "output": "docs/sequences/14-search-index.html",
-      "specification_sha256": "cfed6f131bde9a5c001d4f1f029829eced75c162f23f6d88454654f64998853a",
-      "artifact_sha256": "57e032e8414bfb9f48bb4b3121c70b0622cbe64b688582f5a0b148f58b58286c",
+      "specification": "docs/11-publication-lifecycle.json",
+      "output": "docs/11-publication-lifecycle.html",
+      "specification_sha256": "77bb73d7aba1d2196a10bc72a59f0978d1ea5cfaea2922bd7b1846a309075226",
+      "artifact_sha256": "8654ddaa60f2788609b08238820e942704ab1f520d72c4727338b06eba38534e",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/15-archive-snapshot.json",
-      "output": "docs/sequences/15-archive-snapshot.html",
-      "specification_sha256": "a6729f76c1ee7ec68a1bac7ecb144392423b8c72ca4fd0d6750f7df44c646394",
-      "artifact_sha256": "e7eaf3587e1ae55b9f54691fdad3e630c903618a0b3157a75e144879c859a2d6",
+      "specification": "docs/12-reader-private-export.json",
+      "output": "docs/12-reader-private-export.html",
+      "specification_sha256": "4f94b0c7c6a7cd1db18dc6307765c95d21b87152e1fa64ce863e36d1979b4e37",
+      "artifact_sha256": "b3246e119b5f7c00cbaee1c97cbb6dbec7a65921ad03537f6a73473e448c9b62",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/16-library-and-operations.json",
-      "output": "docs/sequences/16-library-and-operations.html",
-      "specification_sha256": "6b2c5594121d2b5a0bab6936da51333339c6257ee0de950a2a5cec829b5f1f61",
-      "artifact_sha256": "f920b92e5e52a931a90d28184ee761b67864b43c349c488a726f2d36e125f696",
+      "specification": "docs/13-projection-verify.json",
+      "output": "docs/13-projection-verify.html",
+      "specification_sha256": "ec18284d0e0bc309bfac6fccd603735703d50106321052db2afc7ffbe094af01",
+      "artifact_sha256": "dfe3b5b0fd3b359d7d7cdac3c33a2c3cae548ad33cd48ca5f1ba3f7d892976ba",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/17-migration-preflight.json",
-      "output": "docs/sequences/17-migration-preflight.html",
-      "specification_sha256": "ce55f9009b099d0630b8496a5dbe5d87ef4293c82c68541b943837d78e2075d7",
-      "artifact_sha256": "9f2bf2016ede5ca955c683563b160189ddb0a3a91e9e4952c18af247cae192fc",
+      "specification": "docs/14-search-index.json",
+      "output": "docs/14-search-index.html",
+      "specification_sha256": "42543c8b06888ac301df192933176fc8f7274cb70d74115e49dee91eb7fba25c",
+      "artifact_sha256": "ca612410365997cb460965f738354673d954b0ba444253a571092b064095936f",
       "validation": "pass",
-      "quality": "showcase",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
       "gates": {
         "validate": "pass",
         "deliver": "pass",
         "check": "pass",
         "browser-check": "pass"
       },
-      "diagnostics": [],
       "browser_evidence": "passed",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light",
-          "overflow_x": false,
-          "vertical_scroll_accepted": false
-        }
-      ],
       "visual_review": "not_requested",
-      "visual_review_scope": null,
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routes": {},
-        "layout": {}
-      }
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/15-archive-snapshot.json",
+      "output": "docs/15-archive-snapshot.html",
+      "specification_sha256": "7e1cf904a1237ec1163eb0f861b1071c6a2e69456feab517761f0f832749b07d",
+      "artifact_sha256": "698f7883943c8660329734c62084c4065de0d6f860531e047309cb5cba61f5ca",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/16-library-and-operations.json",
+      "output": "docs/16-library-and-operations.html",
+      "specification_sha256": "e2458ea037dfed6fbbaa670cb04c01d9c6642aeb4d2d5a6f0715ab337f349cb1",
+      "artifact_sha256": "e91c93f1ca858b06d68fc3146553980eee3ec9edf81aa4b607c6318ed1d53505",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/17-migration-preflight.json",
+      "output": "docs/17-migration-preflight.html",
+      "specification_sha256": "11a48f149a0036e248be6c40b750bbf40f0dedc835bcd60328801a8967808f51",
+      "artifact_sha256": "0ffbe950c54fe81bf896b0f911a6bc536fa262bb4fdd830e5b088b00cbad0212",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/18-universal-migration.json",
+      "output": "docs/18-universal-migration.html",
+      "specification_sha256": "c7a0bce8bd9df854fddd46db45fd354f7eef68982ec12336e623607ce1dc97d1",
+      "artifact_sha256": "278dd267005bfb84cbd53a236ec0e64205bae697b47c7643f84693e34cfe0c7d",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/19-persistent-asr.json",
+      "output": "docs/19-persistent-asr.html",
+      "specification_sha256": "6ddf19329d3fd26037147277b7065c824a133d121ad6fa0618067ddfa0ce4103",
+      "artifact_sha256": "f57601ed75acdd554dbb6dcb5417c84ea823cd74d724a828cb7a2163ce6b2187",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/20-recovery-plan.json",
+      "output": "docs/20-recovery-plan.html",
+      "specification_sha256": "42248effa23da9f4d53899f39403f55e41bdb2c550435d29af91c4939a4baede",
+      "artifact_sha256": "f8b2517e2f5737153a89bc464c7eed71d13ca670072f1a8d78c7f73aa5532afc",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/21-youtube-workflow.json",
+      "output": "docs/21-youtube-workflow.html",
+      "specification_sha256": "5af1568c31025c81bc267006d6f3e95c7162f2f71c90b165b20fd1461e2205c4",
+      "artifact_sha256": "d8929e935cba98042d48399d1206f296f32f482f233f256d9ded66d7c8462e0b",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/22-subtitle-candidates.json",
+      "output": "docs/22-subtitle-candidates.html",
+      "specification_sha256": "1e95ccecde717b97276aa95e33ebf99bfa9f7664a80becddffcc1ac840b3a6d7",
+      "artifact_sha256": "a92629742dda3ce2e4c13bd2c05ec146b8a841664066c50809e9ec1d0176d8b0",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/23-metadata-refresh.json",
+      "output": "docs/23-metadata-refresh.html",
+      "specification_sha256": "dd2acc6c22ad8a500cb39e1112531e29296733a8547fb23af93d27fce28e1cdf",
+      "artifact_sha256": "9c63edd7c698eba965d5cb55bc0777fb4ae61bb3c2d6b337c0058116691d4efc",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/24-artifact-storage.json",
+      "output": "docs/24-artifact-storage.html",
+      "specification_sha256": "73646c3960a716a3cb5524bebb21aa4bc5b808ebf1e3078140169d46e9759887",
+      "artifact_sha256": "45c60d781aef60cd8c9132be85b9d75e5f0fa3dfe0960dc92bcf951d2ca04402",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/25-contract-upgrade.json",
+      "output": "docs/25-contract-upgrade.html",
+      "specification_sha256": "a9320af59c89d6564ec7cbb71d60ffca3e51dc9d00312912b2bae9f71a75e5e0",
+      "artifact_sha256": "14d3078b20318b3c47247f3a477d0e2fb2467131a7d8401976b99a7e9590ce5a",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/26-asr-batching.json",
+      "output": "docs/26-asr-batching.html",
+      "specification_sha256": "10c372fa2f1be82a4443a6af3927d0fb7da6099eb9949a1ddf569b7c7066703b",
+      "artifact_sha256": "1a9b50b00f3f569e31f42ed3742c3a2d97e7b523bf050bb99483f2fc5b432f41",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/27-reference-backup.json",
+      "output": "docs/27-reference-backup.html",
+      "specification_sha256": "4a0abd2bfb7845f796ee44ac68d24ffe5a15fce348b6ab26e8e3ba0d4ec46ec9",
+      "artifact_sha256": "6adff50dc6591e9039b11810dca5999823c2471696cd5733afd1a2b6f433fbcd",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/28-preserved-body.json",
+      "output": "docs/28-preserved-body.html",
+      "specification_sha256": "ef1f2631f733623814292a5369d64b0d8e0cba33a9b315835b85f0ea45b3829a",
+      "artifact_sha256": "d7403c4bcf955d8d1ff26f0358ae4ddda63e268ab043bdb883388a420c414761",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/29-publication-series.json",
+      "output": "docs/29-publication-series.html",
+      "specification_sha256": "165ffb328c2937a655066fb68da47353aa9f9b8559e66d73e15f8d9b0be3c9d4",
+      "artifact_sha256": "6506725b0c5a3a9a46dd6e4fa0d634c62a47a573a5fa40f69d4505d6e87b53d5",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/30-editorial-repair.json",
+      "output": "docs/30-editorial-repair.html",
+      "specification_sha256": "f33f51b3077e3d47bd56c4f12d1f5a7e4a4b970c563ff5446e8979cbed08f7b1",
+      "artifact_sha256": "623ced41108d83be64237e78f98f2bd93776726f893e24ad58454b4f08404dc7",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/31-source-metadata-migration.json",
+      "output": "docs/31-source-metadata-migration.html",
+      "specification_sha256": "7df73665bbe61290ba7f9d23c059f80457e898991f63f665344206397d03907e",
+      "artifact_sha256": "b3e7840a45c10d6baaa5ea0fd9f93c3b0381a3d6090db093cee7a414c731fb1a",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
     }
   ],
+  "placement_review": {
+    "diagram": "docs/architecture.json",
+    "attempts": 1,
+    "original_crossovers": 22,
+    "trial_crossovers": 27,
+    "result": "restored-original-placement"
+  },
   "limitations": [
-    "No live Bilibili network, real GPU inference, paid model request or external reader deployment was performed.",
-    "Automated browser checks passed for every artifact; endpoint captures provide partial visual review, not exhaustive long-page acceptance.",
-    "Overview retains 14 crossings and 10 routes over suggested bend count; AI topic retains 6 such routes.",
-    "Internal projection queries are bounded; the public full mapping still grows with output size."
+    "No live Bilibili/YouTube network, production GPU inference, paid AI request or external reader deployment was performed.",
+    "All 34 diagrams passed artifact-bound browser checks; no complete manual visual review was requested or claimed.",
+    "Architecture overview retains route crossing and detour advisories after one placement trial was reverted; AI topic retains bend advisories.",
+    "Historical behavior-validation records in docs/evidence remain separate from current artifact receipts; the new universal-origin-v2 reader profile remains external follow-up work."
   ]
 }

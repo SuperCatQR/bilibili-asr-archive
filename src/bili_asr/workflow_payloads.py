@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import Any
 
 from bili_asr.workflow_models import JobKind, WorkflowJob
+from bili_asr.contracts.registry import WORKFLOW_PAYLOAD_VERSION
 
 
 @dataclass(frozen=True)
@@ -31,8 +32,8 @@ def validate_payload(kind: JobKind, payload: Mapping[str, Any], *,
                      part_id: int | None, profile_id: int | None = None) -> ValidatedPayload:
     if not isinstance(payload, Mapping):
         raise ValueError("workflow payload must be a JSON object")
-    version = payload.get("schema_version", 1)
-    if type(version) is not int or version != 1:
+    version = payload.get("schema_version", WORKFLOW_PAYLOAD_VERSION)
+    if type(version) is not int or version != WORKFLOW_PAYLOAD_VERSION:
         raise ValueError("unsupported workflow payload schema version")
     if kind in {JobKind.SUBTITLE, JobKind.AUDIO, JobKind.ASR, JobKind.PUBLISH}:
         if _positive_id(payload.get("video_part_id"), "video_part_id") != part_id:
@@ -45,13 +46,34 @@ def validate_payload(kind: JobKind, payload: Mapping[str, Any], *,
             _positive_id(reference, "reference_transcript_id")
     elif kind is JobKind.PUBLISH:
         _positive_id(payload.get("transcript_id"), "transcript_id")
+        if "preserve_publication" in payload:
+            expected = payload["preserve_publication"]
+            if not isinstance(expected, Mapping) or set(expected) != {
+                "publication_id", "published_at", "transcript_sha256", "segments_sha256"
+            }:
+                raise ValueError("workflow payload: invalid publication refresh fence")
+            _positive_id(expected["publication_id"], "publication_id")
+            if type(expected["published_at"]) is not int or expected["published_at"] < 0:
+                raise ValueError("workflow payload: invalid publication timestamp")
+            for name in ("transcript_sha256", "segments_sha256"):
+                digest = expected[name]
+                if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                    raise ValueError("workflow payload: invalid transcript digest")
+        if "publication_request_id" in payload:
+            _text(payload["publication_request_id"], "publication_request_id")
     elif kind is JobKind.PROOFREAD:
         _one_reference(payload, "input_id", "asr_job_id")
+        if "repair_of_job_id" in payload:
+            _text(payload["repair_of_job_id"], "repair_of_job_id")
+            if "input_id" not in payload:
+                raise ValueError("workflow repair requires an explicit frozen input")
         if "asr_job_id" in payload and not isinstance(payload.get("editorial_config"), Mapping):
             raise ValueError("workflow payload: automatic proofreading requires editorial_config")
     elif kind is JobKind.RENDER_DOCUMENT:
         _one_reference(payload, "revision_id", "proofread_job_id")
         _text(payload.get("template_version"), "template_version")
+        if payload["template_version"] == "auto" and "proofread_job_id" not in payload:
+            raise ValueError("workflow payload: automatic template requires proofreading dependency")
     return ValidatedPayload(kind, version, MappingProxyType(dict(payload)))
 
 

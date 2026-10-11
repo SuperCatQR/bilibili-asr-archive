@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "固定旧源契约、公开清单与完整历史预检",
+    "locale": "zh-CN",
+    "output": "docs/17-migration-preflight.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "archive",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/archive.py",
+          "line": 67,
+          "end_line": 112,
+          "label": "_cmd_archive"
+        },
+        {
+          "path": "src/bili_asr/cli/registry.py",
+          "line": 1,
+          "end_line": 76,
+          "label": "模块定义"
+        }
+      ],
+      "sublabel": "archive 命令"
+    },
+    {
+      "id": "service",
+      "label": "migrati",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/migration_preflight.py",
+          "line": 119,
+          "end_line": 213,
+          "label": "migration_preflight"
+        }
+      ],
+      "sublabel": "migration_"
+    },
+    {
+      "id": "access",
+      "label": "Archive",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive_session.py",
+          "line": 95,
+          "end_line": 104,
+          "label": "ArchiveSession.access"
+        },
+        {
+          "path": "src/bili_asr/archive_maintenance.py",
+          "line": 84,
+          "end_line": 160,
+          "label": "archive_access"
+        }
+      ],
+      "sublabel": "ArchiveSes"
+    },
+    {
+      "id": "legacy",
+      "label": "固定旧源校验",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/migration_source.py",
+          "line": 176,
+          "end_line": 228,
+          "label": "inspect_migration_source"
+        },
+        {
+          "path": "src/bili_asr/storage/migration_artifacts.py",
+          "line": 147,
+          "end_line": 189,
+          "label": "_legacy_editorial_checks"
+        },
+        {
+          "path": "src/bili_asr/storage/migration_artifacts.py",
+          "line": 88,
+          "end_line": 144,
+          "label": "_legacy_publication_checks"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "公共清单与源文",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/artifact_inventory.py",
+          "line": 89,
+          "end_line": 119,
+          "label": "collect_artifacts"
+        },
+        {
+          "path": "src/bili_asr/artifact_inventory.py",
+          "line": 122,
+          "end_line": 130,
+          "label": "stream_hash"
+        },
+        {
+          "path": "src/bili_asr/services/migration_preflight.py",
+          "line": 45,
+          "end_line": 54,
+          "label": "_hash_file"
+        }
+      ],
+      "sublabel": "公共清单与源文件"
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "service",
+      "y": 235,
+      "label": "CommandSpec.archive_argume…",
+      "variant": "default",
+      "note": "CommandSpec.archive_argument=source_root；显式 --source-root/--source-artifact-root；忽略运行根环境；条件：主流程",
+      "from": "cli"
+    },
+    {
+      "id": "m2",
+      "to": "files",
+      "y": 301,
+      "label": "先检查词法祖先、DB 普通文件、根重叠",
+      "variant": "default",
+      "note": "先检查词法祖先、DB 普通文件、根重叠；未规范化前拒绝 links 与 reparse；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m3",
+      "to": "access",
+      "y": 367,
+      "label": "MAINTENANCE.access",
+      "variant": "default",
+      "note": "MAINTENANCE.access；不创建源 root；独占访问，只写根旁协调锁；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m4",
+      "to": "files",
+      "y": 433,
+      "label": "非空 WAL/journal 拒绝",
+      "variant": "default",
+      "note": "非空 WAL/journal 拒绝；记录 DB 物理身份；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m5",
+      "to": "legacy",
+      "y": 499,
+      "label": "inspect_migration_source",
+      "variant": "default",
+      "note": "inspect_migration_source；固定 mode=ro&immutable=1；query_only/trusted_schema OFF；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m6",
+      "to": "service",
+      "y": 630,
+      "label": "立即拒绝",
+      "variant": "return",
+      "note": "立即拒绝；要求停止 writer 并 checkpoint；条件：alt running job 有有效或缺失 lease",
+      "from": "legacy"
+    },
+    {
+      "id": "m7",
+      "to": "service",
+      "y": 761,
+      "label": "固定 contract/source revisio…",
+      "variant": "return",
+      "note": "固定 contract/source revision、逐表指纹、派生对象、过期 running 数；条件：else 无 running 或仅过期 running",
+      "from": "legacy"
+    },
+    {
+      "id": "m8",
+      "to": "files",
+      "y": 892,
+      "label": "DB 有界流式 hash",
+      "variant": "default",
+      "note": "DB 有界流式 hash；公开 artifact_inventory.collect_artifacts/portable_artifact_parts 检查全部目录；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m9",
+      "to": "service",
+      "y": 1023,
+      "label": "遮蔽副本仍哈希、记 physical identit…",
+      "variant": "return",
+      "note": "遮蔽副本仍哈希、记 physical identity 和 selected_base；条件：loop 显式产物根优先、归档根回退的全部物理文件 / alt 已有 selected key",
+      "from": "files"
+    },
+    {
+      "id": "m10",
+      "to": "service",
+      "y": 1154,
+      "label": "登记 selected/physical/ident…",
+      "variant": "return",
+      "note": "登记 selected/physical/identity；条件：loop 显式产物根优先、归档根回退的全部物理文件 / else 首次 key",
+      "from": "files"
+    },
+    {
+      "id": "m11",
+      "to": "legacy",
+      "y": 1285,
+      "label": "第二个 immutable 连接",
+      "variant": "security",
+      "note": "第二个 immutable 连接；legacy_artifact_references 完整历史身份校验；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m12",
+      "to": "service",
+      "y": 1351,
+      "label": "返回音频/成功 attempt、五文件 bundle…",
+      "variant": "return",
+      "note": "返回音频/成功 attempt、五文件 bundle/marker、双稿和所有 release 引用；条件：主流程",
+      "from": "legacy"
+    },
+    {
+      "id": "m13",
+      "to": "files",
+      "y": 1417,
+      "label": "每个历史引用必须存在且 size/hash 匹配",
+      "variant": "default",
+      "note": "每个历史引用必须存在且 size/hash 匹配；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m14",
+      "to": "legacy",
+      "y": 1483,
+      "label": "读取未完成 ingestion/acquisitio…",
+      "variant": "default",
+      "note": "读取未完成 ingestion/acquisition run 与 model call 数，仅报告恢复候选；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m15",
+      "to": "files",
+      "y": 1549,
+      "label": "完整 marker 准确声明固定五文件，路径与摘要逐…",
+      "variant": "default",
+      "note": "完整 marker 准确声明固定五文件，路径与摘要逐一匹配 selected 清单；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m16",
+      "to": "files",
+      "y": 1615,
+      "label": "重查集合、全部 physical identity、…",
+      "variant": "default",
+      "note": "重查集合、全部 physical identity、DB/sidecar、排除名称；变化立即失败；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m17",
+      "to": "access",
+      "y": 1746,
+      "label": "退出上下文释放维护访问",
+      "variant": "default",
+      "note": "退出上下文释放维护访问；条件：alt 全部阶段通过",
+      "from": "service"
+    },
+    {
+      "id": "m18",
+      "to": "cli",
+      "y": 1812,
+      "label": "JSON/text valid=true",
+      "variant": "return",
+      "note": "JSON/text valid=true；table/file/shadowed/excluded/recovery；退出 0；条件：alt 全部阶段通过",
+      "from": "service"
+    },
+    {
+      "id": "m19",
+      "to": "access",
+      "y": 1943,
+      "label": "如已取得访问，由异常上下文释放",
+      "variant": "default",
+      "note": "如已取得访问，由异常上下文释放；条件：else 任一阶段失败立即停止",
+      "from": "service"
+    },
+    {
+      "id": "m20",
+      "to": "cli",
+      "y": 2009,
+      "label": "有界诊断到 stderr",
+      "variant": "return",
+      "note": "有界诊断到 stderr；无成功报告；退出 1；条件：else 任一阶段失败立即停止",
+      "from": "service"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 545,
+      "label": "B1 · 主流程"
+    },
+    {
+      "from": 602,
+      "to": 676,
+      "label": "B2 · alt running job 有有效或缺失 leas"
+    },
+    {
+      "from": 733,
+      "to": 807,
+      "label": "B3 · else 无 running 或仅过期 running"
+    },
+    {
+      "from": 864,
+      "to": 938,
+      "label": "B4 · 主流程"
+    },
+    {
+      "from": 995,
+      "to": 1069,
+      "label": "B5 · alt 已有 selected key"
+    },
+    {
+      "from": 1126,
+      "to": 1200,
+      "label": "B6 · else 首次 key"
+    },
+    {
+      "from": 1257,
+      "to": 1661,
+      "label": "B7 · 主流程"
+    },
+    {
+      "from": 1718,
+      "to": 1858,
+      "label": "B8 · alt 全部阶段通过"
+    },
+    {
+      "from": 1915,
+      "to": 2050,
+      "label": "B9 · else 任一阶段失败立即停止"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt running job 有有效或缺失 lease",
+        "B3 条件路径：else 无 running 或仅过期 running",
+        "B4 条件路径：主流程",
+        "B5 条件路径：loop 显式产物根优先、归档根回退的全部物理文件 / alt 已有 selected key",
+        "B6 条件路径：loop 显式产物根优先、归档根回退的全部物理文件 / else 首次 key",
+        "B7 条件路径：主流程",
+        "B8 条件路径：alt 全部阶段通过",
+        "B9 条件路径：else 任一阶段失败立即停止"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "内部动作",
+      "items": [
+        "固定旧源校验：固定 66 DDL 对象、已知完整 FTS、manuscript v1、integrity/FK；从未运行当前 bootstrap（主流程）",
+        "固定旧源校验：包含有效 rowid、SQLite 类型与原始 TEXT/BLOB 字节的完整逐行指纹（else 无 running 或仅过期 running / loop 38 张权威表）",
+        "公共清单与源文件：拒绝暂存、链接、大小写/Unicode 与 file-parent 冲突；读前/open/读后身份检查；每次 1MiB hash（loop 显式产物根优先、归档根回退的全部物理文件）",
+        "固定旧源校验：input/revision/source/job/part 绑定；固定 ai-draft-v1 双稿配对和重新渲染摘要（主流程）",
+        "固定旧源校验：edition/父版/准确 review actor-note/事件全链与双 head（主流程）",
+        "固定旧源校验：全部历史 release 含替换和撤回，固定 publish-v1 路径、字节、事件终态（主流程）",
+        "migration_preflight：contract+DB hash+去 base 的 selected files 构成源 fingerprint（alt 全部阶段通过）"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
+  ]
+}

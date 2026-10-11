@@ -95,6 +95,7 @@ def assemble_diagnostics(passes: list[dict[str, Any]]) -> dict[str, Any]:
             timings[key] = timings.get(key, 0.0) + value
     return {
         "schema_version": 1,
+        "execution_policy": final.get("execution_policy"),
         "passes": passes,
         "quality": {"status": status, "flags": flags, "human_reviewed": False},
         "timings_s": timings,

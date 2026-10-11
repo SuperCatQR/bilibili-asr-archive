@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from typing import Any
 
 import requests
@@ -16,32 +17,86 @@ class DeepSeekError(RuntimeError):
 
 
 def request_body(chunk: dict[str, Any], config: EditorialConfig, *, system_prompt: str = SYSTEM_PROMPT) -> dict[str, Any]:
+    thinking = {"type": config.thinking_mode}
+    if config.thinking_mode == "enabled":
+        thinking["reasoning_effort"] = config.reasoning_effort
     return {"model": config.model, "messages": [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": canonical(chunk)}],
         "response_format": {"type": "json_object"}, "stream": False,
-        "thinking": {"type": "enabled", "reasoning_effort": config.reasoning_effort},
+        "thinking": thinking,
         "top_p": config.top_p,
         "max_tokens": config.max_output_tokens}
 
 
+def _nonnegative_int(value: Any) -> int | None:
+    """Return provider counters only when they are safe integer values."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def normalize_usage(envelope: dict[str, Any], *, latency_ms: int | None = None) -> dict[str, Any]:
+    """Normalize DeepSeek response usage without discarding the raw envelope.
+
+    The provider has added fields over time (notably cache counters and
+    completion-token details), so callers should persist this compact summary
+    alongside the original response and tolerate missing counters.
+    """
+    usage = envelope.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    details = usage.get("completion_tokens_details")
+    details = details if isinstance(details, dict) else {}
+    summary: dict[str, Any] = {
+        "provider_request_id": envelope.get("id") if isinstance(envelope.get("id"), str) else None,
+        "model": envelope.get("model") if isinstance(envelope.get("model"), str) else None,
+        "prompt_tokens": _nonnegative_int(usage.get("prompt_tokens")),
+        "completion_tokens": _nonnegative_int(usage.get("completion_tokens")),
+        "prompt_cache_hit_tokens": _nonnegative_int(usage.get("prompt_cache_hit_tokens")),
+        "prompt_cache_miss_tokens": _nonnegative_int(usage.get("prompt_cache_miss_tokens")),
+        "reasoning_tokens": _nonnegative_int(details.get("reasoning_tokens")),
+    }
+    if latency_ms is not None:
+        if isinstance(latency_ms, bool) or not isinstance(latency_ms, int) or latency_ms < 0:
+            raise ValueError("latency_ms must be a non-negative integer")
+        summary["latency_ms"] = latency_ms
+    return summary
+
+
+# Short alias for callers that use the provider-neutral term.
+usage_metrics = normalize_usage
+
+
 class DeepSeekClient:
     def __init__(self, api_key: str | None = None, *, session: requests.Session | None = None):
-        self.api_key = api_key if api_key is not None else os.environ.get("DEEPSEEK_API_KEY", "")
+        # OpenCode Go keys are separate from direct DeepSeek keys. Keep the
+        # explicit argument first, then select the key by endpoint.
+        self.api_key = api_key
         self.session = session or requests.Session()
         self._owns_session = session is None
+        self.opencode_session = str(uuid.uuid4())
 
     def close(self) -> None:
         if self._owns_session:
             self.session.close()
 
     def complete(self, request: dict[str, Any], config: EditorialConfig) -> dict[str, Any]:
-        if not self.api_key.strip():
-            raise DeepSeekError("DEEPSEEK_API_KEY is not configured")
+        is_opencode = config.base_url.rstrip("/") == "https://opencode.ai/zen/go/v1"
+        env_name = "OPENCODE_API_KEY" if is_opencode else "DEEPSEEK_API_KEY"
+        api_key = self.api_key if self.api_key is not None else os.environ.get(env_name, "")
+        if not api_key.strip():
+            raise DeepSeekError(f"{env_name} is not configured")
+        headers = {
+            "Authorization": "Bearer " + api_key,
+            "User-Agent": "bilibili-asr-archive/1.0",
+            "Content-Type": "application/json",
+        }
+        if is_opencode:
+            headers["x-opencode-session"] = self.opencode_session
         try:
             response = self.session.post(
-                config.base_url + "/chat/completions", json=request,
-                headers={"Authorization": "Bearer " + self.api_key},
+                config.base_url.rstrip("/") + "/chat/completions", json=request,
+                headers=headers,
                 timeout=(30, config.timeout_seconds), allow_redirects=False)
         except requests.RequestException:
             # Exception strings can include request details. Keep them out of
@@ -62,7 +117,23 @@ def parse_response(envelope: dict[str, Any]) -> Any:
     try:
         choice = envelope["choices"][0]
         if choice["finish_reason"] != "stop":
-            raise DeepSeekError("DeepSeek output is truncated or unfinished")
+            error = DeepSeekError("DeepSeek output is truncated or unfinished")
+            usage = envelope.get("usage")
+            usage = usage if isinstance(usage, dict) else {}
+            details = usage.get("completion_tokens_details")
+            details = details if isinstance(details, dict) else {}
+            numbers = {"prompt_tokens": usage.get("prompt_tokens"),
+                       "completion_tokens": usage.get("completion_tokens"),
+                       "reasoning_tokens": details.get("reasoning_tokens")}
+            error.safe_details = {key: value for key, value in numbers.items()
+                                  if type(value) is int and 0 <= value < 2**63}
+            error.safe_details["length_exceeded"] = choice["finish_reason"] == "length"
+            message = choice.get("message")
+            message = message if isinstance(message, dict) else {}
+            for name, field in (("output_chars", "content"), ("reasoning_chars", "reasoning_content")):
+                value = message.get(field)
+                error.safe_details[name] = len(value) if isinstance(value, str) else 0
+            raise error
         content = choice["message"]["content"]
         if not isinstance(content, str) or not content.strip():
             raise DeepSeekError("DeepSeek output is empty")

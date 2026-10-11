@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-AUDIO_EXTENSIONS = frozenset({".m4a", ".flac"})
+AUDIO_EXTENSIONS = frozenset({".m4a", ".flac", ".webm", ".opus", ".ogg", ".mp4"})
 
 
 def _audio_parts(declared_path: str | os.PathLike[str]) -> tuple[str, ...] | None:

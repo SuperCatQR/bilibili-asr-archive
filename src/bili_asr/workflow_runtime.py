@@ -7,7 +7,6 @@ workflow repository; a later worker can therefore resume any job independently.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 import math
 import os
@@ -16,18 +15,21 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from bili_asr import archive, asr, bili_client
 from bili_asr.artifact_inventory import stream_hash
-from bili_asr.artifact_root import ArtifactRoots, usable_audio_path, resolve_audio_path
+from bili_asr.artifact_root import ArtifactRoots, resolve_audio_path, usable_audio_path
+from bili_asr.asr.session import AsrInferenceSession, InferenceRequest
 from bili_asr.formatting import duration_s_from_ms, pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
+from bili_asr.services.workflow_audio_access import retained_audio, verified_local_audio
 from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
 from bili_asr.sources.bilibili_source import BilibiliAudioSource
 from bili_asr.storage import (
@@ -35,14 +37,16 @@ from bili_asr.storage import (
     TranscriptRepository,
     TranscriptSegmentRecord,
 )
-from bili_asr.storage.workflow import (
-    WorkflowRepository,
-)
-from bili_asr.workflow_models import AsrProfile, JobKind, WorkflowJob
+from bili_asr.storage.sources import SourceRepository, acquisition_selector
+from bili_asr.storage.workflow import WorkflowRepository
+from bili_asr.workflow import attempt_checkpoint
+from bili_asr.workflow_models import JobKind, WorkflowJob
 from bili_asr.workflow_payloads import decode_job_payload
 from bili_asr.workflow_runtime_ports import (
     AudioClientFactory,
+    ConfigResolver,
     GatewayFactory,
+    InferenceSession,
     JobHandler,
     RunnerFactory,
     TimeoutTranscriber,
@@ -65,6 +69,13 @@ class ArchiveWorkflowHandlers:
         audio_client_factory: AudioClientFactory | None = None,
         runner_factory: RunnerFactory | None = None,
         timeout_transcriber: TimeoutTranscriber | None = None,
+        inference_session: InferenceSession | None = None,
+        gpu_session: str = "legacy",
+        config_resolver: ConfigResolver | None = None,
+        asr_prefetch: bool = False,
+        asr_prefetch_bytes: int = 64 * 1024 * 1024,
+        cache_root: str | None = None,
+        cache_max_bytes: int = 10 * 1024**3,
     ) -> None:
         self.connection = connection
         self.repository = repository
@@ -76,8 +87,17 @@ class ArchiveWorkflowHandlers:
         self.audio_client_factory = audio_client_factory or bili_client.BiliClient
         self.runner_factory = runner_factory or asr.ASRRunner
         self.timeout_transcriber = timeout_transcriber or asr.transcribe_with_timeout
+        if gpu_session not in {"legacy", "persistent", "oneshot"}:
+            raise ValueError("unknown GPU session mode")
+        self.config_resolver = config_resolver or (lambda config: (config, {}))
+        self.inference_session = inference_session or (
+            AsrInferenceSession(persistent=gpu_session == "persistent", prefetch=asr_prefetch,
+                                prefetch_bytes=asr_prefetch_bytes, cache_root=cache_root,
+                                cache_max_bytes=cache_max_bytes) if gpu_session != "legacy" else None)
+        self.asr_prefetch, self.asr_prefetch_bytes = asr_prefetch, asr_prefetch_bytes
         self._client: bili_client.BiliClient | None = None
         self._runners: dict[int, WorkflowAsrRunner] = {}
+        self._runner_bindings: dict[int, str] = {}
 
     def handlers(self) -> Mapping[JobKind, JobHandler]:
         return {
@@ -91,8 +111,32 @@ class ArchiveWorkflowHandlers:
         for runner in self._runners.values():
             runner.release()
         self._runners.clear()
+        self._runner_bindings.clear()
+        if self.inference_session is not None:
+            self.inference_session.close()
+
+    def _inference_checkpoint(self, job: WorkflowJob) -> None:
+        # Query authoritative cancellation before the heartbeat token, so the executor
+        # distinguishes a cancelled job from a lease reclaimed by another attempt.
+        self.repository.assert_lease(job)
+        attempt_checkpoint(job)
+
+    def prepare_candidate(self, job: WorkflowJob, checkpoint, *, timeout_seconds: float,
+                          audio_path: str | None = None) -> None:
+        """Prepare the candidate's exact GPU configuration before the executor claims it."""
+        if job.kind != JobKind.ASR or self.inference_session is None:
+            return
+        config, binding = self.config_resolver(self.repository.profile(job.profile_id).asr_config())
+        if not config.device.casefold().startswith(("cuda", "rocm")):
+            return
+        request = InferenceRequest(job.job_id, "", job.attempt_count,
+                                   self.repository.profile_digest(job.profile_id), binding)
+        self.inference_session.prepare(config, request=request, timeout_seconds=timeout_seconds,
+                                       audio_path=audio_path, checkpoint=checkpoint)
 
     def subtitle(self, job: WorkflowJob) -> Mapping[str, Any]:
+        from bili_asr.workflow_errors import JobExecutionError
+
         decode_job_payload(job)
         self.repository.assert_lease(job)
         part = self._part(job)
@@ -111,7 +155,8 @@ class ArchiveWorkflowHandlers:
         )
         outcome = result.parts[0] if result.parts else None
         if outcome is None or outcome.outcome == "failed":
-            raise RuntimeError(outcome.error_code if outcome is not None else "subtitle_empty")
+            raise JobExecutionError(outcome.error_code or "subtitle_failed" if outcome is not None else "subtitle_empty",
+                                    {"run_id": result.run_id, **(outcome.safe_details() if outcome is not None else {})})
         publication_job_id = None
         if outcome.source_kind is not None and outcome.language is not None and outcome.version is not None:
             transcript = self.connection.execute(
@@ -130,12 +175,17 @@ class ArchiveWorkflowHandlers:
             "outcome": outcome.outcome,
             "source": outcome.source_kind,
             "publication_job_id": publication_job_id,
+            **outcome.safe_details(),
         }
 
     def audio(self, job: WorkflowJob) -> Mapping[str, Any]:
         decode_job_payload(job)
         self.repository.assert_lease(job)
         part = self._part(job)
+        retained = retained_audio(self.connection, int(part["video_part_id"]))
+        if retained is not None:
+            verified_local_audio(self.connection, self.artifact_roots, retained)
+            return {key: retained[key] for key in ("storage_key", "sha256", "duration_ms", "object_id")}
         identity = PageIdentity(
             work_id=f"{part['bvid']}:p{part['page_index']}",
             bvid=str(part["bvid"]),
@@ -149,7 +199,7 @@ class ArchiveWorkflowHandlers:
             raise OSError("invalid audio path")
         existing = usable_audio_path(self.artifact_roots, [relative, relative.removesuffix(".m4a") + ".flac"])
         if existing is not None:
-            return self._store_audio(job, part, existing[2], existing[2])
+            return self.store_audio(job, part, existing[2], existing[2])
         client = self._client or self.audio_client_factory(sessdata=self.sessdata)
         self._client = client
         self.repository.assert_lease(job)
@@ -169,9 +219,10 @@ class ArchiveWorkflowHandlers:
             raise ValueError("audio_output_outside_staging")
         # The downloader may keep a FLAC stream when ffmpeg is unavailable.
         target = target.with_suffix(final.suffix)
-        return self._store_audio(job, part, final, target)
+        return self.store_audio(job, part, final, target)
 
-    def _store_audio(self, job, part, final: Path, target: Path):
+    def store_audio(self, job, part, final: Path, target: Path):
+        """Probe and persist a provider-owned staged audio under the lease fence."""
         self.repository.assert_lease(job)
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", os.fspath(final)],
@@ -206,9 +257,36 @@ class ArchiveWorkflowHandlers:
                    VALUES (?, ?, ?, 'workflow')""",
                 (int(part["video_part_id"]), audio_id, now),
             )
-        return {"storage_key": storage_key, "sha256": digest, "duration_ms": duration_ms}
+            from bili_asr.storage.artifact_catalog import (
+                ArtifactCatalog,
+                require_artifact_catalog,
+            )
+            if require_artifact_catalog(self.connection):
+                catalog = ArtifactCatalog(self.connection)
+                object_id = catalog.register_object(digest, byte_size)
+                catalog.bind_audio(audio_id, object_id)
+                base = next(base for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
+                target_id = "local-artifacts" if self.artifact_roots.configured and base == self.artifact_roots.artifact_root else "local"
+                catalog.register_target(target_id, kind="local")
+                previous = self.connection.execute("SELECT MAX(generation) FROM artifact_replicas WHERE target_id=? AND relative_key=? AND member_key=''", (target_id, storage_key)).fetchone()[0]
+                catalog.record_verified_replica(object_id, target_id, storage_key, sha256=digest, byte_size=byte_size,
+                                                generation=int(previous or 0) + 1)
+        result = {"storage_key": storage_key, "sha256": digest, "duration_ms": duration_ms}
+        if require_artifact_catalog(self.connection):
+            result["object_id"] = digest
+        return result
 
     def local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
+        from bili_asr.services.artifact_coordination import consumer_pin
+        retained = retained_audio(self.connection, job.video_part_id,
+                                  self.repository.dependency_result(job, JobKind.AUDIO))
+        if retained is None:
+            return self._local_asr(job)
+        with consumer_pin(self.connection, self.artifact_roots, retained["object_id"],
+                          owner=f"asr:{job.job_id}:{job.attempt_count}"):
+            return self._local_asr(job)
+
+    def _local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
         decode_job_payload(job)
         self.repository.assert_lease(job)
         if job.profile_id is None:
@@ -218,24 +296,29 @@ class ArchiveWorkflowHandlers:
         storage_key = audio_result.get("storage_key")
         if not isinstance(storage_key, str) or not storage_key:
             raise RuntimeError("audio_result_missing_storage_key")
-        audio_path = resolve_audio_path(self.artifact_roots, storage_key)
+        retained = retained_audio(self.connection, int(part["video_part_id"]), audio_result)
+        audio_path = (verified_local_audio(self.connection, self.artifact_roots, retained) if retained is not None
+                      else resolve_audio_path(self.artifact_roots, storage_key))
         if audio_path is None:
             raise RuntimeError("audio_missing")
         profile = self.repository.profile(job.profile_id)
-        config = profile.asr_config()
+        config, binding_identity = self.config_resolver(profile.asr_config())
+        inference_request = InferenceRequest(job.job_id, job.lease_owner or "", job.attempt_count,
+            self.repository.profile_digest(job.profile_id), binding_identity)
         reference_id = job.payload.get("reference_transcript_id")
         paired_text = self._paired_subtitle_text(
             None if reference_id is None else int(reference_id)
         )
         started = int(time.time())
         run_id = str(uuid4())
+        selector_kind, selector_target = acquisition_selector(part)
         transcripts = TranscriptRepository(self.connection, write_transaction=lambda: self.repository.owned_transaction(job))
         transcripts.start_acquisition_run(
             AcquisitionRunRecord(
                 run_id=run_id,
                 kind="asr",
-                selector_kind="bvid",
-                selector_target=str(part["bvid"]),
+                selector_kind=selector_kind,
+                selector_target=selector_target,
                 requested_limit=1,
                 credential_present=False,
                 started_at=started,
@@ -245,16 +328,25 @@ class ArchiveWorkflowHandlers:
             self.repository.assert_lease(job)
             diagnostics: dict[str, Any] = {}
             if profile.device.casefold().startswith(("cuda", "rocm")):
-                segments, provenance, coverage = self.timeout_transcriber(
+                infer = self.timeout_transcriber if self.inference_session is None else self.inference_session.transcribe
+                session_args = {} if self.inference_session is None else {
+                    "request": inference_request, "checkpoint": lambda: self._inference_checkpoint(job)}
+                if retained is not None:
+                    session_args["artifact_context"] = {"archive_root": str(self.artifact_roots.archive_root),
+                        "artifact_root": str(self.artifact_roots.artifact_root) if self.artifact_roots.configured else None,
+                        "object_id": retained["object_id"]}
+                segments, provenance, coverage = infer(
                     config,
                     os.fspath(audio_path),
                     paired_subtitle_text=paired_text,
                     timeout_seconds=config.inference_timeout_seconds,
                     diagnostics_sink=diagnostics,
+                    **session_args,
                 )
                 language = asr.provenance_language(provenance)
             else:
-                runner = self._runner(job.profile_id)
+                runner = (self._runner(job.profile_id) if not binding_identity else
+                          self._runner(job.profile_id, config=config, binding_request=inference_request))
                 segments = asr.two_pass_transcribe(
                     runner, os.fspath(audio_path), paired_subtitle_text=paired_text
                 )
@@ -267,8 +359,8 @@ class ArchiveWorkflowHandlers:
             self.repository.assert_lease(job)
             records = tuple(
                 TranscriptSegmentRecord(
-                    start_ms=int(round(float(cue["start"]) * 1000)),
-                    end_ms=int(round(float(cue["end"]) * 1000)),
+                    start_ms=round(float(cue["start"]) * 1000),
+                    end_ms=round(float(cue["end"]) * 1000),
                     text=str(cue["text"]),
                 )
                 for cue in segments
@@ -292,6 +384,7 @@ class ArchiveWorkflowHandlers:
                     "profile_id": job.profile_id,
                     "config_sha256": self.repository.profile_digest(job.profile_id),
                     "reference_transcript_id": reference_id,
+                    "runtime_binding": dict(binding_identity),
                     "audio": dict(audio_result),
                     "provenance": provenance,
                     "diagnostics": diagnostics,
@@ -316,23 +409,54 @@ class ArchiveWorkflowHandlers:
         }
 
     def publish(self, job: WorkflowJob) -> Mapping[str, Any]:
+        from bili_asr.services.artifact_coordination import resource_fence
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        if not require_artifact_catalog(self.connection):
+            return self._publish(job)
+        with resource_fence(self.artifact_roots, f"publication-part:{job.video_part_id}", exclusive=True):
+            return self._publish(job)
+
+    def _publish(self, job: WorkflowJob) -> Mapping[str, Any]:
         """Project the currently preferred stored transcript into an archive bundle."""
         decode_job_payload(job)
         self.repository.assert_lease(job)
         if job.video_part_id is None:
             raise RuntimeError("missing_video_part")
-        rows = self.connection.execute(
-            """SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.cid,
-                      vp.title AS part_title, vp.duration_ms, v.pubdate, v.title AS video_title,
-                      t.transcript_id, t.source_kind, t.language, t.model_id,
-                      t.version, t.content_sha256, t.created_at
-               FROM transcripts AS t
-               JOIN video_parts AS vp ON vp.video_part_id = t.video_part_id
-               JOIN videos AS v ON v.bvid = vp.bvid
-               WHERE t.video_part_id = ?
-               ORDER BY t.video_part_id, t.source_kind, t.language, t.version DESC""",
-            (job.video_part_id,),
-        ).fetchall()
+        source_part = SourceRepository(self.connection).part(job.video_part_id)
+        refresh = job.payload.get("preserve_publication")
+        rows = [
+            {**source_part, "part_title": source_part["title"], **dict(row)}
+            for row in self.connection.execute(
+                """SELECT * FROM transcripts WHERE video_part_id = ?
+                   ORDER BY source_kind, language, version DESC""", (job.video_part_id,),
+            )
+        ]
+        if refresh is not None:
+            rows = [row for row in rows if row["transcript_id"] == job.payload["transcript_id"]]
+        preserved_raw = None
+        preserved_publication = None
+        if refresh is not None:
+            from bili_asr.services.publication_refresh import assert_publication_fence
+            from bili_asr.services.artifact_groups import preserve_existing_publication, object_storage_key
+            from bili_asr.storage.artifact_catalog import require_artifact_catalog
+            require_artifact_catalog(self.connection, required=True)
+            with self.repository.owned_transaction(job):
+                preserved_publication = assert_publication_fence(
+                    self.connection, job.video_part_id, int(job.payload["transcript_id"]), refresh)
+                # Reverify the actual current bytes even when a group was captured
+                # earlier. The catalog alone cannot prove the mutable slot.
+                group_id = preserve_existing_publication(self.connection, self.artifact_roots, preserved_publication)
+                raw_object = self.connection.execute(
+                    "SELECT object_id FROM artifact_group_members WHERE group_id=? AND role='raw_path'",
+                    (group_id,)).fetchone()[0]
+            from bili_asr.artifact_inventory import require_regular_file
+            old_raw_path = self.artifact_roots.write_base / object_storage_key(raw_object)
+            require_regular_file(old_raw_path)
+            encoded = old_raw_path.read_bytes()
+            import hashlib
+            if hashlib.sha256(encoded).hexdigest() != raw_object:
+                raise ValueError("preserved transcript raw bytes changed")
+            preserved_raw = json.loads(encoded)
         candidates = ordered_candidates(rows)
         if len(candidates) != 1:
             raise RuntimeError("transcript_missing")
@@ -361,8 +485,23 @@ class ArchiveWorkflowHandlers:
             "title": part["part_title"],
             "video_title": part["video_title"],
             "duration_s": duration_s_from_ms(int(part["duration_ms"])),
-            "pubdate_str": pubdate_utc(int(part["pubdate"])),
+            "pubdate_str": "" if part["pubdate"] is None else pubdate_utc(int(part["pubdate"])),
         }
+        if source_part["platform"] != "bilibili":
+            entry.update(platform=source_part["platform"], external_video_id=source_part["external_video_id"])
+        from bili_asr.storage.metadata import MetadataRepository
+        metadata_repository = MetadataRepository(self.connection)
+        owns_read = not self.connection.in_transaction
+        if owns_read:
+            self.connection.execute("BEGIN")
+        try:
+            values = metadata_repository.read_source_metadata_export_many([job.video_part_id])[job.video_part_id]
+        finally:
+            if owns_read:
+                self.connection.rollback()
+        metadata = values["sourceMetadata"]
+        entry.update(pubdateUnix=metadata["pubdateUnix"],
+                     sourcePublishedAt=metadata["sourcePublishedAt"], **values)
         asr_provenance = None
         if source_kind == "asr-local":
             model = self.connection.execute(
@@ -374,6 +513,10 @@ class ArchiveWorkflowHandlers:
                 "model": str(model["model_name"]) if model is not None else "unknown",
                 "revision": str(model["revision"]) if model is not None else "",
             }
+        if preserved_raw is not None:
+            # Preserve ASR provenance, coverage and character timing evidence.
+            # Refreshing metadata must not replace them with today's defaults.
+            asr_provenance = preserved_raw.get("provenance")
         paths = {key: os.path.relpath(path, self.artifact_roots.write_base).replace(os.sep, "/")
                  for key, path in archive.bundle_paths(self.artifact_roots.write_base, entry).items()}
 
@@ -382,6 +525,8 @@ class ArchiveWorkflowHandlers:
             # Marker, final bytes and publication fact share cancellation's lock.
             # The writer invalidates the marker if this transaction cannot commit.
             with self.repository.owned_transaction(job, on_rollback=invalidate):
+                if refresh is not None:
+                    assert_publication_fence(self.connection, job.video_part_id, transcript_id, refresh)
                 yield
                 # A part owns one mutable bundle slot. Same-second republishing
                 # an earlier transcript must still become the newest committed
@@ -400,42 +545,64 @@ class ArchiveWorkflowHandlers:
                     (int(part["video_part_id"]), transcript_id, published_at,
                      json.dumps(paths, ensure_ascii=False, separators=(",", ":"))),
                 )
+                from bili_asr.storage.artifact_catalog import require_artifact_catalog
+                if require_artifact_catalog(self.connection):
+                    from bili_asr.services.artifact_groups import preserve_transcript_bundle
+                    publication_id = self.connection.execute("SELECT publication_id FROM workflow_publications WHERE video_part_id=? AND transcript_id=?",
+                                                             (int(part["video_part_id"]), transcript_id)).fetchone()[0]
+                    preserve_transcript_bundle(self.connection, self.artifact_roots, publication_id, paths)
+
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        if require_artifact_catalog(self.connection):
+            from bili_asr.services.artifact_groups import preserve_existing_publication
+            previous_publication = self.connection.execute("SELECT p.* FROM workflow_publications p LEFT JOIN artifact_publication_groups g USING(publication_id) WHERE p.video_part_id=? ORDER BY p.published_at DESC,p.publication_id DESC LIMIT 1", (int(part["video_part_id"]),)).fetchone()
+            if previous_publication is not None and self.connection.execute("SELECT 1 FROM artifact_publication_groups WHERE publication_id=?", (previous_publication["publication_id"],)).fetchone() is None:
+                with self.repository.owned_transaction(job):
+                    preserve_existing_publication(self.connection, self.artifact_roots, previous_publication)
 
         paths = archive.write_archive(
             self.artifact_roots.write_base,
             entry,
             segments,
             source="asr" if source_kind == "asr-local" else "subtitle",
+            raw=preserved_raw,
             asr_provenance=asr_provenance,
+            characters=preserved_raw.get("characters") if preserved_raw is not None else None,
+            coverage=preserved_raw.get("coverage") if preserved_raw is not None else None,
             before_replace=lambda: self.repository.assert_lease(job),
             publication_guard=publication_guard,
         )
         return {
             "requested_transcript_id": int(job.payload["transcript_id"]),
+            "publication_request_id": job.payload.get("publication_request_id"),
             "transcript_id": transcript_id,
             "source_kind": source_kind,
             **paths,
         }
 
-    def _runner(self, profile_id: int) -> WorkflowAsrRunner:
+    def _runner(self, profile_id: int, *, config=None, binding_request=None) -> WorkflowAsrRunner:
         existing = self._runners.get(profile_id)
+        config = config or self.repository.profile(profile_id).asr_config()
+        binding_request = binding_request or InferenceRequest("", "", 0, "", {})
+        binding_key = AsrInferenceSession.configuration_key(config, binding_request)
+        if existing is not None and self._runner_bindings.get(profile_id) != binding_key:
+            existing.release()
+            existing = None
         if existing is not None:
             return existing
-        profile: AsrProfile = self.repository.profile(profile_id)
-        runner = self.runner_factory(profile.asr_config())
+        runner = self.runner_factory(config)
+        if self.asr_prefetch:
+            configure = getattr(runner, "configure_prefetch", None)
+            if callable(configure):
+                configure(enabled=True, max_bytes=self.asr_prefetch_bytes)
         self._runners[profile_id] = runner
+        self._runner_bindings[profile_id] = binding_key
         return runner
 
-    def _part(self, job: WorkflowJob) -> sqlite3.Row:
+    def _part(self, job: WorkflowJob) -> Mapping[str, Any]:
         if job.video_part_id is None:
             raise RuntimeError("missing_video_part")
-        row = self.connection.execute(
-            "SELECT video_part_id, bvid, page_index, cid, title FROM video_parts WHERE video_part_id = ?",
-            (job.video_part_id,),
-        ).fetchone()
-        if row is None:
-            raise RuntimeError("unknown_video_part")
-        return row
+        return SourceRepository(self.connection).part(job.video_part_id)
 
     def _paired_subtitle_text(self, transcript_id: int | None) -> str | None:
         if transcript_id is None:

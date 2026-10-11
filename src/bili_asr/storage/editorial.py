@@ -15,6 +15,22 @@ from bili_asr.storage.transcripts import TranscriptRepository
 from bili_asr.workflow_models import WorkflowJob
 from bili_asr.storage.job_commit import JobCommitGuard
 from bili_asr.transcript_selection import choose_transcript
+from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, frozen_version, register_frozen_version
+
+
+def template_for_input(connection: sqlite3.Connection, input_id: str) -> str:
+    """Resolve rendering from the persisted input contract, including migrated v1."""
+    return "ai-draft-v2" if frozen_version(connection, "input", input_id) == 2 else TEMPLATE_VERSION
+
+
+def input_for_proofread(connection: sqlite3.Connection, job_id: str) -> str | None:
+    row = connection.execute("SELECT input_id FROM editorial_job_inputs WHERE job_id=?", (job_id,)).fetchone()
+    if row is None:
+        row = connection.execute("SELECT input_id FROM editorial_revisions WHERE job_id=?", (job_id,)).fetchone()
+    if row is not None:
+        return str(row[0])
+    row = connection.execute("SELECT payload_json FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+    return None if row is None else json.loads(row[0]).get("input_id")
 
 
 class EditorialRepository:
@@ -56,11 +72,69 @@ class EditorialRepository:
         with self.connection:
             return self.store_input(prepared)
 
-    def build_input(self, base_id: int, reference_id: int | None, config: EditorialConfig) -> dict[str, Any]:
+    def build_input(self, base_id: int, reference_id: int | None, config: EditorialConfig, *,
+                    reuse_existing: bool = False) -> dict[str, Any]:
         require_editorial_schema(self.connection)
         base = self.read_source(base_id)
-        return prepare_input(base, self.read_source(reference_id) if reference_id else None, config,
+        reference = self.read_source(reference_id) if reference_id is not None else None
+        if reuse_existing:
+            existing = self._reusable_input(base, reference, config)
+            if existing is not None:
+                return existing
+        if runtime_contract(self.connection) == UNIVERSAL_V2:
+            from bili_asr.publication_content_v2 import prepare_input_v2
+            from bili_asr.storage.metadata import MetadataRepository
+            return prepare_input_v2(base, reference, config,
+                                    source_metadata=MetadataRepository(self.connection).read_source_metadata(base.video_part_id))
+        return prepare_input(base, reference, config,
                              metadata=self.metadata(base.video_part_id))
+
+    def _reusable_input(self, base, reference, config: EditorialConfig) -> dict[str, Any] | None:
+        """Prefer verified persisted work independently of the current encoding.
+
+        Later metadata observations and a newly installed prompt do not silently
+        request paid recomputation. Explicit refresh/repair still builds current
+        input. Terminal job status is preserved by the original dedupe identity.
+        """
+        from bili_asr.editorial import segments
+
+        def source(record):
+            if record is None:
+                return None
+            return {"transcript_id": record.transcript_id, "content_sha256": record.content_sha256,
+                    "source_kind": record.source_kind, "language": record.language, "segments": segments(record)}
+
+        expected_base, expected_reference = source(base), source(reference)
+        rows = self.connection.execute(
+            "SELECT input_id FROM editorial_inputs WHERE video_part_id=? AND base_transcript_id=? "
+            "AND reference_transcript_id IS ? ORDER BY created_at DESC,rowid DESC",
+            (base.video_part_id, base.transcript_id, None if reference is None else reference.transcript_id))
+        for row in rows:
+            prepared = self.load_input(row["input_id"])
+            snapshot = prepared["snapshot"]
+            stored_config = snapshot.get("config")
+            if not isinstance(stored_config, dict):
+                raise ValueError("invalid persisted editorial configuration")
+            # These scheduling limits were absent from historical frozen inputs.
+            # Default replanning retains their already prepared chunks. Only this
+            # comparison supplies the fixed compatibility defaults; neither the
+            # historical JSON nor its identity is rewritten.
+            comparison_config = dict(stored_config)
+            # ``thinking_mode`` was added after the first frozen editorial
+            # inputs were written.  The historical default is enabled, so
+            # comparing it here must not manufacture a new input identity.
+            comparison_config.setdefault("thinking_mode", "enabled")
+            comparison_config.setdefault("max_chunk_segments", 256)
+            comparison_config.setdefault("max_chunk_chars", 20_000)
+            if comparison_config != config.to_dict():
+                continue
+            if (snapshot.get("video_part_id") != base.video_part_id or snapshot.get("base") != expected_base
+                    or snapshot.get("reference") != expected_reference
+                    or not isinstance(snapshot.get("system_prompt"), str)
+                    or snapshot.get("prompt_sha256") != digest(snapshot["system_prompt"])):
+                raise ValueError("persisted editorial input does not match its transcript evidence")
+            return prepared
+        return None
 
     def store_input(self, prepared: dict[str, Any]) -> dict[str, Any]:
         """Persist an already prepared immutable input in the caller's transaction."""
@@ -72,6 +146,13 @@ class EditorialRepository:
         self.connection.execute(
             "INSERT OR IGNORE INTO editorial_inputs VALUES (?, ?, ?, ?, ?, ?)",
             (prepared["input_id"], snapshot["video_part_id"], base_id, reference_id, canonical(prepared), int(time.time())))
+        if runtime_contract(self.connection) == UNIVERSAL_V2:
+            existing_version = self.connection.execute("SELECT version FROM editorial_input_versions WHERE input_id=?",
+                                                       (prepared["input_id"],)).fetchone()
+            version = int(existing_version[0]) if existing_version else 2
+        else:
+            version = 1
+        register_frozen_version(self.connection, "input", prepared["input_id"], version)
         stored = self.load_input(prepared["input_id"])
         if stored != prepared:
             raise RuntimeError("input identity collision")
@@ -82,6 +163,7 @@ class EditorialRepository:
         row = self.connection.execute("SELECT prepared_json FROM editorial_inputs WHERE input_id = ?", (input_id,)).fetchone()
         if row is None:
             raise ValueError("unknown editorial input")
+        frozen_version(self.connection, "input", input_id)
         try:
             prepared = json.loads(row["prepared_json"])
             if prepared["input_id"] != input_id or digest(prepared["snapshot"]) != input_id:
@@ -93,7 +175,10 @@ class EditorialRepository:
     def freeze_job_input(self, job: WorkflowJob) -> dict[str, Any]:
         row = self.connection.execute("SELECT input_id FROM editorial_job_inputs WHERE job_id = ?", (job.job_id,)).fetchone()
         if row:
-            return self.load_input(row["input_id"])
+            prepared = self.load_input(row["input_id"])
+            with self.owned_transaction(job):
+                self._bind_render_jobs(job, prepared["input_id"])
+            return prepared
         if "input_id" in job.payload:
             prepared = self.load_input(str(job.payload["input_id"]))
         else:
@@ -107,32 +192,93 @@ class EditorialRepository:
             base_id = int(json.loads(prerequisite["result_json"])["transcript_id"])
             base = self.read_source(base_id)
             reference_id = self.latest_reference(base.video_part_id, base.language)
-            prepared = self.build_input(base_id, reference_id, EditorialConfig(**job.payload["editorial_config"]))
+            prepared = self.build_input(base_id, reference_id, EditorialConfig(**job.payload["editorial_config"]),
+                                        reuse_existing=True)
         if prepared["snapshot"]["video_part_id"] != job.video_part_id:
             raise ValueError("editorial input belongs to another video part")
         with self.owned_transaction(job):
             self.store_input(prepared)
             self.connection.execute("INSERT OR IGNORE INTO editorial_job_inputs VALUES (?, ?)", (job.job_id, prepared["input_id"]))
+            self._bind_render_jobs(job, prepared["input_id"])
         return prepared
+
+    def _bind_render_jobs(self, job: WorkflowJob, input_id: str) -> None:
+        from bili_asr.storage.workflow import WorkflowRepository
+
+        WorkflowRepository(self.connection).bind_editorial_render(job.job_id, input_id)
 
     def begin_call(self, job: WorkflowJob, input_id: str, chunk_id: str, request: dict[str, Any]) -> str:
         now, call_id = int(time.time()), uuid4().hex
+        request_fingerprint = self.request_fingerprint(input_id, chunk_id, request)
         with self.owned_transaction(job):
             attempt = self.connection.execute(
                 "SELECT attempt_id FROM workflow_attempts WHERE job_id = ? AND worker_id = ? AND outcome = 'running'",
                 (job.job_id, job.lease_owner)).fetchone()
             if attempt is None:
                 raise RuntimeError("running editorial attempt missing")
-            self.connection.execute("INSERT INTO editorial_model_calls(call_id, attempt_id, input_id, chunk_id, request_json, started_at) "
-                                    "VALUES (?, ?, ?, ?, ?, ?)",
-                                    (call_id, attempt["attempt_id"], input_id, chunk_id, canonical(request), now))
+            # Keep the fixed manuscript schema compatible with existing
+            # archives.  The fingerprint is carried in the durable request
+            # envelope rather than adding columns to the contract.
+            stored_request = {"request": request, "request_fingerprint": request_fingerprint}
+            self.connection.execute(
+                "INSERT INTO editorial_model_calls(call_id, attempt_id, input_id, chunk_id, request_json, started_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (call_id, attempt["attempt_id"], input_id, chunk_id, canonical(stored_request), now))
         return call_id
+
+    @staticmethod
+    def request_fingerprint(input_id: str, chunk_id: str, request: dict[str, Any]) -> str:
+        """Derive the stable identity used to avoid paid duplicate requests."""
+        return digest({"input_id": input_id, "chunk_id": chunk_id, "request": request})
 
     def finish_call(self, call_id: str, response: dict[str, Any] | None, error_code: str | None = None) -> None:
         require_editorial_schema(self.connection)
         with self.connection:
-            self.connection.execute("UPDATE editorial_model_calls SET response_json = ?, error_code = ?, finished_at = ? WHERE call_id = ?",
-                                    (None if response is None else canonical(response), error_code, int(time.time()), call_id))
+            self.connection.execute(
+                "UPDATE editorial_model_calls SET response_json = ?, error_code = ?, finished_at = ? "
+                "WHERE call_id = ?",
+                (None if response is None else canonical(response), error_code, int(time.time()), call_id))
+
+    def usage_for_call(self, call_id: str) -> dict[str, Any] | None:
+        """Return normalized provider usage while retaining the raw response.
+
+        Usage fields intentionally remain derived from ``response_json`` so the
+        fixed manuscript schema stays readable by existing archives.
+        """
+        row = self.connection.execute(
+            "SELECT response_json FROM editorial_model_calls WHERE call_id = ?", (call_id,)
+        ).fetchone()
+        if row is None or row["response_json"] is None:
+            return None
+        try:
+            from bili_asr.deepseek import normalize_usage
+            return normalize_usage(json.loads(row["response_json"]))
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid stored editorial model response") from exc
+
+    def completed_call_for_request(self, request_fingerprint: str) -> dict[str, Any] | None:
+        """Return an accepted provider response for a stable request identity.
+
+        A response can exist without a chunk checkpoint when a worker crashed
+        between provider completion and local validation.  Runtime code may use
+        this read-only lookup to validate that response before issuing a paid
+        duplicate request.
+        """
+        require_editorial_schema(self.connection)
+        rows = self.connection.execute(
+            "SELECT request_json, response_json FROM editorial_model_calls "
+            "WHERE response_json IS NOT NULL AND error_code IS NULL "
+            "ORDER BY finished_at DESC, rowid DESC"
+        )
+        for row in rows:
+            try:
+                stored = json.loads(row["request_json"])
+                if stored.get("request_fingerprint") != request_fingerprint:
+                    continue
+                return json.loads(row["response_json"])
+            except (AttributeError, TypeError, json.JSONDecodeError) as exc:
+                raise ValueError("invalid stored editorial model response") from exc
+        return None
 
     def assert_lease(self, job: WorkflowJob) -> None:
         self.commit_guard.assert_lease(job)
@@ -201,11 +347,12 @@ class EditorialRepository:
     def preflight_artifacts(self, revision_id: str, template: str, artifacts: dict[str, tuple[str, str]]) -> None:
         """Check the complete fixed pair before a renderer writes any bytes."""
         require_editorial_schema(self.connection)
-        if template != TEMPLATE_VERSION or set(artifacts) != set(ARTIFACT_ROLES):
-            raise ValueError("unsupported document artifact contract")
         prepared, _ = self.revision(revision_id)
+        expected_template = template_for_input(self.connection, prepared["input_id"])
+        if template != expected_template or set(artifacts) != set(ARTIFACT_ROLES):
+            raise ValueError("unsupported document artifact contract")
         part_id = prepared["snapshot"]["video_part_id"]
-        prefix = f"documents/part-{part_id}/{revision_id}/{TEMPLATE_VERSION}"
+        prefix = f"documents/part-{part_id}/{revision_id}/{template}"
         for name, (path, sha256) in artifacts.items():
             if (path != f"{prefix}/{name}" or len(sha256) != 64
                     or any(c not in "0123456789abcdef" for c in sha256)):

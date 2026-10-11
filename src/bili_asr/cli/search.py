@@ -141,7 +141,7 @@ def _print_block_hits(args: argparse.Namespace, hits) -> int:
         print(f"search: no hits for {args.query!r}")
         return 0
     for hit in hits:
-        pubdate_day = datetime.fromtimestamp(
+        pubdate_day = "unknown" if hit.pubdate is None else datetime.fromtimestamp(
             hit.pubdate, tz=timezone.utc
         ).strftime("%Y-%m-%d")
         snippet = hit.snippet.replace("\n", " ")
@@ -152,7 +152,7 @@ def _print_block_hits(args: argparse.Namespace, hits) -> int:
             if hit.hit_type == "transcript" else "—"
         )
         print(
-            f"[{hit.hit_type}] {hit.bvid} {page} {title} "
+            f"[{hit.hit_type}] {hit.bvid or (hit.platform + ':' + hit.external_video_id)} {page} {title} "
             f"[{timing}] "
             f"({pubdate_day}) {snippet}"
         )

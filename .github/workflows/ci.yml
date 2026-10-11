@@ -66,7 +66,7 @@ jobs:
       - name: Install project and audit tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,remote]"
 
       - name: Audit resolved dependencies
         run: |
@@ -87,6 +87,8 @@ jobs:
           - {index: 3, label: "4"}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:
@@ -127,7 +129,15 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -e ".[dev]"
 
+      - name: Verify packaged contract schemas and documentation mirrors
+        run: python -m bili_asr.contracts --check-docs docs/contracts
+
+      - name: Prepare offline installed-test dependencies
+        run: python -m pip download --dest .test-wheelhouse "jsonschema>=4.25,<5"
+
       - name: Run tests
+        env:
+          BILI_ASR_CONTRACT_BASELINE_REF: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
         run: |
           mkdir -p test-results
           python scripts/pytest_shard.py \
@@ -189,27 +199,33 @@ jobs:
         run: |
           .ci-venv/bin/bili-asr --help
           .ci-venv/bin/python - <<'PY'
-          from importlib.resources import files
-
-          storage = files("bili_asr.storage")
-          required = {
-              "schema.sql",
-              "schema-transcripts.sql",
-              "schema-workflow.sql",
-              "schema-editorial.sql",
-              "schema-rights.sql",
-              "migration-source-bilibili-v1.json",
-          }
-          missing = sorted(name for name in required if not storage.joinpath(name).is_file())
-          if missing:
-              raise SystemExit(f"packaged storage resources missing: {missing}")
           from importlib.metadata import metadata
+          from pathlib import Path
 
-          package = metadata("bili-asr")
-          if package.get("License-Expression") != "GPL-3.0-only":
-              raise SystemExit("package must declare GPL-3.0-only")
-          if "LICENSE" not in package.get_all("License-File", []):
-              raise SystemExit("package must include its license text")
+          project = metadata("bili-asr")
+          if project["License"] != "GPL-3.0-only":
+              raise SystemExit(f"unexpected software license metadata: {project['License']!r}")
+          if "GPL-3.0-only" not in Path("pyproject.toml").read_text(encoding="utf-8"):
+              raise SystemExit("pyproject.toml does not declare GPL-3.0-only")
+          if not Path("LICENSE").is_file() or not Path("CONTENT-LICENSE.md").is_file():
+              raise SystemExit("release license files are incomplete")
+          PY
+          .ci-venv/bin/python -m bili_asr.contracts --check-docs docs/contracts
+          .ci-venv/bin/python - <<'PY'
+          import hashlib
+          from importlib.resources import files
+          from pathlib import Path, PurePosixPath
+          from bili_asr.contracts import CONTRACTS
+
+          for entry in CONTRACTS.values():
+              for name in entry.authority:
+                  relative = PurePosixPath(name)
+                  if relative.suffix in {".sql", ".json"}:
+                      relative = relative.relative_to("src/bili_asr")
+                      body = files("bili_asr").joinpath(*relative.parts).read_bytes()
+                      expected = Path(name).read_bytes()
+                      if not body or hashlib.sha256(body).digest() != hashlib.sha256(expected).digest():
+                          raise SystemExit(f"packaged contract resource differs: {name}")
           PY
 
       - name: Write build provenance and checksums

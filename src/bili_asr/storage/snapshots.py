@@ -5,7 +5,6 @@ from __future__ import annotations
 from contextlib import closing
 from functools import lru_cache
 import hashlib
-from importlib import resources
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -142,32 +141,76 @@ def _schema(connection: sqlite3.Connection) -> dict[str, Any]:
     return objects
 
 
-@lru_cache(maxsize=2)
-def _current_contract(with_content_rights: bool = False) -> tuple[dict[str, Any], str]:
+@lru_cache(maxsize=32)
+def _current_contract(kind: str = "bilibili-v1", imports: bool = False, supplements: bool = False,
+                      artifacts: bool = False, online: bool = False,
+                      rights: bool = False) -> tuple[dict[str, Any], str]:
+    from bili_asr.contracts.fingerprints import database_fingerprint
+    registered = database_fingerprint(kind, imports, supplements, artifacts, online, rights)
+    from bili_asr.storage.archive_contracts import BILIBILI_V1, bootstrap_contract, _resource
     with closing(sqlite3.connect(":memory:")) as connection:
-        initialize_schema(connection)
-        if with_content_rights:
-            schema = resources.files('bili_asr.storage').joinpath('schema-rights.sql')
-            connection.executescript(schema.read_text(encoding='utf-8'))
+        if kind == BILIBILI_V1:
+            initialize_schema(connection)
+        else:
+            bootstrap_contract(connection, kind)
+        if imports:
+            from bili_asr.storage.archive_contracts import _resource
+            connection.executescript(_resource("schema-preserved-body-import.sql"))
+        if supplements:
+            connection.executescript(_resource("schema-source-supplements.sql"))
+        if artifacts:
+            from bili_asr.storage.archive_contracts import _resource
+            connection.executescript(_resource("schema-artifact-storage.sql"))
+        if online:
+            connection.executescript(_resource("schema-artifact-online.sql"))
+        if rights:
+            connection.executescript(_resource("schema-rights.sql"))
         required = _schema(connection)
     canonical = json.dumps(required, sort_keys=True, separators=(",", ":"))
-    return required, "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    computed = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if computed != registered:
+        raise SnapshotDatabaseError(f"registered snapshot schema has drifted: {kind}; define a new contract")
+    return required, registered
 
 
 def validate_snapshot_database(database_path: Path, expected_contract: str | None = None) -> str:
-    """Require the current shipped schema and healthy data without changing it."""
+    """Validate a registered database contract without changing its source.
+
+    Snapshot package version and database schema contract are independent.
+    Unmarked Bilibili snapshots keep their original contract digest.
+    """
+    from bili_asr.storage.archive_contracts import runtime_contract
     try:
         with closing(_connect(database_path)) as connection:
+            from bili_asr.storage.import_origins import require_import_extension
+            from bili_asr.storage.source_supplements import require_supplement_extension
+            from bili_asr.storage.artifact_catalog import require_artifact_catalog
+            from bili_asr.storage.artifact_online import require_artifact_online
+            rights_objects = {
+                "content_rights_events", "idx_content_rights_edition", "idx_content_rights_part",
+                "immutable_content_rights_update", "immutable_content_rights_delete",
+            }
+            existing_rights_objects = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE sql IS NOT NULL"
+                ).fetchall() if row[0] in rights_objects
+            }
+            if existing_rights_objects and existing_rights_objects != rights_objects:
+                missing = sorted(rights_objects - existing_rights_objects)
+                raise SnapshotDatabaseError(
+                    "content-rights-v1 extension is incomplete: missing " + ", ".join(missing)
+                )
+            rights = bool(existing_rights_objects)
+            required, contract = _current_contract(runtime_contract(connection), require_import_extension(connection),
+                                                   require_supplement_extension(connection), require_artifact_catalog(connection),
+                                                   require_artifact_online(connection), rights)
+            if expected_contract is not None and expected_contract != contract:
+                raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             integrity = connection.execute("PRAGMA integrity_check").fetchall()
             if integrity != [("ok",)]:
                 details = "; ".join(str(row[0]) for row in integrity[:5])
                 raise SnapshotDatabaseError(f"archive database integrity check failed: {details}")
             actual = _schema(connection)
-            has_rights = any(name == 'content_rights_events' or name.startswith(
-                ('idx_content_rights_', 'immutable_content_rights_')) for name in actual)
-            required, contract = _current_contract(has_rights)
-            if expected_contract is not None and expected_contract != contract:
-                raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             for name, shape in actual.items():
                 if shape["kind"] == "trigger" and name not in required:
                     raise SnapshotDatabaseError(f"archive database has unsupported trigger {name}")
@@ -272,6 +315,33 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
                 "SELECT relative_path, content_sha256 FROM document_artifacts"
             ):
                 add(key, digest)
+            from bili_asr.storage.archive_contracts import UNIVERSAL_V2, runtime_contract
+            from bili_asr.storage.artifact_catalog import require_artifact_catalog
+
+            if require_artifact_catalog(connection):
+                for object_id, in connection.execute("SELECT DISTINCT object_id FROM artifact_group_members"):
+                    add(f"documents/artifact-objects/{object_id}", object_id)
+                for key, sha256 in connection.execute("SELECT p.relative_key,m.object_id FROM artifact_publication_groups b JOIN workflow_publications w USING(publication_id) JOIN artifact_group_paths p USING(group_id) JOIN artifact_group_members m ON m.group_id=p.group_id AND m.role=p.role WHERE NOT EXISTS (SELECT 1 FROM workflow_publications newer WHERE newer.video_part_id=w.video_part_id AND (newer.published_at>w.published_at OR (newer.published_at=w.published_at AND newer.publication_id>w.publication_id)))"):
+                    add(key, sha256)
+                for key, digest in connection.execute("SELECT report_key,report_sha256 FROM artifact_catalog_upgrades"):
+                    add(key, digest)
+                for key, digest in connection.execute("SELECT relative_key,sha256 FROM artifact_catalog_upgrade_files"):
+                    add(key, digest)
+
+            if runtime_contract(connection) == UNIVERSAL_V2:
+                for migration_id, raw in connection.execute(
+                    "SELECT migration_id, report_json FROM migration_records"
+                ):
+                    report = _object(raw, "migration report")
+                    if report.get("migration_id") != migration_id:
+                        raise SnapshotDatabaseError("migration report identity differs from its record")
+                    for name in ("id_mapping", "imported_rows"):
+                        member = report.get(name)
+                        if not isinstance(member, dict):
+                            raise SnapshotDatabaseError("migration report omits its audit inventory")
+                        add(member.get("path"), member.get("sha256"))
+                    report_key = f"documents/migrations/{migration_id}/migration-report.json"
+                    add(report_key, hashlib.sha256((raw + "\n").encode("utf-8")).hexdigest())
             # All immutable release files travel with the archive, including
             # superseded and withdrawn history. Verify their approved identity
             # without materializing artifacts during a streamed snapshot check.
@@ -279,10 +349,25 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
 
             connection.row_factory = sqlite3.Row
             repository = PublicationRepository(connection)
-            for row in connection.execute("SELECT release_id FROM publication_releases"):
-                release = repository.release(row["release_id"])
-                verify_release_identity(connection, release)
-                add(release["relative_path"], release["artifact_sha256"])
+            from bili_asr.storage.import_origins import require_import_extension, read_baseline
+            if require_import_extension(connection):
+                with closing(connection.execute("SELECT import_id FROM manuscript_import_baselines")) as baselines:
+                    for row in baselines:
+                        baseline = read_baseline(connection, row["import_id"])
+                        add(baseline["body_path"], baseline["body_sha256"])
+                        add(baseline["review_path"], baseline["review_sha256"])
+                from bili_asr.storage.publication import read_edition
+                with closing(connection.execute("SELECT edition_id FROM publication_import_origins")) as origins:
+                    for row in origins:
+                        read_edition(connection, row["edition_id"])
+            # Close the active statement even when integrity verification
+            # raises; otherwise Windows cannot remove the staged database and
+            # its cleanup error masks the real release-integrity diagnostic.
+            with closing(connection.execute("SELECT release_id FROM publication_releases")) as releases:
+                for row in releases:
+                    release = repository.release(row["release_id"])
+                    verify_release_identity(connection, release)
+                    add(release["relative_path"], release["artifact_sha256"])
             invalid_head = connection.execute(
                 "SELECT h.video_part_id FROM publication_heads h "
                 "LEFT JOIN publication_releases r ON r.release_id = h.current_release_id "
@@ -300,7 +385,27 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
     return result
 
 
-def recover_interrupted_jobs(database_path: Path, snapshot_id: str) -> dict[str, int]:
+_RECOVERY_TABLES = (
+    ("workflow_attempts", "attempt_id", "outcome", "outcome = 'running'", "failed"),
+    ("workflow_jobs", "job_id", "status", "status = 'running'", "queued"),
+    ("ingestion_runs", "run_id", "outcome", "outcome = 'running'", "failed"),
+    ("acquisition_runs", "run_id", "outcome", "outcome = 'running'", "failed"),
+    ("editorial_model_calls", "call_id", "finished_at", "finished_at IS NULL", "finished"),
+)
+
+
+def preview_interrupted_jobs(connection: sqlite3.Connection, snapshot_id: str):
+    """Yield row-level recovery decisions without changing scheduling state."""
+    for table, key, column, predicate, target in _RECOVERY_TABLES:
+        cursor = connection.execute(f"SELECT {key}, {column} FROM {table} WHERE {predicate} ORDER BY {key}")
+        while rows := cursor.fetchmany(256):
+            for identity, previous in rows:
+                yield {"entity": table, "identity": identity,
+                       "before": previous, "after": target,
+                       "snapshot_id": snapshot_id, "reason": "interrupted_by_restore"}
+
+
+def recover_interrupted_jobs(database_path: Path, snapshot_id: str, *, audit_sink=None) -> dict[str, int]:
     """Recover only a restored staging DB, leaving all completed history intact."""
     if not isinstance(snapshot_id, str) or not snapshot_id.strip():
         raise SnapshotDatabaseError("snapshot_id must be non-empty")
@@ -311,6 +416,11 @@ def recover_interrupted_jobs(database_path: Path, snapshot_id: str) -> dict[str,
         with closing(_connect(database_path, readonly=False)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                # The sink belongs to private staging; publish its report only
+                # after recovery commits and the restored archive is installed.
+                if audit_sink is not None:
+                    for change in preview_interrupted_jobs(connection, snapshot_id):
+                        audit_sink(change)
                 attempts = connection.execute(
                     "SELECT attempt_id, result_json FROM workflow_attempts WHERE outcome = 'running'"
                 ).fetchall()
@@ -353,6 +463,7 @@ __all__ = [
     "SnapshotDatabaseError",
     "create_database_snapshot",
     "recover_interrupted_jobs",
+    "preview_interrupted_jobs",
     "required_artifacts",
     "validate_snapshot_database",
 ]

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from bili_asr.contracts import CONTRACTS
 
 from tests.support.installed_cli import (
     SENTINEL_COOKIE, _venv_scripts_dir, assert_redacted, clean_cli_env,
@@ -30,6 +33,73 @@ def test_installed_console_script_help(isolated_cli) -> None:
     ):
         assert command in proc.stdout
     assert_redacted(proc)
+
+def test_installed_contract_resources_resolve_offline_outside_checkout(isolated_cli) -> None:
+    checked = subprocess.run(
+        [isolated_cli.python, "-m", "bili_asr.contracts", "--check-docs",
+         str(Path(__file__).resolve().parents[1] / "docs/contracts")],
+        cwd=isolated_cli.venv_dir, env=clean_cli_env(),
+        capture_output=True, text=True, check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
+    expected_schemas = {entry.schema for entry in CONTRACTS.values() if entry.schema}
+    documentation_root = Path(__file__).resolve().parents[1] / "docs/contracts"
+    assert {path.name for path in documentation_root.glob("*.schema.json")} == expected_schemas
+    assert f"{len(CONTRACTS)} contracts, {len(expected_schemas)} schemas" in checked.stdout
+    example = json.loads((Path(__file__).resolve().parents[1] /
+                          "docs/contracts/examples/publication-catalog.json").read_text(encoding="utf-8"))
+    example["schemaVersion"] = 3
+    assert example["articles"]  # Exercise v3's reference into the packaged v2 schema.
+    validated = subprocess.run(
+        [isolated_cli.python, "-c", """
+from pathlib import Path
+import json
+import socket
+import sys
+import bili_asr.contracts
+from bili_asr.contracts.json_schema import validate_json
+def no_network(*args, **kwargs):
+    raise AssertionError('installed schema references must resolve offline')
+socket.create_connection = no_network
+assert Path(bili_asr.contracts.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+validate_json('publication-catalog/v3', json.loads(sys.argv[1]))
+""", json.dumps(example)],
+        cwd=isolated_cli.venv_dir, env=clean_cli_env(),
+        capture_output=True, text=True, check=False,
+    )
+    assert validated.returncode == 0, validated.stderr
+
+
+def test_installed_contract_authorities_include_registered_sql_and_json(isolated_cli) -> None:
+    """A new registered SQL/JSON authority must survive real wheel packaging."""
+    checked = subprocess.run([isolated_cli.python, "-c", """
+from importlib.resources import files
+from pathlib import Path, PurePosixPath
+import hashlib
+import json
+import sys
+import bili_asr
+from bili_asr.contracts import CONTRACTS
+
+assert Path(bili_asr.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+observed = {}
+for entry in CONTRACTS.values():
+    for name in entry.authority:
+        relative = PurePosixPath(name)
+        if relative.suffix in {'.sql', '.json'}:
+            relative = relative.relative_to('src/bili_asr')
+            body = files('bili_asr').joinpath(*relative.parts).read_bytes()
+            assert body, name
+            observed[name] = hashlib.sha256(body).hexdigest()
+print(json.dumps(observed))
+"""], cwd=isolated_cli.venv_dir, env=clean_cli_env(), capture_output=True, text=True, check=False)
+    assert checked.returncode == 0, checked.stderr
+    root = Path(__file__).resolve().parents[1]
+    expected = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+                for entry in CONTRACTS.values() for name in entry.authority
+                if Path(name).suffix in {".sql", ".json"}}
+    assert json.loads(checked.stdout) == expected
+
 
 def test_installed_console_script_status_fails_without_database(isolated_cli, tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
@@ -66,7 +136,8 @@ def test_installed_console_script_status_rejects_empty_database_without_initiali
 
     assert proc.returncode == 1, proc.stdout
     assert "archive schema missing" in proc.stderr
-    assert "fetch-meta" in proc.stderr
+    assert "preserve archive.db" in proc.stderr
+    assert "separate empty target" in proc.stderr
     assert proc.stdout == ""
     assert_redacted(proc)
     assert database.read_bytes() == original

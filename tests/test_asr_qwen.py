@@ -73,6 +73,7 @@ class _Tokens:
     def __init__(self, length: int, shape: tuple[int, int] | None = None) -> None:
         self.length = length
         self.shape = shape or (1, length)
+        self.nbytes = length * 8
 
     def __getitem__(self, key: tuple) -> "_Tokens":
         start = key[1].start or 0

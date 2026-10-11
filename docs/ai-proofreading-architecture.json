@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -30,8 +30,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 39,
-          "end_line": 45,
+          "line": 55,
+          "end_line": 61,
           "label": "EditorialRepository.latest_sources"
         }
       ]
@@ -39,7 +39,7 @@
     {
       "id": "input",
       "label": "冻结输入与任务",
-      "sublabel": "prompt / config / metadata / chunks",
+      "sublabel": "v1/v2；合法重用与显式修复",
       "type": "backend",
       "pos": [
         440,
@@ -52,14 +52,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 93,
-          "end_line": 116,
+          "line": 171,
+          "end_line": 199,
           "label": "EditorialRepository.freeze_job_input"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 133,
-          "end_line": 195,
+          "line": 140,
+          "end_line": 204,
           "label": "prepare_input"
         }
       ]
@@ -80,22 +80,22 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 405,
-          "end_line": 410,
+          "line": 468,
+          "end_line": 473,
           "label": "WorkflowRepository._editorial_jobs"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 283,
-          "end_line": 291,
+          "line": 342,
+          "end_line": 350,
           "label": "WorkflowRepository.owned_transaction"
         }
       ]
     },
     {
       "id": "api",
-      "label": "DeepSeek API",
-      "sublabel": "锁外 HTTPS JSON 调用",
+      "label": "校对 API",
+      "sublabel": "DeepSeek / OpenCode Go；HTTPS",
       "type": "external",
       "pos": [
         40,
@@ -108,8 +108,8 @@
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 38,
-          "end_line": 58,
+          "line": 42,
+          "end_line": 72,
           "label": "DeepSeekClient.complete"
         }
       ]
@@ -130,14 +130,14 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 36,
-          "end_line": 61,
+          "line": 40,
+          "end_line": 72,
           "label": "EditorialWorkflowHandlers.proofread"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 215,
-          "end_line": 262,
+          "line": 224,
+          "end_line": 278,
           "label": "validate_revision"
         }
       ]
@@ -158,14 +158,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 146,
-          "end_line": 149,
+          "line": 234,
+          "end_line": 237,
           "label": "EditorialRepository.save_chunk"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 151,
-          "end_line": 167,
+          "line": 239,
+          "end_line": 255,
           "label": "EditorialRepository.commit_revision"
         }
       ]
@@ -186,8 +186,8 @@
       "sources": [
         {
           "path": "src/bili_asr/manuscript_templates.py",
-          "line": 82,
-          "end_line": 86,
+          "line": 84,
+          "end_line": 88,
           "label": "renderer_for"
         }
       ]
@@ -208,8 +208,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 63,
-          "end_line": 97,
+          "line": 74,
+          "end_line": 109,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -217,7 +217,7 @@
     {
       "id": "aifiles",
       "label": "固定 AI 双稿",
-      "sublabel": "documents/part-ID/revision/v1",
+      "sublabel": "准确 revision 与 v1/v2 template",
       "type": "database",
       "pos": [
         840,
@@ -230,9 +230,9 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 44,
-          "end_line": 67,
-          "label": "get_ai_artifacts"
+          "line": 1,
+          "end_line": 182,
+          "label": "模块定义"
         }
       ]
     },
@@ -252,16 +252,16 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 137,
-          "end_line": 185,
+          "line": 237,
+          "end_line": 340,
           "label": "add_publication_parser"
         }
       ]
     },
     {
       "id": "publication",
-      "label": "完整版本与人工出版",
-      "sublabel": "create / edit / tags / review / publish",
+      "label": "人工出版与来源补充",
+      "sublabel": "完整子版；审核与显式发布",
       "type": "backend",
       "pos": [
         440,
@@ -274,15 +274,21 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 134,
-          "end_line": 174,
+          "line": 123,
+          "end_line": 168,
           "label": "publish_edition"
         },
         {
           "path": "src/bili_asr/publication_tags.py",
-          "line": 25,
-          "end_line": 41,
+          "line": 26,
+          "end_line": 49,
           "label": "sync_source_tags"
+        },
+        {
+          "path": "src/bili_asr/services/source_supplement.py",
+          "line": 1,
+          "end_line": 224,
+          "label": "模块定义"
         }
       ]
     },
@@ -302,8 +308,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 22,
-          "end_line": 233,
+          "line": 23,
+          "end_line": 240,
           "label": "PublicationRepository"
         }
       ]
@@ -324,8 +330,8 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 134,
-          "end_line": 174,
+          "line": 123,
+          "end_line": 168,
           "label": "publish_edition"
         }
       ]
@@ -346,20 +352,20 @@
       "sources": [
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 61,
-          "end_line": 105,
+          "line": 91,
+          "end_line": 145,
           "label": "export_publications"
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 108,
-          "end_line": 181,
+          "line": 148,
+          "end_line": 231,
           "label": "export_publication_drafts"
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 193,
-          "end_line": 271,
+          "line": 282,
+          "end_line": 371,
           "label": "export_editorial"
         }
       ]
@@ -367,7 +373,7 @@
     {
       "id": "snapshots",
       "label": "受管理快照目录",
-      "sublabel": "catalog v2 / preview / 完整审阅包",
+      "sublabel": "版本化 catalog / origin / manifest",
       "type": "database",
       "pos": [
         840,
@@ -380,8 +386,8 @@
       "sources": [
         {
           "path": "src/bili_asr/export_snapshot.py",
-          "line": 367,
-          "end_line": 444,
+          "line": 431,
+          "end_line": 513,
           "label": "replace_snapshot"
         }
       ]
@@ -536,6 +542,26 @@
         "块提交、revision 与 AI 双稿受 lease/cancel 保护；输出目录是独立锁和恢复协议。",
         "校对固定输入与任务/绑定共同提交；共享 JobCommitGuard 保护所有派生持久化，不临时创建调度仓库。",
         "双稿编码、暂存写入与文件 fsync 在事务外；事务内安装不可变文件并登记，失败留下可验证、可重试的未登记字节。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "当前来源与消费扩展",
+      "items": [
+        "保留旧正文不重跑 AI；标题或简介补充各有不可变证据，并创建需要重新审核的 content v2 子版。",
+        "准确历史双稿可通过 artifact catalog 保留或恢复；当前可变槽位不是旧版本。",
+        "普通/迁移 origin 导出与可选编辑确认 series 各有离线 Schema 和实际身份校验。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "简介补充与消费者边界",
+      "items": [
+        "仅已 import-preserved 且简介未知的历史 v2 文章可补；原生 v2 跳过，已有另一字段补充的版本阻止操作。",
+        "plan 从已存 video_details 读取真实简介；apply 在同一事务复验来源证据、正文 hash 和 draft/release heads。",
+        "简介不替换编辑摘要；正文 UTF-8 字节与固定 AI 双稿保留，旧正式发布继续有效。",
+        "universal-origin-v2：catalog 3、origins 2、manifest 3、source-metadata 1；旧 profile 保持并拒绝新简介补充。",
+        "当前 Reader 只支持 universal-origin-v1；新 profile 消费者升级属于后续工作。"
       ]
     }
   ]

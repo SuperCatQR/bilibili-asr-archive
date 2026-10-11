@@ -138,7 +138,8 @@ def ordered_candidates(
 
     candidates = tuple(
         Candidate(
-            work_id=format_work_id(row["bvid"], row["page_index"]),
+            work_id=(format_work_id(row["bvid"], row["page_index"])
+                     if row["bvid"] is not None else str(row["work_id"])),
             part={key: row[key] for key in _PART_KEYS},
             transcript={key: row[key] for key in _TRANSCRIPT_KEYS},
         )

@@ -8,6 +8,7 @@ import sqlite3
 
 from .errors import SearchIndexMissingError, TranscriptStoreError
 from .models import MetadataSearchHit
+from bili_asr.storage.archive_contracts import BILIBILI_V1, UNIVERSAL_V2, runtime_contract
 
 
 _REQUIRED_COLUMNS = {
@@ -49,14 +50,29 @@ class MetadataSearchIndex:
             raise TranscriptStoreError(f"metadata store unreadable: {exc}") from exc
 
     @staticmethod
-    def _validate_schema(connection: sqlite3.Connection) -> None:
+    def _validate_schema(connection: sqlite3.Connection) -> str:
         for table, required in _REQUIRED_COLUMNS.items():
-            columns = {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
+            if table == "videos":
+                # LIMIT 0 validates column references without reading video rows.
+                # Unlike pragma_table_info(), it emits no nested trace statement.
+                try:
+                    marked = connection.execute("SELECT EXISTS (SELECT 1 FROM sqlite_master "
+                        "WHERE type='table' AND name='archive_contract'), "
+                        "EXISTS (SELECT bvid,title,pubdate FROM videos LIMIT 0)").fetchone()[0]
+                except sqlite3.OperationalError:
+                    columns = {str(row[1]) for row in connection.execute('PRAGMA table_info("videos")')}
+                else:
+                    if marked:
+                        return runtime_contract(connection)
+                    continue
+            else:
+                columns = {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
             if missing := required - columns:
                 raise TranscriptStoreError(
                     f"metadata schema incompatible: {table} missing {', '.join(sorted(missing))}; "
                     "use a database with the current metadata schema"
                 )
+        return BILIBILI_V1
 
     def search_metadata(
         self,
@@ -74,7 +90,10 @@ class MetadataSearchIndex:
         """
         connection = self._connect()
         try:
-            self._validate_schema(connection)
+            if self._validate_schema(connection) == UNIVERSAL_V2:
+                from .source_store import search_metadata
+                return search_metadata(connection, query, pubdate_from=pubdate_from,
+                    pubdate_to=pubdate_to, limit=20 if limit is None else limit)
             clean_query = (query or "").strip()
             if not clean_query or (limit is not None and limit <= 0):
                 return []
