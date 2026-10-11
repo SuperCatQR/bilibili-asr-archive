@@ -7,3 +7,5 @@ contract-governance.json -text whitespace=cr-at-eol
 contract-governance.html -text whitespace=-blank-at-eol
 [0-3][0-9]-*.json -text whitespace=cr-at-eol
 [0-3][0-9]-*.html -text whitespace=-blank-at-eol
+# Historical evidence retains the original committed JSON bytes.
+evidence/*.json -text

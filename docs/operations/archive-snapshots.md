@@ -4,7 +4,7 @@ Database schema fingerprints are now pinned independently of the current DDL in
 `src/bili_asr/contracts/database-fingerprints.json`. A change to a registered
 schema fails validation rather than redefining an existing snapshot contract.
 Runtime, snapshot and fixed migration-source policies remain distinct; see
-[contract governance](contract-governance.md).
+[contract governance](../contract-governance.md).
 
 
 Snapshot format version 1 now supports both validated `bilibili-v1` and
@@ -80,7 +80,7 @@ manifest_sha256; each checkpoint model-manifest.json lists schema_version,
 model_id, revision and relative file SHA-256 values. Config and weights must be
 present, files match the manifest and links are refused. Missing historical
 identity rejects a binding; device, precision or inference changes need a new
-profile. See [ASR workers](asr-workers.md).
+profile. See [ASR workers](../asr/asr-workers.md).
 
 Recovery NDJSON records entity/identity/before/after/snapshot/reason for affected
 rows and separately records recovery transaction and directory installation.

@@ -68,12 +68,12 @@ bili-asr verify --archive-root data --format json
 
 `workflow publish` 从已有存储版本中选择当前优先转录，为 publish job 请求重新执行。只请求发布不会下载音频或调用 ASR；`workflow run` 仍按队列优先级执行，若还有其他待执行任务，需继续运行到对应 publish job 完成，并通过 status 查看结果。普通重复 `workflow plan` 不保证已经成功的 publish job 再次执行。
 
-已经取消的 publish job 保持取消状态，命令明确报告受抑制的请求；该命令不能作为恢复取消任务的途径。旧数据库的 attempt CHECK 约束若不支持当前取消契约，会得到 schema 不兼容诊断；保留原库并检查[已登记升级路径](archive-upgrades.md)，未知布局不能由重新安装程序自动修复。
+已经取消的 publish job 保持取消状态，命令明确报告受抑制的请求；该命令不能作为恢复取消任务的途径。旧数据库的 attempt CHECK 约束若不支持当前取消契约，会得到 schema 不兼容诊断；保留原库并检查[已登记升级路径](../operations/archive-upgrades.md)，未知布局不能由重新安装程序自动修复。
 
 补来源时用 `workflow publish --preserve-transcript --dry-run` 预览，再显式排队和运行 publish job。
 该路径要求已安装 artifact catalog，验证旧 marker、成员及原转录身份，保存不可变旧完整组并
 保留 ASR provenance/coverage/character timing；普通 publish 则仍按当前候选择优。旧包无效或
-publication 围栏变化时要求处理事实并重新规划，不能靠回填绕过质量校验。完整操作见[来源元数据与历史回填](issue-348-source-metadata.md)。
+publication 围栏变化时要求处理事实并重新规划，不能靠回填绕过质量校验。完整操作见[来源元数据与历史回填](source-metadata.md)。
 
 ## 离线验证
 

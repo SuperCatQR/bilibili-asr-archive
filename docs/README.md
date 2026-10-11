@@ -1,72 +1,38 @@
-# 文档索引
+# 文档入口
 
-[项目 README](../README.md) 提供安装和常用命令。以下文档以当前源码为依据，
-解释工作流、数据所有权、产物契约和运行限制；架构图是可审阅的源码快照。
+[项目 README](../README.md) 提供安装与常用命令。按下面的任务选择入口；每个分类页列出该目录的完整文档。
 
-当前架构与 31 个时序流程统一核对 2026-10-11 的 main 源码 `378f415ac5bf2a47de9137ee593f201e86827d43`。图的真实验收范围见 [验证记录](architecture-validation.md)。
-
-历史行为测试与实测入口见 [evidence/README.md](evidence/README.md)。
-
-## 架构与数据
-
-| 文档 | 内容 |
+| 想做什么 | 从这里开始 |
 | --- | --- |
-| [契约治理与兼容边界](contract-governance.md) | 单一登记、25 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[当前图表验证](architecture-validation.md) |
-| [当前架构](architecture.md) | 固定提交的执行模型、数据所有者与契约入口 |
-| [音频分层与手动迁出](artifact-storage.md) | 只读盘点、保真 catalog 升级、目标封包核验、条件释放和同 SHA 恢复；生产状态独立延续 |
-| [SSH 存储与引用型备份](remote-reference-backups.md) | 已核验远程包、明确的外部依赖、离线/在线检查、保真状态恢复与显式 worker 交接 |
-| [全景架构图](architecture.html) | 固定提交的可交互组件、关系与源码证据；[JSON](architecture.json) |
-| [完整时序图](architecture-sequences.md) | 31 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
-| [源码与覆盖清单](architecture-sources.md) | 20 个顶层命令、86 条命令路径、204 个模块与基础/可选契约；[机器清单](architecture-coverage.json) |
-| [图表验证记录](architecture-validation.md) | 34 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
-| [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
-| [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
-| [来源元数据与历史回填](issue-348-source-metadata.md) | 简介与来源字段、JSON/CSV、锁定原转录的 bundle 回填 |
-| [历史文章简介补充](issue-348-description-supplement.md) | 保留旧正文的新待审版本、来源证据及阅读站契约升级范围 |
-| [AI 校对与出版架构](ai-proofreading-architecture.md) | 固定提交的输入冻结、历史模板、完整版本、标签/简介证据、审核、release 与三类导出 |
+| 第一次安装或部署 | [Miniconda 部署](operations/miniconda-deployment.md)，随后检查 [ASR 就绪条件](operations/asr-deployment-readiness.md) |
+| 采集、搜索、校对或发布 | [使用指南](guides/README.md) |
+| 调整识别配置、worker 或性能诊断 | [ASR 配置与执行](asr/README.md) |
+| 备份、迁移、升级、恢复或管理存储 | [部署与运维](operations/README.md) |
+| 了解系统边界和调用关系 | [当前架构](architecture.md)、[34 张交互图与流程入口](architecture-sequences.md) |
+| 修改实现、契约或维护文档 | [开发与维护](development/README.md)、[契约镜像](contracts/README.md) |
+| 查阅做过哪些实测及其限制 | [历史验收与实验记录](evidence/README.md) |
 
-## 工作流与产物
+## 架构与数据参考
 
-| 文档 | 内容 |
+图表继续直接放在 `docs/`，同名 Markdown 说明行为，JSON 是可编辑规格，HTML 是生成的独立查看器。图表绑定固定源码提交，身份与验收范围见 [图表验证](architecture-validation.md)。
+
+| 参考 | 说明 |
 | --- | --- |
-| [BVID 与分 P 选择](workflow-selection.md) | 批量 BVID、零基分 P、part ID、全集验证与幂等规划 |
-| [任务取消](workflow-cancellation.md) | queued/running 取消、协作检查点、提交保护、依赖阻塞与终态 |
-| [WebVTT 与 bundle](webvtt.md) | 转录格式、cue 契约、完成标记及已有转录的重新发布；当前 v3 来源回填见来源元数据指南 |
-| [元数据搜索](metadata-search.md) | transcripts/metadata/all、字面匹配、排序、日期与 JSON 契约 |
-| [出版与审核](publication.md) | 不可变完整版本、准确哈希审核、release、撤回、公开正文与校验参照及完整私有审阅包 |
-| [保留旧正文的迁移导入](preserved-body-import.md) | 离线扩展安装、只读计划、字节保留、幂等回执、独立审核与来源导出协议 |
-| [稿件 JSON 契约](contracts/README.md) | 新 schema、模板、catalog、manifest 与内容身份契约 |
-| [AI 校对使用](ai-proofreading.md) | 配置、执行、失败恢复、重新渲染、数据与离线验证 |
-| [产物根目录](artifact-root.md) | workflow 产物写根、读取回退顺序、音频与派生产物路径 |
-| [归档快照与迁移](archive-snapshots.md) | 保存完整数据库与产物、离线校验、跨设备恢复与中断任务重排 |
-| [显式契约升级](archive-upgrades.md) | 登记路径、绑定源与转换器的计划、隔离转换、逐表保真和完成核验 |
-| [真实生产副本验收](production-upgrade-validation-2026-10-11.md) | 32.8 GB 全量保真、来源标题、真实阅读站、快照恢复、成本与切换回退边界 |
-| [固定旧源迁移预检](archive-migration-preflight.md) | 停止/checkpoint 前置条件、显式源根、清点/历史身份校验与失败边界 |
-| [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |
+| [系统架构](architecture.md) · [HTML](architecture.html) · [JSON](architecture.json) | 执行模型、数据所有权和持久边界 |
+| [AI 与出版架构](ai-proofreading-architecture.md) · [HTML](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json) | 冻结输入、修订、审核、release 与导出 |
+| [契约治理](contract-governance.md) · [HTML](contract-governance.html) · [JSON](contract-governance.json) | 版本矩阵、消费者、固定指纹与兼容边界 |
+| [31 个完整时序](architecture-sequences.md) | CLI、来源、任务、ASR、出版、存储、迁移与恢复 |
+| [SQLite 数据参考](metadata-storage.md) | 表、视图、身份、观察状态与读取投影 |
+| [源码清单](architecture-sources.md) · [覆盖清单](architecture-coverage.json) | 固定提交的源码证据与覆盖范围 |
+| [图表维护](architecture-maintenance.md) · [验收记录](architecture-validation.md) · [机器记录](architecture-validation.json) | 生成、源码定位、产物哈希与浏览器检查 |
 
-## ASR 参数与评测
+## 目录约定
 
-| 文档 | 内容 |
-| --- | --- |
-| [ASR 参数与诊断](asr-configuration.md) | 完整配置快照、独立模型版本、逐次运行证据与质量标记 |
-| [ASR 双声道混音优化](asr-stereo-mix-performance.md) | float32 混音快速路径、数值兼容、生产实验依据及可复现 CPU 基准 |
-| [ASR worker](asr-workers.md) | 角色、固定 slot、持久模型会话、drain、准备预算与运行限制 |
-| [ASR 吞吐汇总](asr-performance.md) | 已有 evidence 的只读窗口报告、重试成本、缺失值与预取回退统计 |
-| [4090 实际验证记录](asr-gpu-validation-2026-10-11.md) | 13 组固定样本、GPU 时间线、真实策略回退、计数器权限限制及生产恢复证据 |
-| [ASR 设计评审](asr-design-review.md) | 官方资料、归档定位、证据支持的基线与空热词策略 |
-| [公开样本测试](asr-public-samples.md) | FLEURS 参考 CER、分块与静音对照、完整 JSON 与复现命令 |
-| [WSL 验证记录](asr-wsl-validation.md) | 自动化回归、真实 CPU 模型样本与 GPU 限制 |
+- `guides/`：面向日常使用的工作流、来源、内容与出版指南。
+- `asr/`：当前识别配置、执行策略、worker 与性能诊断接口。
+- `operations/`：部署、存储、迁移、升级、备份与恢复手册。
+- `development/`：CI、发布说明与文档维护约定。
+- `contracts/`：程序发布的契约镜像与示例，由契约工具校验原字节。
+- `evidence/`：固定日期、源码与环境的历史验收及原始结果。
 
-## 环境与部署
-
-| 文档 | 内容 |
-| --- | --- |
-| [ASR 部署与就绪](asr-deployment-readiness.md) | 只读检查、领取前模型准备、显式预热和持久缓存边界 |
-| [海光 BW1000 验收](hygon-bw1000-validation.md) | 双模型精度、平台探测、目标环境门槛和实机验收流程 |
-| [非 perf 修复验证](non-perf-issues-validation.md) | #305/#306/#300/#289 的交付范围、回归记录和硬件待办 |
-| [Miniconda 部署](miniconda-deployment.md) | 应用依赖、生产启动检查与独立 ASR 环境 |
-| [WSL ROCm GPU](wsl-rocm-gpu.md) | 已记录的 AMD WSL2 环境、版本组合、设备探测与故障排查 |
-| [CI 覆盖率门禁](ci-coverage.md) | 产品源码范围、子进程采集、行与分支阈值及本地复现 |
-
-历史验证记录保留各自的源码、运行日期和测量背景。当前行为以源码、相应功能指南和测试为准，
-不能将旧命令、旧 schema 或实验结果直接当作当前接口。
+[WSL ROCm GPU 手册](wsl-rocm-gpu.md) 保留在根目录，因为环境探测工具直接输出这个路径。历史记录保留失败、跳过、未完成验收和原始身份；当前操作以功能指南与实现为准。

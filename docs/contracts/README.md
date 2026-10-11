@@ -38,14 +38,14 @@ The explicit `universal-origin-v1` profile uses catalog v3 with universal
 articles only, [origins v1](publication-origins-v1.schema.json) and
 [manifest v2](publication-origin-manifest-v2.schema.json). It permits verified
 legacy-body imports while retaining their real v1 input/revision/template
-identities. See [installation, policy, review and retry semantics](../preserved-body-import.md).
+identities. See [installation, policy, review and retry semantics](../guides/preserved-body-import.md).
 The explicit `universal-origin-v2` profile keeps catalog v3 and source-metadata-v1,
 uses [origins v2](publication-origins-v2.schema.json) and
 [manifest v3](publication-origin-manifest-v3.schema.json), and adds verified
 `legacy-description-supplement-v1` evidence. The old profile rejects these new
 description-supplemented editions. Values, hashes, policies and per-field
 collection evidence must agree; unknown collection time remains null. See
-[description supplementation](../issue-348-description-supplement.md).
+[description supplementation](../guides/source-description-supplement.md).
 The current reading site needs separate implementation of this profile.
 Existing manifest v1 exports do not accept imported editions. A consumer must
 implement the new profile before serving these snapshots; the sections below
@@ -54,7 +54,7 @@ describe the existing interfaces without changing their version-1 algorithm.
 Optional editor-confirmed `series.json` is described by
 [the public schema](publication-series.schema.json) and
 [private editorial schema](publication-series-editorial.schema.json).
-See [semantic validation, maintenance and export](../publication-series.md).
+See [semantic validation, maintenance and export](../guides/publication-series.md).
 Its exact byte hash belongs to the manifest selected for that export profile; absent series
 preserves previous snapshots, and manuscript/catalog versions remain unchanged.
 
@@ -73,7 +73,7 @@ time, slug and file identity, file hashes and exact manifest membership. Source
 time can be null when unknown; collection and release times cannot replace it.
 Current database metadata cannot alter either historical or universal editions.
 See [current architecture](../architecture.md) for version ownership and
-[explicit upgrades](../archive-upgrades.md) for registered conversion paths. The independent reading-site delivery must adopt
+[explicit upgrades](../operations/archive-upgrades.md) for registered conversion paths. The independent reading-site delivery must adopt
 catalog version 3 before serving new universal entries.
 
 The remaining paragraphs describe the historical version-2 reader contract.

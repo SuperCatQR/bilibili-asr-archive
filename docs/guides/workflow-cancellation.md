@@ -44,7 +44,7 @@ bili-asr workflow cancel --archive-root archive --job-id JOB_ID --job-id ANOTHER
 ## 数据库契约与验证
 
 当前 `workflow_attempts` 的 outcome 和终态 CHECK 均支持 cancelled。旧库不会因重新安装包而改变 CHECK；写入控制命令会先检查契约，拒绝不受支持的旧布局。
-保留原库、停止写入并检查[已登记升级路径](archive-upgrades.md)：支持的固定源可保真转换到
+保留原库、停止写入并检查[已登记升级路径](../operations/archive-upgrades.md)：支持的固定源可保真转换到
 独立新目录，未知布局需要明确的读取器和转换政策。普通运行不自动迁移、删除或重建原库，
 不能用重新采集替代旧 attempts、transcript、revision 和审核历史的保留。
 

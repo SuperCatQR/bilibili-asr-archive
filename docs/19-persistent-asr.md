@@ -100,7 +100,7 @@ sequenceDiagram
 
 等待期间，独立线程使用自己持有的 SQLite 连接续约同一尝试；临时续约错误可以重试，但提交围栏不能跳过。取消、租约被回收、drain 宽限期耗尽或期限到达都会通过 checkpoint 或响应校验中止推理，Session 丢弃返回并终止，下一请求重新创建进程。子进程已经退出但队列 feeder 仍在交付时，父端仅给予一次有界读取机会。Handler 的采集记录失败关闭同样受原尝试权限约束；失租错误不能使旧 worker 重写新尝试，取消仍按 authoritative cancelled 计数。
 
-drain 文件或停止信号先停止领取新任务，活动推理在宽限期内继续心跳；超过宽限期后通过 checkpoint 进入同一失败处理。Session 关闭先发送哨兵并有界等待，随后按需要对自有进程组 TERM、KILL、join 和关闭队列。Linux 子进程建立独立进程组，内核父死信号在原生推理占用 GIL 时仍可杀死 GPU owner，独立 EOF 守护负责清理同组解码后代。Supervisor 回收已拥有的句柄并在重启前清理退出组。`oneshot` 是每次推理后关闭的回退配置；CPU 与 legacy 路径另见[实施说明](architecture.md)和[ASR worker 文档](asr-workers.md)。阶段 wall-time、父端等待与任务间隙只是诊断证据，WSL 控制测试不能代替真实 GPU 利用率、生产部署或 Windows 完整进程树验收。
+drain 文件或停止信号先停止领取新任务，活动推理在宽限期内继续心跳；超过宽限期后通过 checkpoint 进入同一失败处理。Session 关闭先发送哨兵并有界等待，随后按需要对自有进程组 TERM、KILL、join 和关闭队列。Linux 子进程建立独立进程组，内核父死信号在原生推理占用 GIL 时仍可杀死 GPU owner，独立 EOF 守护负责清理同组解码后代。Supervisor 回收已拥有的句柄并在重启前清理退出组。`oneshot` 是每次推理后关闭的回退配置；CPU 与 legacy 路径另见[实施说明](architecture.md)和[ASR worker 文档](asr/asr-workers.md)。阶段 wall-time、父端等待与任务间隙只是诊断证据，WSL 控制测试不能代替真实 GPU 利用率、生产部署或 Windows 完整进程树验收。
 
 ## 源码证据
 

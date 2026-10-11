@@ -54,4 +54,4 @@ sequenceDiagram
 - [publish worker](../src/bili_asr/workflow_runtime.py#L419)、[保留旧完整组](../src/bili_asr/services/artifact_groups.py#L120)、[批量来源投影](../src/bili_asr/storage/metadata.py#L175)。
 - [文章补充 plan](../src/bili_asr/services/source_supplement.py#L53)、[事务 apply](../src/bili_asr/services/source_supplement.py#L169)、[简介采集证据](../src/bili_asr/storage/source_supplements.py#L70)。
 - [导出 origin 校验](../src/bili_asr/publication_export.py#L234)、[新 profile origin 文件](../src/bili_asr/publication_export.py#L248)。
-- [旧包回填操作](issue-348-source-metadata.md)、[旧文章补简介操作与支持范围](issue-348-description-supplement.md)。
+- [旧包回填操作](guides/source-metadata.md)、[旧文章补简介操作与支持范围](guides/source-description-supplement.md)。

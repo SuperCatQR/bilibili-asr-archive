@@ -56,4 +56,4 @@ driver、源码 commit、CPU RSS/GPU allocator/采样峰值、失败阶段资源
 
 回归覆盖重叠执行、重复源音频、双遍、失败/重试、跨窗口、未知/未来 evidence、限额拒绝、旧预取报告和敏感字段；并发 WAL writer 下验证单一快照，并验证不影响调用者事务。真实轻量 workflow 执行 fake ASR 后落库，再由真实 CLI 读取报告，静止 DB 字节保持不变。缺库 READ 拒绝且不创建根目录/数据库。
 
-运行记录见 [Perf 首批 WSL 验证](perf-evidence-validation.md)。无 GPU 的测试不能证明真实性能收益。
+运行记录见 [Perf 首批 WSL 验证](../evidence/perf-evidence-validation.md)。无 GPU 的测试不能证明真实性能收益。

@@ -3,8 +3,8 @@
 `--archive-root` 决定数据库位置。`--artifact-root` 或 `BILI_ARTIFACT_ROOT` 决定文件产物
 的位置。默认两者相同；独立产物目录不会改变 `<archive-root>/archive.db` 的位置。
 
-当前数据与恢复规则见 [metadata-storage.md](metadata-storage.md)，底层路径实现见
-[artifact_root.py](../src/bili_asr/artifact_root.py)。
+当前数据与恢复规则见 [metadata-storage.md](../metadata-storage.md)，底层路径实现见
+[artifact_root.py](../../src/bili_asr/artifact_root.py)。
 
 ## 1. 写入与读取布局
 
@@ -110,7 +110,7 @@ AI 渲染只产生固定的 `ai-draft.md` / `review.md`，不自动创建 editio
 `publication export-drafts` 输出当前且从未发布的 edition 预览。两者同时校验并导出同 AI revision 的原始 `review.md`，
 在 catalog v2 登记 `reviewFile` 和 `reviewArtifactSha256`；参照稿不是人工审核记录。
 `editorial export` 明确选择 revision / edition，读取基线双稿并生成私有审阅包。人工修改创建新的 edition，
-不能直接改已登记文件；见 [出版与审核](publication.md)。
+不能直接改已登记文件；见 [出版与审核](../guides/publication.md)。
 
 ## 6. 支持入口与当前限制
 
@@ -145,4 +145,4 @@ AI 渲染只产生固定的 `ai-draft.md` / `review.md`，不自动创建 editio
 | 换目录后音频缺失 | 按记录相对 key 恢复到读取根，或重新获取 |
 
 schema 重建会丢失数据库事实，需要重新采集；这与目录切换不同。恢复步骤见
-[metadata-storage.md](metadata-storage.md#数据库打开与-schema-边界)。
+[metadata-storage.md](../metadata-storage.md#数据库打开与-schema-边界)。

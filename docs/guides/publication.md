@@ -4,7 +4,7 @@
 及原有 `ai-draft-v1`/`publish-v1`；新稿件使用版本 2、`ai-draft-v2`/`publish-v2`，
 冻结完整来源 metadata，支持原语言校对。含新稿件的公开或预览 catalog 使用版本 3，
 可与保留旧字段的历史条目混合；全历史条目且无 origin profile 时继续版本 2。详见
-[显式契约升级](archive-upgrades.md) 和 [出口契约](contracts/README.md)。
+[显式契约升级](../operations/archive-upgrades.md) 和 [出口契约](../contracts/README.md)。
 下表中的 v1 路径表示历史稿件；新版使用相应 v2 模板目录。
 
 AI 合成稿件、校验参照稿件与发布稿件各有明确身份。AI 工作流生成的正文只能作为编辑来源，
@@ -207,7 +207,7 @@ bili-asr publication export-drafts --archive-root /srv/bili-archive \
 所有操作支持 `--archive-root` 与 `--format text|json`。create、publication export、export-drafts、editorial export
 读取产物根；publish 写产物根并做写权限校验。它们接受 `--artifact-root`，读取先探测产物根再
 归档根；数据库始终在归档根。edit/review/withdraw/show 不访问产物根，因此不接受该参数。
-AI workflow 的文档写入显式配置的产物根或默认归档根，详见 [artifact-root.md](artifact-root.md)。
+AI workflow 的文档写入显式配置的产物根或默认归档根，详见 [artifact-root.md](../operations/artifact-root.md)。
 
 路径必须是受控身份目录内的规范相对路径。根、父目录与目标上的符号链接、junction、reparse point，
 非 UTF-8 文件、错误内容哈希和逃逸路径均拒绝。导出不可覆盖源产物、数据库或源归档的祖先目录。
@@ -249,7 +249,7 @@ sync-source-tags 要求 E 是当前父版本，记录 actor、来源说明和审
 
 [保留旧正文导入](preserved-body-import.md) 在新 content v2 中保存原正文和旧 AI 基线，生成
 pending-review 版本及 immutable origin，须独立审核和显式发布。标题证据见[来源标题补充](source-part-title-supplement.md)。
-[历史文章简介补充](issue-348-description-supplement.md) 使用 plan/apply/check，从本地逐字段证据
+[历史文章简介补充](source-description-supplement.md) 使用 plan/apply/check，从本地逐字段证据
 创建新待审子版，复制正文 UTF-8 字节、标题、编辑摘要和标签，旧 release 继续有效。
 只支持已 import-preserved 且简介未知的历史 v2；原生 v2/已知简介跳过，已有标题补充阻止再串接简介。
 简介补充导出必须选择 universal-origin-v2，当前阅读站需另行实现此 profile 后才能消费。

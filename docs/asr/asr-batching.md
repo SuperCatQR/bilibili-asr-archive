@@ -77,7 +77,7 @@ implied. Real Chinese quality, throughput, cold cost and combined model/batch
 peak memory need the isolated GPU comparison described in `asr-profiling.md`;
 offline equivalence tests cannot establish those results.
 
-The [2026-10-11 GPU record](asr-gpu-validation-2026-10-11.md) subsequently verifies
+The [2026-10-11 GPU record](../evidence/asr-gpu-validation-2026-10-11.md) subsequently verifies
 one fixed short sample, including actual native ASR/alignment batches and explicit
 64 MiB fallback. It does not qualify long-input quality or other-process capacity.
 

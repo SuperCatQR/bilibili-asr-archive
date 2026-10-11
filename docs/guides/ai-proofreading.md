@@ -15,7 +15,7 @@ AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订�
 
 普通访问不执行旧工作流表迁移。旧 `workflow_jobs` 类型约束不支持校对任务，或旧
 `workflow_attempts` 的 outcome / 终态 CHECK 不支持 `cancelled` 时，写入控制命令会明确拒绝。
-先保留源库并检查[显式升级路径](archive-upgrades.md)；支持的固定源在独立新目录转换，
+先保留源库并检查[显式升级路径](../operations/archive-upgrades.md)；支持的固定源在独立新目录转换，
 未知布局需专门的读取器和迁移政策。程序不自动删除、重建或迁移现有库，重新安装包不能修改旧表约束。详情见 [工作流取消指南](workflow-cancellation.md#数据库契约与验证)。
 
 ## 处理已有转录
@@ -168,7 +168,7 @@ Go 官方文档将该服务定位于编程代理及类似请求，字幕阅读�
 write base 默认是 archive root；`workflow run --artifact-root PATH` 或
 `BILI_ARTIFACT_ROOT` 可指定独立的现有目录，数据库仍留在 archive root。
 render 只排队，随后的 run 与 publication create / editorial export 都需要同一目录配置；路径与哈希登记于
-`document_artifacts`。详见 [artifact-root.md](artifact-root.md)。
+`document_artifacts`。详见 [artifact-root.md](../operations/artifact-root.md)。
 
 `ai-draft.md` 只有整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
 `review.md` 保存模型思考和采样参数、固定输入、每段全部来源 ID、原文与整理稿对照、

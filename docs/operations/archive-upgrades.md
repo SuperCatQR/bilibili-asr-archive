@@ -79,6 +79,6 @@ receipt 保存在 `documents/upgrades/PLAN_SHA256/receipt.json`，绑定计划�
 核验/安装中断、错误 receipt 和新业务写入拒绝复用，以及库外 hold 的原样绑定。
 
 这些是离线固定样本验证。真实生产全量副本、阅读站消费与完整快照往返见
-[2026-10-11 实际验收记录](production-upgrade-validation-2026-10-11.md)。
+[2026-10-11 实际验收记录](../evidence/production-upgrade-validation-2026-10-11.md)。
 完成/未完成任务及部分校对的真实 planner/handler 零重跑回归登记在 #314 发布必测清单；
 固定样本、生产副本和硬件实验分别保留各自的证据范围。

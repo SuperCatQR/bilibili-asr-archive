@@ -1,4 +1,4 @@
-# Issue #348：来源元数据和历史回填
+# 来源元数据和历史回填
 
 这次实现把数据库里已经保存的视频简介、UP 主、标签和详情采集时间带到独立产物。它不会为了导出重新访问 B 站，也不会用简介替换编辑摘要或转录正文。
 
@@ -38,4 +38,4 @@ bili-asr workflow run --archive-root <new-archive> --kind publish
 
 重新执行普通 export 会获得当前数据库元数据，不改写旧 bundle。bundle 侧保留发布时快照，两者可能不同；详情时间与 source metadata 的既有 `metadataObservedAt` 含义也不同。
 
-旧文章的简介补充生成新的待审子版本，复制原 markdown 正文和编辑摘要，旧版本与正式发布保持不变。具体操作、支持范围、严格的证据时间规则和阅读站新 profile 要求见 [历史文章简介补充](issue-348-description-supplement.md)。文章补充不会自动通过审核或发布。
+旧文章的简介补充生成新的待审子版本，复制原 markdown 正文和编辑摘要，旧版本与正式发布保持不变。具体操作、支持范围、严格的证据时间规则和阅读站新 profile 要求见 [历史文章简介补充](source-description-supplement.md)。文章补充不会自动通过审核或发布。

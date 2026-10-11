@@ -161,6 +161,6 @@ not a filesystem hard quota. External writers and an underestimated download
 bitrate can still produce real I/O failures.
 
 Use the explicit small-scope rollout instructions in
-[artifact-storage.md](artifact-storage.md). Keep the first production policy
+[artifact-storage.md](../operations/artifact-storage.md). Keep the first production policy
 limited to one part, one lane, and `copy`; evaluate its own measured storage and
 I/O before explicitly choosing `offload`.
