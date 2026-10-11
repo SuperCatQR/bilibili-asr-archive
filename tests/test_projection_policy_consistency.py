@@ -171,9 +171,14 @@ def test_projection_queries_are_batched_and_preserve_existing_row_order(tmp_path
     assert {row["language"] for row in records.values()} == {"en-US"}
     assert {row["transcript_text"] for row in records.values()} == {"English"}
     selects = [sql for sql in statements if sql.lstrip().upper().startswith(("SELECT", "WITH"))]
-    # Three sets of 4 data queries, end detection and one contract-marker read.
-    assert len(selects) == 14
-    assert sum("FROM sqlite_master WHERE type='table' AND name='archive_contract'" in sql for sql in selects) == 1
+    # Three sets of four original data queries and five source-metadata
+    # queries, plus end detection and the projection's contract-marker read.
+    # Metadata costs follow the batch count rather than the number of parts.
+    assert len(selects) == 29
+    assert sum("FROM sqlite_master WHERE type='table' AND name='archive_contract'" in sql for sql in selects) == 4
+    assert sum("LEFT JOIN video_details" in sql for sql in selects) == 3
+    assert sum("FROM video_tags WHERE bvid IN" in sql for sql in selects) == 3
+    assert sum("FROM video_tag_observations WHERE bvid IN" in sql for sql in selects) == 3
     assert sum("FROM transcripts WHERE video_part_id IN" in sql for sql in selects) == 3
     assert sum("FROM transcript_segments" in sql for sql in selects) == 3
 
