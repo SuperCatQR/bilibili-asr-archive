@@ -132,7 +132,7 @@ CER = (替换 S + 删除 D + 插入 I) / 参考字符数 N
 4. **补充真实项目基准。** 在独立标注集上覆盖讲座、口语、多人、中英混说、背景音和长静音，记录严格 CER、数字 / 专名差异、人审漏识别与时间戳误差。不要把本次 12 条朗读音频当作项目准确率。
 5. **再测性能。** 现有环境没有可用 GPU，本次没有峰值显存、GPU RTF 或常驻 GPU worker 数据。按项目策略保持空热词，不将热词或由其触发的第二遍 cache 对照列为常规调优任务。
 
-本批增加测量工具和公开证据，没有改变生产识别策略。模块与数据边界的整体建议见 [ASR 设计评审](asr-design-review-2026-10-08.md)。
+本批增加测量工具和公开证据，没有改变生产识别策略。当前配置和执行边界见 [ASR 使用入口](../asr/README.md)。
 
 ## 7. 复现
 
@@ -172,4 +172,32 @@ done
 
 命令中的 source revision 对应本次运行；在修改后的 checkout 重跑时，应填入实际宿主 `git rev-parse HEAD` 的完整结果，而不是沿用旧值。`timeout` 是实验进程的外部限制，不代表生产 CPU runner 已提供硬超时。重跑会替换指定输出 JSON，若需保留对照应使用新的路径。
 
-评分、失败样本分母、空参考、哈希校验、路径范围和人工拼接由 [专项测试](../../tests/test_public_asr_benchmark.py) 验证，WSL 结果为 **13 passed**。本批未重新运行生产代码全量回归；上一批全量结果及适用范围见 [WSL 验证记录](asr-wsl-validation-2026-10-08.md)。
+评分、失败样本分母、空参考、哈希校验、路径范围和人工拼接由 [专项测试](../../tests/test_public_asr_benchmark.py) 验证，WSL 结果为 **13 passed**。本批未重新运行生产代码全量回归。
+
+## 同日单条 CPU 链路样本
+
+
+读取已存在的 `/home/chosenecho/bili-asr-smoke/asr_zh.wav`，加载本机完整的 `Qwen3-ASR-1.7B-hf` 与 `Qwen3-ForcedAligner-0.6B-hf`。参数为 `device=cpu`、`language=Chinese`、`offline=True`，其余保持当前默认。测试通过受监督子进程 API `transcribe_with_timeout` 执行，时限 180 秒，并设置 `OMP_NUM_THREADS=4`、`MKL_NUM_THREADS=4`。
+
+| 测量项 | 结果 |
+|---|---|
+| 音频时长 | 4.2039375 秒 |
+| 音频 SHA-256 | `46dbc998c9d1d48111267c40741dd3200f2e5bcf4075f8c4c97f4451160dce50` |
+| 识别结果 | 甚至出现交易几乎停滞的情况。 |
+| 对齐范围 | 0.40–3.68 秒 |
+| 外部总耗时 | 20.896 秒，包含子进程启动和结果传递 |
+| 模型加载 | 6.046 秒 |
+| 解码 / 对齐 | 10.277 / 3.223 秒 |
+| 本遍内部总耗时 | 19.560 秒 |
+| 生成 | 8 tokens，上限 256，观察到 EOS |
+| 非法对齐单位 | 0 |
+| quality | `needs-review`，标记 `span-coverage-short` |
+
+完整观测值保存在 [样本诊断 JSON](asr-wsl-smoke.json)。本地 checkpoint 没有提供可读取的 resolved commit hash，该字段保持 null；本次没有证明模型文件来源与 commit 的完整对应。
+
+首尾跨度覆盖率约为 78.02%，最大未对齐间隔约为 0.524 秒。空白和静音也能触发此标记，本次没有独立人工参考转写，因此不能由跨度推导 CER、漏字率或识别正确率。单条短音频只证明模型接口、音频输入、生成、对齐和诊断传递链路可以运行；不代表长视频、多块或多遍真实模型基准。
+
+真实运行最初发现 processor 接收 WAV 路径时尝试调用未安装的 librosa。修改后的实现把项目已解码的 16 kHz float32 波形直接传给两个 processor，再次运行成功。该改动也消除了逐块临时 WAV 往返及 PCM16 量化。
+
+
+这次单样本使用上述 WSL CPU BF16 环境。本地可见 `/dev/dxg`，但没有可用 ROCm/HSA 运行库与 HIP-enabled PyTorch，因此没有 GPU 推理、峰值显存或 GPU RTF 证明。原始 JSON 的模型 commit 字段保持未知，不补造身份。

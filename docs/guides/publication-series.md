@@ -94,18 +94,3 @@ version-3 条目仅当 `platform == "bilibili"` 时用 `externalVideoId` 匹配 
 严格字段/JSON/URL、所有分 P 的精确绑定、版本与类别隔离、发布撤回、草稿快照、哈希损坏和失败导出保留。
 既有 publication/export/CLI 及 manifest 契约测试仍适用。所有示例关系都是合成测试，
 不得据此修改真实生产关联或声称已有真实系列。
-
-本机扩展回归限制（2026-10-10）：上游未修改基线 `ea4f57f` 与本分支均复现
-`test_export_lock.py` 的四个 Windows byte-range lock 内读取失败，以及
-`test_universal_publication.py` 的三个迁移/bootstrap 在只读数据库文件上执行 fsync 的 EBADF 失败。
-`test_cli_registry.py` 在该基线还因不存在的 `bili_asr.coordinator` 导入失败，无法收集。
-这些基线问题不表示新增系列校验通过了这些测试，且本轮不扩展到迁移系统修复。
-本轮关键 publication、export、draft、CLI、identity 和 review 回归独立执行。
-
-本轮关键组合 `test_publication_series.py`、`test_publication_export.py`、
-`test_publication_draft_export.py`、`test_publication_cli.py`、`test_publication.py`、
-`test_publication_contracts.py` 与 `test_publication_review_export.py` 通过 174 项、
-跳过 6 项（本机无法创建 symlink）；随后新增的两个 CLI 导出验收也通过。
-系列专项最终通过 33 项、跳过 1 项。
-最终同一合成数据库中一个 BV 正式发布、另一个 BV 仅有未发布 edition，导出的两类别快照已通过
-阅读站 `validateSiteSnapshots` 交叉校验，未将旧草稿与同版正式发布放入同一验收快照。

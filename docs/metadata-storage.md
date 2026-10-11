@@ -159,6 +159,8 @@ job statuses 为 `queued`、`running`、`succeeded`、`failed`、`cancelled`；a
 
 `fetch-meta` 默认 `mid=23191782`，每页请求 `PAGE_SIZE=30`，没有页大小 CLI 参数。省略 `--limit-pages` 使用 `10`，不会无限扫描。起始页优先级为显式 `--start-page`、已存游标的 `next_page`、第一页。`--resume` 要求现有数据库且目标 mid 有游标；省略 start page 也会使用已有游标。`--incremental` 显式从第 1 页重新发现新上传，与 resume/start-page 互斥；恢复游标仅表示上次扫描位置，不能当作发现新视频的增量水位。
 
+省略 `--start-page` 隐式恢复或使用 `--resume` 到第 1 页之后的位置前，在同一协调器和总预算内重新读取并核对所有已成功页的 BVID 顺序前缀，不重新获取这些页的 detail/parts。前缀变化或缺少成功页证据时返回 `metadata_resume_requires_reenumeration`，保留游标；此时须用 `--incremental` 从头发现。该核对只能比较两次运行观察到的列表，不能冻结服务器列表。
+
 每个 run 先独立提交父用户与 run 起点。所有当前页的网络读取完成后，`MetadataRepository.record_page()` 在一个写组内按顺序提交用户观察、videos、parts、标签集合、details、discoveries、cursor 和 page outcome。任一写入失败会回滚整个页，前面已成功提交的页保留。同页重复 BVID 共用 detail/parts 获取，discovery 主键去重；重复行最终保留后一次 source position。
 
 | 页结果 | 持久化与恢复位置 |
@@ -173,7 +175,9 @@ job statuses 为 `queued`、`running`、`succeeded`、`failed`、`cancelled`；a
 
 `--page-retries N` 允许 `0` 到 `5` 次额外的视频列表页请求，默认 `0`。只重试 `GatewayRateLimited`、`GatewayTransportError`，等待依次为 30、60、120、240、300 秒；不重试 shape/authentication/其他 response failure，不为整个 detail/parts fan-out 增加通用重试。等待与 rate-control 冷却由同一个请求协调器安排，重试消耗同一总预算；最终失败仍进入上述证据路径。
 
-`--skip-failed-page` 在非 rate-limit failure 后额外提交 cursor=`page+1`、state=`ready`，保留 failed page 的 error 和 failed run 的终态，然后退出 `2`。它也会跳过可能恢复的 transport failure；rate control 不能跳过。显式 `--start-page` 可回到跳过页，亦可向后移动已有游标。此选项不会把失败页认定为成功。
+`--operation-retries N` 允许 `0` 到 `5` 次额外的 detail/parts 请求，默认 `0`，只重试可重试的 `GatewayTransportError`；`request_budget_exhausted`、authentication、shape、not-found 和 rate control 立即停止，不进入重试。每次重试经过同一协调器、总预算和冷却，不重复已经成功的兄弟请求。此选项仅适用于分页采集；`fetch-meta --bvid` 和 `--refresh-failed` 不支持非零 operation retries。
+
+`--skip-failed-page` 在一般非 rate-limit failure 后额外提交 cursor=`page+1`、state=`ready`，保留 failed page 的 error 和 failed run 的终态，然后退出 `2`。它也会跳过可能恢复的 transport failure；rate control 和前缀核对失败不能跳过。被跳过页若缺少成功前缀证据，后续隐式恢复仍会拒绝，需 `--incremental` 从头发现。显式 `--start-page` 可回到跳过页，亦可向后移动已有游标；它跳过前缀核对，属于局部扫描，不证明从首页开始的完整覆盖。此选项不会把失败页认定为成功。
 
 ```sh
 bili-asr fetch-meta --archive-root archive --resume --limit-pages 10 --page-retries 2

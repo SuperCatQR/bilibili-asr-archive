@@ -11,4 +11,4 @@
 | [吞吐报告](asr-performance.md) | 只读统计窗口、重试成本、缺失值及预取证据 |
 | [Profiling](asr-profiling.md) | 隔离 GPU 对照、trace 与测量口径 |
 
-[历史实验入口](../evidence/README.md) 保存公开中文样本、静音对照、CPU 混音基准和真实 4090 测量。早期设计评审保留其原基线，当前执行边界见上表和 [系统架构](../architecture.md)。
+[实测记录](../evidence/README.md) 保存公开中文样本、静音对照、CPU 混音基准和真实 4090 测量。当前执行边界见上表和 [系统架构](../architecture.md)。

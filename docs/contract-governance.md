@@ -3,7 +3,6 @@
 当前源码核对基线为 `378f415ac5bf2a47de9137ee593f201e86827d43`。
 [交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述契约登记、校验、
 历史保真与文档发布边界；现行图表检查见[架构验证记录](architecture-validation.md)。
-早期治理修复的安装、历史样本和测试证据见[冻结验证记录](evidence/contract-governance-validation-2026-10-11.md)。
 
 ## 权威来源与责任
 
