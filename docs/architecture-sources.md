@@ -1,6 +1,6 @@
 # 当前源码、命令与契约覆盖
 
-固定源码 `228e4655c644aa924572429fcfd6451df3e108d5`；2026-10-11（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 20 个顶层命令、86 条实际叶命令、204 个 Python 模块、11 份 SQL 资源、50 项稳定契约和 25 份 JSON Schema。
+固定源码 `378f415ac5bf2a47de9137ee593f201e86827d43`；2026-10-11（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 20 个顶层命令、86 条实际叶命令、204 个 Python 模块、11 份 SQL 资源、50 项稳定契约和 25 份 JSON Schema。
 
 ## 全部实际命令路径
 

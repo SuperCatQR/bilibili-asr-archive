@@ -23,7 +23,7 @@ v2 的 `.bundle-ready` 仍使用 `archive-bundle-v2`，必须声明原五项路�
 
 v3 的 raw JSON 只承载转录 segments、source、ASR provenance、coverage 和 characters 等转录/生成证据；来源字段只从 `source-metadata.json` 读取。`bundle.md` 可包含用于阅读的来源 frontmatter，但它由规范 sidecar 和转录内容生成，修改展示文件不能改变来源快照身份。
 
-发布前先在临时位置编码、写入、同步并计算摘要；最终替换前失效旧 marker，v2 替换五项数据成员，v3 替换六项数据成员，最后提交新 marker。中途失败时没有有效 marker，读者不会把部分替换计为完成。工作流传入的 publication guard 覆盖全部最终替换、marker 提交和 publication 登记，使该阶段与取消操作串行化。guard 收到失败清理回调，在 SQLite 回滚和写锁释放前失效 marker；旧 attempt 退出时不能再删除接手 worker 的有效 marker。文件系统和 SQLite 仍是两个提交介质；异常后的可见性由 marker 和摘要共同保护。
+发布前先在临时位置编码、写入、同步并计算摘要；最终替换前失效旧 marker，当前 workflow writer 安装 v3 六项数据成员，最后提交新 marker；历史 v2 按五成员契约读取和核验。中途失败时没有有效 marker，读者不会把部分替换计为完成。工作流传入的 publication guard 覆盖全部最终替换、marker 提交和 publication 登记，使该阶段与取消操作串行化。guard 收到失败清理回调，在 SQLite 回滚和写锁释放前失效 marker；旧 attempt 退出时不能再删除接手 worker 的有效 marker。文件系统和 SQLite 仍是两个提交介质；异常后的可见性由 marker 和摘要共同保护。
 
 `verify` 将已登记发布但缺失或损坏产物的包报告为缺陷，默认退出码为 1；未发布的转录保留为 backlog。`coverage` 不将缺少有效 v2/v3 bundle 的分 P 计为 complete。两者使用配置的产物根目录及归档根目录作为读取候选，支持产物位于独立目录。
 
@@ -58,18 +58,23 @@ WEBVTT
 
 ## 重建已有包
 
-旧四产物包不兼容 `archive-bundle-v2`，也不做自动迁移。v2 包继续可读，不能通过补 sidecar 冒充 v3；需要 v3 时从存储转录和当时可用的来源快照显式重新发布。存储转录无需重新获取；在兼容当前 workflow schema 的数据库上，显式为已有分 P 请求重新发布即可生成对应版本的完整包：
+旧四产物包不兼容 `archive-bundle-v2`，也不做自动迁移。v2 包继续可读，不能通过补 sidecar 冒充 v3；需要 v3 时从存储转录和当前数据库已存来源显式重新发布。存储转录无需重新获取；在兼容当前 workflow schema 的数据库上，显式为已有分 P 请求重新发布即可生成对应版本的完整包：
 
 ```sh
 bili-asr workflow publish --archive-root data --part-id 12 --part-id 13
-bili-asr workflow run --archive-root data --limit 2
+bili-asr workflow run --archive-root data --kind publish --limit 2
 bili-asr verify --archive-root data --format json
 ```
 
 `workflow publish` 从已有存储版本中选择当前优先转录，为 publish job 请求重新执行。只请求发布不会下载音频或调用 ASR；`workflow run` 仍按队列优先级执行，若还有其他待执行任务，需继续运行到对应 publish job 完成，并通过 status 查看结果。普通重复 `workflow plan` 不保证已经成功的 publish job 再次执行。
 
-已经取消的 publish job 保持取消状态，命令明确报告受抑制的请求；该命令不能作为恢复取消任务的途径。旧数据库的 attempt CHECK 约束若不支持当前取消契约，会得到 schema 不兼容诊断，须遵循 [功能实施计划中的旧库策略](feature-plan-247-250.md#旧库策略) 备份并重建，不能通过重新安装程序替代数据库重建。
+已经取消的 publish job 保持取消状态，命令明确报告受抑制的请求；该命令不能作为恢复取消任务的途径。旧数据库的 attempt CHECK 约束若不支持当前取消契约，会得到 schema 不兼容诊断；保留原库并检查[已登记升级路径](archive-upgrades.md)，未知布局不能由重新安装程序自动修复。
+
+补来源时用 `workflow publish --preserve-transcript --dry-run` 预览，再显式排队和运行 publish job。
+该路径要求已安装 artifact catalog，验证旧 marker、成员及原转录身份，保存不可变旧完整组并
+保留 ASR provenance/coverage/character timing；普通 publish 则仍按当前候选择优。旧包无效或
+publication 围栏变化时要求处理事实并重新规划，不能靠回填绕过质量校验。完整操作见[来源元数据与历史回填](issue-348-source-metadata.md)。
 
 ## 离线验证
 
-`tests/test_webvtt.py` 覆盖空格式化、毫秒及小时边界、中文多行、文本转义、重叠/倒序、不可表示文本、五产物 marker、VTT 缺失与同大小/mtime 篡改、独立验证 worker、guard 的提交范围、替换及提交失败清理，以及工作流发布后的 verify/coverage/export。使用归档根目录与独立产物根目录两种布局执行集成验证。
+`tests/test_webvtt.py` 覆盖空格式化、毫秒及小时边界、中文多行、文本转义、重叠/倒序、不可表示文本、v2/v3 bundle marker、VTT 缺失与同大小/mtime 篡改、独立验证 worker、guard 的提交范围、替换及提交失败清理，以及工作流发布后的 verify/coverage/export。使用归档根目录与独立产物根目录两种布局执行集成验证。

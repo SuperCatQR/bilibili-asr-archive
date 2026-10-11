@@ -1,8 +1,8 @@
 # AI、完整版本与出版架构
 
-当前核对源码 `228e4655c644aa924572429fcfd6451df3e108d5`；2026-10-11（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[31 个时序](architecture-sequences.md)。
+当前核对源码 `378f415ac5bf2a47de9137ee593f201e86827d43`；2026-10-11（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[31 个时序](architecture-sequences.md)。
 
-当前输入/content v1/v2 与模板按保存版本分派；导出先校验 wheel 内 Schema，再核验真实来源、revision、引用、文件集合与 hash。冻结输入重用和显式失败修复见 [30](sequences/30-editorial-repair.md)；保留旧正文、immutable origin 和来源补充见 [28](sequences/28-preserved-body.md)；bundle 回填与文章简介补充的两条操作链见 [31](sequences/31-source-metadata-migration.md)；编辑确认系列见 [29](sequences/29-publication-series.md)。artifact catalog 使准确历史双稿可保留/恢复，生产状态与驻留分开。
+当前输入/content v1/v2 与模板按保存版本分派；导出先校验 wheel 内 Schema，再核验真实来源、revision、引用、文件集合与 hash。冻结输入重用和显式失败修复见 [30](30-editorial-repair.md)；保留旧正文、immutable origin 和来源补充见 [28](28-preserved-body.md)；bundle 回填与文章简介补充的两条操作链见 [31](31-source-metadata-migration.md)；编辑确认系列见 [29](29-publication-series.md)。artifact catalog 使准确历史双稿可保留/恢复，生产状态与驻留分开。
 
 ## 目标与主链路
 
@@ -13,7 +13,7 @@
 2. 两路转录分别保存来源明确的不可变版本。原始归档发布独立进行，不等待校对；新 bundle v3 独立冻结来源 sidecar。旧包回填用 `--preserve-transcript` 锁定原发布版本，保留原 ASR 证据。
 3. 校对默认以 ASR 为基础，将当时可用的 CC / AI 字幕作为可选参考；固定实际版本、内容、视频元数据、提示词和配置。
 4. 纯输入准备模块按时间交集关联字幕，按上下文和输出预算尽量使用大块；邻块上下文只读。
-5. DeepSeek Flash 开启 high 思考，top_p=0.95，生成带连续来源 ID 的完整阅读段落和单独疑点。
+5. 按冻结 endpoint 调用校对 API：默认 DeepSeek 官方 Flash，也支持 OpenCode Go；使用冻结的模型、thinking 和 top_p 参数，生成带连续来源 ID 的完整阅读段落和单独疑点。
 6. 校验来源恰好覆盖一次且顺序不变、引用有效、正文结构正确；取得任务所有权写锁后保存块检查点，全部成功后受保护地提交完整修订。
 7. 独立渲染任务生成纯正文 `ai-draft.md` 与原文对照 `review.md`，同 revision、按固定版本选择 `ai-draft-v1` 或 `ai-draft-v2`。重渲染不调用模型。
 8. 明确创建完整 edition，冻结标题、正文、摘要、标签、来源、整理归属和编辑说明；任何读者可见变化产生新 edition。
@@ -27,7 +27,7 @@
 | 工作流控制 | 范围、策略、配置、持久化结果 | 计划、依赖、认领、租约、尝试与重试 |
 | 字幕 / 音频 / ASR handler | 视频部分 ID、配置 | 独立来源的音频或转录；不调用校对 handler |
 | 固定输入与分块 | 数据库转录版本、可选字幕、配置 | 不可变快照、稳定块 ID、参考引用、只读上下文；不依赖原始归档文件 |
-| DeepSeek 适配器 | 块、冻结提示词和参数 | JSON 段落候选；不写文档或调度任务 |
+| 兼容 Chat Completions 适配器 | 块、冻结提示词和参数 | JSON 段落候选；不写文档或调度任务 |
 | 校验与提交 | 候选、固定基础片段 | 阅读段落、程序取得的原文与时间、来源列表、疑点、独立修订 |
 | Markdown 渲染 | 已保存修订、模板 | ai-draft.md / review.md；纯排版、字节稳定 |
 

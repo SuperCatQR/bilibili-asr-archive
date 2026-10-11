@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
+      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -205,7 +205,7 @@
     {
       "id": "editorial",
       "label": "冻结输入与校对",
-      "sublabel": "可选 DeepSeek；检查点与双稿",
+      "sublabel": "可选校对 API；检查点与双稿",
       "type": "backend",
       "pos": [
         900,

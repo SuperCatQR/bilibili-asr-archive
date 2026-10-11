@@ -33,16 +33,19 @@ bili-asr workflow cancel --archive-root archive --job-id JOB_ID --job-id ANOTHER
 | 音频下载 | 下载、探测、摘要在暂存区完成；写锁内发布最终文件并登记对象与 part 引用 |
 | AI 校对 | 每块前后检查；写锁内提交校验块与完整 revision |
 | 阅读稿渲染 | 两份文档先编码、同步、计算摘要；写锁内替换最终文件并登记 artifacts |
-| 归档发布 | 五产物先暂存；同一守卫覆盖最终替换、marker 和 `workflow_publications` 登记 |
+| 归档发布 | v3 六成员先暂存；同一守卫覆盖最终替换、marker 和 `workflow_publications` 登记 |
 
 锁的顺序决定结果：取消先提交，后续成功结果和最终文件替换被拒绝；短提交阶段先取得锁，取消等待该阶段结束，再依据任务状态执行取消或返回 noop。网络、推理和大文件编码不会占用这把数据库写锁。
 
-已经在取消前提交的字幕、块检查点、revision、音频或 bundle 保留。取消不是回滚历史事实，也不删除已提交文件。若结果阶段提交后、job finish 前接受取消，任务仍会是 cancelled，而此前提交的事实可以存在。文件系统和 SQLite 不是跨介质的原子事务：bundle 的 marker / 五项摘要、阅读稿登记的 SHA-256 负责识别异常发布。
+已经在取消前提交的字幕、块检查点、revision、音频或 bundle 保留。取消不是回滚历史事实，也不删除已提交文件。若结果阶段提交后、job finish 前接受取消，任务仍会是 cancelled，而此前提交的事实可以存在。文件系统和 SQLite 不是跨介质的原子事务：bundle 的版本化 marker / 全部成员摘要、阅读稿登记的 SHA-256 负责识别异常发布。
 
 模型原始请求/响应审计、错误证据和 acquisition 的失败清理可保留，不能被当作成功块、修订或 publication。取消后的采集 run 可能以 `failed` 清理结束，工作流 job / attempt 的权威 outcome 仍是 `cancelled`。执行摘要单独统计 cancelled；仅取消而无失败的 run 返回 exit 0。
 
 ## 数据库契约与验证
 
-当前 `workflow_attempts` 的 outcome 和终态 CHECK 均支持 cancelled。旧库不会因重新安装包而改变 CHECK；写入控制命令会先检查契约并明确要求备份后重建，不自动迁移或删除原库。具体操作边界见[实施评估中的旧库策略](feature-plan-247-250.md#旧库策略)。
+当前 `workflow_attempts` 的 outcome 和终态 CHECK 均支持 cancelled。旧库不会因重新安装包而改变 CHECK；写入控制命令会先检查契约，拒绝不受支持的旧布局。
+保留原库、停止写入并检查[已登记升级路径](archive-upgrades.md)：支持的固定源可保真转换到
+独立新目录，未知布局需要明确的读取器和转换政策。普通运行不自动迁移、删除或重建原库，
+不能用重新采集替代旧 attempts、transcript、revision 和审核历史的保留。
 
 `tests/test_workflow_cancellation.py` 使用真实独立 SQLite 连接验证写锁顺序，并通过受控替身触发字幕、下载、CPU/GPU ASR、校对响应、渲染与发布暂存后的取消。`tests/test_workflow_publication.py` 另验证手动重新发布不能覆盖并发取消，以及 guard 退出/commit 失败时，旧 attempt 的清理不会删除独立进程新发布的 marker。离线验收不连接 B站或 DeepSeek。

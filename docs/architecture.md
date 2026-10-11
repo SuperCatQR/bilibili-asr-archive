@@ -1,6 +1,6 @@
 # 当前架构
 
-本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[31 个时序流程](architecture-sequences.md)统一核对远端 main 的固定源码 **`228e4655c644aa924572429fcfd6451df3e108d5`**，日期为 2026-10-11（Asia/Hong_Kong）。本轮在独立工作树核对已合并的 Issue #348 来源元数据与迁移能力。当前源码身份不会随远端后续提交自动变化。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
+本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[31 个时序流程](architecture-sequences.md)统一核对远端 main 的固定源码 **`378f415ac5bf2a47de9137ee593f201e86827d43`**，日期为 2026-10-11（Asia/Hong_Kong）。本轮在独立工作树核对已合并的 Issue #348 来源元数据与迁移能力。当前源码身份不会随远端后续提交自动变化。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
 
 ## 执行模型与责任
 
@@ -20,7 +20,7 @@
 
 universal-v2 使用 platform/external ID 与中立 source_video/source_creator；Bilibili 兼容字段保留，YouTube 的 bvid/cid 为 NULL。普通访问不会隐式将旧 bilibili-v1 改成通用库。来源 import 只建立事实与内部 part 身份，生产任务仍通过 workflow plan。
 
-字幕与音频是独立 producer；ASR 仅依赖准确 audio 成功结果。候选字幕有数量、时间和请求预算；合法空正文、访问不可用和认证/absence 证据分别保存。Bilibili 字段刷新按观察与 TTL 判定，incremental head 发现不复用 resume cursor 为增量水位，必要详情/parts 重试受统一预算约束。见 [02](sequences/02-metadata-tags.md)、[05](sequences/05-subtitle-ingest.md)、[21](sequences/21-youtube-workflow.md)、[22](sequences/22-subtitle-candidates.md)、[23](sequences/23-metadata-refresh.md)。
+字幕与音频是独立 producer；ASR 仅依赖准确 audio 成功结果。候选字幕有数量、时间和请求预算；合法空正文、访问不可用和认证/absence 证据分别保存。Bilibili 字段刷新按观察与 TTL 判定，incremental head 发现不复用 resume cursor 为增量水位，必要详情/parts 重试受统一预算约束。见 [02](02-metadata-tags.md)、[05](05-subtitle-ingest.md)、[21](21-youtube-workflow.md)、[22](22-subtitle-candidates.md)、[23](23-metadata-refresh.md)。
 
 ```mermaid
 flowchart LR
@@ -40,36 +40,36 @@ flowchart LR
 
 监督 executor 先 peek 精确 candidate，在 claim 前完成输入访问、对象 pin、精确恢复、空间预留和 GPU prepare/warmup；准备不创建 attempt。目标或空间不可用保存 readiness/backoff，任务不消耗 attempt。随后 expected_candidate claim；候选变化重新选择。成功认领后父进程持有 owner/attempt/expiry，独立连接 heartbeat；JobCommitGuard 在 BEGIN IMMEDIATE 后与 commit 前都复验。
 
-每个 worker 顺序执行一个 job；supervisor 按角色和明确 slot 启动自有进程，drain 停止新领取并给活动任务宽限期。GPU 不访问数据库；IPC 绑定 generation/request/job/owner/attempt/profile/runtime binding。persistent 按完整配置和绑定复用模型，oneshot 成功后关闭，legacy 保留原隔离超时端口，CPU 无同等硬终止。取消、失租、超时或错身份响应不能提交；Linux 进程组、父死信号与 EOF Guardian 清理自有后代。见 [04](sequences/04-lease-cancel-retry.md)、[07](sequences/07-asr-runtime.md)、[19](sequences/19-persistent-asr.md)。
+每个 worker 顺序执行一个 job；supervisor 按角色和明确 slot 启动自有进程，drain 停止新领取并给活动任务宽限期。GPU 不访问数据库；IPC 绑定 generation/request/job/owner/attempt/profile/runtime binding。persistent 按完整配置和绑定复用模型，oneshot 成功后关闭，legacy 保留原隔离超时端口，CPU 无同等硬终止。取消、失租、超时或错身份响应不能提交；Linux 进程组、父死信号与 EOF Guardian 清理自有后代。见 [04](04-lease-cancel-retry.md)、[07](07-asr-runtime.md)、[19](19-persistent-asr.md)。
 
 ## ASR 准备、策略与证据
 
 soundfile/ffmpeg RF64 解码为 mono 16 kHz float32，完整分块。HF 后端执行 ASR 与真实 ForcedAligner；每遍非空文本使用该遍波形/文本重新对齐，恢复原 chunk ID 和全局偏移。不插值、不排序或夹紧回退时间。保留第一遍证据支持的热词才运行第二遍；不跨任务或两遍传 KV prefix cache。
 
-显式 profile 可选择 precision、attention、cache implementation、受限 compile、单层 CPU prefetch，以及单任务相邻 chunk 的独立 ASR/alignment batch。batch 大小默认 1，容量/长度/token/真实输入预算不满足则具名串行回退；不额外 claim，不等待凑满。batch 拥有准备时关闭另一预取线程。限制附加准备工作，不保证总 RSS/VRAM；CUDA Graph runner 未启用。运行策略、每块/遍诊断、EOS、原始对齐、coverage 与时钟锚点随本次证据保存；wall-time 不是 GPU kernel 利用率。见 [26](sequences/26-asr-batching.md)。
+显式 profile 可选择 precision、attention、cache implementation、受限 compile、单层 CPU prefetch，以及单任务相邻 chunk 的独立 ASR/alignment batch。batch 大小默认 1，容量/长度/token/真实输入预算不满足则具名串行回退；不额外 claim，不等待凑满。batch 拥有准备时关闭另一预取线程。限制附加准备工作，不保证总 RSS/VRAM；CUDA Graph runner 未启用。运行策略、每块/遍诊断、EOS、原始对齐、coverage 与时钟锚点随本次证据保存；wall-time 不是 GPU kernel 利用率。见 [26](26-asr-batching.md)。
 
 ## 版本、bundle 与人工出版
 
-转录按 CC/AI/ASR、语言 family、精确语言、版本总排序择优；preferred 与实际 published 身份分开。原始 bundle 不等待 AI。当前普通发布和历史回填均生成 v3：SRT/VTT/TXT/MD/raw JSON 五个成员加 `source-metadata.json`，旧 v2 的五成员布局仍可读取和核验。`source-metadata-v1` sidecar 冻结发布时的来源信息；raw JSON 保留转录证据，来源 sidecar 独立。预编码/暂存/fsync 在短锁外，准确租约围栏内完成最终文件/marker 和发布事实。已安装 catalog 时覆盖前保存可验证旧完整组，并登记新组。见 [08](sequences/08-transcript-bundle.md)。
+转录按 CC/AI/ASR、语言 family、精确语言、版本总排序择优；preferred 与实际 published 身份分开。原始 bundle 不等待 AI。当前普通发布和历史回填均生成 v3：SRT/VTT/TXT/MD/raw JSON 五个成员加 `source-metadata.json`，旧 v2 的五成员布局仍可读取和核验。`source-metadata-v1` sidecar 冻结发布时的来源信息；raw JSON 保留转录证据，来源 sidecar 独立。预编码/暂存/fsync 在短锁外，准确租约围栏内完成最终文件/marker 和发布事实。已安装 catalog 时覆盖前保存可验证旧完整组，并登记新组。见 [08](08-transcript-bundle.md)。
 
-普通 JSON/CSV 导出从当前数据库批量读取简介、UP 主 ID/名称、标签、标签观察状态和详情采集时间；六个平铺字段也写入 bundle Markdown frontmatter。它们与严格的 `source-metadata-v1` 冻结快照分别保存：`video_details_observed_at` 不代表 UP 主名称或保留标签的共同采集时间，未观察到的标签状态保持 null。普通导出会保留简介里的普通链接，同时过滤凭据和签名媒体 URL；不为了导出重新访问来源。见 [13](sequences/13-projection-verify.md)。
+普通 JSON/CSV 导出从当前数据库批量读取简介、UP 主 ID/名称、标签、标签观察状态和详情采集时间；六个平铺字段也写入 bundle Markdown frontmatter。它们与严格的 `source-metadata-v1` 冻结快照分别保存：`video_details_observed_at` 不代表 UP 主名称或保留标签的共同采集时间，未观察到的标签状态保持 null。普通导出会保留简介里的普通链接，同时过滤凭据和签名媒体 URL；不为了导出重新访问来源。见 [13](13-projection-verify.md)。
 
-旧 bundle 的简介回填先要求显式安装 artifact catalog；未安装时在独立新归档目录完成升级。`workflow publish --preserve-transcript --dry-run` 查看原 publication、transcript 与内容哈希，实际请求将这组身份入队。worker 核验旧 marker/成员字节并保存不可变完整组，复验 publication 围栏后用当前已存来源元数据生成 v3。转录、原 ASR provenance、coverage 和 character timing 保留，不下载音频或调用 ASR/AI；原 publication、发布时间、转录或有序 segments 的绑定身份改变时要求重新规划。见 [31](sequences/31-source-metadata-migration.md)。
+旧 bundle 的简介回填先要求显式安装 artifact catalog；未安装时在独立新归档目录完成升级。`workflow publish --preserve-transcript --dry-run` 查看原 publication、transcript 与内容哈希，实际请求将这组身份入队。worker 核验旧 marker/成员字节并保存不可变完整组，复验 publication 围栏后用当前已存来源元数据生成 v3。转录、原 ASR provenance、coverage 和 character timing 保留，不下载音频或调用 ASR/AI；原 publication、发布时间、转录或有序 segments 的绑定身份改变时要求重新规划。见 [31](31-source-metadata-migration.md)。
 
-AI input/content v1/v2 与 ai-draft/publish 模板按保存版本读取；旧身份不因升级重算。合法冻结输入可重用，refresh-input 显式生成新输入。模型调用锁外执行，先审计真实响应，再做结构与 lease 校验；块检查点重试复用，完整 revision 之后独立渲染。重复性 ASR 输入 guard 在请求前失败，failed proofread 的显式修复保留原 attempt/input，见 [09](sequences/09-ai-proofread.md)、[10](sequences/10-document-render.md)、[30](sequences/30-editorial-repair.md)。
+AI input/content v1/v2 与 ai-draft/publish 模板按保存版本读取；旧身份不因升级重算。合法冻结输入可重用，refresh-input 显式生成新输入。模型调用锁外执行，先审计真实响应，再做结构与 lease 校验；块检查点重试复用，完整 revision 之后独立渲染。重复性 ASR 输入 guard 在请求前失败，failed proofread 的显式修复保留原 attempt/input，见 [09](09-ai-proofread.md)、[10](10-document-render.md)、[30](30-editorial-repair.md)。
 
-edition 保存完整读者内容；准确 content SHA 审核，显式 publish 才切公开 release head。source tags 刷新不会改旧 edition。保留旧正文导入不调用 ASR/AI，固定旧 body/review 原字节，产生 pending-review 的 content v2 与 immutable origin；来源标题和简介补充使用各自的证据/政策。`supplement-source plan --field description` 只为已保留旧正文的 v2 文章计划补充；apply 在同一事务复验正文身份、草稿头、发布头和采集证据，创建 pending-review 子版，原正文 UTF-8 字节及编辑摘要保留。已补标题的文章不支持再串接简介，原生 v2 跳过；真实空简介可以补入，未知 null 会阻止计划。简介采集时间仅来自匹配值的逐字段成功观察，缺失则为 null。公开、从未发布预览、私有审阅分别核验身份与布局，简介补充稿要求 `universal-origin-v2`（catalog v3/origins v2/manifest v3）；旧 `universal-origin-v1` 的冻结 schema 保留并拒绝新简介证据。当前阅读站仍只支持旧 profile，消费新稿需另行升级。系列是另行人工确认的编辑元数据，按文件 SHA CAS，不推断关联。见 [11](sequences/11-publication-lifecycle.md)、[12](sequences/12-reader-private-export.md)、[28](sequences/28-preserved-body.md)、[29](sequences/29-publication-series.md)。
+edition 保存完整读者内容；准确 content SHA 审核，显式 publish 才切公开 release head。source tags 刷新不会改旧 edition。保留旧正文导入不调用 ASR/AI，固定旧 body/review 原字节，产生 pending-review 的 content v2 与 immutable origin；来源标题和简介补充使用各自的证据/政策。`supplement-source plan --field description` 只为已保留旧正文的 v2 文章计划补充；apply 在同一事务复验正文身份、草稿头、发布头和采集证据，创建 pending-review 子版，原正文 UTF-8 字节及编辑摘要保留。已补标题的文章不支持再串接简介，原生 v2 跳过；真实空简介可以补入，未知 null 会阻止计划。简介采集时间仅来自匹配值的逐字段成功观察，缺失则为 null。公开、从未发布预览、私有审阅分别核验身份与布局，简介补充稿要求 `universal-origin-v2`（catalog v3/origins v2/manifest v3）；旧 `universal-origin-v1` 的冻结 schema 保留并拒绝新简介证据。当前阅读站仍只支持旧 profile，消费新稿需另行升级。系列是另行人工确认的编辑元数据，按文件 SHA CAS，不推断关联。见 [11](11-publication-lifecycle.md)、[12](12-reader-private-export.md)、[28](28-preserved-body.md)、[29](29-publication-series.md)。
 
 ## 产物身份、驻留和副本
 
 生产结果和本地文件存在不是同一状态。artifact-storage-v1 可选扩展保存对象摘要、不可变组、包、逻辑 target、replica generation、核验与 transfer/release journal；正常外置不将 job 变未完成，不清 attempts/review/release。真实 target 路径与 SSH 凭据只属于 invocation binding。默认读取不探测外部目标。
 
-手动 transfer 在维护窗口执行；显式 artifact-online-v1 使用共享维护锁、资源/对象 fence、持久 consumer pin 与空间预留。策略默认 off，copy/offload 有水位、扫描/批次/IO/并发及 backoff；未知外部 hold、未成功消费者、pin、缺组、源或目标代次变化阻止释放。完整目标包读回核验后登记副本；删除前重读目标，在短写锁内复验 live hold/consumer/pin/政策。消费持有准确对象 pin 至结束，claim 前精确恢复，不重新下载媒体或跑模型补旧身份。见 [24](sequences/24-artifact-storage.md)。
+手动 transfer 在维护窗口执行；显式 artifact-online-v1 使用共享维护锁、资源/对象 fence、持久 consumer pin 与空间预留。策略默认 off，copy/offload 有水位、扫描/批次/IO/并发及 backoff；未知外部 hold、未成功消费者、pin、缺组、源或目标代次变化阻止释放。完整目标包读回核验后登记副本；删除前重读目标，在短写锁内复验 live hold/consumer/pin/政策。消费持有准确对象 pin 至结束，claim 前精确恢复，不重新下载媒体或跑模型补旧身份。见 [24](24-artifact-storage.md)。
 
 ## 契约、快照和恢复
 
-contracts 注册 50 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](sequences/25-contract-upgrade.md)。
+contracts 注册 50 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](25-contract-upgrade.md)。
 
-完整 archive-snapshot/v1 从本地或准确外部包流式收集全部受支持文件、数据库和历史组，可显式无损压缩；恢复后不依赖旧 target。archive-reference-backup/v1 始终 self_contained=false，离线检查只验证嵌入数据和引用，online 才核验外部依赖。引用恢复保留原状态与 holds，始终要求执行权交接。SSH 目录上传必须核验 host key/instance 并完整读回 SHA，当前远程路径保留本地源。见 [15](sequences/15-archive-snapshot.md)、[20](sequences/20-recovery-plan.md)、[27](sequences/27-reference-backup.md)。
+完整 archive-snapshot/v1 从本地或准确外部包流式收集全部受支持文件、数据库和历史组，可显式无损压缩；恢复后不依赖旧 target。archive-reference-backup/v1 始终 self_contained=false，离线检查只验证嵌入数据和引用，online 才核验外部依赖。引用恢复保留原状态与 holds，始终要求执行权交接。SSH 目录上传必须核验 host key/instance 并完整读回 SHA，当前远程路径保留本地源。见 [15](15-archive-snapshot.md)、[20](20-recovery-plan.md)、[27](27-reference-backup.md)。
 
 SQLite 与文件系统没有跨介质原子事务；marker、不可变 hash、journal 与显式 verify/recovery 识别失败。自动图检查不代替真实 API、GPU、付费 AI、生产升级或人工语义审核，历史测试记录保留原提交和日期。

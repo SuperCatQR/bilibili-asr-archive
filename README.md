@@ -4,7 +4,7 @@ A local pipeline that collects Bilibili video metadata, acquires subtitle or aud
 
 The explicit `universal-v2` archive adds single-video YouTube ingestion and
 versioned source metadata without rewriting historical Bilibili editions.
-See [Issues implementation and architecture](docs/issues-implementation.md),
+See [current architecture](docs/architecture.md), [explicit upgrades](docs/archive-upgrades.md),
 [source adapters](docs/source-adapters.md), and [ASR workers](docs/asr-workers.md)
 for migration, optional dependencies, worker roles and recovery checks.
 
@@ -56,7 +56,7 @@ Package boundaries:
 - `services/` coordinates acquisition and pure transcript projections.
 - `storage/` owns SQLite schema, records, repositories, and workflow scheduling.
 - `workflow.py` runs claimed jobs; `workflow_runtime.py` supplies the media handlers.
-- `archive.py` writes SRT, WebVTT, TXT, Markdown, raw JSON, and the five-product bundle marker.
+- `archive.py` writes SRT, WebVTT, TXT, Markdown, raw JSON and a frozen source-metadata sidecar, with a six-member v3 bundle marker; existing five-member v2 bundles remain readable.
 - `coverage_report.py`, `integrity.py`, `export.py`, and search queries read projections over SQLite and published files; explicit index builds write FTS and recovery progress.
 
 ## Install
@@ -161,7 +161,7 @@ bili-asr workflow publish --part-id 42
 bili-asr workflow run
 ```
 
-Bundles now require all five products and an `archive-bundle-v2` marker with SHA-256 digests. Existing four-product bundles require explicit republication; incompatible workflow databases require a backup and rebuild. See [WebVTT and bundle integrity](docs/webvtt.md).
+New workflow publications produce six data members and an `archive-bundle-v3` marker with SHA-256 digests. Existing five-member v2 bundles remain readable; four-product bundles require explicit republication. Use `--preserve-transcript` with an installed artifact catalog when refreshing a complete old bundle while preserving its published transcript and original evidence. See [WebVTT and bundle integrity](docs/webvtt.md) and [historical refresh](docs/issue-348-source-metadata.md).
 
 Editorial work can be planned from stored transcripts and rendered deterministically:
 
@@ -202,8 +202,10 @@ release replaces it only after explicit publication. See
 [publication.md](docs/publication.md) for editing, expected version checks,
 withdrawal, output contracts and separate internal review exports. Transcript
 bundle publication performed by workflow `publish` remains a separate operation.
-Older manuscript databases, templates, commands and export manifests are
-rejected without migration; use a separate fresh archive for the new contract.
+Saved input, content and template versions 1 and 2 are validated with their
+registered codecs and renderers. Unknown contracts are refused. Preserve the
+source archive and use an [explicit registered upgrade](docs/archive-upgrades.md)
+to a separate target when a supported conversion is required.
 
 To make current unpublished editions visible in the site's separate draft tab,
 explicitly export the reader preview into a different directory:
@@ -217,16 +219,21 @@ does not approve or publish content. Editions that already have release history
 are excluded, so withdrawn releases do not reappear as drafts. The full private
 review package remains separate from both website inputs.
 
-Both reader catalogs use strict `schemaVersion: 2` and pair each article with
+Reader catalogs use strict version 2 when all content is v1 and no origin
+profile is selected, or version 3 when any content is v2 or an origin profile
+is selected. Both pair each article with
 its exact AI revision's original `review.md`. The website can show the full
 source comparison, replay links, issues and non-sensitive model parameters.
 Required `reviewFile` and `reviewArtifactSha256` fields bind the copied bytes;
 this reference does not approve an edition or assess later manual changes.
 Private review records, actors, model requests/responses and `review.json`
 remain outside the public snapshots. Generic export manifests still use
-version 1. To upgrade existing version 1 catalogs, export into fresh output
-directories and replace the site snapshots together after validation; old
-catalogs are refused without fallback or automatic conversion.
+version 1 without an origin profile. `universal-origin-v1` uses origins v1 and
+manifest v2; description supplementation requires `universal-origin-v2`, with
+origins v2 and manifest v3. The current reading site needs a separate profile
+upgrade to consume description-supplemented editions. To upgrade unsupported catalogs, export into fresh output
+directories and replace the site snapshots together after validating consumer
+support; unsupported catalogs are refused without fallback or automatic conversion.
 
 ## Query
 
@@ -257,7 +264,12 @@ example groups included in the output.
 
 `bili-asr remote` adds explicitly configured Linux/OpenSSH package copying and restoration with strict host keys and client SHA-256 readback. `bili-asr reference` saves a non-self-contained state backup with declared external dependencies and retained holds; offline validation never verifies unseen external bytes or starts workers. See [SSH storage and reference backups](docs/remote-reference-backups.md) for capabilities and execution handoff.
 
-Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
+Database table contracts must match a supported registered layout. Ordinary
+commands refuse incompatible archives and never alter their schema on open.
+Stop writers, preserve the source and inspect the [registered upgrade paths](docs/archive-upgrades.md)
+before creating a separate target. Unknown historical layouts need an explicit
+reader and conversion policy; rebuilding from acquisition loses transcript,
+revision and review history and is not a preservation migration.
 
 Search defaults to `transcripts`. `metadata` searches stored titles,
 descriptions, and tags directly, without FTS or published artifacts. `all`
@@ -266,7 +278,9 @@ Dates use UTC video publication days; JSON includes `hit_type`. See
 [metadata search](docs/metadata-search.md).
 
 The current workflow writes audio, bundles, and documents under `--archive-root`.
-Audio is retained; workflow has no automatic disk-budget or reclaim option.
+Audio is retained by default. The optional artifact catalog and explicitly
+enabled online policy provide bounded copy/offload and consumer restoration;
+ordinary workflow execution does not enable those policies.
 See [artifact roots](docs/artifact-root.md) and [audio retention](docs/audio-retention-policy.md).
 
 ## Save and Restore an Archive
@@ -305,4 +319,4 @@ uv run pytest tests/test_workflow_selection.py tests/test_workflow_cancellation.
 This focused suite covers the supported SQLite workflow and metadata path. The full test tree also contains historical pre-cutover tests and host-dependent integration tests; run it separately when changing those areas. Live network tests require `BILI_LIVE_SMOKE=1`; scale tests require `BILI_SCALE=1`.
 
 The [documentation index](docs/README.md) links the current architecture,
-feature guides, storage contracts, and implementation assessment for #247–#250.
+feature guides, storage contracts, and dated verification evidence.

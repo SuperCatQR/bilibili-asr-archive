@@ -5,7 +5,8 @@
 The executable JSON Schemas live in `src/bili_asr/contracts/schemas/` and ship
 inside the wheel. This directory is their byte-identical publication mirror.
 The [contract registry](registry.json) records versioned identities, their owners,
-definition paths, consumers, capabilities and dependencies; 15 entries have
+definition paths, consumers, capabilities and dependencies; 50 contracts are
+registered and 25 entries have
 JSON Schemas. See [governance and compatibility](../contract-governance.md).
 
 ```powershell
@@ -21,8 +22,8 @@ Transcript archive bundles use a filesystem manifest contract rather than a
 JSON Schema in this registry. `archive-bundle-v2` remains the unchanged
 five-member reader contract. `archive-bundle-v3` adds the canonical
 `source-metadata.json` member and hashes six data members; its implementation
-must register the new identity in the packaged registry and regenerate this
-documentation mirror. Neither `source-metadata-v1` nor article publication
+is registered independently in the packaged registry and mirrored here.
+New workflow publications write v3; old v2 packages remain readable. Neither `source-metadata-v1` nor article publication
 content/catalog contracts change as part of this transcript bundle upgrade.
 
 The seven-file private manifest remains [editorial manifest v1](editorial-export-manifest.schema.json).
@@ -38,6 +39,14 @@ articles only, [origins v1](publication-origins-v1.schema.json) and
 [manifest v2](publication-origin-manifest-v2.schema.json). It permits verified
 legacy-body imports while retaining their real v1 input/revision/template
 identities. See [installation, policy, review and retry semantics](../preserved-body-import.md).
+The explicit `universal-origin-v2` profile keeps catalog v3 and source-metadata-v1,
+uses [origins v2](publication-origins-v2.schema.json) and
+[manifest v3](publication-origin-manifest-v3.schema.json), and adds verified
+`legacy-description-supplement-v1` evidence. The old profile rejects these new
+description-supplemented editions. Values, hashes, policies and per-field
+collection evidence must agree; unknown collection time remains null. See
+[description supplementation](../issue-348-description-supplement.md).
+The current reading site needs separate implementation of this profile.
 Existing manifest v1 exports do not accept imported editions. A consumer must
 implement the new profile before serving these snapshots; the sections below
 describe the existing interfaces without changing their version-1 algorithm.
@@ -46,7 +55,7 @@ Optional editor-confirmed `series.json` is described by
 [the public schema](publication-series.schema.json) and
 [private editorial schema](publication-series-editorial.schema.json).
 See [semantic validation, maintenance and export](../publication-series.md).
-Its exact byte hash belongs to the existing version-1 manifest; absent series
+Its exact byte hash belongs to the manifest selected for that export profile; absent series
 preserves previous snapshots, and manuscript/catalog versions remain unchanged.
 
 The historical version-2 schemas below remain available unchanged. An export
@@ -63,8 +72,8 @@ IDs, canonical URLs, metadata/source identity equality, derived publication
 time, slug and file identity, file hashes and exact manifest membership. Source
 time can be null when unknown; collection and release times cannot replace it.
 Current database metadata cannot alter either historical or universal editions.
-See [implementation boundaries](../issues-implementation.md) for version
-registration and migration. The independent reading-site delivery must adopt
+See [current architecture](../architecture.md) for version ownership and
+[explicit upgrades](../archive-upgrades.md) for registered conversion paths. The independent reading-site delivery must adopt
 catalog version 3 before serving new universal entries.
 
 The remaining paragraphs describe the historical version-2 reader contract.
