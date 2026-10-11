@@ -1,0 +1,116 @@
+{
+  "at": "2026-10-11T04:25:40.213513+00:00",
+  "python": "3.12.10",
+  "platform": "Windows",
+  "numpy": "2.5.1",
+  "repeats": 3,
+  "audio_module_sha256": "4f91efd54309f4063c3cde1a4818577b9ccac0de8945ada0ec7a42dfe44ae05a",
+  "results": [
+    {
+      "frames": 100000,
+      "input_bytes": 800000,
+      "mean_median_s": 0.0007192999983089976,
+      "fast_median_s": 5.499999679159373e-05,
+      "mix_speedup": 13.078182550347645,
+      "bits_equal": true,
+      "runs": [
+        {
+          "mode": "mean",
+          "elapsed_s": 0.0007192999983089976
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 6.22000006842427e-05
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 5.4899996030144393e-05
+        },
+        {
+          "mode": "mean",
+          "elapsed_s": 0.0006226999976206571
+        },
+        {
+          "mode": "mean",
+          "elapsed_s": 0.0007346999991568737
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 5.499999679159373e-05
+        }
+      ]
+    },
+    {
+      "frames": 1000000,
+      "input_bytes": 8000000,
+      "mean_median_s": 0.00808320000214735,
+      "fast_median_s": 0.0013756999978795648,
+      "mix_speedup": 5.875699654435118,
+      "bits_equal": true,
+      "runs": [
+        {
+          "mode": "mean",
+          "elapsed_s": 0.00808320000214735
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 0.0013756999978795648
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 0.0013503000009222887
+        },
+        {
+          "mode": "mean",
+          "elapsed_s": 0.008069399998930749
+        },
+        {
+          "mode": "mean",
+          "elapsed_s": 0.008945600005972665
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 0.0015206000025500543
+        }
+      ]
+    },
+    {
+      "frames": 8000000,
+      "input_bytes": 64000000,
+      "mean_median_s": 0.06733550000353716,
+      "fast_median_s": 0.01260760000150185,
+      "mix_speedup": 5.340865826605855,
+      "bits_equal": true,
+      "runs": [
+        {
+          "mode": "mean",
+          "elapsed_s": 0.06648280000081286
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 0.010997199999110308
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 0.013221799999882933
+        },
+        {
+          "mode": "mean",
+          "elapsed_s": 0.06733550000353716
+        },
+        {
+          "mode": "mean",
+          "elapsed_s": 0.06777960000181338
+        },
+        {
+          "mode": "fast",
+          "elapsed_s": 0.01260760000150185
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Synthetic CPU microbenchmark, not ASR task throughput.",
+    "Input creation and bit comparisons excluded from timed mixing."
+  ]
+}

@@ -155,6 +155,25 @@ def _read_audio(path: str) -> tuple[Any, int]:
         return np.asarray(samples, dtype=np.float32), int(rate)
 
 
+def _mono_float32(samples: Any) -> Any:
+    """Keep the existing float32 channel mean with a fast stereo path."""
+
+    import numpy as np
+
+    samples = np.asarray(samples, dtype=np.float32)
+    if samples.ndim == 2 and samples.shape[1] == 2:
+        mono = np.empty(samples.shape[0], dtype=np.float32)
+        np.add(samples[:, 0], samples[:, 1], out=mono)
+        # mean's reduction starts at +0: (-0, -0) must become +0 before scaling.
+        # Do this before multiplication so a negative subnormal can still round to -0.
+        np.add(mono, np.float32(0), out=mono)
+        np.multiply(mono, np.float32(0.5), out=mono)
+        return mono
+    if samples.ndim > 1:
+        return samples.mean(-1).astype(np.float32)
+    return samples
+
+
 def _split_audio(samples: Any, sample_rate: int, max_chunk_seconds: float) -> list[tuple[Any, float]]:
     """Cut a waveform into chunks near ``max_chunk_seconds``, at low-energy boundaries.
 
@@ -166,9 +185,7 @@ def _split_audio(samples: Any, sample_rate: int, max_chunk_seconds: float) -> li
 
     import numpy as np
 
-    samples = np.asarray(samples, dtype=np.float32)
-    if samples.ndim > 1:
-        samples = samples.mean(-1).astype(np.float32)
+    samples = _mono_float32(samples)
     total = int(samples.shape[0])
     if total <= 0:
         return []
