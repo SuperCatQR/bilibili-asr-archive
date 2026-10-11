@@ -2,7 +2,7 @@
   "schema_version": 3,
   "checked_on": "2026-10-11",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "228e4655c644aa924572429fcfd6451df3e108d5",
+  "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
   "top_level_commands": 20,
   "command_paths": [
     "workflow plan",
@@ -1578,7 +1578,7 @@
   "stable_contracts": 50,
   "json_schema_resources": 25,
   "sequence_flows": 31,
-  "interactive_diagrams": 33,
+  "interactive_diagrams": 34,
   "limitations": [
     "Base contracts and optional extensions are counted separately. Optional SQL resources are not automatically installed. FTS virtual/shadow objects are derived and excluded from base table counts."
   ]

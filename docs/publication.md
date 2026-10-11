@@ -3,8 +3,8 @@
 新增 `universal-v2` 归档在侧表显式登记 input/content 版本。历史数据仍使用版本 1
 及原有 `ai-draft-v1`/`publish-v1`；新稿件使用版本 2、`ai-draft-v2`/`publish-v2`，
 冻结完整来源 metadata，支持原语言校对。含新稿件的公开或预览 catalog 使用版本 3，
-可与保留旧字段的历史条目混合；全历史条目继续版本 2。详见
-[实现与迁移边界](issues-implementation.md) 和 [出口契约](contracts/README.md)。
+可与保留旧字段的历史条目混合；全历史条目且无 origin profile 时继续版本 2。详见
+[显式契约升级](archive-upgrades.md) 和 [出口契约](contracts/README.md)。
 下表中的 v1 路径表示历史稿件；新版使用相应 v2 模板目录。
 
 AI 合成稿件、校验参照稿件与发布稿件各有明确身份。AI 工作流生成的正文只能作为编辑来源，
@@ -47,7 +47,7 @@ create 从已登记、通过字节哈希校验的 AI 合成稿生成待审 editi
 该字段明确说明编辑者看到的当前草稿，版本冲突会失败而不会覆盖另一位编辑者的工作。
 
 edition 的完整内容是规范化 JSON：`title`、`markdown`、`summary`、`tags`、`source`、
-`attribution`、`editorNote`。source 冻结 BVID、分 P、videoPartId 与来源 URL；其他读者可见字段
+`attribution`、`editorNote`。v1 source 冻结 BVID、分 P、videoPartId 与来源 URL，v2 冻结 platform、externalVideoId、partIndex、videoPartId、URL 及 source-metadata-v1；其他读者可见字段
 连同正文一起纳入 `content_sha256`，不会在导出时临时读取变化的视频标题。操作者和内部理由
 存审计记录，不进入公开文章。操作者字符串是记录标识，不代表身份认证。
 
@@ -119,7 +119,7 @@ withdraw 只操作明确指定的 release。撤回历史 release 不会下线另
 撤回当前 release 后需重新导出、构建和部署站点，并清理部署端旧文件及缓存；本地导出不能撤销
 已经部署到服务器或 CDN 的副本。重新上线采用新的 edition、审核与发布流程。
 
-工作流的 `publish` 仍表示 SRT/VTT/TXT/Markdown/raw JSON 转录 bundle 发布，文章发布入口是
+工作流的 `publish` 表示 SRT/VTT/TXT/Markdown/raw JSON 加来源 sidecar 的 v3 转录 bundle 发布，文章发布入口是
 `publication publish`，两者互不代替。
 
 ## 已发布、未发布预览与内部导出
@@ -133,7 +133,8 @@ bili-asr publication export --archive-root /srv/bili-archive \
   --out /srv/public-content --format json
 ```
 
-`catalog.json` 使用明确 envelope：
+`catalog.json` 使用明确 envelope。下例表示全 content v1 且未选择 origin profile；包含任一 content v2
+或显式 origin profile 时 schemaVersion 为 3：
 
 ```json
 {
@@ -151,9 +152,10 @@ bili-asr publication export --archive-root /srv/bili-archive \
 `publication-export-manifest.json` 仍采用 schemaVersion 1，登记 catalog、正文和参照稿全部文件。
 公开输出不含未发布 edition、模型请求或完整响应、`review.json`、人工审核意见、审核人或内部事件。
 
-两类读者 catalog 均严格要求 version 2，不接受 version 1，包括旧空目录。升级时先用新的输出目录
-重新导出并验证，再整体替换阅读站中的快照；旧快照备份保留在服务目录外。不自动迁移旧数据，
-不放宽字段、路径或摘要校验。通用 manifest 的 schemaVersion 保持 1，不能与 catalog 版本混淆。
+两类读者 catalog 按上述条件严格选择 v2/v3，不接受未支持的版本，包括旧空数组目录。升级时
+先用新的输出目录导出并核对消费者能力，再整体替换站点快照，旧备份保留在服务目录外。
+无 origin profile 的通用 manifest 为 v1；universal-origin-v1 使用 origins v1/manifest v2，
+universal-origin-v2 使用 origins v2/manifest v3。catalog、origin、manifest 的版本分别校验，不能混淆。
 
 导出先完整验证并准备新快照，再借助独占锁、私有 staging/备份与恢复日志提交。切换中输出可能
 短暂不可用，成功快照不会混合新旧 catalog 与文章。下次调用先恢复未完成提交；输出有未知手工
@@ -186,8 +188,8 @@ bili-asr publication export-drafts --archive-root /srv/bili-archive \
 历史版本不会重新作为草稿公开；同一分 P 的有效 A 与未发布 B 可以分别查看。审核通过但尚未
 显式 publish 的 B 仍标为“已审核，未发布”。待审核、审核中、待修改和未采用状态也按实际值显示。
 
-输出采用 `schemaVersion: 2`、`manuscriptType: "publication-draft"` 的 catalog 和独立
-schemaVersion 1 的 `publication-draft-export-manifest.json`，正文文件为 `drafts/edition-<ID>/preview.md`，
+输出采用按内容/profile 选择的 catalog v2/v3、`manuscriptType: "publication-draft"` 和独立
+按 profile 选择的 `publication-draft-export-manifest.json`，正文文件为 `drafts/edition-<ID>/preview.md`，
 配对参照文件为 `drafts/edition-<ID>/review.md`，由必需的 `reviewFile` 和 `reviewArtifactSha256` 标识。
 条目携带冻结读者内容、来源、edition/revision ID、内容与文件哈希、审核状态及创建时间，
 不携带 release ID、发布时间、审核人、内部意见、`review.json` 或审计事件。
@@ -205,7 +207,7 @@ schemaVersion 1 的 `publication-draft-export-manifest.json`，正文文件为 `
 所有操作支持 `--archive-root` 与 `--format text|json`。create、publication export、export-drafts、editorial export
 读取产物根；publish 写产物根并做写权限校验。它们接受 `--artifact-root`，读取先探测产物根再
 归档根；数据库始终在归档根。edit/review/withdraw/show 不访问产物根，因此不接受该参数。
-AI workflow 的文档目前直接写归档根，详见 [artifact-root.md](artifact-root.md)。
+AI workflow 的文档写入显式配置的产物根或默认归档根，详见 [artifact-root.md](artifact-root.md)。
 
 路径必须是受控身份目录内的规范相对路径。根、父目录与目标上的符号链接、junction、reparse point，
 非 UTF-8 文件、错误内容哈希和逃逸路径均拒绝。导出不可覆盖源产物、数据库或源归档的祖先目录。
@@ -230,7 +232,8 @@ bili-asr publication sync-source-tags --archive-root /srv/bili-archive \
 ```
 
 sync-source-tags 要求 E 是当前父版本，记录 actor、来源说明和审计事件，生成新的待审核 edition。
-只在有成功观察或已有非空源集合时允许同步；未观察或本次不可用时先补采。
+要求成功标签观察，或在没有观察记录时已有非空来源标签（`stored_nonempty`）。
+明确记录为 `unavailable` 时，即使保留了旧标签也会拒绝；`not_attempted` 同样要求先补采。
 成功观察空集合可以生成空主题的新版本。原版、AI revision、正文与现有 release 继续保留。
 
 ## 模板兼容性
@@ -239,5 +242,14 @@ sync-source-tags 要求 E 是当前父版本，记录 actor、来源说明和审
 不会调用当前写入器重新解释旧产物。缺少历史渲染器时明确报告
 `unsupported template renderer`；仍会拒绝文件与登记哈希同时改写的产物。
 固定的 v1 实现位于 `manuscript_templates.py`，不能直接修改其字节算法或转义规则。
-当前 schema/catalog 仅接受 v1；添加第二个可写版本还需要单独的契约演进方案，
-不能通过修改版本常量或清空带人工审核历史的数据库完成升级。
+当前已登记 v1/v2 renderer、content 与 catalog；新增字节算法仍须独立版本和兼容测试，
+不能通过修改旧常量或清空带人工审核历史的数据库完成升级。
+
+## 保留旧正文和来源补充
+
+[保留旧正文导入](preserved-body-import.md) 在新 content v2 中保存原正文和旧 AI 基线，生成
+pending-review 版本及 immutable origin，须独立审核和显式发布。标题证据见[来源标题补充](source-part-title-supplement.md)。
+[历史文章简介补充](issue-348-description-supplement.md) 使用 plan/apply/check，从本地逐字段证据
+创建新待审子版，复制正文 UTF-8 字节、标题、编辑摘要和标签，旧 release 继续有效。
+只支持已 import-preserved 且简介未知的历史 v2；原生 v2/已知简介跳过，已有标题补充阻止再串接简介。
+简介补充导出必须选择 universal-origin-v2，当前阅读站需另行实现此 profile 后才能消费。

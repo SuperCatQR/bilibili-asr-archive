@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "偏好/发布身份、批量投影与完整性诊断",
+    "locale": "zh-CN",
+    "output": "docs/13-projection-verify.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "查询命令",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/ops.py",
+          "line": 150,
+          "end_line": 178,
+          "label": "_cmd_verify"
+        },
+        {
+          "path": "src/bili_asr/export.py",
+          "line": 453,
+          "end_line": 508,
+          "label": "export_records"
+        },
+        {
+          "path": "src/bili_asr/cli/dedup.py",
+          "line": 19,
+          "end_line": 36,
+          "label": "_cmd_dedup"
+        }
+      ]
+    },
+    {
+      "id": "projection",
+      "label": "工作流读取投影",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_projection.py",
+          "line": 126,
+          "end_line": 251,
+          "label": "workflow_records"
+        },
+        {
+          "path": "src/bili_asr/transcript_selection.py",
+          "line": 40,
+          "end_line": 43,
+          "label": "choose_transcript"
+        },
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 175,
+          "end_line": 189,
+          "label": "read_source_metadata_export_many"
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "label": "只读访问会话",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive_session.py",
+          "line": 64,
+          "end_line": 149,
+          "label": "ArchiveSession"
+        }
+      ],
+      "sublabel": "READ/RUNTIME session"
+    },
+    {
+      "id": "db",
+      "label": "持久事实只读库",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_projection.py",
+          "line": 30,
+          "end_line": 53,
+          "label": "_part_batches"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_projection.py",
+          "line": 56,
+          "end_line": 69,
+          "label": "_preferred_transcripts"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_projection.py",
+          "line": 72,
+          "end_line": 96,
+          "label": "_latest_publications"
+        }
+      ]
+    },
+    {
+      "id": "checker",
+      "label": "验证与报告",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/coverage_report.py",
+          "line": 71,
+          "end_line": 93,
+          "label": "CoverageReport"
+        },
+        {
+          "path": "src/bili_asr/integrity.py",
+          "line": 52,
+          "end_line": 88,
+          "label": "IntegrityVerifier"
+        },
+        {
+          "path": "src/bili_asr/services/bundle_verification.py",
+          "line": 62,
+          "end_line": 150,
+          "label": "verify_bundle"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "音频与 bundle",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive.py",
+          "line": 253,
+          "end_line": 346,
+          "label": "archive_bundle_complete"
+        },
+        {
+          "path": "src/bili_asr/dedup.py",
+          "line": 1,
+          "end_line": 161,
+          "label": "模块定义"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "projection",
+      "y": 235,
+      "label": "coverage/export/verify 共享投…",
+      "variant": "default",
+      "note": "coverage/export/verify 共享投影入口；status/runs 的 DB 汇总另走元数据 repository；条件：主流程",
+      "from": "cli"
+    },
+    {
+      "id": "m2",
+      "to": "session",
+      "y": 301,
+      "label": "打开 mode=ro/query_only",
+      "variant": "default",
+      "note": "打开 mode=ro/query_only；共享维护访问；条件：主流程",
+      "from": "projection"
+    },
+    {
+      "id": "m3",
+      "to": "db",
+      "y": 367,
+      "label": "检查 RUNTIME 契约，无 DDL",
+      "variant": "default",
+      "note": "检查 RUNTIME 契约，无 DDL；BEGIN 一次读快照；条件：主流程",
+      "from": "session"
+    },
+    {
+      "id": "m4",
+      "to": "db",
+      "y": 498,
+      "label": "批量读转录、发布及来源",
+      "variant": "default",
+      "note": "part ID keyset + IN 集合查询所有版本、最新 publication、所选 segments 及六个平铺来源字段；同一 DB 快照内，无逐分 P 元数据查询；条件：loop 每批最多 256 个 active part",
+      "from": "projection"
+    },
+    {
+      "id": "m5",
+      "to": "projection",
+      "y": 564,
+      "label": "有界批数据",
+      "variant": "return",
+      "note": "有界批数据；latest 按 published_at/publication_id；条件：loop 每批最多 256 个 active part",
+      "from": "db"
+    },
+    {
+      "id": "m6",
+      "to": "files",
+      "y": 695,
+      "label": "文件集合与摘要完整才能 archived",
+      "variant": "default",
+      "note": "文件集合与摘要完整才能 archived；条件：alt 验证实体文件",
+      "from": "projection"
+    },
+    {
+      "id": "m7",
+      "to": "session",
+      "y": 826,
+      "label": "close",
+      "variant": "security",
+      "note": "close；释放读快照和连接访问 lease；条件：主流程",
+      "from": "projection"
+    },
+    {
+      "id": "m8",
+      "to": "cli",
+      "y": 892,
+      "label": "meta_ok/subtitle_done/asr_…",
+      "variant": "return",
+      "note": "meta_ok/subtitle_done/asr_done/archived 是投影状态，不是 workflow job 状态；条件：主流程",
+      "from": "projection"
+    },
+    {
+      "id": "m9",
+      "to": "checker",
+      "y": 1023,
+      "label": "JSON/CSV",
+      "variant": "default",
+      "note": "JSON/CSV；strict 且 diagnostics 非空退出 1；条件：alt coverage",
+      "from": "cli"
+    },
+    {
+      "id": "m10",
+      "to": "checker",
+      "y": 1154,
+      "label": "区分 backlog 与 defect",
+      "variant": "default",
+      "note": "区分 backlog 与 defect；声称已发布却缺失/损坏必须报告；条件：else verify",
+      "from": "cli"
+    },
+    {
+      "id": "m11",
+      "to": "files",
+      "y": 1220,
+      "label": "校验声明 bundle 的 marker、精确文件集…",
+      "variant": "security",
+      "note": "校验声明 bundle 的 marker、精确文件集合、受限路径和 hash；当前 IntegrityVerifier 不遍历全部音频/AI/出版稿件；条件：else verify",
+      "from": "checker"
+    },
+    {
+      "id": "m12",
+      "to": "checker",
+      "y": 1351,
+      "label": "JSON/CSV 追加来源字段",
+      "variant": "default",
+      "note": "--status 与 --with-text；CSV 将六列追加在既有列后；JSON 保留 null 与标签数组；这是当前数据库投影，不重写 bundle 冻结快照；条件：else 普通 export",
+      "from": "cli"
+    },
+    {
+      "id": "m13",
+      "to": "db",
+      "y": 1482,
+      "label": "读取精确内容身份",
+      "variant": "default",
+      "note": "读取精确内容身份；条件：else dedup report",
+      "from": "cli"
+    },
+    {
+      "id": "m14",
+      "to": "db",
+      "y": 1548,
+      "label": "读取已存音频 hash/关联与 transcript…",
+      "variant": "default",
+      "note": "读取已存音频 hash/关联与 transcript 的 source/language/content_hash 分组；不重新读文件或计算摘要；条件：else dedup report",
+      "from": "cli"
+    },
+    {
+      "id": "m15",
+      "to": "cli",
+      "y": 1679,
+      "label": "输出报告与退出码",
+      "variant": "return",
+      "note": "输出报告与退出码；条件：主流程",
+      "from": "checker"
+    },
+    {
+      "id": "m16",
+      "to": "checker",
+      "y": 1810,
+      "label": "此服务保留独立调用能力，当前 workflow.pu…",
+      "variant": "default",
+      "note": "此服务保留独立调用能力，当前 workflow.publish/verify CLI 不默认调用该子进程接口；条件：opt 独立有界 bundle verification 服务",
+      "from": "cli"
+    },
+    {
+      "id": "m17",
+      "to": "files",
+      "y": 1876,
+      "label": "timeout 终止",
+      "variant": "default",
+      "note": "timeout 终止；真实 read_bytes 扣减预算；超限/无效响应明确报错；条件：opt 独立有界 bundle verification 服务",
+      "from": "checker"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 413,
+      "label": "B1 · 主流程"
+    },
+    {
+      "from": 470,
+      "to": 610,
+      "label": "B2 · loop 每批最多 256 个 active part"
+    },
+    {
+      "from": 667,
+      "to": 741,
+      "label": "B3 · alt 验证实体文件"
+    },
+    {
+      "from": 798,
+      "to": 938,
+      "label": "B4 · 主流程"
+    },
+    {
+      "from": 995,
+      "to": 1069,
+      "label": "B5 · alt coverage"
+    },
+    {
+      "from": 1126,
+      "to": 1266,
+      "label": "B6 · else verify"
+    },
+    {
+      "from": 1323,
+      "to": 1397,
+      "label": "B7 · else 普通 export"
+    },
+    {
+      "from": 1454,
+      "to": 1594,
+      "label": "B8 · else dedup report"
+    },
+    {
+      "from": 1651,
+      "to": 1725,
+      "label": "B9 · 主流程"
+    },
+    {
+      "from": 1782,
+      "to": 1917,
+      "label": "B10 · opt 独立有界 bundle verificatio"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "B1 条件路径：主流程",
+        "B2 条件路径：loop 每批最多 256 个 active part",
+        "B3 条件路径：alt 验证实体文件",
+        "B4 条件路径：主流程",
+        "B5 条件路径：alt coverage",
+        "B6 条件路径：else verify",
+        "B7 条件路径：else 普通 export",
+        "B8 条件路径：else dedup report",
+        "B9 条件路径：主流程",
+        "B10 条件路径：opt 独立有界 bundle verification 服务"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "内部动作",
+      "items": [
+        "工作流读取投影：choose_transcript 公共总排序算 preferred；published 身份独立（loop 每批最多 256 个 active part）",
+        "工作流读取投影：LEFT JOIN 保留悬空/错 part 声明；publication_error 固定代码，正文置空（loop 每批最多 256 个 active part）",
+        "工作流读取投影：兼容 transcript 字段/with-text 使用 published；publication_current 表示与 preferred 是否一致（alt 已有 publication）",
+        "工作流读取投影：兼容字段使用 preferred；无转录则 meta_ok（else 尚未 publication）",
+        "工作流读取投影：verify_artifacts=False；坏 bundle 不能静默降级成 backlog（else 保留发布声明作报告）"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "来源缺失与时间",
+      "items": [
+        "简介未知为 null，真实空简介为空字符串；不拿 AI 摘要替代。标签数组与采集状态分别保存。",
+        "视频详情时间是详情行最后成功写入时间，不能冒充所有字段的共同采集时间。",
+        "普通简介链接保留；通用导出仍过滤凭据、签名 URL 与媒体链接。"
+      ]
+    }
+  ]
+}

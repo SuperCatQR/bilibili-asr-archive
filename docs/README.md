@@ -3,27 +3,27 @@
 [项目 README](../README.md) 提供安装和常用命令。以下文档以当前源码为依据，
 解释工作流、数据所有权、产物契约和运行限制；架构图是可审阅的源码快照。
 
-当前架构与 31 个时序流程统一核对 2026-10-11 的 main 源码 `228e4655c644aa924572429fcfd6451df3e108d5`。图的真实验收范围见 [验证记录](architecture-validation.md)。
+当前架构与 31 个时序流程统一核对 2026-10-11 的 main 源码 `378f415ac5bf2a47de9137ee593f201e86827d43`。图的真实验收范围见 [验证记录](architecture-validation.md)。
+
+历史行为测试与实测入口见 [evidence/README.md](evidence/README.md)。
 
 ## 架构与数据
 
 | 文档 | 内容 |
 | --- | --- |
-| [契约治理与兼容边界](contract-governance.md) | 单一登记、25 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
-| [当前架构](architecture.md) | 固定提交的执行模型，以及本分支新增职责与契约入口 |
+| [契约治理与兼容边界](contract-governance.md) | 单一登记、25 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[当前图表验证](architecture-validation.md) |
+| [当前架构](architecture.md) | 固定提交的执行模型、数据所有者与契约入口 |
 | [音频分层与手动迁出](artifact-storage.md) | 只读盘点、保真 catalog 升级、目标封包核验、条件释放和同 SHA 恢复；生产状态独立延续 |
 | [SSH 存储与引用型备份](remote-reference-backups.md) | 已核验远程包、明确的外部依赖、离线/在线检查、保真状态恢复与显式 worker 交接 |
 | [全景架构图](architecture.html) | 固定提交的可交互组件、关系与源码证据；[JSON](architecture.json) |
 | [完整时序图](architecture-sequences.md) | 31 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
 | [源码与覆盖清单](architecture-sources.md) | 20 个顶层命令、86 条命令路径、204 个模块与基础/可选契约；[机器清单](architecture-coverage.json) |
-| [图表验证记录](architecture-validation.md) | 33 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
+| [图表验证记录](architecture-validation.md) | 34 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
 | [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
 | [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
 | [来源元数据与历史回填](issue-348-source-metadata.md) | 简介与来源字段、JSON/CSV、锁定原转录的 bundle 回填 |
 | [历史文章简介补充](issue-348-description-supplement.md) | 保留旧正文的新待审版本、来源证据及阅读站契约升级范围 |
 | [AI 校对与出版架构](ai-proofreading-architecture.md) | 固定提交的输入冻结、历史模板、完整版本、标签/简介证据、审核、release 与三类导出 |
-| [Issues 架构评估](issues-architecture-assessment.md) | 实施前对七项 issues 的代码依据、依赖、风险与验收要求 |
-| [Issues 实现与架构边界](issues-implementation.md) | 本分支七项实现、层间依赖、新旧契约、操作入口与验证限制 |
 
 ## 工作流与产物
 
@@ -42,9 +42,7 @@
 | [显式契约升级](archive-upgrades.md) | 登记路径、绑定源与转换器的计划、隔离转换、逐表保真和完成核验 |
 | [真实生产副本验收](production-upgrade-validation-2026-10-11.md) | 32.8 GB 全量保真、来源标题、真实阅读站、快照恢复、成本与切换回退边界 |
 | [固定旧源迁移预检](archive-migration-preflight.md) | 停止/checkpoint 前置条件、显式源根、清点/历史身份校验与失败边界 |
-| [多平台实施方案](multi-platform-architecture-plan.md) | 历史设计计划；本分支已实现部分见 Issues 实施说明 |
 | [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |
-| [Issues #247–#250](feature-plan-247-250.md) | 实施前评估、实现状态、风险、验收与交付顺序 |
 
 ## ASR 参数与评测
 
@@ -70,5 +68,5 @@
 | [WSL ROCm GPU](wsl-rocm-gpu.md) | 已记录的 AMD WSL2 环境、版本组合、设备探测与故障排查 |
 | [CI 覆盖率门禁](ci-coverage.md) | 产品源码范围、子进程采集、行与分支阈值及本地复现 |
 
-环境记录和实施前评估保留各自的时间背景。当前行为以源码、相应功能指南和测试为准，
+历史验证记录保留各自的源码、运行日期和测量背景。当前行为以源码、相应功能指南和测试为准，
 不能将旧命令、旧 schema 或实验结果直接当作当前接口。

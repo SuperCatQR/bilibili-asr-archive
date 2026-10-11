@@ -2,11 +2,11 @@
   "schema_version": 3,
   "checked_on": "2026-10-11",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "228e4655c644aa924572429fcfd6451df3e108d5",
+  "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
   "archify_version": "3.0.1",
   "coverage": {
     "sequence_flows": 31,
-    "interactive_diagrams": 33
+    "interactive_diagrams": 34
   },
   "content_checks": {
     "command_registry_and_parser": "pass",
@@ -15,9 +15,9 @@
     "mermaid_branch_balance": "pass",
     "git_diff_check": "pass",
     "artifact_receipt_hashes": "pass",
-    "pinned_source_ranges_checked": 380,
-    "local_markdown_links_checked": 801,
-    "local_source_line_links_checked": 272,
+    "pinned_source_ranges_checked": 402,
+    "local_markdown_links_checked": 992,
+    "local_source_line_links_checked": 274,
     "mermaid_flows_checked": 31
   },
   "artifacts": [
@@ -25,8 +25,8 @@
       "type": "architecture",
       "specification": "docs/architecture.json",
       "output": "docs/architecture.html",
-      "specification_sha256": "b38412ea38b13694dac2cd9338aa873d7a71c0f191b673ddd370caae380b09a9",
-      "artifact_sha256": "5ea6f3854a2f4637162f587aa49bf87df0b116776c7c1de56ebfb89a0ea3fa1d",
+      "specification_sha256": "fc10bddf785668987fdc7c4d68c9f6094cd9634f46ce5d4d13e6c8bb40e31e99",
+      "artifact_sha256": "bbbca8260658b7b1d22f627e089a2ea5fc8d9fa13607aec4abd803e8fa817faf",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -55,8 +55,8 @@
       "type": "architecture",
       "specification": "docs/ai-proofreading-architecture.json",
       "output": "docs/ai-proofreading-architecture.html",
-      "specification_sha256": "90d3fbde66147c11161baa2e0827831aa53a87b84475e02031e54d633aa5f6d1",
-      "artifact_sha256": "af980eb43d41f1cd0c40c03aa5cc70c6ffdb6093744e1f7c66e699d182ddebb5",
+      "specification_sha256": "d37d851fa862e9e623d12480cdf4ba89fbd98aa748e49698e29a7c41da1e2989",
+      "artifact_sha256": "528962ea58eb9e295bc7c8d1d5066604902239b8642d3fe862abaadd15aeb64e",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -80,11 +80,11 @@
       }
     },
     {
-      "type": "sequence",
-      "specification": "docs/sequences/01-cli-bootstrap.json",
-      "output": "docs/sequences/01-cli-bootstrap.html",
-      "specification_sha256": "a56be6e7359b61a10d54662526ecc313c51f3ded0533a3cb9ea7274779f2b48a",
-      "artifact_sha256": "d49256569938650d672356d0c6fb6037ebd9e1fc5e6d1ab547583adb3c0c68ff",
+      "type": "architecture",
+      "specification": "docs/contract-governance.json",
+      "output": "docs/contract-governance.html",
+      "specification_sha256": "7e2370b8d458e859638968690554475ed1adc32c9b026ad235effdc14af7bb8d",
+      "artifact_sha256": "edca0b8cfa3c5be07b9345617bdf697800bde86a03ddd4c9c0fbd118114a113b",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -106,10 +106,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/02-metadata-tags.json",
-      "output": "docs/sequences/02-metadata-tags.html",
-      "specification_sha256": "ef35491112ff7bb12e0d3ecc5812b5ca12839975a57a891384e07a52c85788b7",
-      "artifact_sha256": "dcd12bd6312099c9327dbc934ac50f626fa029920e3e47b614d4687d29aa5b50",
+      "specification": "docs/01-cli-bootstrap.json",
+      "output": "docs/01-cli-bootstrap.html",
+      "specification_sha256": "d917c4cc21ce025188991dd8aee9a104dd288e7e1f338bd567cd9cbbd131573d",
+      "artifact_sha256": "0867dc3fea134a66c38a351d8d10df8617770d4c691c77265441d3d0a6d96efa",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -131,10 +131,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/03-workflow-plan.json",
-      "output": "docs/sequences/03-workflow-plan.html",
-      "specification_sha256": "5ab42067aca73119078a59b4a24edc3a496116653cdcb601fd1631b88f35f3a2",
-      "artifact_sha256": "73b7028cfd110bddc58a88aa148ce4405a01c6bfde0e3f62a09394a5c1f69af6",
+      "specification": "docs/02-metadata-tags.json",
+      "output": "docs/02-metadata-tags.html",
+      "specification_sha256": "7362a1faefc91986bd5141a9455ad6da1e58e9c5be461dc4e8d3b9703a4d597a",
+      "artifact_sha256": "d6ef575efb8dc15d206678bba37a2a51fe1585a7ef51b8639b2562d2b9838cc7",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -156,10 +156,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/04-lease-cancel-retry.json",
-      "output": "docs/sequences/04-lease-cancel-retry.html",
-      "specification_sha256": "3bdb37df5f9efd5fb96a1d23648c5916c2181621c932a29152e92dffa792f0c8",
-      "artifact_sha256": "60dc0a3cf1aae82481680e5f2e3f0ea4b8e06a3b53a5025e481d9aa884823dd5",
+      "specification": "docs/03-workflow-plan.json",
+      "output": "docs/03-workflow-plan.html",
+      "specification_sha256": "0f5ef889fc800ca2270e3172ca692bb80cb3a4398f51b96122df0fc3b5a7da7f",
+      "artifact_sha256": "4329d044285fbece56baa8a4f5b381bd2b57bba054c3892a12c68f11eefe17a8",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -181,10 +181,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/05-subtitle-ingest.json",
-      "output": "docs/sequences/05-subtitle-ingest.html",
-      "specification_sha256": "3264fb79690a846eed564d57a41c4ea2b6dec74eb6f196adbe0d068b57fc0e06",
-      "artifact_sha256": "959f5c0f5e6d833558880f4e0bae25f2379419ad7194139c675ba9f15f299f12",
+      "specification": "docs/04-lease-cancel-retry.json",
+      "output": "docs/04-lease-cancel-retry.html",
+      "specification_sha256": "e890da471e38380ec7509b5b4c942f672b1ae1709353ac8055edfbe418964a1a",
+      "artifact_sha256": "04070e652bcc645d2601626a4e785959cae0d2be80b309dbca91db448fb5da38",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -206,10 +206,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/06-audio-download.json",
-      "output": "docs/sequences/06-audio-download.html",
-      "specification_sha256": "b26d863e2c2d65a85e97df4d6e17bacc84bd3e76c6c680b34870cf79fa87e37b",
-      "artifact_sha256": "884446cbeedfaf1afc8f3f7d41c12829a150caa9c5170ee9727813b4d0d3fde5",
+      "specification": "docs/05-subtitle-ingest.json",
+      "output": "docs/05-subtitle-ingest.html",
+      "specification_sha256": "cc0ba64bbeeefbbb01e229054482dc0b31c29dd73bf7bd55435f4a2f6346ebd8",
+      "artifact_sha256": "f05bbb3cdfd294153741ea5ce53291097f12b4553fe3f005dc5c903e8f709463",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -231,10 +231,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/07-asr-runtime.json",
-      "output": "docs/sequences/07-asr-runtime.html",
-      "specification_sha256": "f212056428c2d26ab61d3479127adde07285df082245f1456f900c3285816fba",
-      "artifact_sha256": "283fbd83129013a8aebc5f594d2df7e018c07747a94db8cf145fef21e3b632e6",
+      "specification": "docs/06-audio-download.json",
+      "output": "docs/06-audio-download.html",
+      "specification_sha256": "8624d73fde5074033f0a16ca4c1d026c6a904bfbea25161b1eecf13410fbd0d8",
+      "artifact_sha256": "aec33d5f487e1f490f51ebe7df506d7c2f59632913510f874541f454c1873568",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -256,10 +256,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/08-transcript-bundle.json",
-      "output": "docs/sequences/08-transcript-bundle.html",
-      "specification_sha256": "1e1e67ea068e11f3008944d03540fc749397d957825e205b60f0ffcf3834e707",
-      "artifact_sha256": "839ad3647f22b32623fca7b47024b84d5fcdc8c4ff75a798820e0771fe2444a5",
+      "specification": "docs/07-asr-runtime.json",
+      "output": "docs/07-asr-runtime.html",
+      "specification_sha256": "0f1f62f487671354a1259ce930b1cd11febe90058b4bcdf24141939656866395",
+      "artifact_sha256": "485bde7cde8c36b7115c16b68d2b627dceefd151da736246e00f8be8bcc2d686",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -281,10 +281,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/09-ai-proofread.json",
-      "output": "docs/sequences/09-ai-proofread.html",
-      "specification_sha256": "a46a983824991b1033e2bc69dec61a4995d2eb27b16a0e98d97fe5ff08ea7da7",
-      "artifact_sha256": "1689c6f13e43f0748a3ddd4d11e22331fcdda2b3d7bf41d64de0af4d6d114a31",
+      "specification": "docs/08-transcript-bundle.json",
+      "output": "docs/08-transcript-bundle.html",
+      "specification_sha256": "bd91c805750feeb439562579b6634671eca5f544929af31834655e613ea886e1",
+      "artifact_sha256": "7459a7da654fb5257ddb56e02ef916def0b28cf0b75859265498cad49c97b69d",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -306,10 +306,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/10-document-render.json",
-      "output": "docs/sequences/10-document-render.html",
-      "specification_sha256": "4d42fbe413a9339ffb2c4824b11f5295637efad2667e34132b19343fbd4b5c73",
-      "artifact_sha256": "9702cee814fdd97e6cd385e7528ca31c827be190aa99a390e106c1a209c97f6e",
+      "specification": "docs/09-ai-proofread.json",
+      "output": "docs/09-ai-proofread.html",
+      "specification_sha256": "20ef1deb3b9214e6a70051fb73b61d2ed03622fc67251c457d45a0f8644eda06",
+      "artifact_sha256": "d99a085467433cac5b0fa2da4c70f4871642f12c6c4e65ba08fdc4854a969a0d",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -331,10 +331,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/11-publication-lifecycle.json",
-      "output": "docs/sequences/11-publication-lifecycle.html",
-      "specification_sha256": "2c973e3c7710fd1e96a22e7b32afc4d450465f586d2b6f9be33a3928bdbf2c9e",
-      "artifact_sha256": "acf66252a42133fc14203b714100dd567ba099c6a5bc678d5143dd53c0d089d8",
+      "specification": "docs/10-document-render.json",
+      "output": "docs/10-document-render.html",
+      "specification_sha256": "fc3ec5ce46555fd5aa28990222df831a6b2ac2edc168328c9828b7f0f9349244",
+      "artifact_sha256": "6ec3f1518108e381c0be8af9740be6e5323e902d423428c6961d6b6cd58cce5e",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -356,10 +356,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/12-reader-private-export.json",
-      "output": "docs/sequences/12-reader-private-export.html",
-      "specification_sha256": "5fd7ed6f154074626742524fa6d417ab44280f34922555d4145e739e5b85a1e7",
-      "artifact_sha256": "edfd2fa5c88c84199bbc6028f21f2d42945cb60f3a974804bfd2c45b10bbd076",
+      "specification": "docs/11-publication-lifecycle.json",
+      "output": "docs/11-publication-lifecycle.html",
+      "specification_sha256": "77bb73d7aba1d2196a10bc72a59f0978d1ea5cfaea2922bd7b1846a309075226",
+      "artifact_sha256": "8654ddaa60f2788609b08238820e942704ab1f520d72c4727338b06eba38534e",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -381,10 +381,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/13-projection-verify.json",
-      "output": "docs/sequences/13-projection-verify.html",
-      "specification_sha256": "cb8790681705c7d92b05ead03613abea9cd9c2b5c6ac0d04b12aa4d49895ec70",
-      "artifact_sha256": "7c920e4c02b7fdfb1f889de75d33c8561cee1d9dbb889e6e17283cdf79a69b53",
+      "specification": "docs/12-reader-private-export.json",
+      "output": "docs/12-reader-private-export.html",
+      "specification_sha256": "4f94b0c7c6a7cd1db18dc6307765c95d21b87152e1fa64ce863e36d1979b4e37",
+      "artifact_sha256": "b3246e119b5f7c00cbaee1c97cbb6dbec7a65921ad03537f6a73473e448c9b62",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -406,10 +406,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/14-search-index.json",
-      "output": "docs/sequences/14-search-index.html",
-      "specification_sha256": "9f2958ae2c997dc8bc4e79171923e7e273aa92e08bc65e8dc2c20a2a198c1e0a",
-      "artifact_sha256": "3f9178fa28510d0d82ba88c53f9840000f0188d8abd5965f465c99a58c3bb7d4",
+      "specification": "docs/13-projection-verify.json",
+      "output": "docs/13-projection-verify.html",
+      "specification_sha256": "ec18284d0e0bc309bfac6fccd603735703d50106321052db2afc7ffbe094af01",
+      "artifact_sha256": "dfe3b5b0fd3b359d7d7cdac3c33a2c3cae548ad33cd48ca5f1ba3f7d892976ba",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -431,10 +431,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/15-archive-snapshot.json",
-      "output": "docs/sequences/15-archive-snapshot.html",
-      "specification_sha256": "44cd064d1b25b624c3cb2066c7a6742681d570d2a812dce3a20f0f578d91ea2c",
-      "artifact_sha256": "f8d404a12bef9ae704a41ef3982f760859768a20a92d1349ddc5190ade2217b8",
+      "specification": "docs/14-search-index.json",
+      "output": "docs/14-search-index.html",
+      "specification_sha256": "42543c8b06888ac301df192933176fc8f7274cb70d74115e49dee91eb7fba25c",
+      "artifact_sha256": "ca612410365997cb460965f738354673d954b0ba444253a571092b064095936f",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -456,10 +456,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/16-library-and-operations.json",
-      "output": "docs/sequences/16-library-and-operations.html",
-      "specification_sha256": "fd593448c37f7e2bf5f96d1f5c240e9af56d2f8fa26babb9d287e5d5ff3441e6",
-      "artifact_sha256": "9148b307ad3cda8a5c5edaba72c4e76a33566c8d43df4611aab31cd89a74caec",
+      "specification": "docs/15-archive-snapshot.json",
+      "output": "docs/15-archive-snapshot.html",
+      "specification_sha256": "7e1cf904a1237ec1163eb0f861b1071c6a2e69456feab517761f0f832749b07d",
+      "artifact_sha256": "698f7883943c8660329734c62084c4065de0d6f860531e047309cb5cba61f5ca",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -481,10 +481,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/17-migration-preflight.json",
-      "output": "docs/sequences/17-migration-preflight.html",
-      "specification_sha256": "fb230001ae9b14f6ea8c84e5feee2de2072dc9282d49cf06db33abad53668cbd",
-      "artifact_sha256": "683199de3a7b4691c88d8f794b2796b6bf5d3130c3c96ff5455bd7d92bdced90",
+      "specification": "docs/16-library-and-operations.json",
+      "output": "docs/16-library-and-operations.html",
+      "specification_sha256": "e2458ea037dfed6fbbaa670cb04c01d9c6642aeb4d2d5a6f0715ab337f349cb1",
+      "artifact_sha256": "e91c93f1ca858b06d68fc3146553980eee3ec9edf81aa4b607c6318ed1d53505",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -506,10 +506,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/18-universal-migration.json",
-      "output": "docs/sequences/18-universal-migration.html",
-      "specification_sha256": "26f744405245a280f8b145fe868b0daa62de80b648c7befb274ebdef1f0bf01a",
-      "artifact_sha256": "0a4ee308ae70bb5ca1b3b746123d746ebe36c16a90ba9a4e0c5583d1f4a34c60",
+      "specification": "docs/17-migration-preflight.json",
+      "output": "docs/17-migration-preflight.html",
+      "specification_sha256": "11a48f149a0036e248be6c40b750bbf40f0dedc835bcd60328801a8967808f51",
+      "artifact_sha256": "0ffbe950c54fe81bf896b0f911a6bc536fa262bb4fdd830e5b088b00cbad0212",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -531,10 +531,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/19-persistent-asr.json",
-      "output": "docs/sequences/19-persistent-asr.html",
-      "specification_sha256": "2947cc92c4b0b55d66262e44d9a24894154b6ebfa7bd927d37214f96d30bedcf",
-      "artifact_sha256": "136e06112494c710377362682463df29dece8f736b239b23a7ca746d4e3214cd",
+      "specification": "docs/18-universal-migration.json",
+      "output": "docs/18-universal-migration.html",
+      "specification_sha256": "c7a0bce8bd9df854fddd46db45fd354f7eef68982ec12336e623607ce1dc97d1",
+      "artifact_sha256": "278dd267005bfb84cbd53a236ec0e64205bae697b47c7643f84693e34cfe0c7d",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -556,10 +556,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/20-recovery-plan.json",
-      "output": "docs/sequences/20-recovery-plan.html",
-      "specification_sha256": "a7daef74b2f40e0bde27dda35d748011677b20a2546ea93fb11feb73e9a94f98",
-      "artifact_sha256": "4aac117e295390950eb088e0a2955c790e988496ae9df2cb272efe3f2e942c12",
+      "specification": "docs/19-persistent-asr.json",
+      "output": "docs/19-persistent-asr.html",
+      "specification_sha256": "6ddf19329d3fd26037147277b7065c824a133d121ad6fa0618067ddfa0ce4103",
+      "artifact_sha256": "f57601ed75acdd554dbb6dcb5417c84ea823cd74d724a828cb7a2163ce6b2187",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -581,10 +581,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/21-youtube-workflow.json",
-      "output": "docs/sequences/21-youtube-workflow.html",
-      "specification_sha256": "30c53b92f439b841ac179472de5bc8ea94a50532d284afca15534ce9b52c7f4d",
-      "artifact_sha256": "6039b67514953adfa6e1cf15f080470e6b278434f714112bf74f83d92e1a2c29",
+      "specification": "docs/20-recovery-plan.json",
+      "output": "docs/20-recovery-plan.html",
+      "specification_sha256": "42248effa23da9f4d53899f39403f55e41bdb2c550435d29af91c4939a4baede",
+      "artifact_sha256": "f8b2517e2f5737153a89bc464c7eed71d13ca670072f1a8d78c7f73aa5532afc",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -606,10 +606,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/22-subtitle-candidates.json",
-      "output": "docs/sequences/22-subtitle-candidates.html",
-      "specification_sha256": "d5adea5e92e697ac3a45b3aea36495c1e3ec99d59bcc3349aaf699fdb22ef765",
-      "artifact_sha256": "370a1cb77c1ca505ad934405c8807efef5ba40df7f12cb8448485373973584e0",
+      "specification": "docs/21-youtube-workflow.json",
+      "output": "docs/21-youtube-workflow.html",
+      "specification_sha256": "5af1568c31025c81bc267006d6f3e95c7162f2f71c90b165b20fd1461e2205c4",
+      "artifact_sha256": "d8929e935cba98042d48399d1206f296f32f482f233f256d9ded66d7c8462e0b",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -631,10 +631,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/23-metadata-refresh.json",
-      "output": "docs/sequences/23-metadata-refresh.html",
-      "specification_sha256": "0136e7c5c4b918212cbaf704b81a476533b670a621fb1f5291c39ecb3279d1fb",
-      "artifact_sha256": "d7e00ad7265e52286d8eac2bf4eb493546a882f6e7e0fa33fdd16a1de0471fe3",
+      "specification": "docs/22-subtitle-candidates.json",
+      "output": "docs/22-subtitle-candidates.html",
+      "specification_sha256": "1e95ccecde717b97276aa95e33ebf99bfa9f7664a80becddffcc1ac840b3a6d7",
+      "artifact_sha256": "a92629742dda3ce2e4c13bd2c05ec146b8a841664066c50809e9ec1d0176d8b0",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -656,10 +656,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/24-artifact-storage.json",
-      "output": "docs/sequences/24-artifact-storage.html",
-      "specification_sha256": "7aa911f7407508359045502608d238c6f8244ce2f8114a296b78b3c0852efef3",
-      "artifact_sha256": "d7f949df1c670c09f30b0de8615c3a0dc6f834c1e20291f174ffa19152241a10",
+      "specification": "docs/23-metadata-refresh.json",
+      "output": "docs/23-metadata-refresh.html",
+      "specification_sha256": "dd2acc6c22ad8a500cb39e1112531e29296733a8547fb23af93d27fce28e1cdf",
+      "artifact_sha256": "9c63edd7c698eba965d5cb55bc0777fb4ae61bb3c2d6b337c0058116691d4efc",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -681,10 +681,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/25-contract-upgrade.json",
-      "output": "docs/sequences/25-contract-upgrade.html",
-      "specification_sha256": "503c38ab9e9f47fe116f2b7ce393114eefdc0d45cd73b65ffdeeb3a85f82f8fc",
-      "artifact_sha256": "6b5daf71ce36c7cae3cef7840b00700a00c3668adcc8d08920b4bab354004ae2",
+      "specification": "docs/24-artifact-storage.json",
+      "output": "docs/24-artifact-storage.html",
+      "specification_sha256": "73646c3960a716a3cb5524bebb21aa4bc5b808ebf1e3078140169d46e9759887",
+      "artifact_sha256": "45c60d781aef60cd8c9132be85b9d75e5f0fa3dfe0960dc92bcf951d2ca04402",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -706,10 +706,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/26-asr-batching.json",
-      "output": "docs/sequences/26-asr-batching.html",
-      "specification_sha256": "47f286df2a95c93699e4dfcd1cd5dd31080e61bbd13c7fe26764ff6ea3bf78c3",
-      "artifact_sha256": "1aef611aca6ea484859cafe079fd6fe63f8a4e0933961cc82787691f7b658472",
+      "specification": "docs/25-contract-upgrade.json",
+      "output": "docs/25-contract-upgrade.html",
+      "specification_sha256": "a9320af59c89d6564ec7cbb71d60ffca3e51dc9d00312912b2bae9f71a75e5e0",
+      "artifact_sha256": "14d3078b20318b3c47247f3a477d0e2fb2467131a7d8401976b99a7e9590ce5a",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -731,10 +731,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/27-reference-backup.json",
-      "output": "docs/sequences/27-reference-backup.html",
-      "specification_sha256": "9fa23dc62b2f1f67d787a43a3e49235c49e8b016e37ecc6b15764fa874909335",
-      "artifact_sha256": "609a7cd5bc1701277f0fe562fea8d4df9939385f41a0bd00ae04e20fdd7a8fde",
+      "specification": "docs/26-asr-batching.json",
+      "output": "docs/26-asr-batching.html",
+      "specification_sha256": "10c372fa2f1be82a4443a6af3927d0fb7da6099eb9949a1ddf569b7c7066703b",
+      "artifact_sha256": "1a9b50b00f3f569e31f42ed3742c3a2d97e7b523bf050bb99483f2fc5b432f41",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -756,10 +756,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/28-preserved-body.json",
-      "output": "docs/sequences/28-preserved-body.html",
-      "specification_sha256": "fe4518425918f49fe6f31c5c84c8d3269829860e6bbdea1f77465f41958faa5a",
-      "artifact_sha256": "934a246210f4097c2e96718292ed5c8762e6762bdc5e29b8f613bc52c616bb21",
+      "specification": "docs/27-reference-backup.json",
+      "output": "docs/27-reference-backup.html",
+      "specification_sha256": "4a0abd2bfb7845f796ee44ac68d24ffe5a15fce348b6ab26e8e3ba0d4ec46ec9",
+      "artifact_sha256": "6adff50dc6591e9039b11810dca5999823c2471696cd5733afd1a2b6f433fbcd",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -781,10 +781,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/29-publication-series.json",
-      "output": "docs/sequences/29-publication-series.html",
-      "specification_sha256": "7533cb1a043f66134b765b1e9567bc8ea4c446769f72d1b80620094801be9dea",
-      "artifact_sha256": "e314f07487f007ce4ace672efa9492cb3590c82cc7b92c4618dc12aba4ec9109",
+      "specification": "docs/28-preserved-body.json",
+      "output": "docs/28-preserved-body.html",
+      "specification_sha256": "ef1f2631f733623814292a5369d64b0d8e0cba33a9b315835b85f0ea45b3829a",
+      "artifact_sha256": "d7403c4bcf955d8d1ff26f0358ae4ddda63e268ab043bdb883388a420c414761",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -806,10 +806,10 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/30-editorial-repair.json",
-      "output": "docs/sequences/30-editorial-repair.html",
-      "specification_sha256": "c84d239472cd9f1a81dfb72cc2c18c7ccab42634e4ba8ee574294e295bda5651",
-      "artifact_sha256": "248ae014a374fa872368c2837f381866bc2cc83947b5fa024237a97f94c75f3e",
+      "specification": "docs/29-publication-series.json",
+      "output": "docs/29-publication-series.html",
+      "specification_sha256": "165ffb328c2937a655066fb68da47353aa9f9b8559e66d73e15f8d9b0be3c9d4",
+      "artifact_sha256": "6506725b0c5a3a9a46dd6e4fa0d634c62a47a573a5fa40f69d4505d6e87b53d5",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -831,10 +831,35 @@
     },
     {
       "type": "sequence",
-      "specification": "docs/sequences/31-source-metadata-migration.json",
-      "output": "docs/sequences/31-source-metadata-migration.html",
-      "specification_sha256": "4260e7cfb84c67f06f3e79b8b201fb60b17da19778276c0034302535f1fe6460",
-      "artifact_sha256": "5a7dbb660f225e636122c663569fc3c0fe9d26c05bf9bff1825e6bb1bffcfa9b",
+      "specification": "docs/30-editorial-repair.json",
+      "output": "docs/30-editorial-repair.html",
+      "specification_sha256": "f33f51b3077e3d47bd56c4f12d1f5a7e4a4b970c563ff5446e8979cbed08f7b1",
+      "artifact_sha256": "623ced41108d83be64237e78f98f2bd93776726f893e24ad58454b4f08404dc7",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/31-source-metadata-migration.json",
+      "output": "docs/31-source-metadata-migration.html",
+      "specification_sha256": "7df73665bbe61290ba7f9d23c059f80457e898991f63f665344206397d03907e",
+      "artifact_sha256": "b3e7840a45c10d6baaa5ea0fd9f93c3b0381a3d6090db093cee7a414c731fb1a",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -864,8 +889,8 @@
   },
   "limitations": [
     "No live Bilibili/YouTube network, production GPU inference, paid AI request or external reader deployment was performed.",
-    "All 33 diagrams passed artifact-bound browser checks; no complete manual visual review was requested or claimed.",
+    "All 34 diagrams passed artifact-bound browser checks; no complete manual visual review was requested or claimed.",
     "Architecture overview retains route crossing and detour advisories after one placement trial was reverted; AI topic retains bend advisories.",
-    "Historical issue-validation records remain separate from current artifact receipts; the new universal-origin-v2 reader profile remains external follow-up work."
+    "Historical behavior-validation records in docs/evidence remain separate from current artifact receipts; the new universal-origin-v2 reader profile remains external follow-up work."
   ]
 }

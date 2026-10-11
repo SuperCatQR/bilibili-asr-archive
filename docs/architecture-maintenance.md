@@ -1,8 +1,8 @@
 # 架构文档与时序图维护
 
-本套文档以 main 的一个固定源码提交为基线。文字入口是 [architecture.md](architecture.md)，两张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)，31 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
+本套文档以 main 的一个固定源码提交为基线。文字入口是 [architecture.md](architecture.md)，三张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)、[契约治理](contract-governance.html)，31 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
 
-JSON 是图的可编辑规格，HTML 是 Archify 生成的独立查看器，不手工修改 HTML。目录级 `.gitattributes` 对图表规格与生成 HTML 设置 `-text`，防止 Git 换行转换改变验收哈希；`sequences/.gitattributes` 仅对生成 HTML 关闭行尾空白检查，保留模板字节及 artifact SHA-256，其他空白检查继续执行。时序 Markdown 保留完整 Mermaid 的嵌套 alt/opt/loop；HTML 展开跨参与者消息，内部调用在补充卡片中说明。修改流程时同时核对 Markdown、JSON 和代码，不能只改其中一份。
+JSON 是图的可编辑规格，HTML 是 Archify 生成的独立查看器，不手工修改 HTML。目录级 `.gitattributes` 对图表规格与生成 HTML 设置 `-text`，防止 Git 换行转换改变验收哈希；`.gitattributes` 仅对生成 HTML 关闭行尾空白检查，保留模板字节及 artifact SHA-256，其他空白检查继续执行。时序 Markdown 保留完整 Mermaid 的嵌套 alt/opt/loop；HTML 展开跨参与者消息，内部调用在补充卡片中说明。修改流程时同时核对 Markdown、JSON 和代码，不能只改其中一份。
 
 ## 固定源码基线
 
@@ -41,8 +41,12 @@ node $archifyCli finalize architecture docs/ai-proofreading-architecture.json do
   --repo-root . --quality showcase --out-dir "$evidenceRoot/ai-topic" --json
 if ($LASTEXITCODE -ne 0) { throw 'AI 专题图 finalize 失败' }
 
-$sequenceSpecs = Get-ChildItem -LiteralPath docs/sequences -Filter '*.json' |
-  Where-Object { $_.BaseName -match '^\d\d-[^.]+$' } | Sort-Object Name
+node $archifyCli finalize architecture docs/contract-governance.json docs/contract-governance.html `
+  --repo-root . --quality showcase --out-dir "$evidenceRoot/contract-governance" --json
+if ($LASTEXITCODE -ne 0) { throw '契约治理图 finalize 失败' }
+
+$sequenceSpecs = Get-ChildItem -LiteralPath docs -Filter '*.json' |
+  Where-Object { $_.BaseName -match '^[0-9]{2}-[^.]+$' } | Sort-Object Name
 foreach ($spec in $sequenceSpecs) {
   $htmlPath = Join-Path $spec.DirectoryName "$($spec.BaseName).html"
   node $archifyCli finalize sequence $spec.FullName $htmlPath `
@@ -87,4 +91,4 @@ JSON Schema 的权威源在 `src/bili_asr/contracts/schemas/`；运行
 
 ## 2026-10-11 当前身份
 
-本轮统一绑定 228e4655c644aa924572429fcfd6451df3e108d5；33 张图的现行凭据在 architecture-validation.json。历史 issue-diagram-validation 只用于追溯旧交付，不可作为重生成文件的验收。本轮候选与 browser evidence 留在独立的 .archify/issue348-20261011-* 子目录；每张图的实际结果以当前验证记录为准。
+本轮统一绑定 378f415ac5bf2a47de9137ee593f201e86827d43；34 张图的现行凭据在 architecture-validation.json。历史行为验收归入 evidence/，保留原提交与运行日期；过时图表及重复收据已删除。本轮候选与 browser evidence 留在独立的 .archify/docs-cleanup-20261011/ 子目录；每张图的实际结果以当前验证记录为准。

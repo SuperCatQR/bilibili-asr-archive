@@ -1,16 +1,14 @@
 # 契约治理与兼容边界
 
-本轮修复对应 [#314](https://github.com/SuperCatQR/bilibili-asr-archive/issues/314)、
-[#315](https://github.com/SuperCatQR/bilibili-asr-archive/issues/315) 和
-[#316](https://github.com/SuperCatQR/bilibili-asr-archive/issues/316)。源码基线为 `6a8646a36f680705479a7669350fd8793551cc74`，
-起点为 main `bab5998dd5235a7687b479e96edf16f9ed76c7ba`，随后合入当前 main `fd5a8068f988ed1394fdb0a7c723941cbdf5221b`（#317）。
-[交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述本轮登记、校验、
-历史保真与文档发布边界；[验证记录](contract-governance-validation.md)说明实际检查范围。
+当前源码核对基线为 `378f415ac5bf2a47de9137ee593f201e86827d43`。
+[交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述契约登记、校验、
+历史保真与文档发布边界；现行图表检查见[架构验证记录](architecture-validation.md)。
+早期治理修复的安装、历史样本和测试证据见[冻结验证记录](evidence/contract-governance-validation-2026-10-11.md)。
 
 ## 权威来源与责任
 
-`src/bili_asr/contracts/registry.py` 登记 34 项契约的稳定身份、owner、authority、consumers、
-capabilities 和 dependencies，其中 15 项有可执行 JSON Schema。
+`src/bili_asr/contracts/registry.py` 登记 50 项契约的稳定身份、owner、authority、consumers、
+capabilities 和 dependencies，其中 25 项有可执行 JSON Schema。
 登记记录是检索入口：数据库表结构仍由所属 SQL 和专用检查器定义，稿件内容身份仍由所属纯函数定义。
 它不负责执行数据库初始化、来源采集、迁移或调度。
 
@@ -49,8 +47,10 @@ catalog 只整体结构校验一次，随后逐条进行语义校验；Schema �
 | workflow payload / ASR | payload v1、profile v2、evidence v1 | 版本常量集中；原有序列化和哈希算法不变 |
 | 公共与预览 catalog | v2 / v3 | v3 支持明确的混合条目；未知版本无默认回退 |
 | 普通 manifest | v1 | 公共、预览、私有各有独立 Schema |
-| 来源导出 profile | `universal-origin-v1`、manifest v2 | catalog v3 加 origins v1；按显式 profile 验证 |
-| 来源补充策略 | `legacy-part-title-supplement-v1` | 只使用明确的归档证据；依赖 preserved-body 扩展，独立固定指纹 |
+| 来源导出 profile | `universal-origin-v1` / `universal-origin-v2` | 均为 catalog v3；分别使用 origins v1/manifest v2 和 origins v2/manifest v3 |
+| 来源补充策略 | `legacy-part-title-supplement-v1` / `legacy-description-supplement-v1` | 分字段证据和政策；依赖 preserved-body 与来源补充扩展；简介要求 origin profile v2 |
+| 转录 bundle | v2 / v3 | v2 五成员继续读取；新 workflow 发布 v3 六成员，来源 sidecar 固定为 source-metadata-v1 |
+| 可选产物存储 | artifact-storage-v1 / artifact-online-v1 | 完整组、副本和在线 pin/readiness 分开登记；安装不自动启用迁出 |
 | 普通私有审阅包 | 七文件布局 | `editorial-export-manifest/v1` |
 | 迁移正文私有审阅包 | 十文件布局 | `editorial-import-export-manifest/v1`；多三个保留正文/来源/差异文件 |
 | 私有 review JSON | envelope v1、AI 模板 v1 或 v2 | 两个布局身份分别校验；不能把旧模板常量改成接受任意值 |
@@ -58,19 +58,20 @@ catalog 只整体结构校验一次，随后逐条进行语义校验；Schema �
 
 七文件与十文件 manifest 都保留既有 wire `schemaVersion: 1`；区别在登记的布局身份，
 不伪造新的历史导出版本。review 也保留 envelope v1，以真实 `ai.templateVersion` 选择布局。
-13 份已有 Schema 入包，新增两份独立 Schema；其中七文件 manifest 的结构校验修复为要求每个路径恰好出现一次，
-十文件布局同样明确要求包含 import-origin.json，拒绝用重复路径替代必需文件，即使重复项哈希不同。
-这是对原有准确文件集合约束的补全；有效历史输出仍通过，原格式、内容/产物哈希和生成 Markdown 不重写。
-合入 #317 后，origins v1 延续旧策略分支，并按显式 `legacy-part-title-supplement-v1` 策略接受有证据的分 P 标题；
-这项数据库扩展、导出策略及其对 preserved-body 扩展的依赖也已登记。
+七文件 manifest 要求每个路径恰好出现一次；十文件布局额外要求 import-origin.json，
+拒绝用重复路径替代必需文件，即使重复项哈希不同。有效历史输出的内容/产物哈希和 Markdown 字节保留。
+origins v1 支持冻结旧正文与分 P 标题政策，明确拒绝简介补充；origins v2 在保留旧政策的同时
+接受简介证据 version 2、逐字段 metadataEvidence 与明确的简介 policy。简介值和 hash/采集时间交叉验证，
+不把详情行更新时间当作逐字段成功采集时间。当前阅读站的新 profile 支持需另行交付。
 
 这次登记覆盖迁移和出版涉及的主要稳定边界，未把全部内部 DTO 自动变成外部协议。
 新增持久化格式或外部消费格式时需要补登记及实际消费者，不能仅增加一条目录记录就声明已支持。
 
 ## 数据库指纹与冻结样本
 
-`database-fingerprints.json` 保留起点提交的四个既有快照指纹：两个数据库契约，分别带/不带
-preserved-body 扩展；另固定当前 main 的两个 source-supplement 扩展组合，共六个身份。带扩展的 v1 指纹仅保留原快照检查器的既有组合能力，不新增 v1 扩展安装入口。
+`database-fingerprints.json` 固定 18 个受支持的数据库/扩展组合；基础运行契约、preserved-body、
+source-supplement、artifact-storage 与 artifact-online 按组合独立校验。带扩展的 v1 指纹只表示
+已登记的读取/快照能力，不自动提供该组合的安装或转换入口；升级必须选用 registry 中的精确路径。
 检查器从当前 SQL 构建参考结构后必须匹配固定指纹；已有契约的 DDL 漂移会报错，
 不能随着 writer 更新悄悄重定义旧快照。schema 指纹、快照内容身份、迁移源 fingerprint 是不同标识。
 
@@ -110,8 +111,7 @@ python -m pytest -q tests/test_installed_cli.py
 uv lock --check --default-index https://pypi.org/simple
 ```
 
-依赖锁由 uv 从官方 PyPI 重建：新增 Schema 校验依赖，既有包版本保持不变。
-本机继承的镜像曾返回 metadata 404，验证 lock 时显式指定官方索引；CI 用清洁安装环境。
+依赖锁验证使用明确的索引和清洁安装环境；单次历史镜像故障及构建结果保留在冻结验证记录中。
 
 ## 后续扩展
 

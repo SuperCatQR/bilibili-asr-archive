@@ -1,5 +1,9 @@
-# Archify provenance binds exact specification and artifact bytes.
+# Specification and artifact receipts bind exact bytes across platforms.
 architecture.json -text whitespace=cr-at-eol
-architecture.html -text
+architecture.html -text whitespace=-blank-at-eol
 ai-proofreading-architecture.json -text whitespace=cr-at-eol
-ai-proofreading-architecture.html -text
+ai-proofreading-architecture.html -text whitespace=-blank-at-eol
+contract-governance.json -text whitespace=cr-at-eol
+contract-governance.html -text whitespace=-blank-at-eol
+[0-3][0-9]-*.json -text whitespace=cr-at-eol
+[0-3][0-9]-*.html -text whitespace=-blank-at-eol

@@ -1,6 +1,6 @@
-# 旧归档迁移预检（P0）
+# 旧归档迁移预检
 
-关联 issue #278；本阶段只固定迁移输入与保真基线，不转换数据库、不创建迁移目标、不执行或恢复任务。
+此命令只固定迁移输入与保真基线，不转换数据库、不创建迁移目标、不执行或恢复任务。
 
 ```bash
 bili-asr archive migration-preflight --source-root /path/to/old-archive
@@ -57,21 +57,22 @@ bili-asr archive migration-preflight --source-root /path/to/old-archive \
 
 报告声明 `conversion_performed=false`、`target_created=false`，并返回源契约、数据库摘要、
 源指纹、逐表和文件清单、派生对象、排除/遮蔽记录以及恢复候选计数。
-这是后续迁移的输入清单；还没有目标 schema、转换器、迁移验收或正式切换能力。
+这是显式迁移的输入清单，预检通过不代表目标已经生成。转换与安装见[显式契约升级](archive-upgrades.md)。
 
 ## 离线验证样本与后续工作
 
-`tests/fixtures/migration_archive.py` 从冻结 DDL 建库，包含真实产物与多版本/多状态历史：
+`tests/fixtures/migration_archive.py` 从已提交的冻结 ZIP 和 JSON 清单原字节展开，不调用当前 writer 或 renderer。
+样本包含产物与多版本/多状态历史：
 ASR 与字幕、coverage/evidence、共享音频、来源标签、同秒反向 ID 顺序、取消任务及阻塞依赖、
 AI 双稿、superseded/withdrawn/current release、较新 draft head 与独立未发布稿，以及双产物根。
 既有公开/预览读取和完整快照往返用于确认该样本在当前 v1 中有效。
 活跃租约与中断、更多审核/语言组合、真实归档规模仍需后续样本。
 
-样本的 schema 已独立冻结，但填充仍使用当前 v1 writer；进入 P1 修改 schema 前，
-必须保留对应版本的 materializer 和历史读取器，不能让测试悄悄生成新版源。
+固定样本保留旧 typed row、rowid、冻结 JSON 和文件摘要；不能让测试悄悄生成新版源。
 生产 worker 仍运行时不进行权威迁移验收，应先取得一致、完整的离线归档副本。
-真实旧源版本、全部历史文件、磁盘空间及阅读站版本尚需 P0/P3 实际盘点。
+真实旧源和大规模副本的已执行验收见[生产副本升级与恢复记录](production-upgrade-validation-2026-10-11.md)；
+该记录的日期和来源范围不能代表另一个归档已通过盘点。
 
-文件字节采用流式哈希；当前报告清单仍保存在内存中，大规模归档需在 P2 增加流式清单落盘。
+文件字节采用流式哈希；当前报告清单仍按表/文件数量占用内存，不宣称整个流程常量内存。
 
-整体修改方案见 [多平台架构方案](multi-platform-architecture-plan.md)。
+实际目标契约、转换、切换与回退见[显式契约升级](archive-upgrades.md)。

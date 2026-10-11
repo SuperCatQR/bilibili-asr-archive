@@ -12,9 +12,8 @@ Snapshot format version 1 now supports both validated `bilibili-v1` and
 explicit archive migration command performs contract conversion. Read-only
 `snapshot inspect`, `snapshot plan`, and `snapshot doctor` distinguish data
 completeness from runtime readiness, including verified model relocation.
-`snapshot restore --report PATH` writes a separate recovery audit. See
-[Issues implementation](issues-implementation.md)
-for command examples and installation/audit failure semantics.
+`snapshot restore --report PATH` writes a separate recovery audit. The commands and installation/audit failure semantics are described below;
+contract conversion uses the [explicit upgrade guide](archive-upgrades.md).
 
 `snapshot save`, `snapshot check`, and `snapshot restore` transfer one complete
 archive between devices. SQLite remains the source of metadata, transcripts,
@@ -56,6 +55,38 @@ for saving. Check and restore operate entirely on the ZIP and do not use that
 environment variable. Restored products are placed directly under the new
 archive root. Clear any old `BILI_ARTIFACT_ROOT` setting before reading the new
 archive to avoid selecting products from the former device configuration.
+
+## Read-only recovery planning and runtime bindings
+
+```text
+bili-asr snapshot inspect --file BACKUP.zip
+bili-asr snapshot plan --file BACKUP.zip --archive-root NEW
+bili-asr snapshot restore --file BACKUP.zip --archive-root NEW --report recovery.ndjson
+bili-asr snapshot doctor --archive-root NEW
+```
+
+Inspect and plan validate in a private temporary copy. Plan does not create the
+target; it checks package identity, empty target/link rules, space and host
+requirements. Doctor uses READ/query_only and neither changes profiles nor
+requeues tasks. `data_complete` and `runtime_ready` are separate: a compatible
+restored archive can be complete while models, credentials or GPU support remain
+unready. Reports list credential variable names, never values, and do not claim
+that authorization or model loading has been tested online.
+
+`--runtime-bindings FILE` on inspect/plan/doctor and workers relocates model and
+aligner paths while preserving their original model IDs, exact revisions and
+frozen profile. Binding schema version 1 requires original/path/model_id/revision/
+manifest_sha256; each checkpoint model-manifest.json lists schema_version,
+model_id, revision and relative file SHA-256 values. Config and weights must be
+present, files match the manifest and links are refused. Missing historical
+identity rejects a binding; device, precision or inference changes need a new
+profile. See [ASR workers](asr-workers.md).
+
+Recovery NDJSON records entity/identity/before/after/snapshot/reason for affected
+rows and separately records recovery transaction and directory installation.
+An audit or parent-directory fsync failure after installation reports
+`installed: true` with a warning; it must not be treated as permission to
+overwrite an apparently absent target. Restore does not start workers.
 
 ## Contents and Format
 
@@ -130,8 +161,9 @@ supported schema contract, and checks database-to-file references. Relative
 paths must be portable to Windows and Linux; traversal, absolute paths,
 backslashes, reserved device names, and case collisions are rejected.
 Published transcript completion markers must match the bundle paths and hashes.
-Current bundles include SRT, WebVTT, plain text, Markdown, raw JSON, and a v2
-completion marker. Obsolete four-file bundles must be republished before saving.
+New bundles include SRT, WebVTT, plain text, Markdown, raw JSON and
+source-metadata.json, covered by the six-member v3 completion marker. Existing
+five-member v2 bundles remain valid under their saved contract. Obsolete four-file bundles must be republished before saving.
 Check stages only the database in the system temporary directory; audio and
 other products are hashed without creating full temporary copies. Save needs
 space for the output ZIP and a database copy, and restore needs space for the

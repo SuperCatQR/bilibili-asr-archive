@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "确定性 AI 双稿、锁外暂存与保护登记",
+    "locale": "zh-CN",
+    "output": "docs/10-document-render.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "executor",
+      "label": "渲染任务",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 517,
+          "end_line": 540,
+          "label": "WorkflowRepository.request_document"
+        }
+      ]
+    },
+    {
+      "id": "handler",
+      "label": "render han",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 74,
+          "end_line": 109,
+          "label": "EditorialWorkflowHandlers.render"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 21,
+          "end_line": 23,
+          "label": "template_for_input"
+        }
+      ],
+      "sublabel": "render handler"
+    },
+    {
+      "id": "template",
+      "label": "固定模板",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/manuscript_templates.py",
+          "line": 84,
+          "end_line": 88,
+          "label": "renderer_for"
+        },
+        {
+          "path": "src/bili_asr/manuscript_templates.py",
+          "line": 23,
+          "end_line": 51,
+          "label": "render_ai_v1"
+        },
+        {
+          "path": "src/bili_asr/publication_content_v2.py",
+          "line": 170,
+          "end_line": 203,
+          "label": "render_ai_v2"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "StagedArti",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/manuscript_files.py",
+          "line": 110,
+          "end_line": 127,
+          "label": "stage_artifact"
+        },
+        {
+          "path": "src/bili_asr/manuscript_files.py",
+          "line": 88,
+          "end_line": 106,
+          "label": "StagedArtifact.install"
+        },
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 1,
+          "end_line": 182,
+          "label": "模块定义"
+        }
+      ],
+      "sublabel": "StagedArtifact"
+    },
+    {
+      "id": "guard",
+      "label": "JobCommitG",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/job_commit.py",
+          "line": 58,
+          "end_line": 62,
+          "label": "JobCommitGuard.owned_transaction"
+        }
+      ],
+      "sublabel": "JobCommitGuard"
+    },
+    {
+      "id": "db",
+      "label": "修订与文档登记",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 289,
+          "end_line": 310,
+          "label": "EditorialRepository.preflight_artifacts"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 312,
+          "end_line": 320,
+          "label": "EditorialRepository.record_artifacts"
+        },
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 246,
+          "end_line": 295,
+          "label": "read_revision"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "handler",
+      "y": 235,
+      "label": "解码版本化 job",
+      "variant": "default",
+      "note": "解码版本化 job；显式 revision 或成功 proofread job；按冻结 input 分派 ai-draft-v1/v2 writer；条件：主流程",
+      "from": "executor"
+    },
+    {
+      "id": "m2",
+      "to": "db",
+      "y": 301,
+      "label": "验证 part、prepared snapshot …",
+      "variant": "default",
+      "note": "验证 part、prepared snapshot 与 blocks 的固定 revision；条件：主流程",
+      "from": "handler"
+    },
+    {
+      "id": "m3",
+      "to": "template",
+      "y": 367,
+      "label": "锁外确定性排版",
+      "variant": "default",
+      "note": "锁外确定性排版；条件：主流程",
+      "from": "handler"
+    },
+    {
+      "id": "m4",
+      "to": "handler",
+      "y": 433,
+      "label": "ai-draft.md 纯正文",
+      "variant": "return",
+      "note": "ai-draft.md 纯正文；review.md 原文、来源、时间、疑点与模型参数；条件：主流程",
+      "from": "template"
+    },
+    {
+      "id": "m5",
+      "to": "db",
+      "y": 499,
+      "label": "preflight 全部 path/hash/role",
+      "variant": "default",
+      "note": "preflight 全部 path/hash/role；完整双稿登记不能冲突；条件：主流程",
+      "from": "handler"
+    },
+    {
+      "id": "m6",
+      "to": "files",
+      "y": 565,
+      "label": "锁外 stage_artifact",
+      "variant": "default",
+      "note": "锁外 stage_artifact；已有不同字节拒绝；新文件写入并 fsync 暂存；条件：主流程",
+      "from": "handler"
+    },
+    {
+      "id": "m7",
+      "to": "handler",
+      "y": 696,
+      "label": "不创建临时文件、不重复写入",
+      "variant": "return",
+      "note": "不创建临时文件、不重复写入；允许只读目录重试；install 前再确认字节；条件：alt 已有相同不可变产物",
+      "from": "files"
+    },
+    {
+      "id": "m8",
+      "to": "handler",
+      "y": 827,
+      "label": "返回已 fsync 的 StagedArtifact",
+      "variant": "return",
+      "note": "返回已 fsync 的 StagedArtifact；ExitStack 持有全部暂存；条件：else 新产物",
+      "from": "files"
+    },
+    {
+      "id": "m9",
+      "to": "guard",
+      "y": 958,
+      "label": "owned_transaction",
+      "variant": "security",
+      "note": "owned_transaction；BEGIN IMMEDIATE；进入时检查准确 attempt/owner/lease；条件：主流程",
+      "from": "handler"
+    },
+    {
+      "id": "m10",
+      "to": "files",
+      "y": 1024,
+      "label": "安装已持久字节",
+      "variant": "default",
+      "note": "安装已持久字节；不覆盖不同内容；POSIX link 与目录 fsync；条件：主流程",
+      "from": "guard"
+    },
+    {
+      "id": "m11",
+      "to": "db",
+      "y": 1090,
+      "label": "同一保护事务登记两个 artifact 身份",
+      "variant": "default",
+      "note": "同一保护事务登记两个 artifact 身份；条件：主流程",
+      "from": "handler"
+    },
+    {
+      "id": "m12",
+      "to": "db",
+      "y": 1156,
+      "label": "退出时再次检查 lease",
+      "variant": "security",
+      "note": "退出时再次检查 lease；成功 commit；失败 rollback 登记；条件：主流程",
+      "from": "guard"
+    },
+    {
+      "id": "m13",
+      "to": "executor",
+      "y": 1222,
+      "label": "返回双稿 artifact 路径",
+      "variant": "return",
+      "note": "返回双稿 artifact 路径；清理临时文件；条件：主流程",
+      "from": "handler"
+    },
+    {
+      "id": "m14",
+      "to": "db",
+      "y": 1353,
+      "label": "storage.publication.read_r…",
+      "variant": "security",
+      "note": "storage.publication.read_revision 校验固定输入、revision、job/part/source 身份；条件：opt 创建 edition 或导出历史双稿",
+      "from": "executor"
+    },
+    {
+      "id": "m15",
+      "to": "template",
+      "y": 1419,
+      "label": "按已登记历史 renderer 验证 path/ro…",
+      "variant": "default",
+      "note": "按已登记历史 renderer 验证 path/role/hash；未知版本拒绝；条件：opt 创建 edition 或导出历史双稿",
+      "from": "executor"
+    },
+    {
+      "id": "m16",
+      "to": "files",
+      "y": 1485,
+      "label": "读取两个固定文件并校验真实字节摘要",
+      "variant": "security",
+      "note": "读取两个固定文件并校验真实字节摘要；条件：opt 创建 edition 或导出历史双稿",
+      "from": "executor"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 611,
+      "label": "B1 · 主流程"
+    },
+    {
+      "from": 668,
+      "to": 742,
+      "label": "B2 · alt 已有相同不可变产物"
+    },
+    {
+      "from": 799,
+      "to": 873,
+      "label": "B3 · else 新产物"
+    },
+    {
+      "from": 930,
+      "to": 1268,
+      "label": "B4 · 主流程"
+    },
+    {
+      "from": 1325,
+      "to": 1526,
+      "label": "B5 · opt 创建 edition 或导出历史双稿"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt 已有相同不可变产物",
+        "B3 条件路径：else 新产物",
+        "B4 条件路径：主流程",
+        "B5 条件路径：opt 创建 edition 或导出历史双稿"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
+  ]
+}

@@ -1,22 +1,22 @@
-# DeepSeek AI 校对使用说明
+# AI 校对使用说明
 
 当前阅读稿版通过 OpenAI-compatible Chat Completions API 处理固定的数据库转录版本，默认使用 DeepSeek 官方 API 的 `deepseek-flash` 模型；也支持 OpenCode Go 的 `deepseek-v4.1-flash`。
-AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订，生成中文 Markdown 阅读稿和校对记录。
+AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订，生成按冻结输入语言整理的 Markdown 阅读稿和校对记录。
 业务进度保存在 SQLite；工作器重启后读取固定输入与已有块结果继续执行。
 
 ## 运行前提
 
 - Python 3.12+ 与项目基础依赖。仅运行校对和文档渲染不需要 GPU、ASR 模型或 ffmpeg。
 - 归档数据库已存储基础转录。默认使用所选视频部分最新的本地 ASR 版本。
-- 新稿件只支持 `ai-draft-v1` / `publish-v1` 和当前 manuscript schema；旧 schema 在任何初始化写入前拒绝，详见 [publication.md](publication.md)。
+- 固定输入/content 与 AI/publication 模板均支持已登记的 v1/v2；历史字节按记录版本读取，新 universal 稿件使用 v2。未知 schema 在写入前拒绝，详见 [publication.md](publication.md)。
 - 新建数据库使用包含 `proofread` / `render_document` 的任务类型，以及支持 `cancelled` attempt outcome 和终态约束的工作流表结构。
 - 真实校对需要环境变量 `DEEPSEEK_API_KEY`。密钥仅进入 HTTP Authorization，不写入模型请求快照、结果或文档。
 - 使用 OpenCode Go 时设置 `OPENCODE_API_KEY`，并将 endpoint 设为 `https://opencode.ai/zen/go/v1`。客户端会发送 `User-Agent` 和每个进程会话稳定的 `x-opencode-session`，密钥仍只进入 HTTP Authorization。
 
-当前不提供旧工作流表迁移。旧 `workflow_jobs` 类型约束不支持校对任务，或旧
+普通访问不执行旧工作流表迁移。旧 `workflow_jobs` 类型约束不支持校对任务，或旧
 `workflow_attempts` 的 outcome / 终态 CHECK 不支持 `cancelled` 时，写入控制命令会明确拒绝。
-需要先备份并重建兼容当前契约的归档数据库；程序不会自动删除、重建或迁移现有库。
-仅重新安装 Python 包不能修改旧表约束。详情见 [工作流取消指南](workflow-cancellation.md#数据库契约与验证)。
+先保留源库并检查[显式升级路径](archive-upgrades.md)；支持的固定源在独立新目录转换，
+未知布局需专门的读取器和迁移政策。程序不自动删除、重建或迁移现有库，重新安装包不能修改旧表约束。详情见 [工作流取消指南](workflow-cancellation.md#数据库契约与验证)。
 
 ## 处理已有转录
 
@@ -229,8 +229,8 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 ```
 
 重渲染不需要 API 密钥，不调用模型，可修复已删除的 Markdown。
-相同已保存修订和 `ai-draft-v1` 模板生成相同字节；模板内容改变时需要新的模板版本和实现，
-当前只支持 `ai-draft-v1`。两份文档先在临时文件中编码、fsync 并计算摘要；
+相同已保存修订和同一已登记模板生成相同字节；按保存身份选择 `ai-draft-v1` 或 `ai-draft-v2`。
+未知模板拒绝，排版改变需要新的版本和实现，不能改写历史 renderer 的字节算法。两份文档先在临时文件中编码、fsync 并计算摘要；
 随后在同一任务所有权事务内执行最终替换并登记路径与 SHA-256。
 取消若先提交，最终替换被拒绝并清理本次临时文件。相同修订和模板对应的 render job
 已经取消时，重复 `workflow render` 保持取消状态。
@@ -273,8 +273,9 @@ bili-asr editorial export --archive-root /srv/bili-archive --revision-id REVISIO
 审核指定准确 edition 与完整内容哈希；批准后仍需显式 `publication publish` 才生成固定
 `publish.md` 并切换有效 release。创建、修改或批准 B 不影响已经公开的 A。
 `publication export` 只导出验证通过的有效 release，`publication export-drafts` 只导出当前且从未发布的 edition；
-两者的 catalog v2 都登记正文和原始 `review.md` 的路径与字节哈希。`publication withdraw` 清除公开指针，
-保留内部内容与审核历史。公开 release、未发布预览和私有审阅包的输出目录严格独立，旧稿件 schema、模板、命令和 manifest 拒绝。
+两者的 catalog 都登记正文和原始 `review.md` 的路径与字节哈希：无 origin profile 且全部 content v1
+时为 catalog v2，存在 content v2 或显式 origin profile 时为 v3。`publication withdraw` 清除公开指针，
+保留内部内容与审核历史。公开 release、未发布预览和私有审阅包的输出目录严格独立；历史合法版本按保存身份校验，未知契约拒绝。
 完整命令、CAS、目录恢复及 JSON 契约见 [出版与审核指南](publication.md)。
 
 ## 数据与离线验证

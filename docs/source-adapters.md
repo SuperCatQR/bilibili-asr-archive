@@ -1,6 +1,6 @@
 # 来源身份与采集适配边界
 
-本文描述当前工作分支的实现；最终提交与验证范围以架构索引为准。
+本文描述当前来源适配与持久化边界；固定源码与验证范围见[架构索引](architecture.md)。
 
 来源身份、平台网络适配、采集策略、数据库持久化和任务调度分别由独立模块负责。
 默认新建库继续采用 `bilibili-v1`；显式 `archive init` 或保真迁移创建 `universal-v2`，
@@ -95,9 +95,11 @@ workflow attempt 额外保存 `visible_candidates_exhausted` 与安全候选诊�
 YouTube 尚未建模的封面、简介、分区与 tags 保持未知。
 
 `MetadataRepository.read_source_metadata(part_id)` 是当前可变事实的单条读取接口；
-`read_source_metadata_many(part_ids)` 一次最多接受 256 个 part ID，用集合查询读取来源、
-作者与 Bilibili 详情，再按视频集合读取标签。混合平台投影每批调用一次该方法，
-没有逐 part 的 SQL；任何未归档 ID 都使整次批读取失败。v1 投影继续使用旧字段和读取路径。
+`read_source_metadata_many(part_ids)` 和 `read_source_metadata_export_many(part_ids)` 共用一次
+最多 256 part ID 的集合查询，读取来源、作者、Bilibili 详情、标签及观察。导出接口同时返回
+简介、UP 主 ID/名称、标签、标签状态和详情行采集时间六个平铺字段；通用投影每批调用一次，
+没有逐 part 的 SQL，任何未归档 ID 都使整次读取失败。旧 v1 也可读六个字段，缺失标签观察
+保持 null，其他平台不伪造 Bilibili uploader_mid。来源快照与字段各自的时间语义保持独立。
 新稿件内容 v2 将该对象放进 `source.metadata`，其作者、发布时间等随 edition/hash 冻结；
 之后刷新源元数据不改旧 edition、审核或 release。旧内容与渲染 v1 不增加字段、不重算 hash。
 
@@ -169,5 +171,17 @@ Bilibili 已认证空列表规则。通过离线测试不表示当前 YouTube �
 
 通用目标新增真实 `source_creators/source_videos` 及 platform observations；旧源保持固定契约。
 `archive migrate` 从只读旧源向独立空目标转换并校验，旧冻结 JSON、审核、release、
-转录与文件字节的保留不依赖新 reader 重写旧内容。原设计背景见
-[多平台接入与旧归档保真迁移方案](multi-platform-architecture-plan.md)，实际操作以当前迁移指南为准。
+转录与文件字节的保留不依赖新 reader 重写旧内容。完整转换和切换见[显式契约升级](archive-upgrades.md)，
+运行时恢复和模型位置绑定见[归档快照](archive-snapshots.md)。
+
+## 旧字幕依赖的显式修复
+
+```text
+bili-asr workflow repair-dependencies --archive-root ARCHIVE --part-id 123
+bili-asr workflow repair-dependencies --archive-root ARCHIVE --part-id 123 --apply --expected-plan-id PLAN_ID
+```
+
+只修复选定 part 上 queued/failed audio、ASR 的旧 subtitle 依赖，ASR 的 audio 依赖保留或补齐。
+运行中任务拒绝修复，成功/取消任务的边和历史 attempts 保留；--retry-failed 只重排失败的
+audio/ASR。失败字幕可用 workflow retry --job-id 精确重试。事务中重新计算计划身份，
+陈旧计划不应用，保留失败证据和库外 retry holds；不可用字幕不等于确认静音音频。
