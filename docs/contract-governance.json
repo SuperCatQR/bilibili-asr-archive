@@ -1,0 +1,388 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "契约登记与归档验证边界",
+    "subtitle": "主要稳定契约的登记、离线校验与历史保真",
+    "locale": "zh-CN",
+    "output": "docs/contract-governance.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "6a8646a36f680705479a7669350fd8793551cc74"
+    }
+  },
+  "components": [
+    {
+      "id": "export",
+      "type": "backend",
+      "label": "托管导出入口",
+      "sublabel": "manifest / catalog / review",
+      "pos": [
+        50,
+        150
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/export_snapshot.py",
+          "line": 180,
+          "end_line": 263
+        }
+      ]
+    },
+    {
+      "id": "validator",
+      "type": "security",
+      "label": "离线结构校验",
+      "sublabel": "本地 registry 解析全部引用",
+      "pos": [
+        410,
+        150
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/contracts/json_schema.py",
+          "line": 27,
+          "end_line": 37
+        },
+        {
+          "path": "src/bili_asr/contracts/json_schema.py",
+          "line": 49,
+          "end_line": 54
+        }
+      ]
+    },
+    {
+      "id": "schemas",
+      "type": "database",
+      "label": "入包 Schema",
+      "sublabel": "15 份版本明确的结构定义",
+      "pos": [
+        770,
+        150
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/contracts/schemas/publication-catalog-v3.schema.json",
+          "line": 1,
+          "end_line": 30
+        },
+        {
+          "path": "pyproject.toml",
+          "line": 91,
+          "end_line": 95
+        }
+      ]
+    },
+    {
+      "id": "semantics",
+      "type": "security",
+      "label": "业务与文件校验",
+      "sublabel": "身份、来源、路径与真实摘要",
+      "pos": [
+        50,
+        390
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/export_snapshot.py",
+          "line": 101,
+          "end_line": 143
+        },
+        {
+          "path": "src/bili_asr/export_snapshot.py",
+          "line": 180,
+          "end_line": 263
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "type": "backend",
+      "label": "契约登记",
+      "sublabel": "身份、责任、消费者与依赖",
+      "pos": [
+        410,
+        390
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/contracts/registry.py",
+          "line": 20,
+          "end_line": 27
+        },
+        {
+          "path": "src/bili_asr/contracts/registry.py",
+          "line": 100,
+          "end_line": 107
+        }
+      ]
+    },
+    {
+      "id": "docs",
+      "type": "backend",
+      "label": "文档发布与核对",
+      "sublabel": "资源原字节镜像及登记清单",
+      "pos": [
+        770,
+        390
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/contracts/__main__.py",
+          "line": 13,
+          "end_line": 18
+        },
+        {
+          "path": "src/bili_asr/contracts/__main__.py",
+          "line": 21,
+          "end_line": 43
+        }
+      ]
+    },
+    {
+      "id": "snapshot",
+      "type": "security",
+      "label": "快照数据库检查",
+      "sublabel": "专用严格检查；拒绝 DDL 漂移",
+      "pos": [
+        410,
+        680
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/snapshots.py",
+          "line": 145,
+          "end_line": 164
+        },
+        {
+          "path": "src/bili_asr/storage/snapshots.py",
+          "line": 145,
+          "end_line": 164
+        }
+      ]
+    },
+    {
+      "id": "pins",
+      "type": "database",
+      "label": "固定 schema 指纹",
+      "sublabel": "四个旧组合加两个来源扩展",
+      "pos": [
+        410,
+        900
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/contracts/fingerprints.py",
+          "line": 6,
+          "end_line": 15
+        },
+        {
+          "path": "src/bili_asr/contracts/database-fingerprints.json",
+          "line": 1,
+          "end_line": 10
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "type": "backend",
+      "label": "CI 与兼容回归",
+      "sublabel": "文档漂移、安装资源、历史保真",
+      "pos": [
+        770,
+        680
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "tests/test_contract_registry.py",
+          "line": 104,
+          "end_line": 116
+        },
+        {
+          "path": "tests/test_contract_registry.py",
+          "line": 42,
+          "end_line": 46
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "line": 123,
+          "end_line": 148
+        }
+      ]
+    },
+    {
+      "id": "historical",
+      "type": "database",
+      "label": "冻结历史样本",
+      "sublabel": "已提交 ZIP / JSON；分根展开",
+      "pos": [
+        770,
+        900
+      ],
+      "size": [
+        250,
+        82
+      ],
+      "sources": [
+        {
+          "path": "tests/fixtures/migration_archive.py",
+          "line": 61,
+          "end_line": 91
+        },
+        {
+          "path": "tests/test_contract_registry.py",
+          "line": 84,
+          "end_line": 95
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "export-structure",
+      "from": "export",
+      "to": "validator",
+      "label": "结构校验",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "validator-resources",
+      "from": "validator",
+      "to": "schemas",
+      "label": "读取资源",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "validator-registry",
+      "from": "validator",
+      "to": "registry",
+      "label": "选择契约",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "export-domain",
+      "from": "export",
+      "to": "semantics",
+      "label": "结构通过后",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "docs-schema",
+      "from": "docs",
+      "to": "schemas",
+      "label": "原字节发布",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "docs-registry",
+      "from": "docs",
+      "to": "registry",
+      "label": "登记镜像",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "snapshot-pins",
+      "from": "snapshot",
+      "to": "pins",
+      "label": "核对固定身份",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "tests-docs",
+      "from": "tests",
+      "to": "docs",
+      "label": "镜像门禁",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "tests-snapshot",
+      "from": "tests",
+      "to": "snapshot",
+      "label": "漂移拒绝回归",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "tests-frozen",
+      "from": "tests",
+      "to": "historical",
+      "label": "历史保真",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "统一登记与结构",
+      "items": [
+        "34 项登记记录主要稳定边界的责任、权威定义和消费者",
+        "全部 Schema 引用从安装包离线解析；未知版本拒绝",
+        "七文件、十文件及两种 AI 模板分别登记，wire 版本不变"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "所有者保留语义",
+      "items": [
+        "结构检查之后继续验证来源、模板组合、文件集合和实际哈希",
+        "运行库、快照、固定旧源保持独立检查政策",
+        "共享标量规则供 source/storage 模型使用，字幕正文保留到写入边界"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "历史与交付门禁",
+      "items": [
+        "六个固定指纹阻止当前 SQL 悄悄重定义已有快照身份",
+        "历史 fixture 只展开已提交 ZIP / JSON，不调用当前 writer",
+        "镜像按字节校验；wheel 安装测试校验真实入包资源"
+      ]
+    }
+  ]
+}

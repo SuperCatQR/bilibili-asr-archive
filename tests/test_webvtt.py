@@ -23,6 +23,8 @@ from bili_asr.search_index.readers import extract_transcript_text
 from bili_asr.services.bundle_verification import verify_bundle
 from bili_asr.services.transcript_adoption import read_archived_transcript
 from bili_asr.services.workflow_projection import workflow_records
+from bili_asr.platform_identity import ContentRef
+from bili_asr.source_metadata import SourceMetadataSnapshot
 from bili_asr.storage import (
     AcquisitionRunRecord, TranscriptRepository, TranscriptSegmentRecord,
     WorkflowRepository, open_database,
@@ -35,6 +37,28 @@ ENTRY = {
     "title": "中文测试", "video_title": "归档视频", "duration_s": 8,
     "pubdate_str": "2026-10-08",
 }
+
+
+def test_v3_bundle_freezes_metadata_in_a_hashed_sidecar(tmp_path):
+    entry = {
+        **ENTRY,
+        "pubdateUnix": 1_700_000_000,
+        "sourcePublishedAt": "2023-11-14T22:13:20Z",
+        "sourceMetadata": SourceMetadataSnapshot(
+            ContentRef("bilibili", ENTRY["bvid"], 0), "归档视频", "42", "作者", 1_700_000_000, 1_700_000_100,
+            description="source description", tags=("tag",),
+        ).to_dict(),
+    }
+    paths = archive.write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "text"}], source="asr")
+    bundle = tmp_path / paths["srt_path"].replace("bundle.srt", "")
+    marker = json.loads((bundle / ".bundle-ready").read_text(encoding="ascii"))
+    raw = json.loads((bundle / "bundle.raw.json").read_text(encoding="utf-8"))
+    assert marker["schema"] == "archive-bundle-v3"
+    assert set(marker["artifacts"]) == set(REQUIRED_ARTIFACT_KEYS) | {"source_metadata_path"}
+    assert "sourceMetadata" not in raw
+    assert archive.archive_bundle_complete(tmp_path, paths)
+    (bundle / "source-metadata.json").write_text("{}\n", encoding="utf-8")
+    assert not archive.archive_bundle_complete(tmp_path, paths)
 SEGMENTS = [
     {"start": 0, "end": 2.501, "text": "第一行\n第二行 <b> & 字面 &amp;"},
     {"start": 2, "end": 4, "text": "允许重叠的下一句"},

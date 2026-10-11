@@ -1,6 +1,6 @@
 # 完整 edition、准确审核、release 替换与撤回
 
-源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](11-publication-lifecycle.html) · [Archify 规格](11-publication-lifecycle.json) · [全部时序图](../architecture-sequences.md)
 
@@ -54,17 +54,21 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/publication.py:137–185](../../src/bili_asr/cli/publication.py#L137)：`add_publication_parser`。
-- [src/bili_asr/publication.py:70–84](../../src/bili_asr/publication.py#L70)：`create_edition`。
-- [src/bili_asr/publication.py:134–174](../../src/bili_asr/publication.py#L134)：`publish_edition`。
-- [src/bili_asr/publication_tags.py:25–41](../../src/bili_asr/publication_tags.py#L25)：`sync_source_tags`。
-- [src/bili_asr/storage/publication.py:126–158](../../src/bili_asr/storage/publication.py#L126)：`PublicationRepository.insert_edition`。
-- [src/bili_asr/storage/publication.py:160–183](../../src/bili_asr/storage/publication.py#L160)：`PublicationRepository.set_review`。
-- [src/bili_asr/publication.py:44–67](../../src/bili_asr/publication.py#L44)：`get_ai_artifacts`。
-- [src/bili_asr/manuscript_files.py:129–132](../../src/bili_asr/manuscript_files.py#L129)：`atomic_write_artifact`。
-- [src/bili_asr/storage/publication.py:185–212](../../src/bili_asr/storage/publication.py#L185)：`PublicationRepository.register_release`。
-- [src/bili_asr/storage/publication.py:214–233](../../src/bili_asr/storage/publication.py#L214)：`PublicationRepository.withdraw`。
+- [src/bili_asr/cli/publication.py:237](../../src/bili_asr/cli/publication.py#L237)：add_publication_parser。
+- [src/bili_asr/publication.py:46](../../src/bili_asr/publication.py#L46)：create_edition。
+- [src/bili_asr/publication.py:123](../../src/bili_asr/publication.py#L123)：publish_edition。
+- [src/bili_asr/publication_tags.py:26](../../src/bili_asr/publication_tags.py#L26)：sync_source_tags。
+- [src/bili_asr/storage/publication.py:128](../../src/bili_asr/storage/publication.py#L128)：PublicationRepository.insert_edition。
+- [src/bili_asr/storage/publication.py:167](../../src/bili_asr/storage/publication.py#L167)：PublicationRepository.set_review。
+- [src/bili_asr/publication.py:1](../../src/bili_asr/publication.py#L1)：模块定义。
+- [src/bili_asr/manuscript_files.py:130](../../src/bili_asr/manuscript_files.py#L130)：atomic_write_artifact。
+- [src/bili_asr/storage/publication.py:192](../../src/bili_asr/storage/publication.py#L192)：PublicationRepository.register_release。
+- [src/bili_asr/storage/publication.py:221](../../src/bili_asr/storage/publication.py#L221)：PublicationRepository.withdraw。
 
 ## 本次边界修复
 
 CLI 使用 ArchiveSession 的 READ/WRITE 与 MANUSCRIPT 契约管理连接及维护锁；纯内容与身份规则由 publication_content / publication_identity / canonical_json 承载，历史字节身份保持原算法。读取快照经 storage.publication 的公开读/校验接口，不导入出版编排函数。
+
+## 当前版本与消费
+
+content v1/v2、publish/ai 模板按保存身份分派，导出先做 wheel 内离线 Schema 再核验真实引用/文件/hash。普通公开/预览与迁移 origin profile 分开；保留旧正文和来源补充见 [28](28-preserved-body.md)，可选编辑系列见 [29](29-publication-series.md)。启用 catalog 后准确历史组可以显式恢复，不能用当前文件槽位代替旧版本。

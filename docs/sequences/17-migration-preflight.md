@@ -1,6 +1,6 @@
 # 固定旧源契约、公开清单与完整历史预检
 
-源码基线：架构修复提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](17-migration-preflight.html) · [Archify 规格](17-migration-preflight.json) · [全部时序图](../architecture-sequences.md)
 
@@ -66,17 +66,14 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/archive.py:25–46](../../src/bili_asr/cli/archive.py#L25)：`_cmd_archive`。
-- [src/bili_asr/cli/registry.py:1–65](../../src/bili_asr/cli/registry.py#L1)：`模块边界`。
-- [src/bili_asr/services/migration_preflight.py:119–213](../../src/bili_asr/services/migration_preflight.py#L119)：`migration_preflight`。
-- [src/bili_asr/archive_session.py:95–104](../../src/bili_asr/archive_session.py#L95)：`ArchiveSession.access`。
-- [src/bili_asr/archive_maintenance.py:84–160](../../src/bili_asr/archive_maintenance.py#L84)：`archive_access`。
-- [src/bili_asr/storage/migration_source.py:176–228](../../src/bili_asr/storage/migration_source.py#L176)：`inspect_migration_source`。
-- [src/bili_asr/storage/migration_artifacts.py:147–189](../../src/bili_asr/storage/migration_artifacts.py#L147)：`_legacy_editorial_checks`。
-- [src/bili_asr/storage/migration_artifacts.py:88–144](../../src/bili_asr/storage/migration_artifacts.py#L88)：`_legacy_publication_checks`。
-- [src/bili_asr/artifact_inventory.py:89–119](../../src/bili_asr/artifact_inventory.py#L89)：`collect_artifacts`。
-- [src/bili_asr/artifact_inventory.py:122–130](../../src/bili_asr/artifact_inventory.py#L122)：`stream_hash`。
-- [src/bili_asr/services/migration_preflight.py:45–54](../../src/bili_asr/services/migration_preflight.py#L45)：`_hash_file`。
-- [src/bili_asr/storage/migration_artifacts.py:192–252](../../src/bili_asr/storage/migration_artifacts.py#L192)：`_legacy_artifact_references`。
-- [src/bili_asr/artifact_inventory.py:34–46](../../src/bili_asr/artifact_inventory.py#L34)：`portable_artifact_parts`。
-- [src/bili_asr/artifact_inventory.py:53–72](../../src/bili_asr/artifact_inventory.py#L53)：`check_artifact_collisions`。
+- [src/bili_asr/cli/archive.py:67](../../src/bili_asr/cli/archive.py#L67)：_cmd_archive。
+- [src/bili_asr/cli/registry.py:1](../../src/bili_asr/cli/registry.py#L1)：模块定义。
+- [src/bili_asr/services/migration_preflight.py:119](../../src/bili_asr/services/migration_preflight.py#L119)：migration_preflight。
+- [src/bili_asr/archive_session.py:95](../../src/bili_asr/archive_session.py#L95)：ArchiveSession.access。
+- [src/bili_asr/archive_maintenance.py:84](../../src/bili_asr/archive_maintenance.py#L84)：archive_access。
+- [src/bili_asr/storage/migration_source.py:176](../../src/bili_asr/storage/migration_source.py#L176)：inspect_migration_source。
+- [src/bili_asr/storage/migration_artifacts.py:147](../../src/bili_asr/storage/migration_artifacts.py#L147)：_legacy_editorial_checks。
+- [src/bili_asr/storage/migration_artifacts.py:88](../../src/bili_asr/storage/migration_artifacts.py#L88)：_legacy_publication_checks。
+- [src/bili_asr/artifact_inventory.py:89](../../src/bili_asr/artifact_inventory.py#L89)：collect_artifacts。
+- [src/bili_asr/artifact_inventory.py:122](../../src/bili_asr/artifact_inventory.py#L122)：stream_hash。
+- [src/bili_asr/services/migration_preflight.py:45](../../src/bili_asr/services/migration_preflight.py#L45)：_hash_file。

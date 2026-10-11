@@ -508,7 +508,8 @@ def test_fetch_meta_failed_page_preserves_cursor_and_resume_succeeds(
     script.videos_error = None
     _script_upstream(
         script,
-        pages={2: [make_vlist_item(bvid=RESUMED_BVID, aid=222)]},
+        pages={1: [make_vlist_item(bvid=SINGLE_PART_BVID)],
+               2: [make_vlist_item(bvid=RESUMED_BVID, aid=222)]},
         parts_by_bvid={RESUMED_BVID: [make_part_item(cid=4444)]},
     )
     assert main(["fetch-meta", "--archive-root", tmp_root]) == 0
@@ -556,12 +557,13 @@ def test_fetch_meta_failed_page_preserves_cursor_and_resume_succeeds(
         assert not os.path.exists(os.path.join(tmp_root, relative))
 
     # The full call trace: bounded page fetches, one parts and one tag fetch
-    # per new video, the failed resume page, then the successful resume.
+    # per new video, prefix verification failure, then verified resume.
     assert script.calls == [
         "space.arc.search(pn=1, ps=30)",
         "video.get_pages",
         "video.tags",
-        "space.arc.search(pn=2, ps=30)",
+        "space.arc.search(pn=1, ps=30)",
+        "space.arc.search(pn=1, ps=30)",
         "space.arc.search(pn=2, ps=30)",
         "video.get_pages",
         "video.tags",

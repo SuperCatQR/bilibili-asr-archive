@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "编辑系列 CAS、导出绑定与静态消费",
+    "locale": "zh-CN",
+    "output": "docs/sequences/29-publication-series.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "op",
+      "label": "人工编辑",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/publication.py",
+          "line": 1,
+          "end_line": 340,
+          "label": "模块定义"
+        }
+      ]
+    },
+    {
+      "id": "series",
+      "label": "系列策略",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_series.py",
+          "line": 133,
+          "end_line": 164,
+          "label": "edit_series"
+        },
+        {
+          "path": "src/bili_asr/publication_series.py",
+          "line": 174,
+          "end_line": 183,
+          "label": "project_series"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "私有编辑 JS",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_series.py",
+          "line": 48,
+          "end_line": 56,
+          "label": "read_series_with_sha256"
+        }
+      ],
+      "sublabel": "私有编辑 JSON"
+    },
+    {
+      "id": "exporter",
+      "label": "公开或预览导出",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 1,
+          "end_line": 371,
+          "label": "模块定义"
+        }
+      ]
+    },
+    {
+      "id": "site",
+      "label": "静态消费契约",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/contracts/schemas/publication-series.schema.json",
+          "line": 1,
+          "end_line": 154,
+          "label": "模块定义"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "series",
+      "y": 235,
+      "label": "validate/show",
+      "variant": "default",
+      "note": "validate/show；明确系列成员、顺序、证据与 knownMissing；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m2",
+      "to": "files",
+      "y": 301,
+      "label": "严格 UTF-8/重复 key/字段/语义检查",
+      "variant": "default",
+      "note": "严格 UTF-8/重复 key/字段/语义检查；不打开归档 DB；条件：主流程",
+      "from": "series"
+    },
+    {
+      "id": "m3",
+      "to": "series",
+      "y": 367,
+      "label": "edit 完整替换、actor 与 expected…",
+      "variant": "security",
+      "note": "edit 完整替换、actor 与 expected 原文件 SHA 或 new；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m4",
+      "to": "files",
+      "y": 433,
+      "label": "独占文件锁、摘要 CAS、暂存 fsync 与原子替换",
+      "variant": "security",
+      "note": "独占文件锁、摘要 CAS、暂存 fsync 与原子替换；条件：主流程",
+      "from": "series"
+    },
+    {
+      "id": "m5",
+      "to": "op",
+      "y": 499,
+      "label": "新摘要",
+      "variant": "return",
+      "note": "新摘要；替换后同步失败须重新读取现状；条件：主流程",
+      "from": "series"
+    },
+    {
+      "id": "m6",
+      "to": "exporter",
+      "y": 565,
+      "label": "显式 series-file 与 public/dr…",
+      "variant": "default",
+      "note": "显式 series-file 与 public/drafts 范围；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m7",
+      "to": "files",
+      "y": 631,
+      "label": "冻结并校验私有系列源",
+      "variant": "security",
+      "note": "冻结并校验私有系列源；条件：主流程",
+      "from": "exporter"
+    },
+    {
+      "id": "m8",
+      "to": "series",
+      "y": 697,
+      "label": "按导出文章与稿件类型绑定",
+      "variant": "default",
+      "note": "按导出文章与稿件类型绑定；不猜测关系或补成员；条件：主流程",
+      "from": "exporter"
+    },
+    {
+      "id": "m9",
+      "to": "exporter",
+      "y": 763,
+      "label": "series.json",
+      "variant": "return",
+      "note": "series.json；私有证据和操作者不公开；条件：主流程",
+      "from": "series"
+    },
+    {
+      "id": "m10",
+      "to": "site",
+      "y": 829,
+      "label": "manifest 登记准确系列成员、大小和 hash",
+      "variant": "default",
+      "note": "manifest 登记准确系列成员、大小和 hash；条件：主流程",
+      "from": "exporter"
+    },
+    {
+      "id": "m11",
+      "to": "op",
+      "y": 895,
+      "label": "阅读站按契约消费",
+      "variant": "return",
+      "note": "阅读站按契约消费；站点部署属于外部仓库；条件：主流程",
+      "from": "site"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 936,
+      "label": "B1 · 主流程"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "B1 条件路径：主流程"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
+  ]
+}

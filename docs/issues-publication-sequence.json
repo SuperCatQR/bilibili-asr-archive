@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "冻结来源版本、人工审核与混合稿件出口",
+    "locale": "zh-CN",
+    "output": "docs/issues-publication-sequence.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "CLI 操作",
+      "sublabel": "显式审批",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/publication.py",
+          "line": 83,
+          "end_line": 171
+        }
+      ]
+    },
+    {
+      "id": "editorial",
+      "type": "backend",
+      "label": "校对 worker",
+      "sublabel": "lease guard",
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 38,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "repository",
+      "type": "database",
+      "label": "SQLite 仓库",
+      "sublabel": "版本与事实",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 60,
+          "end_line": 130
+        },
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 40,
+          "end_line": 103
+        }
+      ]
+    },
+    {
+      "id": "ai",
+      "type": "external",
+      "label": "DeepSeek",
+      "sublabel": "不可信输出",
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 44,
+          "end_line": 62
+        }
+      ]
+    },
+    {
+      "id": "publisher",
+      "type": "backend",
+      "label": "出版用例",
+      "sublabel": "完整 edition",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 75,
+          "end_line": 189
+        },
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 74,
+          "end_line": 193
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "type": "database",
+      "label": "文件产物",
+      "sublabel": "精确字节",
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 78,
+          "end_line": 100
+        },
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 147,
+          "end_line": 189
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "step-1",
+      "from": "cli",
+      "to": "repository",
+      "y": 180,
+      "label": "准备并登记 input 版本 2",
+      "variant": "emphasis"
+    },
+    {
+      "id": "step-2",
+      "from": "cli",
+      "to": "editorial",
+      "y": 252,
+      "label": "规划并领取 proofread / render",
+      "variant": "default"
+    },
+    {
+      "id": "step-3",
+      "from": "editorial",
+      "to": "repository",
+      "y": 324,
+      "label": "固定 input；复用已完成块",
+      "variant": "default"
+    },
+    {
+      "id": "step-4",
+      "from": "editorial",
+      "to": "ai",
+      "y": 396,
+      "label": "原语言 prompt + 有界 chunk",
+      "variant": "emphasis"
+    },
+    {
+      "id": "step-5",
+      "from": "ai",
+      "to": "editorial",
+      "y": 468,
+      "label": "返回原始 envelope",
+      "variant": "return"
+    },
+    {
+      "id": "step-6",
+      "from": "editorial",
+      "to": "repository",
+      "y": 540,
+      "label": "有效租约下校验并存块 / revision",
+      "variant": "security"
+    },
+    {
+      "id": "step-7",
+      "from": "editorial",
+      "to": "files",
+      "y": 612,
+      "label": "按 input 版本渲染 AI 双稿",
+      "variant": "default"
+    },
+    {
+      "id": "step-8",
+      "from": "editorial",
+      "to": "repository",
+      "y": 684,
+      "label": "同 fence 登记两个不可变文件",
+      "variant": "security"
+    },
+    {
+      "id": "step-9",
+      "from": "cli",
+      "to": "publisher",
+      "y": 756,
+      "label": "人工 create / edit 完整 edition",
+      "variant": "emphasis"
+    },
+    {
+      "id": "step-10",
+      "from": "publisher",
+      "to": "repository",
+      "y": 828,
+      "label": "继承显式版本与冻结 source",
+      "variant": "default"
+    },
+    {
+      "id": "step-11",
+      "from": "cli",
+      "to": "publisher",
+      "y": 900,
+      "label": "review：准确 hash + 预期状态",
+      "variant": "security"
+    },
+    {
+      "id": "step-12",
+      "from": "publisher",
+      "to": "repository",
+      "y": 972,
+      "label": "核验身份后记录 approved",
+      "variant": "security"
+    },
+    {
+      "id": "step-13",
+      "from": "cli",
+      "to": "publisher",
+      "y": 1044,
+      "label": "显式 publish + 预期 release head",
+      "variant": "emphasis"
+    },
+    {
+      "id": "step-14",
+      "from": "publisher",
+      "to": "repository",
+      "y": 1116,
+      "label": "读取批准身份；v1 / v2 分派",
+      "variant": "default"
+    },
+    {
+      "id": "step-15",
+      "from": "publisher",
+      "to": "files",
+      "y": 1188,
+      "label": "写 publish-v1 / publish-v2 字节",
+      "variant": "default"
+    },
+    {
+      "id": "step-16",
+      "from": "publisher",
+      "to": "repository",
+      "y": 1260,
+      "label": "事务复验批准 / hash / head；登记",
+      "variant": "security"
+    },
+    {
+      "id": "step-17",
+      "from": "cli",
+      "to": "publisher",
+      "y": 1332,
+      "label": "导出 public 或独立 draft",
+      "variant": "default"
+    },
+    {
+      "id": "step-18",
+      "from": "publisher",
+      "to": "repository",
+      "y": 1404,
+      "label": "核对 heads、完整 AI 对、旧新版本",
+      "variant": "security"
+    },
+    {
+      "id": "step-19",
+      "from": "publisher",
+      "to": "files",
+      "y": 1476,
+      "label": "staging 校验字节与 manifest 后切换",
+      "variant": "security"
+    },
+    {
+      "id": "step-20",
+      "from": "publisher",
+      "to": "cli",
+      "y": 1548,
+      "label": "返回完整导出结果",
+      "variant": "return"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "版本为数据事实",
+      "items": [
+        "历史 input/content 明确登记版本 1；新 universal input/content 登记版本 2。",
+        "准备输入冻结源 metadata、原语言规则、prompt/config digest 与完整 chunks。",
+        "刷新当前视频信息不会变更冻结 input、人工 edition 或 release。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "审批与出口",
+      "items": [
+        "审核针对 edition 完整内容哈希和预期状态；新修改创建新待审 edition。",
+        "release 校验批准关系、当前 head、文件路径、模板和精确 SHA-256。",
+        "含 v2 的 catalog 为版本 3，可混合旧条目；manifest 仍为版本 1。"
+      ]
+    }
+  ]
+}

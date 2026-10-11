@@ -2305,23 +2305,22 @@ def test_resolve_proxy_without_any_setting_resolves_to_none():
     assert resolve_proxy(None, {"HTTP_PROXY": PROXY_BOUNDARY_VALUE}) is None
 
 
-def test_gateway_applies_the_resolved_proxy_once_before_the_first_call(
+def test_gateway_scopes_proxy_to_the_request_and_restores_the_sdk_setting(
     bilibili_api_seam, empty_proxy_environment
 ):
-    """The proxy reaches the package settings exactly once, at construction."""
+    """Construction does not change the SDK; requests own and restore settings."""
 
     bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
     gateway = _load_gateway(proxy=PROXY_BOUNDARY_VALUE)
 
     assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
-    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+    assert bilibili_api_seam.applied_proxies == []
     assert bilibili_api_seam.calls == []
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=1))
 
     assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
-    # Apply-once: no request re-applies or re-reads the setting.
-    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE, ""]
 
 
 def test_gateway_resolves_the_proxy_from_the_environment_without_an_argument(
@@ -2333,7 +2332,30 @@ def test_gateway_resolves_the_proxy_from_the_environment_without_an_argument(
     gateway = _load_gateway()
 
     assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
-    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+    assert bilibili_api_seam.applied_proxies == []
+
+
+def test_gateway_concurrent_proxy_scopes_restore_global_settings(bilibili_api_seam, empty_proxy_environment):
+    import importlib
+    settings = importlib.import_module("bili_asr.sources.bilibili_api_gateway").request_settings
+    first = _load_gateway(proxy="http://first.example.com:7890")
+    second = _load_gateway(proxy="http://second.example.com:7890")
+
+    async def request(gateway):
+        async def call():
+            observed = settings.get_proxy()
+            await asyncio.sleep(0.01)
+            assert settings.get_proxy() == observed == gateway.resolved_proxy
+            return observed
+        return await gateway._await_upstream("video.get_pages", call)
+
+    async def verify():
+        assert await asyncio.gather(request(first), request(second)) == [first.resolved_proxy, second.resolved_proxy]
+        assert settings.get_proxy() == ""
+    asyncio.run(verify())
+    # A subsequent asyncio.run uses a new event loop with the same gateway.
+    assert asyncio.run(request(second)) == second.resolved_proxy
+    assert settings.get_proxy() == ""
 
 
 def test_gateway_argument_outranks_the_environment(
@@ -2346,7 +2368,7 @@ def test_gateway_argument_outranks_the_environment(
     gateway = _load_gateway(proxy=PROXY_BOUNDARY_VALUE)
 
     assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
-    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+    assert bilibili_api_seam.applied_proxies == []
 
 
 def test_gateway_skips_a_blank_environment_value(
@@ -2359,7 +2381,7 @@ def test_gateway_skips_a_blank_environment_value(
     gateway = _load_gateway()
 
     assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
-    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+    assert bilibili_api_seam.applied_proxies == []
 
 
 def test_gateway_leaves_the_package_setting_untouched_without_a_proxy(
@@ -2687,6 +2709,9 @@ def test_gateway_protocol_surface_is_locked():
         "get_subtitle_tracks": ("self", "bvid", "cid"),
         "validate_subtitle_credentials": ("self",),
         "fetch_subtitle_segments": ("self", "track", "bvid", "cid"),
+        "read_subtitle_body": ("self", "track", "bvid", "cid"),
+        "read_video_tags": ("self", "bvid"),
+        "get_video_metadata": ("self", "bvid"),
     }
 
     declared = {

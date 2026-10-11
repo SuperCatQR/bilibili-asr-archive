@@ -26,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_snapshot_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.archive import add_archive_parser
     add_archive_parser(subparsers)
+    from bili_asr.cli.artifacts import add_artifacts_parser
+    add_artifacts_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    from bili_asr.cli.remote_storage import add_remote_parsers
+    add_remote_parsers(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    from bili_asr.cli.source import add_source_parser
+    add_source_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 
     dedup = subparsers.add_parser("dedup", help="Inspect exact content reuse without changing the archive")
     dedup_actions = dedup.add_subparsers(dest="dedup_action", required=True)
@@ -45,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--start-page", type=int, default=None,
         help="Explicit one-based page; overrides and may rewind the stored cursor",
     )
+    cursor.add_argument("--incremental", action="store_true", help="Discover from page 1; the resume cursor is not an increment watermark")
     fetch_meta.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     fetch_meta.add_argument("--sessdata", default=None)
     fetch_meta.add_argument(
@@ -56,10 +63,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retry rate-control or transport failures up to 5 times with 30/60/120/240/300 second waits",
     )
     fetch_meta.add_argument(
+        "--operation-retries", type=int, default=0,
+        help="Retry necessary detail/parts transport failures up to 5 times within the shared request budget",
+    )
+    fetch_meta.add_argument(
         "--skip-failed-page", action="store_true",
         help="Skip a failed page",
     )
     fetch_meta.epilog = "Start-page selection may move it backwards, including with --skip-failed-page."
+    fetch_meta.add_argument("--refresh-mode", choices=("new", "missing", "stale", "force"), default="force")
+    fetch_meta.add_argument("--ttl-seconds", type=int, default=86400)
+    fetch_meta.add_argument("--bvid", action="append", help="Explicitly refresh archived videos; repeat this flag")
+    fetch_meta.add_argument("--fields", nargs="+", choices=("summary", "details", "parts", "tags"), default=None)
+    fetch_meta.add_argument("--refresh-failed", action="store_true", help="Retry failed operations recorded in an explicit v2 archive")
+    fetch_meta.add_argument("--request-budget", type=int, default=10000, help="Total upstream operation attempts including retries")
+    fetch_meta.add_argument("--request-timeout", type=float, default=30)
+    fetch_meta.add_argument("--run-timeout", type=float, default=14400)
 
     fetch_tags = subparsers.add_parser("fetch-tags", help="Refresh original tags for archived videos")
     fetch_tags.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
@@ -108,7 +127,11 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--with-text", action="store_true")
     export.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
-    subparsers.add_parser("check-asr-env", help="Verify this host can run local ASR")
+    environment = subparsers.add_parser("check-asr-env", help="Inspect ASR deployment or verify the AMD WSL recipe")
+    environment.add_argument("--backend", choices=("amd-wsl", "cuda", "rocm", "hcu"), default="amd-wsl")
+    environment.add_argument("--probe-gpu", action="store_true", help="Explicit bounded tensor probe, no model loading")
+    environment.add_argument("--probe-timeout", type=float, default=20)
+    environment.add_argument("--cache-root", default=None)
 
     from bili_asr.cli.registry import add_policy_arguments
     add_policy_arguments(subparsers)

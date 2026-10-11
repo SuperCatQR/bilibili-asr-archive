@@ -9,6 +9,10 @@ stable shard ownership without a hand-maintained file list.
 from __future__ import annotations
 
 import argparse
+import json
+import os
+from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -38,6 +42,8 @@ def _parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--shard-count", type=int, required=True)
+    parser.add_argument("--contract-baseline-ref", default=os.environ.get("BILI_ASR_CONTRACT_BASELINE_REF"),
+                        help="Compare contracts with this exact Git commit in addition to the frozen baseline")
     parser.add_argument(
         "--coverage",
         action="store_true",
@@ -53,9 +59,32 @@ def _parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list
     return args, pytest_args
 
 
+def _previous_catalog(ref: str | None) -> dict | None:
+    # An initial push has no parent. Every normal CI push/PR uses its real base
+    # commit; missing objects/catalogs fail instead of skipping that comparison.
+    if not ref or ref == "0" * 40:
+        return None
+    if re.fullmatch(r"[0-9a-f]{40,64}", ref) is None:
+        raise ValueError("contract baseline must be a full Git commit SHA")
+    result = subprocess.run(["git", "show", ref + ":docs/contracts/registry.json"],
+                            check=False, capture_output=True, text=True, encoding="utf-8")
+    if result.returncode != 0:
+        raise ValueError("cannot read the required contract baseline commit")
+    return json.loads(result.stdout)
+
+
 def main(argv: list[str] | None = None) -> int:
     args, pytest_args = _parse_args(argv)
     node_ids = _node_ids()
+    from bili_asr.contracts.release_gate import validate_release_collection
+    try:
+        release = validate_release_collection(Path.cwd(), node_ids,
+            previous_catalog=_previous_catalog(args.contract_baseline_ref))
+    except (ValueError, KeyError, TypeError, OSError) as error:
+        print(f"Contract release gate failed: {error}", file=sys.stderr)
+        return 1
+    print(f"Contract release gate: {release['registered_edges']} upgrade edges; "
+          f"{release['frozen_files']} fixed evidence files; {release['baseline_count']} baseline(s)")
     selected = node_ids[args.shard_index :: args.shard_count]
     print(
         f"pytest shard {args.shard_index + 1}/{args.shard_count}: "

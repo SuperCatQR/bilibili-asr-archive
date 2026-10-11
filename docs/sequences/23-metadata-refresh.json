@@ -1,0 +1,574 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "增量发现、字段刷新与失败重放",
+    "locale": "zh-CN",
+    "output": "docs/sequences/23-metadata-refresh.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "CLI",
+      "label": "fetch-m",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/parser.py",
+          "line": 11,
+          "end_line": 138,
+          "label": "build_parser"
+        },
+        {
+          "path": "src/bili_asr/cli/meta.py",
+          "line": 14,
+          "end_line": 104,
+          "label": "_cmd_fetch_meta"
+        }
+      ],
+      "sublabel": "fetch-meta"
+    },
+    {
+      "id": "Service",
+      "label": "Ingesto",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/metadata_ingest.py",
+          "line": 243,
+          "end_line": 251,
+          "label": "MetadataIngestor.replay_page"
+        },
+        {
+          "path": "src/bili_asr/services/metadata_refresh.py",
+          "line": 31,
+          "end_line": 53,
+          "label": "MetadataRefreshService.refresh"
+        },
+        {
+          "path": "src/bili_asr/services/metadata_refresh.py",
+          "line": 165,
+          "end_line": 186,
+          "label": "MetadataRefreshService._needs_read"
+        }
+      ],
+      "sublabel": "Ingestor /"
+    },
+    {
+      "id": "Policy",
+      "label": "Metadat",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/metadata_policy.py",
+          "line": 8,
+          "end_line": 28,
+          "label": "MetadataRefreshPolicy"
+        }
+      ],
+      "sublabel": "MetadataRe"
+    },
+    {
+      "id": "Gateway",
+      "label": "Bilibil",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 915,
+          "end_line": 948,
+          "label": "BilibiliApiGateway.get_video_metadata"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 956,
+          "end_line": 1026,
+          "label": "BilibiliApiGateway.read_video_tags"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 1276,
+          "end_line": 1295,
+          "label": "BilibiliApiGateway._await_upstream"
+        }
+      ],
+      "sublabel": "Bilibili g"
+    },
+    {
+      "id": "Budget",
+      "label": "Request",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/request_budget.py",
+          "line": 14,
+          "end_line": 79,
+          "label": "RequestScheduler"
+        }
+      ],
+      "sublabel": "RequestSch"
+    },
+    {
+      "id": "Repo",
+      "label": "Metadat",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 412,
+          "end_line": 431,
+          "label": "MetadataRepository.observe_video_details"
+        },
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 592,
+          "end_line": 734,
+          "label": "MetadataRepository.record_page"
+        },
+        {
+          "path": "src/bili_asr/storage/schema-observations.sql",
+          "line": 1,
+          "end_line": 22,
+          "label": "模块定义"
+        }
+      ],
+      "sublabel": "MetadataRe"
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "Service",
+      "y": 235,
+      "label": "--incremental 或 --resume/-…",
+      "variant": "default",
+      "note": "--incremental 或 --resume/--start-page；条件：alt 分页发现或恢复",
+      "from": "CLI"
+    },
+    {
+      "id": "m2",
+      "to": "Repo",
+      "y": 301,
+      "label": "读取已存扫描游标",
+      "variant": "default",
+      "note": "读取已存扫描游标；建立缺失用户和 run；条件：alt 分页发现或恢复",
+      "from": "Service"
+    },
+    {
+      "id": "m3",
+      "to": "Gateway",
+      "y": 367,
+      "label": "请求当前视频列表页",
+      "variant": "default",
+      "note": "请求当前视频列表页；条件：alt 分页发现或恢复",
+      "from": "Service"
+    },
+    {
+      "id": "m4",
+      "to": "Budget",
+      "y": 433,
+      "label": "shared run(operation, scop…",
+      "variant": "default",
+      "note": "shared run(operation, scoped_call)；条件：alt 分页发现或恢复",
+      "from": "Gateway"
+    },
+    {
+      "id": "m5",
+      "to": "Gateway",
+      "y": 499,
+      "label": "计数、总 deadline、单次 timeout、p…",
+      "variant": "default",
+      "note": "计数、总 deadline、单次 timeout、pacing/cooldown 后调用；条件：alt 分页发现或恢复",
+      "from": "Budget"
+    },
+    {
+      "id": "m6",
+      "to": "Service",
+      "y": 565,
+      "label": "校验后的 VideoSummary 集合",
+      "variant": "return",
+      "note": "校验后的 VideoSummary 集合；条件：alt 分页发现或恢复",
+      "from": "Gateway"
+    },
+    {
+      "id": "m7",
+      "to": "Repo",
+      "y": 631,
+      "label": "集合读取当前 aid、parts、tags 成功状态…",
+      "variant": "default",
+      "note": "集合读取当前 aid、parts、tags 成功状态与时间；条件：alt 分页发现或恢复",
+      "from": "Service"
+    },
+    {
+      "id": "m8",
+      "to": "Policy",
+      "y": 697,
+      "label": "new/missing/stale/force 决定…",
+      "variant": "default",
+      "note": "new/missing/stale/force 决定 expensive 操作；条件：alt 分页发现或恢复",
+      "from": "Service"
+    },
+    {
+      "id": "m9",
+      "to": "Service",
+      "y": 763,
+      "label": "读取或复用",
+      "variant": "return",
+      "note": "读取或复用；发现页不被省略；条件：alt 分页发现或恢复",
+      "from": "Policy"
+    },
+    {
+      "id": "m10",
+      "to": "Gateway",
+      "y": 894,
+      "label": "必要时补 detail/parts",
+      "variant": "default",
+      "note": "必要时补 detail/parts；tags 返回本次 typed TagRead；条件：alt 分页发现或恢复 / loop 每 distinct BVID",
+      "from": "Service"
+    },
+    {
+      "id": "m11",
+      "to": "Budget",
+      "y": 960,
+      "label": "消耗同一预算",
+      "variant": "default",
+      "note": "消耗同一预算；retry/backoff 不绕过冷却；条件：alt 分页发现或恢复 / loop 每 distinct BVID",
+      "from": "Gateway"
+    },
+    {
+      "id": "m12",
+      "to": "Service",
+      "y": 1026,
+      "label": "DTO 或有界错误",
+      "variant": "return",
+      "note": "DTO 或有界错误；成功 view pages 可复用；条件：alt 分页发现或恢复 / loop 每 distinct BVID",
+      "from": "Gateway"
+    },
+    {
+      "id": "m13",
+      "to": "Repo",
+      "y": 1157,
+      "label": "一个页事务",
+      "variant": "default",
+      "note": "一个页事务：用户、视频、parts、详情、tags、discovery、cursor、page；条件：alt 分页发现或恢复 / alt 本页必要 fan-out 与身份校验通过",
+      "from": "Service"
+    },
+    {
+      "id": "m14",
+      "to": "Service",
+      "y": 1223,
+      "label": "全部提交",
+      "variant": "return",
+      "note": "全部提交；空页 complete，上限 limited；条件：alt 分页发现或恢复 / alt 本页必要 fan-out 与身份校验通过",
+      "from": "Repo"
+    },
+    {
+      "id": "m15",
+      "to": "Repo",
+      "y": 1354,
+      "label": "v2 另记失败 operation 的安全 mid/…",
+      "variant": "default",
+      "note": "v2 另记失败 operation 的安全 mid/page；条件：alt 分页发现或恢复 / else gateway、CID 或 topology 失败",
+      "from": "Service"
+    },
+    {
+      "id": "m16",
+      "to": "Repo",
+      "y": 1420,
+      "label": "failed/risk_interrupted pa…",
+      "variant": "default",
+      "note": "failed/risk_interrupted page 与 run；该页无实体载荷；条件：alt 分页发现或恢复 / else gateway、CID 或 topology 失败",
+      "from": "Service"
+    },
+    {
+      "id": "m17",
+      "to": "Service",
+      "y": 1486,
+      "label": "已成功页保留",
+      "variant": "return",
+      "note": "已成功页保留；默认 cursor 不前移；条件：alt 分页发现或恢复 / else gateway、CID 或 topology 失败",
+      "from": "Repo"
+    },
+    {
+      "id": "m18",
+      "to": "Service",
+      "y": 1617,
+      "label": "--bvid ... --fields summar…",
+      "variant": "default",
+      "note": "--bvid ... --fields summary details parts tags；可选 TTL/mode；条件：else 定向刷新归档视频",
+      "from": "CLI"
+    },
+    {
+      "id": "m19",
+      "to": "Repo",
+      "y": 1683,
+      "label": "在网络读取前校验全部 BVID 已归档",
+      "variant": "security",
+      "note": "在网络读取前校验全部 BVID 已归档；条件：else 定向刷新归档视频",
+      "from": "Service"
+    },
+    {
+      "id": "m20",
+      "to": "Repo",
+      "y": 1814,
+      "label": "读取成功观察与时间",
+      "variant": "default",
+      "note": "读取成功观察与时间；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation",
+      "from": "Service"
+    },
+    {
+      "id": "m21",
+      "to": "Policy",
+      "y": 1880,
+      "label": "判断缺失或成功观察过期",
+      "variant": "default",
+      "note": "判断缺失或成功观察过期；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation",
+      "from": "Service"
+    },
+    {
+      "id": "m22",
+      "to": "Service",
+      "y": 1946,
+      "label": "reused 或读取",
+      "variant": "return",
+      "note": "reused 或读取；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation",
+      "from": "Policy"
+    },
+    {
+      "id": "m23",
+      "to": "Gateway",
+      "y": 2012,
+      "label": "summary/details 共用一次 view",
+      "variant": "security",
+      "note": "summary/details 共用一次 view；parts 复用已校验 pages；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation",
+      "from": "Service"
+    },
+    {
+      "id": "m24",
+      "to": "Budget",
+      "y": 2078,
+      "label": "同一个协调器计数与 deadline",
+      "variant": "default",
+      "note": "同一个协调器计数与 deadline；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation",
+      "from": "Gateway"
+    },
+    {
+      "id": "m25",
+      "to": "Service",
+      "y": 2144,
+      "label": "present/empty/missing/unav…",
+      "variant": "return",
+      "note": "present/empty/missing/unavailable/denied 字段；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation",
+      "from": "Gateway"
+    },
+    {
+      "id": "m26",
+      "to": "Repo",
+      "y": 2275,
+      "label": "独立事务更新已观察字段与 last-success，…",
+      "variant": "default",
+      "note": "独立事务更新已观察字段与 last-success，追加 attempt；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation / alt operation 成功",
+      "from": "Service"
+    },
+    {
+      "id": "m27",
+      "to": "Repo",
+      "y": 2406,
+      "label": "保留最后成功事实",
+      "variant": "default",
+      "note": "保留最后成功事实；记 unavailable/denied attempt；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation / else operation 失败",
+      "from": "Service"
+    },
+    {
+      "id": "m28",
+      "to": "CLI",
+      "y": 2537,
+      "label": "operation/state/error_code",
+      "variant": "return",
+      "note": "operation/state/error_code；分页 cursor 不变；条件：else 定向刷新归档视频",
+      "from": "Service"
+    },
+    {
+      "id": "m29",
+      "to": "Service",
+      "y": 2668,
+      "label": "从最新 operation attempt 选择失败",
+      "variant": "default",
+      "note": "从最新 operation attempt 选择失败；条件：opt 显式 --refresh-failed（仅 universal-v2）",
+      "from": "CLI"
+    },
+    {
+      "id": "m30",
+      "to": "Repo",
+      "y": 2734,
+      "label": "读取失败 BVID/operation 与安全上下文",
+      "variant": "default",
+      "note": "读取失败 BVID/operation 与安全上下文；条件：opt 显式 --refresh-failed（仅 universal-v2）",
+      "from": "Service"
+    },
+    {
+      "id": "m31",
+      "to": "Gateway",
+      "y": 2865,
+      "label": "仅重抓失败 operation，成功追加结果",
+      "variant": "default",
+      "note": "仅重抓失败 operation，成功追加结果；条件：opt 显式 --refresh-failed（仅 universal-v2） / alt 视频已经归档",
+      "from": "Service"
+    },
+    {
+      "id": "m32",
+      "to": "Gateway",
+      "y": 2996,
+      "label": "重新读取原页面及必要 fan-out",
+      "variant": "default",
+      "note": "重新读取原页面及必要 fan-out；条件：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存",
+      "from": "Service"
+    },
+    {
+      "id": "m33",
+      "to": "Repo",
+      "y": 3062,
+      "label": "原子补回实体",
+      "variant": "default",
+      "note": "原子补回实体；不回退已经更后的 cursor；条件：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存",
+      "from": "Service"
+    },
+    {
+      "id": "m34",
+      "to": "Repo",
+      "y": 3193,
+      "label": "保留 metadata_retry_context_…",
+      "variant": "default",
+      "note": "保留 metadata_retry_context_changed；条件：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存 / alt 源页变动，原 BV 不在该页",
+      "from": "Service"
+    },
+    {
+      "id": "m35",
+      "to": "CLI",
+      "y": 3324,
+      "label": "当前恢复结果与 request metrics",
+      "variant": "return",
+      "note": "当前恢复结果与 request metrics；条件：opt 显式 --refresh-failed（仅 universal-v2）",
+      "from": "Service"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 809,
+      "label": "B1 · alt 分页发现或恢复"
+    },
+    {
+      "from": 866,
+      "to": 1072,
+      "label": "B2 · loop 每 distinct BVID"
+    },
+    {
+      "from": 1129,
+      "to": 1269,
+      "label": "B3 · alt 本页必要 fan-out 与身份校验通过"
+    },
+    {
+      "from": 1326,
+      "to": 1532,
+      "label": "B4 · else gateway、CID 或 topology"
+    },
+    {
+      "from": 1589,
+      "to": 1729,
+      "label": "B5 · else 定向刷新归档视频"
+    },
+    {
+      "from": 1786,
+      "to": 2190,
+      "label": "B6 · loop 选中 BVID 与 operation"
+    },
+    {
+      "from": 2247,
+      "to": 2321,
+      "label": "B7 · alt operation 成功"
+    },
+    {
+      "from": 2378,
+      "to": 2452,
+      "label": "B8 · else operation 失败"
+    },
+    {
+      "from": 2509,
+      "to": 2583,
+      "label": "B9 · else 定向刷新归档视频"
+    },
+    {
+      "from": 2640,
+      "to": 2780,
+      "label": "B10 · opt 显式 --refresh-failed（仅 u"
+    },
+    {
+      "from": 2837,
+      "to": 2911,
+      "label": "B11 · alt 视频已经归档"
+    },
+    {
+      "from": 2968,
+      "to": 3108,
+      "label": "B12 · else 首次发现的视频尚未保存"
+    },
+    {
+      "from": 3165,
+      "to": 3239,
+      "label": "B13 · alt 源页变动，原 BV 不在该页"
+    },
+    {
+      "from": 3296,
+      "to": 3365,
+      "label": "B14 · opt 显式 --refresh-failed（仅 u"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "B1 条件路径：alt 分页发现或恢复",
+        "B2 条件路径：alt 分页发现或恢复 / loop 每 distinct BVID",
+        "B3 条件路径：alt 分页发现或恢复 / alt 本页必要 fan-out 与身份校验通过",
+        "B4 条件路径：alt 分页发现或恢复 / else gateway、CID 或 topology 失败",
+        "B5 条件路径：else 定向刷新归档视频",
+        "B6 条件路径：else 定向刷新归档视频 / loop 选中 BVID 与 operation",
+        "B7 条件路径：else 定向刷新归档视频 / loop 选中 BVID 与 operation / alt operation 成功",
+        "B8 条件路径：else 定向刷新归档视频 / loop 选中 BVID 与 operation / else operation 失败",
+        "B9 条件路径：else 定向刷新归档视频",
+        "B10 条件路径：opt 显式 --refresh-failed（仅 universal-v2）",
+        "B11 条件路径：opt 显式 --refresh-failed（仅 universal-v2） / alt 视频已经归档",
+        "B12 条件路径：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存",
+        "B13 条件路径：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存 / alt 源页变动，原 BV 不在该页",
+        "B14 条件路径：opt 显式 --refresh-failed（仅 universal-v2）"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "内部动作",
+      "items": [
+        "Ingestor / RefreshService：强制第 1 页，重新观察 head（alt 分页发现或恢复 / alt incremental）",
+        "Ingestor / RefreshService：显式 start-page 优先，否则存储 next_page，否则第 1 页（alt 分页发现或恢复 / else 恢复或显式起点）",
+        "Ingestor / RefreshService：用持久 mid/page 重放整页，同页去重（opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存）"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
+  ]
+}

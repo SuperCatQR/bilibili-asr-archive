@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -22,30 +22,31 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 147,
-          "end_line": 271,
+          "line": 245,
+          "end_line": 426,
           "label": "_execute_workflow"
         }
       ]
     },
     {
       "id": "app",
-      "label": "工作流用例",
+      "label": "WorkflowAp",
       "type": "backend",
       "sources": [
         {
           "path": "src/bili_asr/services/workflow_application.py",
-          "line": 33,
-          "end_line": 41,
+          "line": 42,
+          "end_line": 50,
           "label": "WorkflowApplication.plan"
         },
         {
           "path": "src/bili_asr/services/workflow_application.py",
-          "line": 43,
-          "end_line": 55,
+          "line": 52,
+          "end_line": 71,
           "label": "WorkflowApplication.publish"
         }
-      ]
+      ],
+      "sublabel": "WorkflowApplication"
     },
     {
       "id": "selector",
@@ -54,15 +55,15 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow_selection.py",
-          "line": 47,
-          "end_line": 136,
+          "line": 56,
+          "end_line": 145,
           "label": "resolve_workflow_selection"
         }
       ]
     },
     {
       "id": "repo",
-      "label": "原子持久化",
+      "label": "持久化仓库",
       "type": "backend",
       "sources": [
         {
@@ -74,7 +75,7 @@
         {
           "path": "src/bili_asr/storage/workflow.py",
           "line": 181,
-          "end_line": 193,
+          "end_line": 227,
           "label": "WorkflowRepository._enqueue_specs"
         }
       ]
@@ -100,7 +101,7 @@
     },
     {
       "id": "db",
-      "label": "控制与事实表",
+      "label": "SQLite 控制与",
       "type": "database",
       "sources": [
         {
@@ -115,207 +116,246 @@
           "end_line": 120,
           "label": "WorkflowRepository._register_profile"
         }
-      ]
+      ],
+      "sublabel": "SQLite 控制与事实表"
     }
   ],
   "messages": [
     {
       "id": "m1",
-      "from": "cli",
       "to": "app",
-      "y": 180,
-      "label": "选择器、profile 与策略",
-      "variant": "default"
+      "y": 235,
+      "label": "选择器、AsrProfile、ASR policy、…",
+      "variant": "default",
+      "note": "选择器、AsrProfile、ASR policy、editorial 配置；条件：主流程",
+      "from": "cli"
     },
     {
       "id": "m2",
-      "from": "app",
       "to": "selector",
-      "y": 228,
-      "label": "解析全部显式目标",
-      "variant": "default"
+      "y": 301,
+      "label": "part IDs 或 BVID 与从 0 开始的 p…",
+      "variant": "default",
+      "note": "part IDs 或 BVID 与从 0 开始的 page-index；条件：主流程",
+      "from": "app"
     },
     {
       "id": "m3",
-      "from": "selector",
       "to": "db",
-      "y": 276,
-      "label": "批量验证身份与 gone",
-      "variant": "default"
+      "y": 367,
+      "label": "批量验证显式目标，BVID 全选排除 gone",
+      "variant": "default",
+      "note": "批量验证显式目标，BVID 全选排除 gone；条件：主流程",
+      "from": "selector"
     },
     {
       "id": "m4",
-      "from": "selector",
       "to": "cli",
-      "y": 352,
-      "label": "无效：完整拒绝",
-      "variant": "return"
+      "y": 498,
+      "label": "拒绝完整请求，不保存 profile 或任务",
+      "variant": "return",
+      "note": "拒绝完整请求，不保存 profile 或任务；条件：alt 存在 unknown、gone 或选择器错误",
+      "from": "selector"
     },
     {
       "id": "m5",
-      "from": "selector",
       "to": "app",
-      "y": 456,
-      "label": "有效：返回完整目标",
-      "variant": "return"
+      "y": 629,
+      "label": "targets 与 excluded_gone",
+      "variant": "return",
+      "note": "targets 与 excluded_gone；条件：else 目标有效",
+      "from": "selector"
     },
     {
       "id": "m6",
-      "from": "app",
       "to": "repo",
-      "y": 504,
+      "y": 695,
       "label": "plan_with_profile",
-      "variant": "emphasis"
+      "variant": "default",
+      "note": "plan_with_profile；条件：else 目标有效",
+      "from": "app"
     },
     {
       "id": "m7",
-      "from": "repo",
       "to": "db",
-      "y": 552,
+      "y": 761,
       "label": "BEGIN IMMEDIATE",
-      "variant": "security"
+      "variant": "default",
+      "note": "BEGIN IMMEDIATE；冻结完整 profile 或复用 digest；条件：else 目标有效",
+      "from": "repo"
     },
     {
       "id": "m8",
-      "from": "repo",
       "to": "db",
-      "y": 600,
-      "label": "冻结 profile 与读取事实",
-      "variant": "default"
+      "y": 827,
+      "label": "每 500 part 读取活跃身份、最新质量和字幕版本",
+      "variant": "default",
+      "note": "每 500 part 读取活跃身份、最新质量和字幕版本；条件：else 目标有效",
+      "from": "repo"
     },
     {
       "id": "m9",
-      "from": "repo",
       "to": "planner",
-      "y": 648,
-      "label": "profile digest 与 PlanningPart",
-      "variant": "default"
+      "y": 893,
+      "label": "PlanningPart、profile diges…",
+      "variant": "default",
+      "note": "PlanningPart、profile digest、阈值、校对配置；条件：else 目标有效",
+      "from": "repo"
     },
     {
       "id": "m10",
-      "from": "planner",
       "to": "repo",
-      "y": 696,
-      "label": "字幕及条件 ASR 依赖图",
-      "variant": "return"
+      "y": 959,
+      "label": "有序 JobSpec DAG，不访问 SQLite、…",
+      "variant": "return",
+      "note": "有序 JobSpec DAG，不访问 SQLite、网络或模型；条件：else 目标有效",
+      "from": "planner"
     },
     {
       "id": "m11",
-      "from": "repo",
       "to": "db",
-      "y": 744,
-      "label": "解析 UUID 并去重入队",
-      "variant": "default"
+      "y": 1025,
+      "label": "解析实际 UUID",
+      "variant": "default",
+      "note": "解析实际 UUID；去重写 jobs 与 dependencies；条件：else 目标有效",
+      "from": "repo"
     },
     {
       "id": "m12",
-      "from": "repo",
       "to": "db",
-      "y": 848,
-      "label": "失败：全部 ROLLBACK",
-      "variant": "security"
+      "y": 1156,
+      "label": "ROLLBACK profile、profile c…",
+      "variant": "default",
+      "note": "ROLLBACK profile、profile config、全部任务和边；条件：else 目标有效 / alt 配置、事实或写入失败",
+      "from": "repo"
     },
     {
       "id": "m13",
-      "from": "repo",
       "to": "db",
-      "y": 952,
-      "label": "成功：全部 COMMIT",
-      "variant": "emphasis"
+      "y": 1287,
+      "label": "COMMIT",
+      "variant": "default",
+      "note": "COMMIT；条件：else 目标有效 / else 完整成功",
+      "from": "repo"
     },
     {
       "id": "m14",
-      "from": "repo",
       "to": "app",
-      "y": 1000,
-      "label": "profile 与任务计数",
-      "variant": "return"
+      "y": 1353,
+      "label": "profile ID 与任务计数",
+      "variant": "return",
+      "note": "profile ID 与任务计数；条件：else 目标有效 / else 完整成功",
+      "from": "repo"
     },
     {
       "id": "m15",
-      "from": "app",
       "to": "cli",
-      "y": 1048,
-      "label": "返回 targets 与排除项",
-      "variant": "return"
+      "y": 1419,
+      "label": "输出目标与排除项",
+      "variant": "return",
+      "note": "输出目标与排除项；条件：else 目标有效 / else 完整成功",
+      "from": "app"
     },
     {
       "id": "m16",
-      "from": "cli",
       "to": "app",
-      "y": 1152,
-      "label": "显式批量 publish",
-      "variant": "default"
+      "y": 1550,
+      "label": "批量 part IDs",
+      "variant": "default",
+      "note": "批量 part IDs；条件：opt workflow publish 显式重新发布",
+      "from": "cli"
     },
     {
       "id": "m17",
-      "from": "app",
       "to": "db",
-      "y": 1200,
+      "y": 1616,
       "label": "全集验证与统一择优",
-      "variant": "default"
+      "variant": "default",
+      "note": "全集验证与统一择优；条件：opt workflow publish 显式重新发布",
+      "from": "app"
     },
     {
       "id": "m18",
-      "from": "app",
       "to": "repo",
-      "y": 1248,
-      "label": "同一事务 enqueue 请求",
-      "variant": "default"
+      "y": 1682,
+      "label": "同一写事务 enqueue 全部请求",
+      "variant": "default",
+      "note": "同一写事务 enqueue 全部请求；条件：opt workflow publish 显式重新发布",
+      "from": "app"
     },
     {
       "id": "m19",
-      "from": "repo",
       "to": "db",
-      "y": 1296,
-      "label": "running 更新，取消不复活",
-      "variant": "security"
+      "y": 1748,
+      "label": "running 更新",
+      "variant": "default",
+      "note": "running 更新；cancelled 保持终态；其余重新排队；条件：opt workflow publish 显式重新发布",
+      "from": "repo"
     }
   ],
   "segments": [
     {
-      "from": 320,
-      "to": 376,
-      "label": "B01 alt 任一目标无效：不保存 profile 或任务"
+      "from": 207,
+      "to": 413,
+      "label": "B1 · 主流程"
     },
     {
-      "from": 420,
-      "to": 768,
-      "label": "B02 else 有效：重新检查事实与持久化完整 DAG"
+      "from": 470,
+      "to": 544,
+      "label": "B2 · alt 存在 unknown、gone 或选择器错误"
     },
     {
-      "from": 812,
-      "to": 872,
-      "label": "B03 alt 规则或写入失败：回滚全部"
+      "from": 601,
+      "to": 1071,
+      "label": "B3 · else 目标有效"
     },
     {
-      "from": 916,
-      "to": 1072,
-      "label": "B04 else 成功：提交后返回"
+      "from": 1128,
+      "to": 1202,
+      "label": "B4 · alt 配置、事实或写入失败"
     },
     {
-      "from": 1116,
-      "to": 1320,
-      "label": "B05 opt 显式 publish：完整批次共同提交"
+      "from": 1259,
+      "to": 1465,
+      "label": "B5 · else 完整成功"
+    },
+    {
+      "from": 1522,
+      "to": 1789,
+      "label": "B6 · opt workflow publish 显式重新发布"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "纯规则与冻结身份",
+      "title": "完整条件路径",
       "items": [
-        "每个 part 有独立 subtitle；all/selected 或最新已存质量低于阈值才生成 audio → ASR。ASR 不依赖字幕。",
-        "可选 proofread 依赖 ASR；render_document 依赖 proofread。JobSpec 先用逻辑键，存储再解析实际 UUID。",
-        "参考字幕复用 transcript_selection；profile、editorial 和原 dedupe 身份保持既有算法。"
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt 存在 unknown、gone 或选择器错误",
+        "B3 条件路径：else 目标有效",
+        "B4 条件路径：else 目标有效 / alt 配置、事实或写入失败",
+        "B5 条件路径：else 目标有效 / else 完整成功",
+        "B6 条件路径：opt workflow publish 显式重新发布"
       ]
     },
     {
       "dot": "emerald",
-      "title": "事务、解码与恢复",
+      "title": "内部动作",
       "items": [
-        "profile、profile config、全部 jobs 和 dependencies 同一事务提交；配置无效、gone 变化或写入失败全部回滚。",
-        "新载荷 schema_version=1；未标版本的历史载荷按 v1 验证。错误版本/part/profile/类型不能认领或提交产物。",
-        "重放不复活 cancelled；index kind 是保留能力，当前 CLI 与 handler 没有自动 index。"
+        "纯规划策略：校验配置并使用已冻结参考字幕（else 目标有效）",
+        "纯规划策略：独立 subtitle JobSpec（else 目标有效 / loop 每个选中分 P）",
+        "纯规划策略：audio 与 ASR；ASR 只依赖 audio（else 目标有效 / loop 每个选中分 P / alt all/selected 或最新已存 score 小于阈值）",
+        "纯规划策略：proofread 依赖 ASR；render 依赖 proofread（else 目标有效 / loop 每个选中分 P / alt all/selected 或最新已存 score 小于阈值 / opt 自动校对）",
+        "纯规划策略：保留 subtitle，跳过 audio/ASR/自动校对（else 目标有效 / loop 每个选中分 P / else 质量未知或已经达标）"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]

@@ -7,9 +7,13 @@ import bili_asr.storage.database as _module_storage_database
 
 from contextlib import contextmanager
 import sqlite3
+from bili_asr.platform_identity import ContentRef
+from bili_asr.source_metadata import SourceMetadataSnapshot
+from bili_asr.metadata_policy import MetadataFieldObservation
+import json
+from uuid import uuid4
 from typing import Iterable, Iterator, Mapping
 from bili_asr.storage.models import CursorRecord, DiscoveryRecord, IngestionPageRecord, IngestionRunRecord, UserRecord, VideoDetailRecord, VideoPartRecord, VideoRecord, VideoTagRecord, _text
-import bili_asr.storage.database as _dependency_database
 
 
 class MetadataRepository:
@@ -99,7 +103,7 @@ class MetadataRepository:
             (user.mid, user.display_name, user.created_at, user.updated_at),
         )
 
-    def upsert_video(self, video: VideoRecord) -> None:
+    def upsert_video(self, video: VideoRecord, *, refresh_pubdate: bool = False) -> None:
         """Insert or update a video's current canonical display fields.
 
         The stored ``aid`` is a stable identifier: the first non-``None``
@@ -116,6 +120,8 @@ class MetadataRepository:
             ON CONFLICT(bvid) DO UPDATE SET
                 aid = COALESCE(videos.aid, excluded.aid),
                 title = excluded.title,
+                pubdate = CASE WHEN excluded.pubdate > 0 AND (videos.pubdate = 0 OR ?)
+                               THEN excluded.pubdate ELSE videos.pubdate END,
                 updated_at = excluded.updated_at
             """,
             (
@@ -126,8 +132,157 @@ class MetadataRepository:
                 video.pubdate,
                 video.created_at,
                 video.updated_at,
+                int(refresh_pubdate),
             ),
         )
+
+    def read_source_metadata(self, video_part_id: int) -> SourceMetadataSnapshot:
+        """Read one frozen-input candidate without modifying the archive."""
+        if self.observations_supported():
+            from bili_asr.storage.sources import SourceRepository
+            part = SourceRepository(self.connection).part(video_part_id)
+            if part["platform"] != "bilibili":
+                return SourceMetadataSnapshot(
+                    part["content_ref"], part["video_title"], part["creator_external_id"],
+                    part["creator_name"], part["pubdate"], part["observed_at"],
+                    part_title=part["title"], duration_ms=part["duration_ms"],
+                )
+        row = self.connection.execute(
+            """SELECT p.bvid, p.page_index, p.title AS part_title, p.duration_ms,
+                      v.title, v.mid, v.aid, v.pubdate, v.updated_at,
+                      u.display_name, d.pic, d."desc", d.tid
+               FROM video_parts p JOIN videos v ON v.bvid=p.bvid
+               JOIN bilibili_users u ON u.mid=v.mid
+               LEFT JOIN video_details d ON d.bvid=v.bvid
+               WHERE p.video_part_id=?""", (video_part_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("source metadata part is not archived")
+        tags = tuple(dict.fromkeys(item[0] for item in self.connection.execute(
+            "SELECT tag_name FROM video_tags WHERE bvid=? ORDER BY tag_id", (row["bvid"],))))
+        return SourceMetadataSnapshot(
+            ContentRef("bilibili", row["bvid"], row["page_index"]), row["title"],
+            str(row["mid"]), row["display_name"], row["pubdate"], row["updated_at"],
+            row["desc"], row["pic"], row["tid"], tags, row["aid"], row["part_title"], row["duration_ms"],
+        )
+
+    def read_source_metadata_many(
+        self, video_part_ids: Iterable[int],
+    ) -> dict[int, SourceMetadataSnapshot]:
+        """Read frozen-input candidates with bounded set queries."""
+        return self._read_source_metadata_batch(video_part_ids)[0]
+
+    def read_source_metadata_export_many(
+        self, video_part_ids: Iterable[int], *, include_source_metadata: bool = True,
+    ) -> dict[int, dict[str, object]]:
+        """Read current source facts, with field-specific collection semantics.
+
+        The flat fields are export projections, not additions to the frozen
+        source-metadata-v1 codec. In particular details collection time does
+        not claim that uploader names or retained tags were observed then.
+        """
+        snapshots, fields = self._read_source_metadata_batch(
+            video_part_ids, include_source_metadata=include_source_metadata, include_export_facts=True,
+        )
+        return {part_id: {**values, **({"sourceMetadata": snapshots[part_id].to_dict()}
+                                     if include_source_metadata else {})}
+                for part_id, values in fields.items()}
+
+    def _read_source_metadata_batch(
+        self, video_part_ids: Iterable[int], *, include_source_metadata: bool = True,
+        include_export_facts: bool = False,
+    ) -> tuple[dict[int, SourceMetadataSnapshot], dict[int, dict[str, object]]]:
+        """Read at most 256 parts with set queries and no archive mutation.
+
+        The caller owns any encompassing read snapshot. Bilibili tags and
+        details retain their provider facts, while another platform never
+        acquires synthetic Bilibili identifiers or metadata. Missing IDs fail
+        the entire read rather than returning a silently incomplete mapping.
+        """
+        part_ids: list[int] = []
+        seen: set[int] = set()
+        for offset, part_id in enumerate(video_part_ids):
+            if offset >= 256:
+                raise ValueError("source metadata read is limited to 256 part IDs")
+            if type(part_id) is not int or part_id < 1:
+                raise ValueError("source metadata part IDs must be positive integers")
+            if part_id not in seen:
+                seen.add(part_id)
+                part_ids.append(part_id)
+        if not part_ids:
+            return {}, {}
+        marks = ",".join("?" for _ in part_ids)
+        if self.observations_supported():
+            query = f"""SELECT s.video_part_id,s.platform,s.external_video_id,s.page_index,
+                        s.title AS part_title,s.duration_ms,
+                        CASE WHEN s.platform='bilibili' THEN v.title ELSE s.video_title END AS title,
+                        CASE WHEN s.platform='bilibili' THEN CAST(v.mid AS TEXT)
+                             ELSE s.creator_external_id END AS creator_id,
+                        CASE WHEN s.platform='bilibili' THEN u.display_name
+                             ELSE s.creator_name END AS creator_name,
+                        CASE WHEN s.platform='bilibili' THEN v.pubdate ELSE s.pubdate END AS pubdate,
+                        CASE WHEN s.platform='bilibili' THEN v.updated_at ELSE s.observed_at END AS observed_at,
+                        d.pic,d."desc",d.tid,v.aid,v.mid,d.observed_at AS details_observed_at
+                 FROM v_source_parts s
+                 LEFT JOIN videos v ON s.platform='bilibili' AND v.bvid=s.external_video_id
+                 LEFT JOIN bilibili_users u ON u.mid=v.mid
+                 LEFT JOIN video_details d ON d.bvid=v.bvid
+                 WHERE s.video_part_id IN ({marks})"""
+        else:
+            query = f"""SELECT p.video_part_id,'bilibili' AS platform,
+                        p.bvid AS external_video_id,p.page_index,p.title AS part_title,p.duration_ms,
+                        v.title,CAST(v.mid AS TEXT) AS creator_id,u.display_name AS creator_name,
+                        v.pubdate,v.updated_at AS observed_at,d.pic,d."desc",d.tid,v.aid,
+                        v.mid,d.observed_at AS details_observed_at
+                 FROM video_parts p JOIN videos v ON v.bvid=p.bvid
+                 JOIN bilibili_users u ON u.mid=v.mid
+                 LEFT JOIN video_details d ON d.bvid=v.bvid
+                 WHERE p.video_part_id IN ({marks})"""
+        rows = self.connection.execute(query, part_ids).fetchall()
+        if {int(row["video_part_id"]) for row in rows} != seen:
+            raise ValueError("source metadata part is not archived")
+        bvids = tuple(dict.fromkeys(row["external_video_id"] for row in rows if row["platform"] == "bilibili"))
+        tags: dict[str, list[str]] = {}
+        tag_states: dict[str, str] = {}
+        if bvids:
+            tag_marks = ",".join("?" for _ in bvids)
+            for tag in self.connection.execute(
+                f"SELECT bvid,tag_name FROM video_tags WHERE bvid IN ({tag_marks}) ORDER BY bvid,tag_id", bvids,
+            ):
+                values = tags.setdefault(tag["bvid"], [])
+                if tag["tag_name"] not in values:
+                    values.append(tag["tag_name"])
+            # Old runtime databases may predate observation storage. Missing
+            # evidence means unknown even when retained tag values exist.
+            has_tag_observations = include_export_facts and self.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='video_tag_observations'"
+            ).fetchone() is not None
+            if has_tag_observations:
+                tag_states = {row["bvid"]: row["state"] for row in self.connection.execute(
+                    f"SELECT bvid,state FROM video_tag_observations WHERE bvid IN ({tag_marks})", bvids,
+                )}
+        snapshots = {
+            int(row["video_part_id"]): SourceMetadataSnapshot(
+                ContentRef(row["platform"], row["external_video_id"], row["page_index"]),
+                row["title"], row["creator_id"], row["creator_name"], row["pubdate"], row["observed_at"],
+                row["desc"], row["pic"], row["tid"], tuple(tags.get(row["external_video_id"], ()))
+                if row["platform"] == "bilibili" else (), row["aid"], row["part_title"], row["duration_ms"],
+            ) for row in rows
+        } if include_source_metadata else {}
+        fields = {
+            int(row["video_part_id"]): {
+                "video_description": row["desc"],
+                "uploader_mid": row["mid"] if row["platform"] == "bilibili" else None,
+                "uploader_name": row["creator_name"],
+                "video_tags": list(tags.get(row["external_video_id"], ()))
+                    if row["platform"] == "bilibili" else [],
+                "video_tags_state": tag_states.get(row["external_video_id"])
+                    if row["platform"] == "bilibili" else None,
+                "video_details_observed_at": row["details_observed_at"],
+            } for row in rows
+        }
+        return ({part_id: snapshots[part_id] for part_id in part_ids}
+                if include_source_metadata else {}), fields
 
     def upsert_part(self, part: VideoPartRecord) -> int:
         """Insert or update a normalized part and return its local ID.
@@ -141,6 +296,11 @@ class MetadataRepository:
             raise TypeError("part must be a VideoPartRecord")
         if part.video_part_id is not None:
             raise ValueError("upsert_part allocates video_part_id; it must be None")
+        current = self.connection.execute(
+            "SELECT cid FROM video_parts WHERE bvid=? AND page_index=?", (part.bvid, part.page_index),
+        ).fetchone()
+        if current is not None and current[0] != part.cid:
+            raise ValueError("metadata_part_identity_conflict")
         self.connection.execute(
             """
             INSERT INTO video_parts(
@@ -248,6 +408,62 @@ class MetadataRepository:
                 details.observed_at,
             ),
         )
+
+    def observe_video_details(self, details: VideoDetailRecord,
+                              fields: tuple[MetadataFieldObservation, ...] | None = None) -> None:
+        """Update only fields actually observed; explicit empty can retract data.
+
+        The older whole-row method remains available for callers possessing a
+        complete snapshot. Partial list/detail observations use this boundary.
+        """
+        fields = fields if fields is not None else tuple(
+            MetadataFieldObservation(name, "present", getattr(details, name))
+            for name in ("pic", "desc", "tid") if getattr(details, name) is not None)
+        known = [field for field in fields if field.field in {"pic", "desc", "tid"}
+                 and field.state in {"present", "empty"}]
+        if not known:
+            return
+        self.connection.execute("INSERT INTO video_details(bvid, observed_at) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                                (details.bvid, details.observed_at))
+        for field in known:
+            # Column names come from the closed field vocabulary above.
+            self.connection.execute(f'UPDATE video_details SET "{field.field}"=?, observed_at=? WHERE bvid=?',
+                                    (field.value, details.observed_at, details.bvid))
+
+    def observations_supported(self) -> bool:
+        from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2
+        return runtime_contract(self.connection) == UNIVERSAL_V2
+
+    def record_metadata_attempt(self, bvid: str, operation: str, state: str, started_at: int,
+                                finished_at: int, error_code: str | None = None,
+                                *, details: Mapping | None = None) -> None:
+        if not self.observations_supported():
+            return
+        from bili_asr.workflow_errors import safe_job_details
+        diagnostic = safe_job_details({**(details or {}), "operation": operation, "error_code": error_code})
+        self.connection.execute(
+            "INSERT INTO metadata_refresh_attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (uuid4().hex, bvid, operation, state, error_code, started_at, finished_at,
+             json.dumps(diagnostic, sort_keys=True)),
+        )
+
+    def record_field_observations(self, bvid: str, operation: str,
+                                  fields: tuple[MetadataFieldObservation, ...], observed_at: int) -> None:
+        if not self.observations_supported():
+            return
+        for field in fields:
+            successful = field.state in {"present", "empty"}
+            self.connection.execute(
+                """INSERT INTO source_metadata_observations VALUES ('bilibili', ?, ?, ?, ?, ?, ?, NULL, ?)
+                   ON CONFLICT(platform, external_id, operation, field) DO UPDATE SET
+                   state=excluded.state, observed_at=excluded.observed_at, error_code=NULL,
+                   last_success_at=CASE WHEN excluded.last_success_at IS NULL
+                        THEN source_metadata_observations.last_success_at ELSE excluded.last_success_at END,
+                   value_json=CASE WHEN excluded.last_success_at IS NULL
+                        THEN source_metadata_observations.value_json ELSE excluded.value_json END""",
+                (bvid, operation, field.field, field.state, observed_at,
+                 observed_at if successful else None, json.dumps(field.value, ensure_ascii=False) if successful else None),
+            )
 
     def upsert_video_tags(
         self, bvid: str, tags: Iterable[VideoTagRecord] = ()
@@ -386,6 +602,7 @@ class MetadataRepository:
         additional_users: Iterable[UserRecord] = (),
         ensure_users: Iterable[UserRecord] = (),
         tag_observations: Mapping[str, tuple[str, str | None]] | None = None,
+        preserve_unobserved_details: bool = False,
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
@@ -458,6 +675,7 @@ class MetadataRepository:
             return
 
         with self.transaction():
+            observations = self.observations_supported()
             for owner in ensured_user_records:
                 self.ensure_user(owner)
             if user is not None:
@@ -466,8 +684,16 @@ class MetadataRepository:
                 self.upsert_user(owner)
             for video_record in video_records:
                 self.upsert_video(video_record)
+                if observations:
+                    fields = tuple(MetadataFieldObservation(name, "present" if value is not None else "missing", value)
+                                   for name, value in (("title", video_record.title), ("pubdate", video_record.pubdate), ("aid", video_record.aid)))
+                    self.record_field_observations(video_record.bvid, "summary", fields, page.finished_at)
+                    self.record_metadata_attempt(video_record.bvid, "summary", "present", page.started_at, page.finished_at)
             for part in part_records:
                 self.upsert_part(part)
+            if observations:
+                for bvid in {part.bvid for part in part_records}:
+                    self.record_metadata_attempt(bvid, "parts", "present", page.started_at, page.finished_at)
             # Tags land after the video upserts: the tag row's foreign key
             # points at ``videos``, so an observed video must exist before its
             # tags can.  A tag set for a video this page did not upsert still
@@ -482,12 +708,25 @@ class MetadataRepository:
                     "error_code=excluded.error_code, run_id=excluded.run_id",
                     (bvid, state, page.finished_at, error_code, page.run_id),
                 )
+                if observations:
+                    self.record_metadata_attempt(bvid, "tags", "unavailable" if state == "unavailable"
+                                                 else "empty" if state == "success_empty" else "present",
+                                                 page.started_at, page.finished_at, error_code)
             # Details land after the same video upserts, for the same foreign
             # key reason.  An all-``NULL`` record is passed through rather than
             # filtered here: ``upsert_video_details`` is where D15's
             # "observed nothing" rule lives, so it stays one rule in one place.
             for detail in detail_records:
-                self.upsert_video_details(detail)
+                if preserve_unobserved_details:
+                    self.observe_video_details(detail)
+                else:
+                    self.upsert_video_details(detail)
+                if observations:
+                    fields = tuple(MetadataFieldObservation(name, "present" if value is not None else "missing", value)
+                                   for name, value in (("pic", detail.pic), ("desc", detail.desc), ("tid", detail.tid)))
+                    self.record_field_observations(detail.bvid, "details", fields, page.finished_at)
+                    self.record_metadata_attempt(detail.bvid, "details", "present" if any(
+                        field.state == "present" for field in fields) else "missing", page.started_at, page.finished_at)
             for discovery in discovery_records:
                 self.record_discovery(discovery)
             if cursor is not None:
@@ -547,6 +786,41 @@ class MetadataRepository:
                 discovery.discovered_at,
             ),
         )
+
+    def read_resume_prefix(self, mid: int, next_page: int) -> dict[int, tuple[str, ...]]:
+        """Read the most recent successful identities for each preceding page.
+
+        Missing pages remain missing: a skipped or unobserved prefix cannot
+        establish a safe offset. Discovery order uses the stored last position
+        of duplicate BVIDs, matching record_page's existing identity contract.
+        """
+        for name, value in (("mid", mid), ("next_page", next_page)):
+            if type(value) is not int:
+                raise TypeError(f"{name} must be an integer")
+            if value < 1:
+                raise ValueError(f"{name} must be positive")
+        rows = self.connection.execute(
+            """
+            WITH latest AS (
+                SELECT p.run_id, p.page_number,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY p.page_number
+                           ORDER BY p.finished_at DESC, p.rowid DESC
+                       ) AS rank
+                FROM ingestion_pages p JOIN ingestion_runs r USING (run_id)
+                WHERE r.mid = ? AND p.page_number < ? AND p.outcome = 'ok'
+            )
+            SELECT l.page_number, d.bvid FROM latest l
+            JOIN ingestion_discoveries d
+              ON d.run_id = l.run_id AND d.page_number = l.page_number
+            WHERE l.rank = 1
+            ORDER BY l.page_number, d.source_position
+            """, (mid, next_page),
+        ).fetchall()
+        pages: dict[int, list[str]] = {}
+        for row in rows:
+            pages.setdefault(row["page_number"], []).append(row["bvid"])
+        return {number: tuple(bvids) for number, bvids in pages.items()}
 
     def read_cursor(self, mid: int) -> CursorRecord | None:
         """Read the current one-based cursor for a user.

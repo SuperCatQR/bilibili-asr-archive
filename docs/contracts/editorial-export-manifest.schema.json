@@ -12,6 +12,15 @@
       "type": "array",
       "minItems": 7,
       "maxItems": 7,
+      "allOf": [
+        {"contains": {"properties": {"path": {"const": "ai-draft.md"}}}},
+        {"contains": {"properties": {"path": {"const": "review.md"}}}},
+        {"contains": {"properties": {"path": {"const": "edition.md"}}}},
+        {"contains": {"properties": {"path": {"const": "edition.json"}}}},
+        {"contains": {"properties": {"path": {"const": "review.json"}}}},
+        {"contains": {"properties": {"path": {"const": "differences/ai.patch"}}}},
+        {"contains": {"properties": {"path": {"const": "differences/parent.patch"}}}}
+      ],
       "items": {
         "type": "object",
         "additionalProperties": false,

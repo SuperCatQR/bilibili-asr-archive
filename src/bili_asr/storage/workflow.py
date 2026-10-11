@@ -67,7 +67,7 @@ class WorkflowRepository:
         from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
 
         connection = open_archive_connection(self._database_path, mode=ArchiveAccessMode.WRITE,
-                                             busy_timeout_ms=self._busy_timeout_ms)
+                                             busy_timeout_ms=min(self._busy_timeout_ms, 1000))
         return type(self)(connection)
 
     def register_profile(self, profile: AsrProfile) -> int:
@@ -184,6 +184,40 @@ class WorkflowRepository:
         counts: dict[JobKind, int] = {}
         for spec in specs:
             payload, dedupe_key = spec.materialize(ids)
+            if spec.kind is JobKind.RENDER_DOCUMENT:
+                from bili_asr.storage.editorial import input_for_proofread, template_for_input
+
+                proof_id = payload["proofread_job_id"]
+                pending = self.connection.execute("SELECT job_id,status FROM workflow_jobs WHERE dedupe_key=?",
+                                                   (f"render:{proof_id}:auto",)).fetchone()
+                if pending is not None and pending["status"] in {"succeeded", "failed", "cancelled"}:
+                    # Cancellation while proofreading was still in flight must
+                    # not become a fresh render just because its input is known.
+                    ids[spec.key] = pending["job_id"]
+                    continue
+                input_id = input_for_proofread(self.connection, proof_id)
+                if input_id is not None:
+                    self.bind_editorial_render(proof_id, input_id)
+                existing_render = self.connection.execute(
+                    "SELECT j.job_id,j.status,j.dedupe_key,j.attempt_count FROM workflow_jobs j "
+                    "JOIN workflow_job_dependencies d ON d.job_id=j.job_id "
+                    "WHERE d.prerequisite_job_id=? AND j.kind='render_document' "
+                    "AND json_extract(j.payload_json,'$.proofread_job_id')=? ORDER BY j.created_at,j.rowid LIMIT 1",
+                    (proof_id, proof_id)).fetchone()
+                # Acquisition has not frozen an input yet. This placeholder is
+                # bound transactionally before proofreading starts any AI work.
+                payload["template_version"] = template_for_input(self.connection, input_id) if input_id else "auto"
+                dedupe_key = f"render:{proof_id}:{payload['template_version']}"
+                canonical = self.connection.execute("SELECT job_id FROM workflow_jobs WHERE dedupe_key=?",
+                                                     (dedupe_key,)).fetchone()
+                if existing_render is not None and canonical is None and (
+                        input_id is None or existing_render["attempt_count"] > 0
+                        or existing_render["status"] in {"running", "succeeded", "failed", "cancelled"}):
+                    # Existing acquisition chains (including the old guessed
+                    # template) retain their scheduling and terminal identities.
+                    # An already-failed wrong template needs explicit rerender.
+                    ids[spec.key] = existing_render["job_id"]
+                    continue
             job_id, created = self._ensure_job(kind=spec.kind, video_part_id=spec.video_part_id,
                 profile_id=spec.profile_id, policy_key=spec.policy_key, payload=payload, dedupe_key=dedupe_key)
             ids[spec.key] = job_id
@@ -192,15 +226,49 @@ class WorkflowRepository:
                 self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies VALUES (?, ?)", (job_id, ids[key]))
         return ids, counts
 
-    def claim(self, worker_id: str, *, lease_seconds: int = 900,
-              kinds: Iterable[JobKind] | None = None) -> WorkflowJob | None:
-        self.require_cancellation_contract()
-        if not worker_id.strip() or lease_seconds < 1:
-            raise ValueError("worker_id and lease_seconds must be valid")
+    def _candidate(self, *, now: int, kinds: Iterable[JobKind] | None,
+                   expired: bool = False, job_id: str | None = None, exclude_job_ids: tuple[str, ...] = ()):
         selected = None if kinds is None else tuple(k.value for k in kinds)
         if selected == ():
             return None
-        kind_filter = "" if selected is None else " AND j.kind IN (" + ",".join("?" for _ in selected) + ")"
+        status = "(j.status='queued' OR (j.status='running' AND j.lease_expires_at <= ?))" if expired else "j.status='queued'"
+        parameters = [now, now] if expired else [now]
+        filters = ""
+        if selected is not None:
+            filters += " AND j.kind IN (" + ",".join("?" for _ in selected) + ")"
+            parameters.extend(selected)
+        if job_id is not None:
+            filters += " AND j.job_id=?"
+            parameters.append(job_id)
+        if exclude_job_ids:
+            filters += " AND j.job_id NOT IN (SELECT value FROM json_each(?))"
+            parameters.append(json.dumps(exclude_job_ids))
+        return self.connection.execute(
+            "SELECT j.* FROM workflow_jobs AS j WHERE " + status + """ AND j.available_at <= ?
+            AND NOT EXISTS (
+                SELECT 1 FROM workflow_job_dependencies AS d
+                JOIN workflow_jobs AS prerequisite ON prerequisite.job_id = d.prerequisite_job_id
+                WHERE d.job_id = j.job_id AND prerequisite.status <> 'succeeded'
+            )""" + filters + " ORDER BY j.priority DESC,j.created_at,j.job_id LIMIT 1",
+            parameters,
+        ).fetchone()
+
+    def peek_candidate(self, *, kinds: Iterable[JobKind] | None = None, exclude_job_ids: tuple[str, ...] = ()) -> WorkflowJob | None:
+        """Read a hint for preparation; does not acquire a lease or recover attempts."""
+        self.require_cancellation_contract()
+        row = self._candidate(now=_now(), kinds=kinds, expired=True, exclude_job_ids=exclude_job_ids)
+        return None if row is None else self._job_from_row(row)
+
+    def claim(self, worker_id: str, *, lease_seconds: int = 900,
+              kinds: Iterable[JobKind] | None = None,
+              expected_candidate: WorkflowJob | None = None) -> WorkflowJob | None:
+        self.require_cancellation_contract()
+        if not worker_id.strip() or lease_seconds < 1:
+            raise ValueError("worker_id and lease_seconds must be valid")
+        kinds = None if kinds is None else tuple(kinds)
+        selected = None if kinds is None else tuple(k.value for k in kinds)
+        if selected == ():
+            return None
         with self.commit_guard.transaction():
             now = _now()
             self.connection.execute(
@@ -219,23 +287,14 @@ class WorkflowRepository:
                    WHERE status = 'running' AND lease_expires_at <= ?""",
                 (now, now),
             )
-            row = self.connection.execute(
-                """
-                SELECT j.* FROM workflow_jobs AS j
-                WHERE j.status = 'queued' AND j.available_at <= ?
-                  AND NOT EXISTS (
-                    SELECT 1 FROM workflow_job_dependencies AS d
-                    JOIN workflow_jobs AS prerequisite ON prerequisite.job_id = d.prerequisite_job_id
-                    WHERE d.job_id = j.job_id AND prerequisite.status <> 'succeeded'
-                  )
-                """ + kind_filter + """
-                ORDER BY j.priority DESC, j.created_at, j.job_id
-                LIMIT 1
-                """,
-                (now, *(selected or ())),
-            ).fetchone()
+            row = self._candidate(now=now, kinds=kinds,
+                                  job_id=None if expected_candidate is None else expected_candidate.job_id)
             if row is None:
                 return None
+            if expected_candidate is not None:
+                from dataclasses import replace
+                if self._job_from_row(row) != replace(expected_candidate, status=JobStatus.QUEUED, lease_owner=None):
+                    return None
             attempt_id = str(uuid4())
             self.connection.execute(
                 """UPDATE workflow_jobs
@@ -394,13 +453,17 @@ class WorkflowRepository:
         with self._write_transaction():
             return self.enqueue_editorial(video_part_id=video_part_id, input_id=input_id)
 
-    def enqueue_editorial(self, *, video_part_id: int, input_id: str) -> tuple[str, str, bool, bool]:
+    def enqueue_editorial(self, *, video_part_id: int, input_id: str,
+                          repair_of_job_id: str | None = None) -> tuple[str, str, bool, bool]:
         """Persist both jobs inside an application-owned write transaction."""
         if not self.connection.in_transaction:
             raise RuntimeError("editorial enqueue requires a write transaction")
         self.require_cancellation_contract()
         self._require_editorial_contract()
-        return self._editorial_jobs(video_part_id=video_part_id, payload={"input_id": input_id})
+        payload = {"input_id": input_id}
+        if repair_of_job_id is not None:
+            payload["repair_of_job_id"] = repair_of_job_id
+        return self._editorial_jobs(video_part_id=video_part_id, payload=payload)
 
     def _editorial_jobs(self, *, video_part_id: int, payload: Mapping[str, Any],
                         prerequisite_job_id: str | None = None) -> tuple[str, str, bool, bool]:
@@ -409,13 +472,63 @@ class WorkflowRepository:
         ids, created = self._enqueue_specs(specs, existing_ids={} if external is None else {external: prerequisite_job_id})
         return ids[specs[0].key], ids[specs[1].key], bool(created.get(JobKind.PROOFREAD)), bool(created.get(JobKind.RENDER_DOCUMENT))
 
-    def request_document(self, *, video_part_id: int, revision_id: str, template_version: str) -> tuple[str, bool]:
-        from bili_asr.editorial import TEMPLATE_VERSION
+    def bind_editorial_render(self, proof_id: str, input_id: str) -> None:
+        """Finalize unattempted placeholders without rewriting execution history."""
+        from bili_asr.storage.editorial import template_for_input
 
-        if template_version != TEMPLATE_VERSION:
+        if not self.connection.in_transaction:
+            raise RuntimeError("render binding requires a write transaction")
+        template = template_for_input(self.connection, input_id)
+        key = f"render:{proof_id}:{template}"
+        rows = self.connection.execute(
+            "SELECT j.* FROM workflow_jobs j JOIN workflow_job_dependencies d ON d.job_id=j.job_id "
+            "WHERE d.prerequisite_job_id=? AND j.kind='render_document'", (proof_id,)).fetchall()
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if payload.get("proofread_job_id") != proof_id or row["dedupe_key"] == key:
+                continue
+            # Completed, failed, cancelled and previously attempted rows are
+            # evidence. The original attempt's payload/identity stays intact.
+            if row["status"] != "queued" or row["attempt_count"] != 0:
+                continue
+            payload["template_version"] = template
+            existing = self.connection.execute("SELECT job_id FROM workflow_jobs WHERE dedupe_key=?", (key,)).fetchone()
+            if existing is None:
+                self.connection.execute("UPDATE workflow_jobs SET payload_json=?,dedupe_key=?,updated_at=? WHERE job_id=?",
+                                        (_json(payload), key, _now(), row["job_id"]))
+            else:
+                # Only the never-executed scheduling placeholder is discarded.
+                # Redirect graph edges to the existing canonical job, retaining
+                # its terminal state rather than resurrecting paid work.
+                canonical_id = existing["job_id"]
+                self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies SELECT ?,prerequisite_job_id "
+                                        "FROM workflow_job_dependencies WHERE job_id=?", (canonical_id, row["job_id"]))
+                self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies SELECT job_id,? "
+                                        "FROM workflow_job_dependencies WHERE prerequisite_job_id=?", (canonical_id, row["job_id"]))
+                self.connection.execute("DELETE FROM workflow_job_dependencies WHERE job_id=? OR prerequisite_job_id=?",
+                                        (row["job_id"], row["job_id"]))
+                if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='artifact_input_states'").fetchone():
+                    # Readiness is scoped to the discarded scheduling identity.
+                    # Preserve canonical observations; a fresh preparation will
+                    # establish its own state rather than inheriting stale hints.
+                    self.connection.execute("DELETE FROM artifact_input_states WHERE job_id=?", (row["job_id"],))
+                self.connection.execute("DELETE FROM workflow_jobs WHERE job_id=?", (row["job_id"],))
+
+    def request_document(self, *, video_part_id: int, revision_id: str,
+                         template_version: str | None = None) -> tuple[str, bool]:
+        from bili_asr.storage.editorial import EditorialRepository, template_for_input
+
+        if template_version is not None and template_version not in {"ai-draft-v1", "ai-draft-v2"}:
             raise ValueError("unsupported document template version")
         self.require_cancellation_contract()
         self._require_editorial_contract()
+        prepared, _ = EditorialRepository(self.connection).revision(revision_id)
+        expected = template_for_input(self.connection, prepared["input_id"])
+        if template_version is not None and template_version != expected:
+            raise ValueError("unsupported document template version for frozen input")
+        if prepared["snapshot"]["video_part_id"] != video_part_id:
+            raise ValueError("revision belongs to a different part")
+        template_version = expected
         with self.connection:
             job_id, created = self._ensure_job(
                 kind=JobKind.RENDER_DOCUMENT, video_part_id=video_part_id, profile_id=None, policy_key=None,
@@ -445,6 +558,7 @@ class WorkflowRepository:
         error_code: str,
         retry_at: int | None = None,
         expected_attempt_count: int | None = None,
+        result: Mapping[str, Any] | None = None,
     ) -> None:
         if not error_code or len(error_code) > 64:
             raise ValueError("error_code must be 1-64 characters")
@@ -455,6 +569,7 @@ class WorkflowRepository:
             error_code=error_code,
             retry_at=retry_at,
             expected_attempt_count=expected_attempt_count,
+            result=result,
         )
 
     def list_jobs(self) -> list[WorkflowJob]:
@@ -552,13 +667,17 @@ class WorkflowRepository:
         with (self.owned_transaction(source_job) if source_job is not None else self._write_transaction()):
             return self.enqueue_publication(video_part_id=video_part_id, transcript_id=transcript_id, force=force)
 
-    def enqueue_publication(self, *, video_part_id: int, transcript_id: int, force: bool = False) -> tuple[str, bool]:
+    def enqueue_publication(self, *, video_part_id: int, transcript_id: int, force: bool = False,
+                            preserve_publication: Mapping[str, Any] | None = None) -> tuple[str, bool]:
         """Persist a request inside the application's existing write transaction."""
         if not self.connection.in_transaction:
             raise RuntimeError("publication enqueue requires a write transaction")
         self.require_cancellation_contract()
         now = _now()
         payload = {"schema_version": 1, "transcript_id": int(transcript_id), "video_part_id": int(video_part_id)}
+        if preserve_publication is not None:
+            payload.update(preserve_publication=dict(preserve_publication),
+                           publication_request_id=str(uuid4()))
         validate_payload(JobKind.PUBLISH, payload, part_id=video_part_id)
         dedupe_key = f"publish:{video_part_id}"
         row = self.connection.execute(
@@ -575,10 +694,12 @@ class WorkflowRepository:
                 dedupe_key=dedupe_key,
             )
             return job_id, created
+        if preserve_publication is not None and row["status"] == "running":
+            raise ValueError("publication refresh requires an idle publication job; wait for the current attempt and plan again")
         previous = json.loads(str(row["payload_json"]))
         if row["status"] == "cancelled":
             return str(row["job_id"]), False
-        if force or int(previous.get("transcript_id", -1)) != transcript_id:
+        if force or int(previous.get("transcript_id", -1)) != transcript_id or preserve_publication is not None:
             if row["status"] == "running":
                 # Keep the current lease intact.  _terminal sees the newer
                 # request and returns this part to the queue once this
@@ -612,6 +733,30 @@ class WorkflowRepository:
             values = json.loads(snapshot["config_json"])
             if values.pop("schema_version") != 2:
                 raise ValueError("unsupported ASR profile schema")
+            precision = values.pop("precision", None)
+            if precision is not None:
+                if (not isinstance(precision, dict)
+                        or set(precision) != {"schema_version", "model_dtype", "aligner_dtype"}
+                        or type(precision["schema_version"]) is not int
+                        or precision["schema_version"] != 1):
+                    raise ValueError("unsupported ASR precision schema")
+                values.update({name: precision[name] for name in ("model_dtype", "aligner_dtype")})
+            batching = values.pop("batching", None)
+            if batching is not None:
+                names = {"asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",
+                         "batch_max_input_bytes", "batch_max_tokens"}
+                if (not isinstance(batching, dict) or set(batching) != names | {"schema_version"}
+                        or type(batching["schema_version"]) is not int or batching["schema_version"] != 1):
+                    raise ValueError("unsupported ASR batching schema")
+                values.update({name: batching[name] for name in names})
+            strategies = values.pop("runtime_strategies", None)
+            if strategies is not None:
+                from ..asr.strategies import STRATEGY_DEFAULTS
+                names = set(STRATEGY_DEFAULTS)
+                if (not isinstance(strategies, dict) or set(strategies) != names | {"schema_version"}
+                        or type(strategies["schema_version"]) is not int or strategies["schema_version"] != 1):
+                    raise ValueError("unsupported ASR runtime strategies schema")
+                values.update({name: strategies[name] for name in names})
             values["hotwords"] = tuple(values["hotwords"])
             profile = AsrProfile(profile_key=str(row["profile_key"]), **values)
             if hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest() != row["config_sha256"]:
@@ -707,8 +852,10 @@ class WorkflowRepository:
                 outcome == "succeeded"
                 and job["kind"] == JobKind.PUBLISH.value
                 and result is not None
-                and int(current_payload.get("transcript_id", -1))
-                != int(result.get("requested_transcript_id", -1))
+                and (int(current_payload.get("transcript_id", -1))
+                     != int(result.get("requested_transcript_id", -1))
+                     or current_payload.get("publication_request_id")
+                     != result.get("publication_request_id"))
             )
             new_status = "queued" if retry_at is not None or request_changed_while_running else outcome
             self.connection.execute(

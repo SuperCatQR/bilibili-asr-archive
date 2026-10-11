@@ -1,5 +1,74 @@
 # Manuscript Export Contracts
 
+## Authoritative definitions and generated mirrors
+
+The executable JSON Schemas live in `src/bili_asr/contracts/schemas/` and ship
+inside the wheel. This directory is their byte-identical publication mirror.
+The [contract registry](registry.json) records versioned identities, their owners,
+definition paths, consumers, capabilities and dependencies; 15 entries have
+JSON Schemas. See [governance and compatibility](../contract-governance.md).
+
+```powershell
+python -m bili_asr.contracts --write-docs docs/contracts
+python -m bili_asr.contracts --check-docs docs/contracts
+```
+
+Runtime validation resolves all cross-schema references from packaged resources
+offline. Structural checks precede domain identity, hash and file-set checks.
+Edit the packaged source and regenerate this mirror; CI rejects drift.
+
+Transcript archive bundles use a filesystem manifest contract rather than a
+JSON Schema in this registry. `archive-bundle-v2` remains the unchanged
+five-member reader contract. `archive-bundle-v3` adds the canonical
+`source-metadata.json` member and hashes six data members; its implementation
+must register the new identity in the packaged registry and regenerate this
+documentation mirror. Neither `source-metadata-v1` nor article publication
+content/catalog contracts change as part of this transcript bundle upgrade.
+
+The seven-file private manifest remains [editorial manifest v1](editorial-export-manifest.schema.json).
+Imported preserved-body packages use the distinct [ten-file layout](editorial-import-export-manifest.schema.json).
+Both retain the existing wire `schemaVersion: 1`.
+Review envelopes also retain v1: [AI template v1](editorial-review.schema.json) and
+[AI template v2](editorial-review-universal.schema.json) have separate structural definitions.
+
+
+
+The explicit `universal-origin-v1` profile uses catalog v3 with universal
+articles only, [origins v1](publication-origins-v1.schema.json) and
+[manifest v2](publication-origin-manifest-v2.schema.json). It permits verified
+legacy-body imports while retaining their real v1 input/revision/template
+identities. See [installation, policy, review and retry semantics](../preserved-body-import.md).
+Existing manifest v1 exports do not accept imported editions. A consumer must
+implement the new profile before serving these snapshots; the sections below
+describe the existing interfaces without changing their version-1 algorithm.
+
+Optional editor-confirmed `series.json` is described by
+[the public schema](publication-series.schema.json) and
+[private editorial schema](publication-series-editorial.schema.json).
+See [semantic validation, maintenance and export](../publication-series.md).
+Its exact byte hash belongs to the existing version-1 manifest; absent series
+preserves previous snapshots, and manuscript/catalog versions remain unchanged.
+
+The historical version-2 schemas below remain available unchanged. An export
+containing content-version 2 uses `publication-catalog-v3.schema.json` or
+`publication-draft-catalog-v3.schema.json`. Version 3 can mix exact historical
+Bilibili article shapes with universal articles. Universal articles explicitly
+declare `contentVersion: 2`, platform, external video ID, part index and the
+complete immutable `source-metadata-v1` snapshot. They never manufacture BVIDs.
+Their release template is `publish-v2`; draft catalogs still have no template or
+release fields. The manifest envelope remains version 1.
+
+The JSON Schemas describe field shapes. A consumer must also validate provider
+IDs, canonical URLs, metadata/source identity equality, derived publication
+time, slug and file identity, file hashes and exact manifest membership. Source
+time can be null when unknown; collection and release times cannot replace it.
+Current database metadata cannot alter either historical or universal editions.
+See [implementation boundaries](../issues-implementation.md) for version
+registration and migration. The independent reading-site delivery must adopt
+catalog version 3 before serving new universal entries.
+
+The remaining paragraphs describe the historical version-2 reader contract.
+
 The public reader consumes `catalog.json` matching
 `publication-catalog.schema.json`. The root is an object with
 `schemaVersion: 2`, `manuscriptType: "publication"`, and `articles`. A legacy

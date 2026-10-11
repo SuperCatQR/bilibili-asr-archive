@@ -1,6 +1,6 @@
 # 全集选择验证、配置冻结与依赖规划
 
-源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`；起点为 main `6544eb85ea3e95e5b9571930fefaf35bde6b7dc1`。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](03-workflow-plan.html) · [Archify 规格](03-workflow-plan.json) · [全部时序图](../architecture-sequences.md)
 
@@ -66,13 +66,13 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:147–271](../../src/bili_asr/cli/workflow.py#L147)：`_execute_workflow`。
-- [src/bili_asr/services/workflow_application.py:33–41](../../src/bili_asr/services/workflow_application.py#L33)：`WorkflowApplication.plan`。
-- [src/bili_asr/services/workflow_application.py:43–55](../../src/bili_asr/services/workflow_application.py#L43)：`WorkflowApplication.publish`。
-- [src/bili_asr/storage/workflow_selection.py:47–136](../../src/bili_asr/storage/workflow_selection.py#L47)：`resolve_workflow_selection`。
-- [src/bili_asr/storage/workflow.py:135–145](../../src/bili_asr/storage/workflow.py#L135)：`WorkflowRepository.plan_with_profile`。
-- [src/bili_asr/storage/workflow.py:181–193](../../src/bili_asr/storage/workflow.py#L181)：`WorkflowRepository._enqueue_specs`。
-- [src/bili_asr/workflow_planning.py:60–91](../../src/bili_asr/workflow_planning.py#L60)：`plan_producers`。
-- [src/bili_asr/workflow_planning.py:34–44](../../src/bili_asr/workflow_planning.py#L34)：`JobSpec.materialize`。
-- [src/bili_asr/storage/workflow.py:159–179](../../src/bili_asr/storage/workflow.py#L159)：`WorkflowRepository._planning_parts`。
-- [src/bili_asr/storage/workflow.py:77–120](../../src/bili_asr/storage/workflow.py#L77)：`WorkflowRepository._register_profile`。
+- [src/bili_asr/cli/workflow.py:245](../../src/bili_asr/cli/workflow.py#L245)：_execute_workflow。
+- [src/bili_asr/services/workflow_application.py:42](../../src/bili_asr/services/workflow_application.py#L42)：WorkflowApplication.plan。
+- [src/bili_asr/services/workflow_application.py:52](../../src/bili_asr/services/workflow_application.py#L52)：WorkflowApplication.publish。
+- [src/bili_asr/storage/workflow_selection.py:56](../../src/bili_asr/storage/workflow_selection.py#L56)：resolve_workflow_selection。
+- [src/bili_asr/storage/workflow.py:135](../../src/bili_asr/storage/workflow.py#L135)：WorkflowRepository.plan_with_profile。
+- [src/bili_asr/storage/workflow.py:181](../../src/bili_asr/storage/workflow.py#L181)：WorkflowRepository._enqueue_specs。
+- [src/bili_asr/workflow_planning.py:60](../../src/bili_asr/workflow_planning.py#L60)：plan_producers。
+- [src/bili_asr/workflow_planning.py:34](../../src/bili_asr/workflow_planning.py#L34)：JobSpec.materialize。
+- [src/bili_asr/storage/workflow.py:159](../../src/bili_asr/storage/workflow.py#L159)：WorkflowRepository._planning_parts。
+- [src/bili_asr/storage/workflow.py:77](../../src/bili_asr/storage/workflow.py#L77)：WorkflowRepository._register_profile。

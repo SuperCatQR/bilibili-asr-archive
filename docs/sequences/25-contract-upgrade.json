@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "冻结契约路径、保真转换与新目标安装",
+    "locale": "zh-CN",
+    "output": "docs/sequences/25-contract-upgrade.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "op",
+      "label": "操作员",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/archive.py",
+          "line": 1,
+          "end_line": 139,
+          "label": "模块定义"
+        }
+      ]
+    },
+    {
+      "id": "upgrade",
+      "label": "升级用例",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_upgrade.py",
+          "line": 140,
+          "end_line": 170,
+          "label": "plan_upgrade"
+        },
+        {
+          "path": "src/bili_asr/services/archive_upgrade.py",
+          "line": 255,
+          "end_line": 331,
+          "label": "apply_upgrade"
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "label": "契约登记",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/contracts/registry.py",
+          "line": 326,
+          "end_line": 351,
+          "label": "upgrade_path"
+        }
+      ]
+    },
+    {
+      "id": "source",
+      "label": "源归档",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_upgrade.py",
+          "line": 73,
+          "end_line": 103,
+          "label": "_inventory"
+        }
+      ]
+    },
+    {
+      "id": "stage",
+      "label": "私有暂存",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_upgrade.py",
+          "line": 217,
+          "end_line": 245,
+          "label": "_convert"
+        }
+      ]
+    },
+    {
+      "id": "target",
+      "label": "新归档",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_upgrade.py",
+          "line": 334,
+          "end_line": 369,
+          "label": "check_upgrade"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "upgrade",
+      "y": 235,
+      "label": "停写、checkpoint 后 upgrade-plan",
+      "variant": "default",
+      "note": "停写、checkpoint 后 upgrade-plan；源/产物/目标互不包含；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m2",
+      "to": "source",
+      "y": 301,
+      "label": "MAINTENANCE 锁",
+      "variant": "default",
+      "note": "MAINTENANCE 锁；typed rows、文件、schema、WAL 与活跃任务检查；条件：主流程",
+      "from": "upgrade"
+    },
+    {
+      "id": "m3",
+      "to": "registry",
+      "y": 367,
+      "label": "精确源/目标组合",
+      "variant": "default",
+      "note": "精确源/目标组合；歧义路径须显式 edge；条件：主流程",
+      "from": "upgrade"
+    },
+    {
+      "id": "m4",
+      "to": "upgrade",
+      "y": 433,
+      "label": "已登记转换器、版本与保留政策",
+      "variant": "return",
+      "note": "已登记转换器、版本与保留政策；条件：主流程",
+      "from": "registry"
+    },
+    {
+      "id": "m5",
+      "to": "source",
+      "y": 499,
+      "label": "绑定库外 control-state 字节与 hold",
+      "variant": "default",
+      "note": "绑定库外 control-state 字节与 hold；未声明则要求执行交接；条件：主流程",
+      "from": "upgrade"
+    },
+    {
+      "id": "m6",
+      "to": "op",
+      "y": 565,
+      "label": "plan_id、完整基线、代码摘要、空间估算",
+      "variant": "return",
+      "note": "plan_id、完整基线、代码摘要、空间估算；无昂贵重算；条件：主流程",
+      "from": "upgrade"
+    },
+    {
+      "id": "m7",
+      "to": "upgrade",
+      "y": 631,
+      "label": "upgrade-apply 同一冻结计划",
+      "variant": "default",
+      "note": "upgrade-apply 同一冻结计划；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m8",
+      "to": "source",
+      "y": 697,
+      "label": "重新计划",
+      "variant": "default",
+      "note": "重新计划；源、控制状态或转换器改变则拒绝；条件：主流程",
+      "from": "upgrade"
+    },
+    {
+      "id": "m9",
+      "to": "stage",
+      "y": 763,
+      "label": "流式复制源字节和遮蔽证据",
+      "variant": "default",
+      "note": "流式复制源字节和遮蔽证据；不修改原源；条件：主流程",
+      "from": "upgrade"
+    },
+    {
+      "id": "m10",
+      "to": "stage",
+      "y": 894,
+      "label": "执行转换",
+      "variant": "default",
+      "note": "执行转换；精确契约、FK、typed rows 与保留文件核验；条件：loop 每条登记转换边",
+      "from": "upgrade"
+    },
+    {
+      "id": "m11",
+      "to": "stage",
+      "y": 1025,
+      "label": "写绑定 DB/文件/plan 的 receipt",
+      "variant": "default",
+      "note": "写绑定 DB/文件/plan 的 receipt；fsync；条件：alt 完整目标与源再次核验通过",
+      "from": "upgrade"
+    },
+    {
+      "id": "m12",
+      "to": "target",
+      "y": 1091,
+      "label": "同父目录原子安装",
+      "variant": "default",
+      "note": "同父目录原子安装；父目录同步；条件：alt 完整目标与源再次核验通过",
+      "from": "upgrade"
+    },
+    {
+      "id": "m13",
+      "to": "op",
+      "y": 1157,
+      "label": "installed",
+      "variant": "return",
+      "note": "installed；同步警告单独报告；不启动 worker 或解除 hold；条件：alt 完整目标与源再次核验通过",
+      "from": "upgrade"
+    },
+    {
+      "id": "m14",
+      "to": "stage",
+      "y": 1288,
+      "label": "清理本次私有暂存",
+      "variant": "default",
+      "note": "清理本次私有暂存；源保留；条件：else 复制/转换/核验失败",
+      "from": "upgrade"
+    },
+    {
+      "id": "m15",
+      "to": "op",
+      "y": 1354,
+      "label": "有界失败证据",
+      "variant": "return",
+      "note": "有界失败证据；目标不服务半成品；条件：else 复制/转换/核验失败",
+      "from": "upgrade"
+    },
+    {
+      "id": "m16",
+      "to": "upgrade",
+      "y": 1485,
+      "label": "upgrade-check 外部 expected_…",
+      "variant": "default",
+      "note": "upgrade-check 外部 expected_plan_id；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m17",
+      "to": "target",
+      "y": 1551,
+      "label": "核验安装基线和 receipt",
+      "variant": "default",
+      "note": "核验安装基线和 receipt；新业务写入不能伪装重复升级；条件：主流程",
+      "from": "upgrade"
+    },
+    {
+      "id": "m18",
+      "to": "op",
+      "y": 1617,
+      "label": "匹配或保留新增成果后报告基线变化",
+      "variant": "return",
+      "note": "匹配或保留新增成果后报告基线变化；条件：主流程",
+      "from": "upgrade"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 809,
+      "label": "B1 · 主流程"
+    },
+    {
+      "from": 866,
+      "to": 940,
+      "label": "B2 · loop 每条登记转换边"
+    },
+    {
+      "from": 997,
+      "to": 1203,
+      "label": "B3 · alt 完整目标与源再次核验通过"
+    },
+    {
+      "from": 1260,
+      "to": 1400,
+      "label": "B4 · else 复制/转换/核验失败"
+    },
+    {
+      "from": 1457,
+      "to": 1658,
+      "label": "B5 · 主流程"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "B1 条件路径：主流程",
+        "B2 条件路径：loop 每条登记转换边",
+        "B3 条件路径：alt 完整目标与源再次核验通过",
+        "B4 条件路径：else 复制/转换/核验失败",
+        "B5 条件路径：主流程"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
+  ]
+}

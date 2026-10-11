@@ -426,7 +426,8 @@ def test_catalog_schema_id_patterns_match_actual_exports(manuscript, tmp_path):
     assert set(entry) == set(schema["$defs"]["article"]["required"])
 
 
-@pytest.mark.parametrize("defect", ["legacy", "private", "extra-field", "boolean-id", "source-url", "catalog-hash"])
+@pytest.mark.parametrize("defect", ["legacy", "private", "extra-field", "boolean-id", "source-url", "catalog-hash",
+                                   "releaseId", "editionId", "aiRevisionId", "contentSha256"])
 def test_strict_catalog_contract_rejects_invalid_generated_snapshot(tmp_path, defect):
     files = snapshot_files()
     document = json.loads(files["catalog.json"])
@@ -442,6 +443,8 @@ def test_strict_catalog_contract_rejects_invalid_generated_snapshot(tmp_path, de
         document["articles"][0]["sourceUrl"] = "https://www.bilibili.com/video/BVother/?p=1"
     elif defect == "catalog-hash":
         document["articles"][0]["artifactSha256"] = "f" * 64
+    elif defect in {"releaseId", "editionId", "aiRevisionId", "contentSha256"}:
+        document["articles"][0][defect] += "\n"
     files["catalog.json"] = json_bytes(document)
     output = tmp_path / "public"
     with pytest.raises(ValueError):

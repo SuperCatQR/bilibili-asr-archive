@@ -41,6 +41,21 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     usage).
     """
 
+    if getattr(args, "backend", "amd-wsl") != "amd-wsl":
+        from bili_asr.asr.config import default_config
+        from bili_asr.asr.deployment import deployment_report
+        try:
+            report = deployment_report(default_config(), backend=args.backend, cache_root=args.cache_root,
+                                       check_gpu=args.probe_gpu, timeout_seconds=args.probe_timeout)
+        except (ValueError, OSError) as exc:
+            write_stderr(f"check-asr-env: {exc}")
+            return 1
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        return 1 if report["state"] == "blocked" else 0
+    if getattr(args, "probe_gpu", False) or getattr(args, "cache_root", None) is not None:
+        write_stderr("check-asr-env: choose cuda, rocm or hcu for the deployment report and optional tensor probe")
+        return 1
+
     import importlib.util
 
     candidates: list[Path] = []

@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "command": "finalize",
+  "status": "pass",
+  "type": "sequence",
+  "quality": "showcase",
+  "sourceRevision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3",
+  "specification": {
+    "path": "docs/sequences/19-persistent-asr.json",
+    "sha256": "5cee15d2fcb1ad25d2c3f58fd7df10ab12a05ac91f45613060760d24dfafa79d",
+    "bytes": 8422
+  },
+  "artifact": {
+    "path": "docs/sequences/19-persistent-asr.html",
+    "sha256": "8466a2f22faa2ecf6fd8316ffd4c222a11228e58ca712bedbd49617003215476",
+    "bytes": 776957
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  },
+  "browserEvidence": {
+    "status": "pass",
+    "evidenceKind": "automated-browser",
+    "artifactSha256": "8466a2f22faa2ecf6fd8316ffd4c222a11228e58ca712bedbd49617003215476",
+    "state": {
+      "detail": "read",
+      "motion": "still"
+    },
+    "containmentStatus": "pass",
+    "viewports": [
+      {
+        "width": 1440,
+        "height": 900,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 1600,
+        "height": 1000,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      },
+      {
+        "width": 2048,
+        "height": 1320,
+        "theme": "light",
+        "overflowX": false,
+        "verticalScrollAccepted": true,
+        "readabilityOk": true,
+        "ok": true
+      }
+    ]
+  },
+  "widthReview": {
+    "previousReview": "spread accepted",
+    "currentLayout": "spread",
+    "currentTask": "source revision pin only; no geometry edits",
+    "reviewBaselineRevision": "5aa729cf4553aa50bf65caf67da0c1f1af4bbee6"
+  },
+  "visualReview": "not-requested",
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-09T04:41:45.456Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "diagnostics": []
+}

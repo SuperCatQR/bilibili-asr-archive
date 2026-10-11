@@ -1,6 +1,6 @@
 # 读取投影、覆盖、完整性、普通导出与去重
 
-源码基线：本次架构边界修复的固定代码提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`；这是从 main 开始的本地修复身份，不表示远端 main 已包含修复。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](13-projection-verify.html) · [Archify 规格](13-projection-verify.json) · [全部时序图](../architecture-sequences.md)
 
@@ -20,7 +20,8 @@ sequenceDiagram
     session->>db: 检查 RUNTIME 契约，无 DDL；BEGIN 一次读快照
     loop 每批最多 256 个 active part
     projection->>db: part ID keyset + IN 集合查所有版本、最新 publication、所选 segments
-    db-->>projection: 有界批数据；latest 按 published_at/publication_id
+    projection->>db: 同一快照集合读取详情、UP 主、标签及标签观察；共用至多 256 part 的批量来源投影
+    db-->>projection: 有界批数据；latest 按 published_at/publication_id；六个当前来源字段
     projection->>projection: choose_transcript 公共总排序算 preferred；published 身份独立
     projection->>projection: LEFT JOIN 保留悬空/错 part 声明；publication_error 固定代码，正文置空
     end
@@ -42,7 +43,8 @@ sequenceDiagram
     cli->>checker: 区分 backlog 与 defect；声称已发布却缺失/损坏必须报告
     checker->>files: 校验声明 bundle 的 marker、精确文件集合、受限路径和 hash；当前 IntegrityVerifier 不遍历全部音频/AI/出版稿件
     else 普通 export
-    cli->>checker: --status 与 --with-text；普通数据导出不等于 publication 快照
+    cli->>checker: --status 与 --with-text；JSON 包含六个来源字段；CSV 追加在已有列后
+    checker->>checker: 简介保留普通链接；过滤凭据/签名媒体 URL；CSV tags 使用 JSON 数组字符串
     else dedup report
     cli->>db: 读取精确内容身份
     cli->>db: 读取已存音频 hash/关联与 transcript 的 source/language/content_hash 分组；不重新读文件或计算摘要
@@ -63,23 +65,34 @@ sequenceDiagram
 - producer 在保护事务中以 max(墙钟秒, part 已有 published_at 最大值 + 1) 写入单调提交时间，保证同秒重发布旧身份的 upsert 排在最新；突发值可短暂领先墙钟，排序语义不等于精确墙钟时间。
 - LEFT JOIN 保留损坏的 publication 关系；published_transcript_missing/part_mismatch 是 bounded publication_error，with-text 保持空，不能取 preferred 或另一 part 的正文。coverage/IntegrityVerifier 按数据库关系 defect 报告，字节完整也不计 complete。
 - 每批最多 256 part 的集合查询消除逐 part 的 N+1；返回 dict 恢复 pubdate 降序、BVID/page 顺序。with-text 也批量读取有效身份的 segments。
+- 简介、UP 主 ID/名称、标签、标签观察状态、详情采集时间来自当前数据库；不同于 bundle 发布时的冻结来源。缺失简介为 null，成功空标签、unavailable 与未知状态分别保留；保留旧标签值不能冒充新的成功观察。
+- `video_details_observed_at` 只代表详情行最后成功保存时间，不作为 UP 主名称、保留标签或文章简介逐字段采集时间。其他平台的 uploader_mid 为 null。
+- 普通导出不访问来源、不改旧 bundle；六个字段在 CSV 中追加至原标准列、可选正文列和额外列之后。
 - 有界验证与 publication supervisor 代码仍保留，但没有据此虚构当前 CLI 的隐式守护链。
 - dedup report 仅报告数据库中已有的重复内容身份，不选择 canonical、不合并或改写来源，也不确认磁盘文件此刻的内容。
 
 ## 源码证据
 
-- [src/bili_asr/cli/ops.py:135–163](../../src/bili_asr/cli/ops.py#L135)：`_cmd_verify`。
-- [src/bili_asr/export.py:396–451](../../src/bili_asr/export.py#L396)：`export_records`。
-- [src/bili_asr/cli/dedup.py:19–36](../../src/bili_asr/cli/dedup.py#L19)：`_cmd_dedup`。
-- [src/bili_asr/services/workflow_projection.py:117–224](../../src/bili_asr/services/workflow_projection.py#L117)：`workflow_records`。
-- [src/bili_asr/transcript_selection.py:40–43](../../src/bili_asr/transcript_selection.py#L40)：`choose_transcript`。
-- [src/bili_asr/archive_session.py:64–149](../../src/bili_asr/archive_session.py#L64)：`ArchiveSession`。
-- [src/bili_asr/services/workflow_projection.py:27–44](../../src/bili_asr/services/workflow_projection.py#L27)：`_part_batches`。
-- [src/bili_asr/services/workflow_projection.py:47–60](../../src/bili_asr/services/workflow_projection.py#L47)：`_preferred_transcripts`。
-- [src/bili_asr/services/workflow_projection.py:63–87](../../src/bili_asr/services/workflow_projection.py#L63)：`_latest_publications`。
-- [src/bili_asr/coverage_report.py:65–87](../../src/bili_asr/coverage_report.py#L65)：`CoverageReport`。
-- [src/bili_asr/integrity.py:52–86](../../src/bili_asr/integrity.py#L52)：`IntegrityVerifier`。
-- [src/bili_asr/services/bundle_verification.py:62–150](../../src/bili_asr/services/bundle_verification.py#L62)：`verify_bundle`。
-- [src/bili_asr/archive.py:225–307](../../src/bili_asr/archive.py#L225)：`archive_bundle_complete`。
-- [src/bili_asr/dedup.py:1–60](../../src/bili_asr/dedup.py#L1)：`模块入口`。
-- [src/bili_asr/transcript_selection.py:24–37](../../src/bili_asr/transcript_selection.py#L24)：`transcript_preference_key`。
+- [src/bili_asr/cli/ops.py:150](../../src/bili_asr/cli/ops.py#L150)：_cmd_verify。
+- [src/bili_asr/export.py:453](../../src/bili_asr/export.py#L453)：export_records。
+- [src/bili_asr/cli/dedup.py:19](../../src/bili_asr/cli/dedup.py#L19)：_cmd_dedup。
+- [src/bili_asr/services/workflow_projection.py:126](../../src/bili_asr/services/workflow_projection.py#L126)：workflow_records。
+- [src/bili_asr/transcript_selection.py:40](../../src/bili_asr/transcript_selection.py#L40)：choose_transcript。
+- [src/bili_asr/archive_session.py:64](../../src/bili_asr/archive_session.py#L64)：ArchiveSession。
+- [src/bili_asr/services/workflow_projection.py:30](../../src/bili_asr/services/workflow_projection.py#L30)：_part_batches。
+- [src/bili_asr/services/workflow_projection.py:56](../../src/bili_asr/services/workflow_projection.py#L56)：_preferred_transcripts。
+- [src/bili_asr/services/workflow_projection.py:72](../../src/bili_asr/services/workflow_projection.py#L72)：_latest_publications。
+- [src/bili_asr/coverage_report.py:71](../../src/bili_asr/coverage_report.py#L71)：CoverageReport。
+- [src/bili_asr/integrity.py:52](../../src/bili_asr/integrity.py#L52)：IntegrityVerifier。
+- [src/bili_asr/services/bundle_verification.py:62](../../src/bili_asr/services/bundle_verification.py#L62)：verify_bundle。
+- [src/bili_asr/archive.py:253](../../src/bili_asr/archive.py#L253)：archive_bundle_complete。
+- [src/bili_asr/dedup.py:1](../../src/bili_asr/dedup.py#L1)：模块定义。
+
+- [src/bili_asr/storage/metadata.py:175](../../src/bili_asr/storage/metadata.py#L175)：read_source_metadata_export_many。
+- [src/bili_asr/storage/metadata.py:191](../../src/bili_asr/storage/metadata.py#L191)：有界来源集合查询、标签去重及缺失观察。
+- [src/bili_asr/export.py:134](../../src/bili_asr/export.py#L134)：_redact_description。
+- [src/bili_asr/export.py:404](../../src/bili_asr/export.py#L404)：format_csv_export，追加六个来源列。
+
+## 当前通用来源与驻留
+
+universal-v2 使用中立 source identity 与来源查询，legacy 索引仍按原形状读取。生产完成不因正常外置降为未完成；storage availability/readiness 单独报告，默认读取不探测外部目标或下载数据。

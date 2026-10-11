@@ -1,5 +1,21 @@
 # Portable Archive Snapshots
 
+Database schema fingerprints are now pinned independently of the current DDL in
+`src/bili_asr/contracts/database-fingerprints.json`. A change to a registered
+schema fails validation rather than redefining an existing snapshot contract.
+Runtime, snapshot and fixed migration-source policies remain distinct; see
+[contract governance](contract-governance.md).
+
+
+Snapshot format version 1 now supports both validated `bilibili-v1` and
+`universal-v2` database contracts. Restore retains the saved contract; the
+explicit archive migration command performs contract conversion. Read-only
+`snapshot inspect`, `snapshot plan`, and `snapshot doctor` distinguish data
+completeness from runtime readiness, including verified model relocation.
+`snapshot restore --report PATH` writes a separate recovery audit. See
+[Issues implementation](issues-implementation.md)
+for command examples and installation/audit failure semantics.
+
 `snapshot save`, `snapshot check`, and `snapshot restore` transfer one complete
 archive between devices. SQLite remains the source of metadata, transcripts,
 workflow progress, and editorial history. The snapshot inventory describes
@@ -43,8 +59,12 @@ archive to avoid selecting products from the former device configuration.
 
 ## Contents and Format
 
-The ZIP uses stored entries so existing compressed audio is copied without
-expensive recompression. File contents are streamed, allowing large audio
+The ZIP defaults to stored entries so existing compressed audio is copied without
+expensive recompression. `snapshot save --compression deflate` selects lossless
+Deflate level 1 when the destination has limited space. This changes only container
+encoding; the same manifest records original sizes and SHA-256 hashes, and check
+and restore validate all original bytes. Compression may save little for existing
+compressed audio and consumes additional CPU. File contents are streamed, allowing large audio
 collections without loading them into memory. The package contains:
 
 ```text
@@ -91,8 +111,8 @@ The stable coordination file lives beside the archive root as
 `.<root-name>.archive-maintenance.lock`. Keep this file in place; replacing or
 deleting it during an invocation would split coordination between processes.
 
-Status and runs currently initialize shipped database objects when they open
-an existing store, so those commands also participate in shared coordination.
+Status and runs use read-only archive sessions without schema initialization;
+ordinary writers also participate in shared coordination.
 Programmatic callers performing writes must use
 `bili_asr.archive_maintenance.archive_access(root)` for their whole operation.
 Processes from older versions and direct SQLite/file modifications do not
@@ -144,7 +164,7 @@ Existing immutable ASR profiles are preserved rather than edited to fit a new
 host. Inspect pending profiles before running on a device with different GPU
 support; use the workflow planner to create a new profile when needed.
 
-This first format supports the current database contract, including the same
+This format supports both declared database contracts, including the same
 normalized core table definitions required by ordinary application opens.
 It does not upgrade
 older contracts, merge independently modified archives, provide bidirectional

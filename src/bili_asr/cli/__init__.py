@@ -19,6 +19,9 @@ from bili_asr.cli.editorial import _cmd_editorial
 from bili_asr.cli.dedup import _cmd_dedup
 from bili_asr.cli.snapshot import _cmd_snapshot
 from bili_asr.cli.archive import _cmd_archive
+from bili_asr.cli.artifacts import _cmd_artifacts
+from bili_asr.cli.remote_storage import _cmd_reference, _cmd_remote
+from bili_asr.cli.source import _cmd_source
 
 class _MainModule(types.ModuleType):
     """Keep the package attribute module-shaped and directly callable."""

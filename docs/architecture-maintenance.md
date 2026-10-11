@@ -1,6 +1,6 @@
 # 架构文档与时序图维护
 
-本套文档以 main 的一个固定源码提交为基线。文字入口是 [architecture.md](architecture.md)，两张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)，17 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
+本套文档以 main 的一个固定源码提交为基线。文字入口是 [architecture.md](architecture.md)，两张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)，31 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
 
 JSON 是图的可编辑规格，HTML 是 Archify 生成的独立查看器，不手工修改 HTML。目录级 `.gitattributes` 对图表规格与生成 HTML 设置 `-text`，防止 Git 换行转换改变验收哈希；`sequences/.gitattributes` 仅对生成 HTML 关闭行尾空白检查，保留模板字节及 artifact SHA-256，其他空白检查继续执行。时序 Markdown 保留完整 Mermaid 的嵌套 alt/opt/loop；HTML 展开跨参与者消息，内部调用在补充卡片中说明。修改流程时同时核对 Markdown、JSON 和代码，不能只改其中一份。
 
@@ -71,3 +71,20 @@ node $archifyCli visual-check docs/architecture.html `
 更新 architecture-validation.md 和 architecture-validation.json，记录源码身份、范围、每份规格/产物哈希、四道 gate、浏览器尺寸/主题、可选目视检查范围、未执行的行为验证与剩余布局建议。可移植记录不包含本机用户名或绝对 evidence 路径；原始回执、截图和修复候选留在忽略的 `.archify/` 下。
 
 提交或交付文字、JSON、生成 HTML 和覆盖/验证清单。运行 `git diff --check`，检查本次新增/修改文档的相对链接与 Mermaid 分支平衡；纯文档更新确认没有意外产品改动，实现更新则先固定并验证源码，再绑定其提交重新生成全部受影响图表。保留他人的草稿。文档检查不替代业务测试、真实 API、GPU 推理、付费模型或人工语义审核。
+
+## 契约定义与文档镜像
+
+新增持久或对外格式先更新 `contracts/registry.py` 的 owner、authority、消费者和依赖。
+JSON Schema 的权威源在 `src/bili_asr/contracts/schemas/`；运行
+`python -m bili_asr.contracts --write-docs docs/contracts` 发布镜像，
+再以 `--check-docs docs/contracts` 核对字节、全部资源及本地引用。
+镜像与权威资源关闭 Git 行尾转换，避免 Windows/WSL 交付漂移。
+
+数据库 DDL 的不兼容变化建立新契约及迁移路径，不能重新生成旧指纹让检查通过。
+历史样本直接使用已提交 zip/清单，禁止调用当前 writer 重造旧格式。
+更新相关版本矩阵和消费者后提交实现，再以完整源码 SHA 更新契约专题图和独立验证记录。
+本轮入口为 [契约治理](contract-governance.md)，旧图不因新登记自动获得新的源码身份。
+
+## 2026-10-11 当前身份
+
+本轮统一绑定 228e4655c644aa924572429fcfd6451df3e108d5；33 张图的现行凭据在 architecture-validation.json。历史 issue-diagram-validation 只用于追溯旧交付，不可作为重生成文件的验收。本轮候选与 browser evidence 留在独立的 .archify/issue348-20261011-* 子目录；每张图的实际结果以当前验证记录为准。

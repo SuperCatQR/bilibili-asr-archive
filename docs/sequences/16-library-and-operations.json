@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -17,16 +17,17 @@
   "participants": [
     {
       "id": "operator",
-      "label": "显式调用者",
+      "label": "操作者或库调用",
       "type": "external",
       "sources": [
         {
           "path": "src/bili_asr/cli/parser.py",
           "line": 11,
-          "end_line": 115,
+          "end_line": 138,
           "label": "build_parser"
         }
-      ]
+      ],
+      "sublabel": "操作者或库调用者"
     },
     {
       "id": "tools",
@@ -43,19 +44,20 @@
           "path": "scripts/production.py",
           "line": 1,
           "end_line": 55,
-          "label": "模块边界"
+          "label": "模块定义"
         },
         {
           "path": "src/bili_asr/cli/registry.py",
           "line": 1,
-          "end_line": 65,
-          "label": "模块边界"
+          "end_line": 76,
+          "label": "模块定义"
         }
-      ]
+      ],
+      "sublabel": "CLI 与部署工具"
     },
     {
       "id": "access",
-      "label": "访问与连接",
+      "label": "Archive",
       "type": "security",
       "sources": [
         {
@@ -70,11 +72,12 @@
           "end_line": 52,
           "label": "_open_read_repository"
         }
-      ]
+      ],
+      "sublabel": "ArchiveSes"
     },
     {
       "id": "db",
-      "label": "归档与对账",
+      "label": "数据库与查询",
       "type": "database",
       "sources": [
         {
@@ -93,7 +96,7 @@
     },
     {
       "id": "worker",
-      "label": "有界 worker",
+      "label": "有界 work",
       "type": "backend",
       "sources": [
         {
@@ -114,30 +117,31 @@
           "end_line": 150,
           "label": "verify_bundle"
         }
-      ]
+      ],
+      "sublabel": "有界 worker"
     },
     {
       "id": "files",
-      "label": "产物与环境",
+      "label": "受限产物与环境",
       "type": "database",
       "sources": [
         {
           "path": "src/bili_asr/check_asr_env.py",
           "line": 1,
-          "end_line": 65,
-          "label": "模块边界"
+          "end_line": 759,
+          "label": "模块定义"
         },
         {
           "path": "src/bili_asr/path_policy.py",
           "line": 1,
-          "end_line": 65,
-          "label": "模块边界"
+          "end_line": 258,
+          "label": "模块定义"
         },
         {
           "path": "src/bili_asr/audio_reclaim.py",
           "line": 1,
-          "end_line": 65,
-          "label": "模块边界"
+          "end_line": 103,
+          "label": "模块定义"
         }
       ]
     }
@@ -145,197 +149,198 @@
   "messages": [
     {
       "id": "m1",
-      "from": "operator",
       "to": "tools",
-      "y": 180,
-      "label": "显式启动部署入口",
-      "variant": "default"
+      "y": 235,
+      "label": "scripts/production.py 解析受限…",
+      "variant": "default",
+      "note": "scripts/production.py 解析受限 env-file，启动 python -m bili_asr；check-asr-env 无数据库策略；条件：alt 当前部署与 ASR 环境检查",
+      "from": "operator"
     },
     {
       "id": "m2",
-      "from": "tools",
       "to": "files",
-      "y": 220,
-      "label": "检查 ASR 环境",
-      "variant": "default"
+      "y": 301,
+      "label": "检查 torch/transformers、mode…",
+      "variant": "default",
+      "note": "检查 torch/transformers、model/aligner、ffmpeg、device；GPU wheel 由宿主独立配置；条件：alt 当前部署与 ASR 环境检查",
+      "from": "tools"
     },
     {
       "id": "m3",
-      "from": "tools",
       "to": "operator",
-      "y": 260,
-      "label": "返回诊断",
-      "variant": "return"
+      "y": 367,
+      "label": "返回诊断与退出码",
+      "variant": "return",
+      "note": "返回诊断与退出码；条件：alt 当前部署与 ASR 环境检查",
+      "from": "tools"
     },
     {
       "id": "m4",
-      "from": "operator",
       "to": "tools",
-      "y": 340,
-      "label": "请求只读事实",
-      "variant": "default"
+      "y": 498,
+      "label": "status/runs、workflow statu…",
+      "variant": "default",
+      "note": "status/runs、workflow status/explain/asr-evidence、search、dedup、export；条件：else 运维只读查询",
+      "from": "operator"
     },
     {
       "id": "m5",
-      "from": "tools",
       "to": "access",
-      "y": 380,
-      "label": "声明 READ 访问",
-      "variant": "security"
+      "y": 564,
+      "label": "CommandSpec/action 声明 READ",
+      "variant": "security",
+      "note": "CommandSpec/action 声明 READ；mode=ro+query_only；既有 schema 只读校验；共享维护访问；条件：else 运维只读查询",
+      "from": "tools"
     },
     {
       "id": "m6",
-      "from": "access",
       "to": "db",
-      "y": 420,
-      "label": "只读配置与校验",
-      "variant": "default"
+      "y": 630,
+      "label": "使用统一 row_factory、foreign_k…",
+      "variant": "default",
+      "note": "使用统一 row_factory、foreign_keys、busy_timeout；不执行 initialize_schema 或刷新 views；条件：else 运维只读查询",
+      "from": "access"
     },
     {
       "id": "m7",
-      "from": "db",
       "to": "tools",
-      "y": 460,
-      "label": "返回事实或缺档错误",
-      "variant": "return"
+      "y": 696,
+      "label": "返回查询事实",
+      "variant": "return",
+      "note": "返回查询事实；缺档案明确失败，不创建 archive.db；条件：else 运维只读查询",
+      "from": "db"
     },
     {
       "id": "m8",
-      "from": "tools",
       "to": "access",
-      "y": 500,
-      "label": "关闭连接并释锁",
-      "variant": "security"
+      "y": 762,
+      "label": "关闭查询连接后释放共享访问",
+      "variant": "default",
+      "note": "关闭查询连接后释放共享访问；重建搜索索引显式 WRITE，fetch-meta 显式 BOOTSTRAP；条件：else 运维只读查询",
+      "from": "tools"
     },
     {
       "id": "m9",
-      "from": "operator",
       "to": "tools",
-      "y": 580,
-      "label": "显式调用保留工具",
-      "variant": "default"
+      "y": 893,
+      "label": "显式调用 audio_budget/audio_re…",
+      "variant": "default",
+      "note": "显式调用 audio_budget/audio_reclaim/long_live/audio_inventory 或 merge-v2；条件：else 保留音频与人工对照库工具",
+      "from": "operator"
     },
     {
       "id": "m10",
-      "from": "tools",
       "to": "files",
-      "y": 620,
-      "label": "检查受限产物",
-      "variant": "default"
+      "y": 959,
+      "label": "受限路径、候选与区间/coverage 检查",
+      "variant": "default",
+      "note": "受限路径、候选与区间/coverage 检查；不是 workflow run 隐式步骤；条件：else 保留音频与人工对照库工具",
+      "from": "tools"
     },
     {
       "id": "m11",
-      "from": "tools",
       "to": "db",
-      "y": 660,
-      "label": "对账库事实",
-      "variant": "default"
+      "y": 1025,
+      "label": "各库入口负责 inventory/usage/att…",
+      "variant": "default",
+      "note": "各库入口负责 inventory/usage/attempt 对账；不恢复已删除产品命令；条件：else 保留音频与人工对照库工具",
+      "from": "tools"
     },
     {
       "id": "m12",
-      "from": "operator",
       "to": "tools",
-      "y": 740,
-      "label": "指定期限或预算",
-      "variant": "default"
+      "y": 1156,
+      "label": "调用 supervise_publication 或…",
+      "variant": "default",
+      "note": "调用 supervise_publication 或 verify_bundle 并给出 deadline/read budget；条件：else 显式有界发布或验证服务",
+      "from": "operator"
     },
     {
       "id": "m13",
-      "from": "tools",
       "to": "worker",
-      "y": 780,
-      "label": "启动独立组合入口",
-      "variant": "default"
+      "y": 1222,
+      "label": "service 发起 -m bili_asr.pub…",
+      "variant": "default",
+      "note": "service 发起 -m bili_asr.publication_worker；worker_environment 固定当前 source package；条件：else 显式有界发布或验证服务",
+      "from": "tools"
     },
     {
       "id": "m14",
-      "from": "worker",
       "to": "tools",
-      "y": 820,
-      "label": "子进程组合当前 CLI",
-      "variant": "default"
+      "y": 1288,
+      "label": "顶层 publication_worker.main…",
+      "variant": "default",
+      "note": "顶层 publication_worker.main 组合当前 CLI；兼容旧 -m supervisor；服务本身无 CLI import；条件：else 显式有界发布或验证服务",
+      "from": "worker"
     },
     {
       "id": "m15",
-      "from": "worker",
       "to": "access",
-      "y": 860,
-      "label": "子进程持有访问",
-      "variant": "security"
+      "y": 1354,
+      "label": "CLI 在子进程内按已注册策略取得连接和维护访问",
+      "variant": "default",
+      "note": "CLI 在子进程内按已注册策略取得连接和维护访问；parent 不持 writer 锁；条件：else 显式有界发布或验证服务",
+      "from": "worker"
     },
     {
       "id": "m16",
-      "from": "worker",
       "to": "files",
-      "y": 900,
-      "label": "受限 I/O 与阶段通知",
-      "variant": "default"
+      "y": 1420,
+      "label": "loopback token 鉴别 C/F phase",
+      "variant": "default",
+      "note": "loopback token 鉴别 C/F phase；只有 phase 重置期限；验证 worker 用独立只读预算；条件：else 显式有界发布或验证服务",
+      "from": "worker"
     },
     {
       "id": "m17",
-      "from": "worker",
       "to": "operator",
-      "y": 940,
-      "label": "退出或有界终止",
-      "variant": "return"
+      "y": 1486,
+      "label": "返回实际子进程 exit",
+      "variant": "return",
+      "note": "返回实际子进程 exit；超时有界终止进程树；不将库服务列为默认命令；条件：else 显式有界发布或验证服务",
+      "from": "worker"
     }
   ],
   "segments": [
     {
-      "from": 168,
-      "to": 280,
-      "label": "B01 alt 当前部署与 ASR 环境检查"
+      "from": 207,
+      "to": 413,
+      "label": "B1 · alt 当前部署与 ASR 环境检查"
     },
     {
-      "from": 328,
-      "to": 520,
-      "label": "B02 else 运维只读查询"
+      "from": 470,
+      "to": 808,
+      "label": "B2 · else 运维只读查询"
     },
     {
-      "from": 568,
-      "to": 680,
-      "label": "B03 else 保留音频与人工对照库工具"
+      "from": 865,
+      "to": 1071,
+      "label": "B3 · else 保留音频与人工对照库工具"
     },
     {
-      "from": 728,
-      "to": 960,
-      "label": "B04 else 显式有界发布或验证服务"
+      "from": 1128,
+      "to": 1527,
+      "label": "B4 · else 显式有界发布或验证服务"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "边界与恢复",
+      "title": "完整条件路径",
       "items": [
-        "CommandSpec 显式区分数据库访问与产物访问；search --rebuild 升级为 WRITE，snapshot check/check-asr-env 无档案连接，migration 使用显式 source_root。",
-        "查询不再调用 bootstrap；RO/RW runtime 只检查已存 schema。初始化与派生 view 刷新仅属于显式 BOOTSTRAP，历史 incompatible schema 拒绝且不原地迁移。",
-        "publication_supervisor 不反向 import cli.main，顶层 publication_worker 承担真实进程组合；保留历史 -m 入口但不恢复 publish-transcripts 等已删除命令。",
-        "C/F 阶段通知是保留的监督协议；当前注册命令没有 publication_phase 调用点，通常按一次 invocation 的初始 deadline 计时。验证 worker 的读取字节预算独立计算。",
-        "Kernel-blocked 子进程可能在强制停止后继续存活直到 I/O 恢复；锁归子进程持有，parent 不代释放。phase 状态与预算由各一次性进程维护。",
-        "旧 proofread/merge、音频保留与预算服务仍是显式库能力，当前注册 CLI 与默认 workflow 路径以 parser/application 代码为准。"
+        "B1 条件路径：alt 当前部署与 ASR 环境检查",
+        "B2 条件路径：else 运维只读查询",
+        "B3 条件路径：else 保留音频与人工对照库工具",
+        "B4 条件路径：else 显式有界发布或验证服务"
       ]
     },
     {
-      "dot": "slate",
-      "title": "完整条件与操作",
+      "dot": "rose",
+      "title": "身份与阅读边界",
       "items": [
-        "m1：alt 当前部署与 ASR 环境检查；scripts/production.py 解析受限 env-file，启动 python -m bili_asr；check-asr-env 无数据库策略",
-        "m2：alt 当前部署与 ASR 环境检查；检查 torch/transformers、model/aligner、ffmpeg、device；GPU wheel 由宿主独立配置",
-        "m3：alt 当前部署与 ASR 环境检查；返回诊断与退出码",
-        "m4：else 运维只读查询；status/runs、workflow status/explain/asr-evidence、search、dedup、export",
-        "m5：else 运维只读查询；CommandSpec/action 声明 READ；mode=ro+query_only；既有 schema 只读校验；共享维护访问",
-        "m6：else 运维只读查询；使用统一 row_factory、foreign_keys、busy_timeout；不执行 initialize_schema 或刷新 views",
-        "m7：else 运维只读查询；返回查询事实；缺档案明确失败，不创建 archive.db",
-        "m8：else 运维只读查询；关闭查询连接后释放共享访问；重建搜索索引显式 WRITE，fetch-meta 显式 BOOTSTRAP",
-        "m9：else 保留音频与人工对照库工具；显式调用 audio_budget/audio_reclaim/long_live/audio_inventory 或 merge-v2",
-        "m10：else 保留音频与人工对照库工具；受限路径、候选与区间/coverage 检查；不是 workflow run 隐式步骤",
-        "m11：else 保留音频与人工对照库工具；各库入口负责 inventory/usage/attempt 对账；不恢复已删除产品命令",
-        "m12：else 显式有界发布或验证服务；调用 supervise_publication 或 verify_bundle 并给出 deadline/read budget",
-        "m13：else 显式有界发布或验证服务；service 发起 -m bili_asr.publication_worker；worker_environment 固定当前 source package",
-        "m14：else 显式有界发布或验证服务；顶层 publication_worker.main 组合当前 CLI；兼容旧 -m supervisor；服务本身无 CLI import",
-        "m15：else 显式有界发布或验证服务；CLI 在子进程内按已注册策略取得连接和维护访问；parent 不持 writer 锁",
-        "m16：else 显式有界发布或验证服务；loopback token 鉴别 C/F phase；只有 phase 重置期限；验证 worker 用独立只读预算",
-        "m17：else 显式有界发布或验证服务；返回实际子进程 exit；超时有界终止进程树；不将库服务列为默认命令"
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]

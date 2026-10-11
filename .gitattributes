@@ -1,0 +1,22 @@
+# Architecture receipts bind exact exported bytes across Windows and WSL.
+docs/issues-architecture.html -text -diff -whitespace
+docs/issues-architecture.json -text -whitespace
+docs/issues-publication-sequence.html -text -diff -whitespace
+docs/issues-publication-sequence.json -text -whitespace
+docs/sequences/1[89]-*.html -text -diff -whitespace
+docs/sequences/1[89]-*.json -text -whitespace
+docs/sequences/2[0-3]-*.html -text -diff -whitespace
+docs/sequences/2[0-3]-*.json -text -whitespace
+docs/issue-diagram-validation/*.json -text -whitespace
+docs/issue-diagram-validation/**/*.json -text -whitespace
+
+# Contract documentation is a byte-identical mirror of packaged resources.
+src/bili_asr/contracts/schemas/*.json -text
+docs/contracts/*.schema.json -text
+docs/contracts/registry.json -text
+# Frozen evidence hashes bind the original Git blob bytes, without checkout conversion.
+tests/fixtures/data/bilibili-v1-frozen.json -text
+tests/fixtures/data/bilibili-v1-frozen.zip -text
+tests/fixtures/data/contracts-release-baseline-v1.json -text
+docs/contract-governance.json -text
+docs/contract-governance.html -text -diff -whitespace

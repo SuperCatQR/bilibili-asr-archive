@@ -1,0 +1,9 @@
+{
+  "schemas_valid": 9,
+  "catalogs_valid": 16,
+  "versions": [
+    2,
+    3
+  ],
+  "selection": "completed publication end-to-end exports and the documented valid legacy example"
+}

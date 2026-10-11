@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
-import json
 from pathlib import Path
 import re
 import sqlite3
@@ -13,7 +12,8 @@ from typing import Iterable
 from urllib.parse import urlparse
 
 from bili_asr.canonical_json import digest
-from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
+from bili_asr.manuscript_templates import PUBLISH_RENDERERS, renderer_for
+from bili_asr.manuscript_artifacts import get_ai_artifacts
 from bili_asr.manuscript_files import atomic_write_artifact, read_artifact
 from bili_asr.storage.publication import (
     PublicationConflictError, PublicationRepository, read_edition as get_edition,
@@ -25,6 +25,8 @@ from bili_asr.publication_content import (
     content_from_ai, render_publication,
 )
 from bili_asr.publication_tags import source_tags
+from bili_asr.storage.archive_contracts import frozen_version
+from bili_asr.publication_content_v2 import content_from_ai_v2, normalize_content_v2
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -41,32 +43,6 @@ def _roots(artifact_roots: Iterable[Path]) -> tuple[Path, ...]:
     return roots
 
 
-def get_ai_artifacts(connection: sqlite3.Connection, revision_id: str,
-                     artifact_roots: Iterable[Path]) -> dict[str, bytes]:
-    PublicationRepository(connection)
-    revision, prepared = _revision(connection, revision_id)
-    rows = connection.execute(
-        "SELECT * FROM document_artifacts WHERE revision_id = ?", (revision_id,)
-    ).fetchall()
-    expected = {"ai-draft.md": "ai-draft", "review.md": "review-reference"}
-    if len(rows) != 2 or {r["artifact_name"] for r in rows} != expected.keys():
-        raise ValueError("publication-integrity: complete paired AI artifacts are required")
-    roots = _roots(artifact_roots)
-    artifacts = {}
-    for row in rows:
-        name = row["artifact_name"]
-        version = row["template_version"]
-        documents = renderer_for(AI_RENDERERS, version)(prepared["snapshot"]["metadata"], prepared,
-                                                       json.loads(revision["blocks_json"]), revision_id)
-        path = f"documents/part-{revision['video_part_id']}/{revision_id}/{version}/{name}"
-        if (row["manuscript_role"] != expected[name]
-                or row["relative_path"] != path or not _SHA256.fullmatch(row["content_sha256"])
-                or row["content_sha256"] != hashlib.sha256(documents[name].encode("utf-8")).hexdigest()):
-            raise ValueError("publication-integrity: AI artifact identity does not match revision")
-        artifacts[name] = read_artifact(path, row["content_sha256"], roots)
-    return artifacts
-
-
 def create_edition(connection: sqlite3.Connection, *, revision_id: str,
                    artifact_roots: Iterable[Path], actor: str, note: str = "",
                    expected_edition_id: str | None = None) -> dict:
@@ -75,12 +51,18 @@ def create_edition(connection: sqlite3.Connection, *, revision_id: str,
     artifacts = get_ai_artifacts(connection, revision_id, artifact_roots)
     with repository.transaction():
         revision, prepared = _revision(connection, revision_id)
-        content = content_from_ai(prepared, artifacts["ai-draft.md"].decode("utf-8"))
-        content["tags"] = source_tags(connection, content["source"]["bvid"])
-        content = normalize_content(content)
+        version = frozen_version(connection, "input", prepared["input_id"])
+        if version == 2:
+            content = content_from_ai_v2(prepared, artifacts["ai-draft.md"].decode("utf-8"))
+            content["tags"] = list(content["source"]["metadata"]["tags"])
+            content = normalize_content_v2(content)
+        else:
+            content = content_from_ai(prepared, artifacts["ai-draft.md"].decode("utf-8"))
+            content["tags"] = source_tags(connection, content["source"]["bvid"])
+            content = normalize_content(content)
         return repository.insert_edition(
             part_id=revision["video_part_id"], revision_id=revision_id, content=content,
-            parent_edition_id=expected_edition_id, actor=actor, note=note, event_type="created",
+            parent_edition_id=expected_edition_id, actor=actor, note=note, event_type="created", content_version=version,
         )
 
 
@@ -95,10 +77,12 @@ def edit_edition(connection: sqlite3.Connection, *, edition_id: str, markdown_te
         content = deepcopy(parent["content"])
         content["markdown"] = markdown_text
         content.update(metadata or {})
+        version = parent["content_version"]
+        normalize = normalize_content_v2 if version == 2 else normalize_content
         return repository.insert_edition(
             part_id=parent["video_part_id"], revision_id=parent["revision_id"],
-            content=normalize_content(content), parent_edition_id=edition_id,
-            actor=actor, note=note, event_type="edited",
+            content=normalize(content), parent_edition_id=edition_id,
+            actor=actor, note=note, event_type="edited", content_version=version,
         )
 
 
@@ -127,7 +111,12 @@ def verify_release(connection: sqlite3.Connection, release_id: str,
     repository = PublicationRepository(connection)
     release = repository.release(release_id)
     edition = _verify_release_identity(connection, release)
-    data = read_artifact(release["relative_path"], release["artifact_sha256"], _roots(artifact_roots))
+    from bili_asr.storage.import_origins import import_origin
+    if import_origin(connection, edition["edition_id"]) is not None:
+        from bili_asr.services.preserved_body_import import check_preserved_body_import
+        check_preserved_body_import(connection, edition_id=edition["edition_id"], artifact_roots=artifact_roots)
+    from bili_asr.services.artifact_readers import read_retained_text
+    data = read_retained_text(connection, release["relative_path"], release["artifact_sha256"], _roots(artifact_roots))
     return release, edition, data
 
 
@@ -142,16 +131,21 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
         release, _, _ = verify_release(connection, existing["release_id"], roots)
         return {**release, "idempotent": True}
     edition = get_edition(connection, edition_id)
+    from bili_asr.storage.import_origins import import_origin
+    if import_origin(connection, edition_id) is not None:
+        from bili_asr.services.preserved_body_import import check_preserved_body_import
+        check_preserved_body_import(connection, edition_id=edition_id, artifact_roots=roots)
     if edition["review_status"] != "approved":
         raise ValueError("publication-approval: edition has not been approved")
     if edition["current_release_id"] != expected_release_id:
         raise PublicationConflictError("publication-conflict: effective release differs from expected release")
     if expected_release_id:
         verify_release(connection, expected_release_id, roots)
-    data = render_publication(edition["content"])
+    template = "publish-v2" if edition["content_version"] == 2 else PUBLISH_TEMPLATE_VERSION
+    data = renderer_for(PUBLISH_RENDERERS, template)(edition["content"])
     release_id = digest({"edition_id": edition_id, "content_sha256": edition["content_sha256"],
-                         "template_version": PUBLISH_TEMPLATE_VERSION})
-    path = f"publications/part-{edition['video_part_id']}/{release_id}/{PUBLISH_TEMPLATE_VERSION}/publish.md"
+                         "template_version": template})
+    path = f"publications/part-{edition['video_part_id']}/{release_id}/{template}/publish.md"
     atomic_write_artifact(Path(write_root), path, data)
     with repository.transaction():
         existing = repository.release_for_edition(edition_id)
@@ -166,7 +160,7 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
         release = {
             "release_id": release_id, "video_part_id": edition["video_part_id"],
             "edition_id": edition_id, "review_id": edition["review_id"],
-            "content_sha256": edition["content_sha256"], "template_version": PUBLISH_TEMPLATE_VERSION,
+            "content_sha256": edition["content_sha256"], "template_version": template,
             "relative_path": path, "artifact_sha256": hashlib.sha256(data).hexdigest(),
             "published_at": int(time.time()), "published_by": actor, "status": "published",
         }

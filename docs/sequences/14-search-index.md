@@ -1,6 +1,6 @@
 # FTS 增量索引、元数据检索与组合结果
 
-源码基线：本次架构边界修复的固定代码提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`；这是从 main 开始的本地修复身份，不表示远端 main 已包含修复。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](14-search-index.html) · [Archify 规格](14-search-index.json) · [全部时序图](../architecture-sequences.md)
 
@@ -69,14 +69,18 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/search.py:80–132](../../src/bili_asr/cli/search.py#L80)：`_cmd_search`。
-- [src/bili_asr/cli/search.py:48–78](../../src/bili_asr/cli/search.py#L48)：`_cmd_search_index`。
-- [src/bili_asr/search_index/store.py:426–542](../../src/bili_asr/search_index/store.py#L426)：`TranscriptSearchIndex.build`。
-- [src/bili_asr/search_index/store.py:320–362](../../src/bili_asr/search_index/store.py#L320)：`TranscriptSearchIndex._new_store_rows`。
-- [src/bili_asr/search_index/store.py:546–640](../../src/bili_asr/search_index/store.py#L546)：`TranscriptSearchIndex.search_blocks`。
-- [src/bili_asr/archive_session.py:64–149](../../src/bili_asr/archive_session.py#L64)：`ArchiveSession`。
-- [src/bili_asr/search_index/store.py:283–311](../../src/bili_asr/search_index/store.py#L283)：`TranscriptSearchIndex._store_progress`。
-- [src/bili_asr/search_index/store.py:364–410](../../src/bili_asr/search_index/store.py#L364)：`TranscriptSearchIndex._published_md_candidates`。
-- [src/bili_asr/search_index/metadata.py:1–60](../../src/bili_asr/search_index/metadata.py#L1)：`模块入口`。
-- [src/bili_asr/search_index/store.py:412–424](../../src/bili_asr/search_index/store.py#L412)：`TranscriptSearchIndex._published_md_text_for`。
-- [src/bili_asr/search_index/query.py:21–63](../../src/bili_asr/search_index/query.py#L21)：`search_archive`。
+- [src/bili_asr/cli/search.py:80](../../src/bili_asr/cli/search.py#L80)：_cmd_search。
+- [src/bili_asr/cli/search.py:48](../../src/bili_asr/cli/search.py#L48)：_cmd_search_index。
+- [src/bili_asr/search_index/store.py:437](../../src/bili_asr/search_index/store.py#L437)：TranscriptSearchIndex.build。
+- [src/bili_asr/search_index/store.py:331](../../src/bili_asr/search_index/store.py#L331)：TranscriptSearchIndex._new_store_rows。
+- [src/bili_asr/search_index/store.py:559](../../src/bili_asr/search_index/store.py#L559)：TranscriptSearchIndex.search_blocks。
+- [src/bili_asr/archive_session.py:64](../../src/bili_asr/archive_session.py#L64)：ArchiveSession。
+- [src/bili_asr/search_index/store.py:294](../../src/bili_asr/search_index/store.py#L294)：TranscriptSearchIndex._store_progress。
+- [src/bili_asr/search_index/store.py:375](../../src/bili_asr/search_index/store.py#L375)：TranscriptSearchIndex._published_md_candidates。
+- [src/bili_asr/search_index/metadata.py:1](../../src/bili_asr/search_index/metadata.py#L1)：模块定义。
+- [src/bili_asr/search_index/store.py:423](../../src/bili_asr/search_index/store.py#L423)：TranscriptSearchIndex._published_md_text_for。
+- [src/bili_asr/search_index/query.py:21](../../src/bili_asr/search_index/query.py#L21)：search_archive。
+
+## 当前通用来源与驻留
+
+universal-v2 使用中立 source identity 与来源查询，legacy 索引仍按原形状读取。生产完成不因正常外置降为未完成；storage availability/readiness 单独报告，默认读取不探测外部目标或下载数据。

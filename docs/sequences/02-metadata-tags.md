@@ -1,6 +1,6 @@
 # 分页元数据采集、来源身份与原始标签
 
-源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（架构解耦修复后的代码提交；源码链接采用本地路径）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [Archify 规格](02-metadata-tags.json) · [交互时序图](02-metadata-tags.html) · [全部时序图](../architecture-sequences.md)
 
@@ -70,18 +70,18 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/meta.py:14–81](../../src/bili_asr/cli/meta.py#L14)：`_cmd_fetch_meta`。
-- [src/bili_asr/cli/meta.py:84–108](../../src/bili_asr/cli/meta.py#L84)：`_cmd_fetch_tags`。
-- [src/bili_asr/services/metadata_ingest.py:305–537](../../src/bili_asr/services/metadata_ingest.py#L305)：`MetadataIngestor._collect`。
-- [src/bili_asr/services/video_tags.py:20–56](../../src/bili_asr/services/video_tags.py#L20)：`refresh_video_tags`。
-- [src/bili_asr/sources/bilibili_source.py:36–45](../../src/bili_asr/sources/bilibili_source.py#L36)：`BilibiliMetadataSource.get_parts`。
-- [src/bili_asr/platform_identity.py:17–48](../../src/bili_asr/platform_identity.py#L17)：`ContentRef`。
-- [src/bili_asr/sources/bilibili_api_gateway.py:707–1259](../../src/bili_asr/sources/bilibili_api_gateway.py#L707)：`BilibiliApiGateway`。
-- [src/bili_asr/sources/bilibili_api_gateway.py:784–861](../../src/bili_asr/sources/bilibili_api_gateway.py#L784)：`BilibiliApiGateway.get_user_video_page`。
-- [src/bili_asr/sources/bilibili_api_gateway.py:863–875](../../src/bili_asr/sources/bilibili_api_gateway.py#L863)：`BilibiliApiGateway.get_video_parts`。
-- [src/bili_asr/sources/bilibili_api_gateway.py:897–969](../../src/bili_asr/sources/bilibili_api_gateway.py#L897)：`BilibiliApiGateway.get_video_tags`。
-- [src/bili_asr/storage/metadata.py:15–649](../../src/bili_asr/storage/metadata.py#L15)：`MetadataRepository`。
-- [src/bili_asr/sources/protocols.py:49–59](../../src/bili_asr/sources/protocols.py#L49)：`MetadataSource`。
-- [src/bili_asr/sources/models.py:65–128](../../src/bili_asr/sources/models.py#L65)：`VideoSummary`。
-- [src/bili_asr/sources/models.py:132–152](../../src/bili_asr/sources/models.py#L132)：`VideoPart`。
-- [src/bili_asr/error_codes.py:10–23](../../src/bili_asr/error_codes.py#L10)：`validate_error_code`。
+- [src/bili_asr/cli/meta.py:14](../../src/bili_asr/cli/meta.py#L14)：_cmd_fetch_meta。
+- [src/bili_asr/cli/meta.py:152](../../src/bili_asr/cli/meta.py#L152)：_cmd_fetch_tags。
+- [src/bili_asr/services/metadata_ingest.py:338](../../src/bili_asr/services/metadata_ingest.py#L338)：MetadataIngestor._collect。
+- [src/bili_asr/services/video_tags.py:32](../../src/bili_asr/services/video_tags.py#L32)：refresh_video_tags。
+- [src/bili_asr/sources/bilibili_source.py:37](../../src/bili_asr/sources/bilibili_source.py#L37)：BilibiliMetadataSource.get_parts。
+- [src/bili_asr/platform_identity.py:17](../../src/bili_asr/platform_identity.py#L17)：ContentRef。
+- [src/bili_asr/sources/bilibili_api_gateway.py:727](../../src/bili_asr/sources/bilibili_api_gateway.py#L727)：BilibiliApiGateway。
+- [src/bili_asr/sources/bilibili_api_gateway.py:802](../../src/bili_asr/sources/bilibili_api_gateway.py#L802)：BilibiliApiGateway.get_user_video_page。
+- [src/bili_asr/sources/bilibili_api_gateway.py:881](../../src/bili_asr/sources/bilibili_api_gateway.py#L881)：BilibiliApiGateway.get_video_parts。
+- [src/bili_asr/sources/bilibili_api_gateway.py:950](../../src/bili_asr/sources/bilibili_api_gateway.py#L950)：BilibiliApiGateway.get_video_tags。
+- [src/bili_asr/storage/metadata.py:19](../../src/bili_asr/storage/metadata.py#L19)：MetadataRepository。
+
+## 当前来源刷新分派
+
+显式 universal-v2 使用字段观察、TTL 与请求总预算；增量 head 扫描和失败选择重放见 [23](23-metadata-refresh.md)。旧 v1 与 v2 的存储身份不同，不能把历史游标当作增量水位。
