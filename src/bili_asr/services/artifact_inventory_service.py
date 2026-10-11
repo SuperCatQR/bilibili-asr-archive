@@ -32,8 +32,9 @@ from bili_asr.artifact_inventory import (
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.artifacts import (
     BUNDLE_MARKER_NAME,
-    BUNDLE_SCHEMA,
+    BUNDLE_SCHEMA, BUNDLE_SCHEMA_V3, BUNDLE_BASENAMES_V3,
     REQUIRED_ARTIFACT_KEYS,
+    SOURCE_METADATA_KEY,
     owns_bundle_paths,
 )
 from bili_asr.storage.archive_contracts import UNIVERSAL_V2, runtime_contract
@@ -187,6 +188,10 @@ def _read_facts(database_path: Path) -> tuple[list[dict], list[dict], list[dict]
                 continue  # Its immutable object group is enumerated below.
             for key in REQUIRED_ARTIFACT_KEYS:
                 add(f"{identity}:{key}", "bundle", value[key], frozen.get(key), part=row["video_part_id"], version=version, group=identity, binding=bool(frozen))
+            if SOURCE_METADATA_KEY in frozen:
+                metadata_path = str(PurePosixPath(value["srt_path"]).parent / BUNDLE_BASENAMES_V3[SOURCE_METADATA_KEY])
+                add(f"{identity}:{SOURCE_METADATA_KEY}", "bundle", metadata_path, frozen[SOURCE_METADATA_KEY],
+                    part=row["video_part_id"], version=version, group=identity, binding=True)
             marker = str(PurePosixPath(value["srt_path"]).parent / BUNDLE_MARKER_NAME)
             add(f"{identity}:marker", "bundle", marker, frozen.get("marker"), part=row["video_part_id"], version=version, group=identity, binding=bool(frozen))
         for row in connection.execute(
@@ -325,18 +330,25 @@ def _marker_issue(path: Path, key: str) -> str | None:
         if len(raw) > 65536:
             return "invalid_bundle_marker"
         payload = _json_object(raw)
-        if payload.get("schema") != BUNDLE_SCHEMA:
+        schema = payload.get("schema")
+        if schema not in {BUNDLE_SCHEMA, BUNDLE_SCHEMA_V3}:
             return "unknown_format"
         artifacts = payload.get("artifacts")
-        if not isinstance(artifacts, dict) or set(artifacts) != set(REQUIRED_ARTIFACT_KEYS):
+        roles = (*REQUIRED_ARTIFACT_KEYS, SOURCE_METADATA_KEY) if schema == BUNDLE_SCHEMA_V3 else REQUIRED_ARTIFACT_KEYS
+        if not isinstance(artifacts, dict) or set(artifacts) != set(roles):
             return "invalid_bundle_marker"
         paths = {}
         for role, item in artifacts.items():
             if not isinstance(item, dict) or set(item) != {"path", "sha256"} or not isinstance(item["sha256"], str) or not _HASH.fullmatch(item["sha256"]):
                 return "invalid_bundle_marker"
             paths[role] = item["path"]
-        if not owns_bundle_paths(paths) or PurePosixPath(paths["srt_path"]).parent != PurePosixPath(key).parent:
+        if (not owns_bundle_paths({name: paths[name] for name in REQUIRED_ARTIFACT_KEYS})
+                or PurePosixPath(paths["srt_path"]).parent != PurePosixPath(key).parent):
             return "invalid_bundle_marker"
+        if schema == BUNDLE_SCHEMA_V3:
+            expected = f"{PurePosixPath(key).parent.as_posix()}/{BUNDLE_BASENAMES_V3[SOURCE_METADATA_KEY]}"
+            if paths[SOURCE_METADATA_KEY] != expected:
+                return "invalid_bundle_marker"
     except (ArtifactInventoryError, OSError, ValueError, TypeError):
         return "invalid_bundle_marker"
     return None

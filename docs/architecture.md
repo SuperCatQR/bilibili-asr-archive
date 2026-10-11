@@ -112,9 +112,9 @@ CPU runner 按 profile 复用；CUDA/ROCm 使用 spawn 子进程，父进程先�
 
 成功 subtitle/ASR 请求同 part 唯一 publish job；运行时重新择优当前版本，CC > AI 字幕 > ASR，再按语言 family zh/en/其余、精确语言代码升序、同来源同语言 version 降序，不盲用 requested ID。transcript_selection 的 transcript_preference_key/choose_transcript 是公共策略，producer、projection、规划参考选择和 editorial 复用；不同语言代码先比较代码，不能把另一中文变体较新的版本误当作同语言升级。workflow publish 只请求，workflow run 可同时执行其他就绪任务。
 
-输出 transcripts/<stem>/bundle.srt、bundle.vtt、bundle.txt、bundle.md、bundle.raw.json 及 archive-bundle-v2 marker。编码/hash/暂存/fsync 在 SQLite 锁外；旧 marker 失效、五文件替换、目录同步、新 marker、workflow_publications 登记共享 lease 写锁。失败回调在释放锁前失效 marker，避免旧 attempt 清理新 owner 结果。
+输出 transcripts/<stem>/bundle.srt、bundle.vtt、bundle.txt、bundle.md、bundle.raw.json 及 archive-bundle-v2 marker；v3 输出另外包含规范的 source-metadata.json，并使用 archive-bundle-v3 marker。现有 artifact_json/public 投影仍只登记五个路径键，sidecar 由 v3 marker 和固定 bundle 目录解析。编码/hash/暂存/fsync 在 SQLite 锁外；旧 marker 失效、对应版本的数据成员替换、目录同步、新 marker、workflow_publications 登记共享 lease 写锁。失败回调在释放锁前失效 marker，避免旧 attempt 清理新 owner 结果。
 
-当前 workflow publish 仅传 ASR 模型名称/revision provenance 子集，未读取并传入全部 transcript_asr_evidence、coverage 或 characters；writer 支持字段不等于当前调用已携带它们，完整逐次证据以 DB 为准。marker 校验精确五文件集合、受限路径和 hash，旧四文件/缺失/不符不算完整。SQLite 与文件系统无跨介质原子事务；掉电/磁盘/commit 故障由 verify、marker 和显式重新发布识别恢复。见 [08](sequences/08-transcript-bundle.md)、[WebVTT](webvtt.md)。
+当前 workflow publish 仅传 ASR 模型名称/revision provenance 子集，未读取并传入全部 transcript_asr_evidence、coverage 或 characters；writer 支持字段不等于当前调用已携带它们，完整逐次证据以 DB 为准。v3 raw JSON 只保存转录/ASR 证据，不复制 sourceMetadata；来源快照由 source-metadata.json 规范保存，bundle.md 是由两者生成的展示视图。marker 按版本校验精确五或六个数据成员、受限路径和 hash，旧四文件/缺失/不符不算完整。SQLite 与文件系统无跨介质原子事务；掉电/磁盘/commit 故障由 verify、marker 和显式重新发布识别恢复。见 [08](sequences/08-transcript-bundle.md)、[WebVTT](webvtt.md)。
 
 ## AI 冻结、检查点、双稿与模板
 
@@ -150,9 +150,9 @@ workflow_records 在 READ/RUNTIME session 的一次 SQLite 读快照内，按 pa
 
 preferred_* 描述按公共总排序选择的当前版本；published_* 描述最后成功 publication 的身份。已有 publication 时，兼容字段 transcript_id/source/language/version 和 with-text 描述已发布内容；尚未发布时描述 preferred。publication_current 表示两者是否同一 transcript。新版本或更优语言进入库，旧完好 bundle 仍 archived、coverage complete、export 仍对应其发布正文，重新发布后才切换。
 
-最新声明按 published_at、publication_id 选取；producer 在同一个 part 的保护事务内用 max(墙钟秒, 已有 published_at 最大值 + 1) 生成单调提交时间。同秒重新发布旧 transcript 的 upsert 因而成为最新声明；密集发布时该值可短暂领先墙钟秒，表示顺序，不能当精确物理时钟。同 part 的历史 publication 可能共用可变 bundle slot，不能因最新损坏回退旧声明。artifact_json 必须含完整路径集合，JSON 损坏或缺键不会由默认路径掩盖。正常投影验证五文件与 marker 后才 archived；verify/coverage 使用 verify_artifacts=False 保留 declared publication，再自行查字节，使 terminal_missing_artifact/defect 不被静默降为 backlog。
+最新声明按 published_at、publication_id 选取；producer 在同一个 part 的保护事务内用 max(墙钟秒, 已有 published_at 最大值 + 1) 生成单调提交时间。同秒重新发布旧 transcript 的 upsert 因而成为最新声明；密集发布时该值可短暂领先墙钟秒，表示顺序，不能当精确物理时钟。同 part 的历史 publication 可能共用可变 bundle slot，不能因最新损坏回退旧声明。artifact_json 必须含完整的五个公共路径键，JSON 损坏或缺键不会由默认路径掩盖。正常投影验证对应版本的全部数据成员与 marker 后才 archived；verify/coverage 使用 verify_artifacts=False 保留 declared publication，再自行查字节，使 terminal_missing_artifact/defect 不被静默降为 backlog。
 
-publication 与 transcript 用 LEFT JOIN 保留损坏关系：引用悬空或引用另一 part 的转录时，publication_error 分别为 published_transcript_missing/published_transcript_part_mismatch，保留声明 transcript ID 并将正文置空，不能借 preferred 或另一 part 的正文补齐。coverage 和 IntegrityVerifier 明确报告数据库关系 defect，即使 bundle 字节仍完整也不能计 complete。
+publication 与 transcript 用 LEFT JOIN 保留损坏关系：引用悬空或引用另一 part 的转录时，publication_error 分别为 published_transcript_missing/published_transcript_part_mismatch，保留声明 transcript ID 并将正文置空，不能借 preferred 或另一 part 的正文补齐。coverage 和 IntegrityVerifier 按 archive-bundle-v2/v3 检查对应数据成员与 marker；来源 sidecar 缺失或摘要不符时明确报告 bundle defect，即使转录正文文件仍完整也不能计 complete。
 
 IntegrityVerifier 当前检查 projected bundle 完整性及相关缺陷，不等于自动验证全部音频/AI/release；稿件和快照各有专门验证。coverage strict 将 diagnostics 变成非零；verify 区分 backlog/defect；export 输出普通 JSON/CSV，可按 status/with-text；dedup 仅报告精确音频及跨 segment 文本复用，不选 canonical/改来源。见 [13](sequences/13-projection-verify.md)。
 
@@ -193,7 +193,7 @@ artifact root 可由 flag/BILI_ARTIFACT_ROOT 与 archive root 分离，写 write
 
 预检覆盖全部 38 张权威表和五类受管理产物目录；已知完整 FTS 缓存标为可重建派生数据。显式产物根优先、旧根回退，遮蔽副本也计算哈希并检测变化；根目录未知条目、暂存文件、链接/junction、不可移植路径和不允许的根重叠均失败。凭据、模型、日志、缓存等仅记录排除名称，不递归读取。
 
-完整性包括所有冻结 input/revision（含未登记产物 revision）的身份、job/input/part 关系；已登记双稿必须完整并按固定 ai-draft-v1 渲染复算。edition 内容、父版、准确审核历史链及终态、独立 draft/release head、全部历史 release（含 superseded/withdrawn）和固定 publish-v1 字节必须相符。成功音频 attempt、bundle 五文件和 marker、AI 双稿、历史 release 引用均须存在且满足大小/哈希。
+完整性包括所有冻结 input/revision（含未登记产物 revision）的身份、job/input/part 关系；已登记双稿必须完整并按固定 ai-draft-v1 渲染复算。edition 内容、父版、准确审核历史链及终态、独立 draft/release head、全部历史 release（含 superseded/withdrawn）和固定 publish-v1 字节必须相符。成功音频 attempt、对应版本 bundle 的全部数据成员和 marker、AI 双稿、历史 release 引用均须存在且满足大小/哈希；v2 为五个数据成员，v3 为六个数据成员。
 
 扫描后再次核对文件集合、全部物理文件身份、DB 身份与 sidecar、排除项。通过后输出表行数/摘要、文件摘要、源 fingerprint、遮蔽与排除项，以及过期 running/未完成 run/调用的恢复候选计数；候选只报告。JSON/text 成功退出 0，受控诊断失败退出 1；仅锁协调可能写入根旁的稳定锁文件。报告包含私有路径，应按私有归档信息处理。文件哈希流式执行，清单与部分内容校验仍在内存中，预检不提供全链路内存上限。完整时序见 [17](sequences/17-migration-preflight.md)。
 

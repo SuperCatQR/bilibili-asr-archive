@@ -43,7 +43,8 @@ from bili_asr.artifact_inventory import (
     stream_hash as _stream_hash,
 )
 from bili_asr.artifacts import BUNDLE_BASENAMES as _BUNDLE_NAMES
-from bili_asr.artifacts import BUNDLE_MARKER_NAME, BUNDLE_SCHEMA
+from bili_asr.artifacts import BUNDLE_BASENAMES_V3 as _BUNDLE_NAMES_V3
+from bili_asr.artifacts import BUNDLE_MARKER_NAME, BUNDLE_SCHEMA, BUNDLE_SCHEMA_V3
 from bili_asr.storage.database import connect_database
 from bili_asr.storage.snapshots import (
     create_database_snapshot,
@@ -126,12 +127,13 @@ def _check_bundle_markers(bundle: zipfile.ZipFile, files: dict[str, dict[str, ob
             document = json.loads(encoded.decode("ascii"), object_pairs_hook=_manifest_object)
         except (UnicodeError, ValueError, RecursionError) as exc:
             raise SnapshotError(f"invalid transcript bundle marker: {marker_path}") from exc
-        if (not isinstance(document, dict) or document.get("schema") != BUNDLE_SCHEMA
-                or not isinstance(document.get("artifacts"), dict)
-                or set(document["artifacts"]) != set(_BUNDLE_NAMES)):
+        schema = document.get("schema") if isinstance(document, dict) else None
+        names = _BUNDLE_NAMES if schema == BUNDLE_SCHEMA else _BUNDLE_NAMES_V3 if schema == BUNDLE_SCHEMA_V3 else None
+        if (names is None or not isinstance(document.get("artifacts"), dict)
+                or set(document["artifacts"]) != set(names)):
             raise SnapshotError(f"invalid transcript bundle marker: {marker_path}")
         directory = "/".join(parts[:-1])
-        for key, basename in _BUNDLE_NAMES.items():
+        for key, basename in names.items():
             item = document["artifacts"][key]
             path = f"{directory}/{basename}"
             entry = files.get(path)

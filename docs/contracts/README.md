@@ -4,7 +4,7 @@
 
 The executable JSON Schemas live in `src/bili_asr/contracts/schemas/` and ship
 inside the wheel. This directory is their byte-identical publication mirror.
-The [contract registry](registry.json) records 34 identities, their owners,
+The [contract registry](registry.json) records versioned identities, their owners,
 definition paths, consumers, capabilities and dependencies; 15 entries have
 JSON Schemas. See [governance and compatibility](../contract-governance.md).
 
@@ -16,6 +16,14 @@ python -m bili_asr.contracts --check-docs docs/contracts
 Runtime validation resolves all cross-schema references from packaged resources
 offline. Structural checks precede domain identity, hash and file-set checks.
 Edit the packaged source and regenerate this mirror; CI rejects drift.
+
+Transcript archive bundles use a filesystem manifest contract rather than a
+JSON Schema in this registry. `archive-bundle-v2` remains the unchanged
+five-member reader contract. `archive-bundle-v3` adds the canonical
+`source-metadata.json` member and hashes six data members; its implementation
+must register the new identity in the packaged registry and regenerate this
+documentation mirror. Neither `source-metadata-v1` nor article publication
+content/catalog contracts change as part of this transcript bundle upgrade.
 
 The seven-file private manifest remains [editorial manifest v1](editorial-export-manifest.schema.json).
 Imported preserved-body packages use the distinct [ten-file layout](editorial-import-export-manifest.schema.json).

@@ -2,7 +2,7 @@
 
 `{archive_root}/archive.db` 是当前归档的持久状态来源：保存视频元数据、采集游标、字幕观察、不可变转录版本、音频对象引用、工作流任务和发布登记。音频及发布产物保存为文件，数据库记录它们的身份与路径。默认归档根目录为 `archive`。
 
-本文按当前源码说明存储与公共 CLI 契约。系统全貌见 [架构文档](architecture.md)；操作细节见 [BVID 选择](workflow-selection.md)、[任务取消](workflow-cancellation.md)、[WebVTT 与五产物归档包](webvtt.md)、[AI 校对](ai-proofreading.md)、[元数据搜索](metadata-search.md)。
+本文按当前源码说明存储与公共 CLI 契约。系统全貌见 [架构文档](architecture.md)；操作细节见 [BVID 选择](workflow-selection.md)、[任务取消](workflow-cancellation.md)、[WebVTT 与 transcript 归档包](webvtt.md)、[AI 校对](ai-proofreading.md)、[元数据搜索](metadata-search.md)。
 
 ## 从采集到发布
 
@@ -81,7 +81,7 @@ AI 输入与模型证据冻结在 `editorial_inputs`、`editorial_job_inputs`、
 
 稿件发布保存 `publication_editions` 的不可变完整读者内容、`publication_edition_reviews` 的精确 edition/hash 审核、`publication_releases` 的版本化发布产物，以及 `publication_events` 的追加操作事实。`publication_heads` 对每分 P 分别保存当前 edition 和当前 release；创建或审核 B 不替换公开的 A，只有获批 B 被显式 publish 后才改变 release 指针。withdraw 只清除当前公开指针，保留历史。
 
-完整读者内容使用 canonical JSON SHA-256，渲染的 `publish.md` 另行登记字节 hash。审核必须提交准确内容 hash；发布重新校验 edition、审核、关系和产物。AI 质量状态不是发布批准。命令与导出 schema 见 [稿件发布](publication.md)；`workflow publish` 仍表示转录五产物包发布。
+完整读者内容使用 canonical JSON SHA-256，渲染的 `publish.md` 另行登记字节 hash。审核必须提交准确内容 hash；发布重新校验 edition、审核、关系和产物。AI 质量状态不是发布批准。命令与导出 schema 见 [稿件发布](publication.md)；`workflow publish` 表示对应版本的 transcript bundle 发布，v2 为五个数据成员，v3 为六个数据成员。
 
 ## 数据身份与核心表
 
@@ -151,7 +151,7 @@ coverage 是某次 ASR run 的事实，不是转录内容身份。同一 cue 内
 | `workflow_job_dependencies` | `(job_id, prerequisite_job_id)` | 显式执行依赖；只在 prerequisite succeeded 后允许领取。 |
 | `workflow_attempts` | `attempt_id` | job、worker、时间、outcome、error 与 result JSON；保存每次领取后的执行证据。 |
 | `workflow_quality_assessments` | `assessment_id` | 分 P/source 的 0–1 score、assessor、details 与评估时间。 |
-| `workflow_publications` | `publication_id`；`(video_part_id, transcript_id)` 唯一 | 发布时间与五项产物的 `artifact_json` 路径映射。 |
+| `workflow_publications` | `publication_id`；`(video_part_id, transcript_id)` 唯一 | 发布时间与五个公共产物路径键的 `artifact_json` 映射；v3 sidecar 不改变该投影。 |
 
 job statuses 为 `queued`、`running`、`succeeded`、`failed`、`cancelled`；attempt outcomes 为 `running`、`succeeded`、`failed`、`cancelled`。queued 尚未被领取时没有 attempt。acquisition run/attempt 是内容获取证据，workflow attempt 是领取与执行证据，两种 lifecycle 允许有不同的终态。
 
@@ -213,7 +213,7 @@ bili-asr fetch-meta --archive-root universal-archive --refresh-failed
 
 ### 发布时间与元数据快照
 
-`videos.pubdate` 保留 Unix 秒，正值通过 `pubdate_iso()` 输出 UTC RFC3339 完整时间；0 或未知输出 NULL，不推测成 1970 年。`MetadataRepository.read_source_metadata(part_id)` 返回版本化 `SourceMetadataSnapshot`，供 v2 workflow 投影、五产物包和新稿件内容使用，包含作者、原始发布时间、观察时间、简介、分区、源标签及允许的公共封面。
+`videos.pubdate` 保留 Unix 秒，正值通过 `pubdate_iso()` 输出 UTC RFC3339 完整时间；0 或未知输出 NULL，不推测成 1970 年。`MetadataRepository.read_source_metadata(part_id)` 返回版本化 `SourceMetadataSnapshot`，供 v2 workflow 投影、v3 transcript bundle 的 `source-metadata.json` 和新稿件内容使用，包含作者、原始发布时间、观察时间、简介、分区、源标签及允许的公共封面。`source-metadata-v1` 的字段和校验保持不变；v3 只是把该快照作为独立包成员保存。
 
 通用投影使用 `read_source_metadata_many(part_ids)`，每次至多 256 个正整数 ID。
 来源/作者/详情与 Bilibili 标签分别用集合查询，多个分 P 共用一个视频标签结果；
@@ -314,7 +314,7 @@ BVID/part ID 选择先一次性验证全部目标与策略参数，再创建 pro
 
 查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；publication export-drafts 另行输出当前且从未发布的 edition 预览。全部内容 v1 时 catalog 仍为版本 2，包含内容 v2 时为版本 3，可同时保留旧 Bilibili 条目与真实 YouTube 身份。两个导出都登记正文和配对 AI 校验参照 review.md 的路径与字节哈希；editorial export 单独输出含审核事件和请求配置的完整私有审阅包。这些导出不是数据库或队列，也不代表仓库附带前端源码。
 
-## 五产物发布与取消保护
+## Transcript bundle 发布与取消保护
 
 publish job 以 `publish:{video_part_id}` 去重，一个分 P 共用一个发布任务。请求的 transcript ID 是触发证据；handler 执行时重新选择当前优先存储版本，按以下键排序：source kind `subtitle-cc`、`subtitle-ai`、`asr-local`；语言 family `zh`、`en`、其他；完整 language code 升序；version 降序。这个优先级先比较 kind，区别于获取轨道时先比较 family，因此较晚完成的 ASR 不会仅因完成时间覆盖已有优先字幕。
 
@@ -330,12 +330,13 @@ archive/
     bundle.txt
     bundle.md
     bundle.raw.json
+    source-metadata.json  # v3 only
     .bundle-ready
 ```
 
-`.bundle-ready` schema 为 `archive-bundle-v2`，声明五项路径与各自 SHA-256。文件存在、大小或 mtime 相同都不能证明完整；读者逐块哈希核对 marker、路径和全部内容。旧四产物包没有当前完整性契约，需从存储版本重发，不能通过补一个空 VTT 或伪造 marker 认定完成。
+`.bundle-ready` schema 为 `archive-bundle-v2` 或 `archive-bundle-v3`。v2 声明原五项路径与各自 SHA-256；v3 声明六个数据成员（前述五项加 `source-metadata.json`）与各自 SHA-256。五个 `artifact_json`/公共路径键在两个版本中都保持不变，sidecar 不改变旧投影。文件存在、大小或 mtime 相同都不能证明完整；读者逐块哈希核对 marker、路径和全部内容。v3 raw JSON 不包含 `sourceMetadata`，来源字段只从 sidecar 读取，`bundle.md` 只是生成展示视图。旧四产物包没有当前完整性契约，需从存储版本显式重发，不能通过补一个空 VTT、sidecar 或伪造 marker 认定完成。
 
-当前 workflow writer 先在 guard 外准备编码、摘要及暂存文件，然后进入共享的 `WorkflowRepository.owned_transaction(job)`：取得 SQLite 写锁、检查精确 attempt ownership、使旧 marker 失效、依次替换五项产物、最后替换 marker，并在同一 guard 内 upsert `workflow_publications`。每次最终替换前仍执行 lease checkpoint；共享 guard 在退出事务体、数据库 commit 前再次检查 ownership 和 lease。失败清理回调在数据库回滚和写锁释放前失效已开始发布的 marker，避免部分包被读者认可，也防止旧 attempt 退出时误删新 worker 的有效 marker。暂存文件按 writer 清理路径释放。
+当前 workflow writer 先在 guard 外准备编码、摘要及暂存文件，然后进入共享的 `WorkflowRepository.owned_transaction(job)`：取得 SQLite 写锁、检查精确 attempt ownership、使旧 marker 失效、按 v2/v3 契约依次替换数据成员、最后替换 marker，并在同一 guard 内 upsert `workflow_publications`。v2 替换五个数据成员；v3 替换六个数据成员，包括 `source-metadata.json`。每次最终替换前仍执行 lease checkpoint；共享 guard 在退出事务体、数据库 commit 前再次检查 ownership 和 lease。失败清理回调在数据库回滚和写锁释放前失效已开始发布的 marker，避免部分包被读者认可，也防止旧 attempt 退出时误删新 worker 的有效 marker。暂存文件按 writer 清理路径释放。
 
 SQLite 与文件系统不是一个可回滚事务。若文件阶段在取消前已经取得写锁，取消要等该短事务完成，已提交的内容保留；之后取消尚为 running 的 job 仍可成功。若 job 的终态已经提交，取消为 noop。若取消先提交，后续 guard 拒绝最终替换和发布登记。中途文件写入、目录创建、暂存或已提交的早期 acquisition 证据不承诺因取消消失；有效 marker 和数据库状态决定可见结果。
 
@@ -358,7 +359,7 @@ publish CLI 会在请求前解析完整 ID 集合并确认每个 part 有候选�
 
 `fetch-meta` 的 `0` 表示 complete 或 limited，`1` 表示参数/根目录/恢复配置错误，`2` 表示 gateway failure 或内部异常。`workflow plan/publish/cancel/retry` 的可识别选择或 schema 错误为 `1`；`workflow run` 在 failed 非零时为 `1`，仅取消不作为 failure。输出 `succeeded/failed/cancelled/idle` 表达本次执行结果，不表示整个 corpus 已归档。`workflow run` 的未被转换的内部异常和底层 SQLite/I/O 错误没有统一的额外退出码保证。
 
-顶层 `status`、`runs` 及 workflow 查询对不存在、无法打开或 schema 不兼容的数据库给出 bounded 诊断。它们使用 READ，不修复损坏库、不补 schema、不刷新视图；冻结旧库和索引兼容读取由各自的明确契约入口负责。`verify` 默认将声明发布后的产物缺失/损坏作为 defect 并退出 `1`，未发布内容作为 backlog；strict 模式也将 backlog 计为失败。coverage 只有通过完整性检查的五产物才计为 complete。
+顶层 `status`、`runs` 及 workflow 查询对不存在、无法打开或 schema 不兼容的数据库给出 bounded 诊断。它们使用 READ，不修复损坏库、不补 schema、不刷新视图；冻结旧库和索引兼容读取由各自的明确契约入口负责。`verify` 默认将声明发布后的产物缺失/损坏作为 defect 并退出 `1`，未发布内容作为 backlog；strict 模式也将 backlog 计为失败。coverage 只有通过对应 bundle v2/v3 完整性检查的全部数据成员才计为 complete。
 
 以下当前测试覆盖主要离线契约，可作为进一步追踪入口：
 
@@ -368,7 +369,7 @@ publish CLI 会在请求前解析完整 ID 集合并确认每个 part 有候选�
 - [`test_workflow_control_plane.py`](../tests/test_workflow_control_plane.py)、[`test_workflow_selection.py`](../tests/test_workflow_selection.py)、[`test_workflow_lease_heartbeat.py`](../tests/test_workflow_lease_heartbeat.py)、[`test_workflow_cancellation.py`](../tests/test_workflow_cancellation.py)：独立规划、租约、精确选择、取消及真实 SQLite 连接竞态。
 - [`test_archive_sessions.py`](../tests/test_archive_sessions.py)、[`test_workflow_result_fences.py`](../tests/test_workflow_result_fences.py)：只读查询不建库、不刷新视图、连接访问租约，以及结果事务精确到期时的入口/提交前检查与回滚。
 - [`test_projection_policy_consistency.py`](../tests/test_projection_policy_consistency.py)、[`test_search_index_paging.py`](../tests/test_search_index_paging.py)：统一转录优先级、preferred/published 身份、损坏包诊断、批量查询与索引分段恢复。
-- [`test_webvtt.py`](../tests/test_webvtt.py)、[`test_ai_editorial.py`](../tests/test_ai_editorial.py)：五产物完整性、发布 guard 与独立校对/渲染。
+- [`test_webvtt.py`](../tests/test_webvtt.py)、[`test_ai_editorial.py`](../tests/test_ai_editorial.py)：v2 五成员完整性、发布 guard 与独立校对/渲染；v3 sidecar/六成员覆盖随实现加入。
 
 本文依据当前代码与离线契约更新，不将旧入口的历史 live smoke 结果视为当前 CLI 的实网验证，也不声明这次文档更新验证了上游网络、账号权限或模型服务可用性。
 

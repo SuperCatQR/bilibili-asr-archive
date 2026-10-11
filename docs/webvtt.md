@@ -1,6 +1,6 @@
-# WebVTT 与五产物归档包
+# WebVTT 与 transcript 归档包
 
-每次发布都从同一个存储转录版本生成 SRT、WebVTT、纯文本、Markdown 和原始 JSON。WebVTT 不触发新的字幕请求或 ASR 推理；它使用 SRT 同源的 cue 时间、文本和顺序。
+每次发布都从同一个存储转录版本生成 SRT、WebVTT、纯文本、Markdown 和原始 JSON。WebVTT 不触发新的字幕请求或 ASR 推理；它使用 SRT 同源的 cue 时间、文本和顺序。`archive-bundle-v3` 另外生成规范的 `source-metadata.json` sidecar，将来源字段/快照与转录正文解耦。该 sidecar 是 v3 的来源元数据事实；Markdown 中的字段只是生成视图，raw JSON 不再复制 `sourceMetadata`。
 
 ## 产物与完整性
 
@@ -13,16 +13,19 @@ transcripts/BV_EXAMPLE.p0/
   bundle.txt
   bundle.md
   bundle.raw.json
+  source-metadata.json
   .bundle-ready
 ```
 
-公共路径字段为 `srt_path`、`vtt_path`、`txt_path`、`md_path`、`raw_path`，均相对产物根目录记录。JSON 导出包含 `vtt_path`；CSV 的标准列顺序将它放在 `srt_path` 后。
+现有公共路径字段仍为 `srt_path`、`vtt_path`、`txt_path`、`md_path`、`raw_path`，均相对产物根目录记录；`artifact_json` 的五个键保持不变。v3 的 `source-metadata.json` 是包内 sidecar，不新增旧公共投影字段，v3 读者根据 marker 和 bundle 目录解析它。JSON 导出包含 `vtt_path`；CSV 的标准列顺序将它放在 `srt_path` 后。
 
-`.bundle-ready` 使用 `archive-bundle-v2`，必须声明五项路径及各自的 SHA-256。只有路径、文件和五项摘要全部匹配，读者才承认完整包；缺少 VTT、损坏 VTT、遗漏 marker 条目或使用旧 marker 版本都会失败。验证逐块读取文件，不依赖大小与修改时间推断内容相同。独立验证 worker 使用同一契约。
+v2 的 `.bundle-ready` 仍使用 `archive-bundle-v2`，必须声明原五项路径及各自的 SHA-256；v2 目录和 marker 语义不变。v3 使用 `archive-bundle-v3`，在同一目录布局中声明六个数据成员（SRT、WebVTT、纯文本、Markdown、raw JSON、`source-metadata.json`）及各自 SHA-256。只有路径、文件和摘要全部匹配，读者才承认完整包；v3 缺少 sidecar、损坏 sidecar 或遗漏 marker 条目均失败。验证逐块读取文件，不依赖大小与修改时间推断内容相同。独立验证 worker 使用对应版本契约。
 
-发布前先在临时位置编码、写入、同步并计算摘要；最终替换前失效旧 marker，依次替换五项产物，最后提交新 marker。中途失败时没有有效 marker，读者不会把部分替换计为完成。工作流传入的 publication guard 覆盖全部最终替换、marker 提交和 publication 登记，使该阶段与取消操作串行化。guard 收到失败清理回调，在 SQLite 回滚和写锁释放前失效 marker；旧 attempt 退出时不能再删除接手 worker 的有效 marker。文件系统和 SQLite 仍是两个提交介质；异常后的可见性由 marker 和摘要共同保护。
+v3 的 raw JSON 只承载转录 segments、source、ASR provenance、coverage 和 characters 等转录/生成证据；来源字段只从 `source-metadata.json` 读取。`bundle.md` 可包含用于阅读的来源 frontmatter，但它由规范 sidecar 和转录内容生成，修改展示文件不能改变来源快照身份。
 
-`verify` 将已登记发布但缺失或损坏产物的包报告为缺陷，默认退出码为 1；未发布的转录保留为 backlog。`coverage` 不将缺少有效五产物包的分 P 计为 complete。两者使用配置的产物根目录及归档根目录作为读取候选，支持产物位于独立目录。
+发布前先在临时位置编码、写入、同步并计算摘要；最终替换前失效旧 marker，v2 替换五项数据成员，v3 替换六项数据成员，最后提交新 marker。中途失败时没有有效 marker，读者不会把部分替换计为完成。工作流传入的 publication guard 覆盖全部最终替换、marker 提交和 publication 登记，使该阶段与取消操作串行化。guard 收到失败清理回调，在 SQLite 回滚和写锁释放前失效 marker；旧 attempt 退出时不能再删除接手 worker 的有效 marker。文件系统和 SQLite 仍是两个提交介质；异常后的可见性由 marker 和摘要共同保护。
+
+`verify` 将已登记发布但缺失或损坏产物的包报告为缺陷，默认退出码为 1；未发布的转录保留为 backlog。`coverage` 不将缺少有效 v2/v3 bundle 的分 P 计为 complete。两者使用配置的产物根目录及归档根目录作为读取候选，支持产物位于独立目录。
 
 ## 文本和时间规则
 
@@ -55,7 +58,7 @@ WEBVTT
 
 ## 重建已有包
 
-旧四产物包不兼容 `archive-bundle-v2`，也不做自动迁移。存储转录无需重新获取；在兼容当前 workflow schema 的数据库上，显式为已有分 P 请求重新发布即可生成五项产物：
+旧四产物包不兼容 `archive-bundle-v2`，也不做自动迁移。v2 包继续可读，不能通过补 sidecar 冒充 v3；需要 v3 时从存储转录和当时可用的来源快照显式重新发布。存储转录无需重新获取；在兼容当前 workflow schema 的数据库上，显式为已有分 P 请求重新发布即可生成对应版本的完整包：
 
 ```sh
 bili-asr workflow publish --archive-root data --part-id 12 --part-id 13

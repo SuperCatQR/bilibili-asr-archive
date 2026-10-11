@@ -111,10 +111,10 @@ bili-asr artifacts restore-group --archive-root D:/archives/catalog --group-id G
 bili-asr artifacts status --archive-root D:/archives/catalog --check-targets --storage-target cold-audio=E:/audio-store
 ```
 
-`capture-groups` 验证当前 transcript bundle 的五个文件和完成 marker，并将 raw segments 与数据库中实际发布的 transcript 对应；无法证明的旧版只报告阻碍，不制造历史字节。
+`capture-groups` 验证当前 transcript bundle 的完整数据成员和完成 marker：v2 为五个文件，v3 为五个转录文件加 `source-metadata.json`；同时将 raw segments 与数据库中实际发布的 transcript 对应。无法证明的旧版只报告阻碍，不制造历史字节。
 AI 成稿和审阅稿、来源正文和审阅证据各自成对；所有 published/superseded/withdrawn release、迁移证据均按原身份保留。
 确认的组先保存到 `documents/artifact-objects/<SHA256>`，再登记不可变成员及原始路径。
-启用 catalog 后的 workflow publish 在覆盖旧槽位前保存可验证的旧组，并在发布提交中登记新组。
+启用 catalog 后的 workflow publish 在覆盖旧槽位前保存可验证的旧组，并在发布提交中登记新组。v3 组把来源 sidecar 作为独立不可变成员保存；现有五个 artifact_json/public 路径键仍按原身份登记，不能用 sidecar 替换或重命名它们。
 计划同时覆盖原始位置和不可变对象副本；任何组缺失成员或摘要不符都阻止迁出。
 
 `restore-group` 先在目标工作盘暂存并校验完整组，最后才安装完成 marker。已有不同版本拒绝覆盖；损坏包不会产生部分完成标记。

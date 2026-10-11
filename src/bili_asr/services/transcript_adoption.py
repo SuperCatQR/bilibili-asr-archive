@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 import stat
 from typing import Any, Mapping
 
-from bili_asr.artifacts import BUNDLE_SCHEMA, REQUIRED_ARTIFACT_KEYS
+from bili_asr.artifacts import BUNDLE_SCHEMA, BUNDLE_SCHEMA_V3, REQUIRED_ARTIFACT_KEYS, SOURCE_METADATA_KEY
 from bili_asr.cues import segments_to_srt, segments_to_vtt, segments_to_txt
 from bili_asr.page_identity import parse_work_id
 from bili_asr.storage import TranscriptSegmentRecord
@@ -188,8 +188,10 @@ def read_archived_transcript(
         marker_path = _marker_path(paths, work_id)
         root = Path(os.path.abspath(artifact_root))
         marker = json.loads(_read_confined(root, marker_path, 8192).decode("ascii"))
-        artifacts = marker.get("artifacts") if isinstance(marker, dict) and marker.get("schema") == BUNDLE_SCHEMA else None
-        if not isinstance(artifacts, dict) or set(artifacts) != set(REQUIRED_ARTIFACT_KEYS):
+        schema = marker.get("schema") if isinstance(marker, dict) else None
+        artifacts = marker.get("artifacts") if schema in {BUNDLE_SCHEMA, BUNDLE_SCHEMA_V3} else None
+        roles = (*REQUIRED_ARTIFACT_KEYS, SOURCE_METADATA_KEY) if schema == BUNDLE_SCHEMA_V3 else REQUIRED_ARTIFACT_KEYS
+        if not isinstance(artifacts, dict) or set(artifacts) != set(roles):
             raise AdoptionRefused("bundle_marker_invalid")
         payloads: dict[str, str] = {}
         for key, path in paths.items():
@@ -199,6 +201,13 @@ def read_archived_transcript(
                     or item["path"] != path or hashlib.sha256(payload).hexdigest() != item["sha256"]):
                 raise AdoptionRefused("bundle_digest_mismatch")
             payloads[key] = payload.decode("utf-8").replace("\r\n", "\n")
+        if schema == BUNDLE_SCHEMA_V3:
+            metadata_path = f"{PurePosixPath(paths['srt_path']).parent.as_posix()}/source-metadata.json"
+            metadata_payload = _read_confined(root, metadata_path)
+            item = artifacts[SOURCE_METADATA_KEY]
+            if (item.get("path") != metadata_path
+                    or hashlib.sha256(metadata_payload).hexdigest() != item.get("sha256")):
+                raise AdoptionRefused("bundle_digest_mismatch")
         metadata, body = _frontmatter(payloads["md_path"])
         if (any(metadata.get(key) != value for key, value in identity.items())
                 or any(isinstance(metadata.get(key), bool) for key in ("page_index", "cid"))):

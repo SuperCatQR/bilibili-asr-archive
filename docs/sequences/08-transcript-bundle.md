@@ -1,4 +1,4 @@
-# 择优转录、五文件发布与完成标记
+# 择优转录、bundle v2/v3 发布与完成标记
 
 源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
 
@@ -14,18 +14,18 @@ sequenceDiagram
     participant projection as 候选与格式转换
     participant db as 转录及发布表
     participant writer as bundle writer
-    participant files as 五文件与 marker
+    participant files as bundle 数据成员与 marker
     requests->>db: 转录成功会请求；workflow publish 可 force；cancelled 不复活
     db-->>handler: 认领 publish job
     handler->>db: 读取当前全部版本
     handler->>projection: CC > AI 字幕 > ASR；语言 family/语言/version 排序；不盲用 requested ID
     projection-->>handler: 选定版本与 segments
-    handler->>writer: 传入来源、segments、元数据与可用模型名称/revision；传入 publication_guard
-    writer->>files: SRT/VTT/TXT/MD/raw JSON；计算 digest，写临时文件并 fsync
+    handler->>writer: 传入来源、segments、来源快照与可用模型名称/revision；传入 publication_guard
+    writer->>files: SRT/VTT/TXT/MD/raw JSON/source-metadata.json（v3）；计算 digest，写临时文件并 fsync
     writer->>db: BEGIN IMMEDIATE、精确 owner/attempt/expiry 检查；提交前再次复验；最终替换与登记在锁内
     writer->>files: 使旧 marker 失效
-    writer->>files: 替换全部五文件
-    writer->>files: archive-bundle-v2 列出五个相对路径及 SHA-256；完成标记最后安装
+    writer->>files: v2 替换五个数据成员；v3 替换六个数据成员
+    writer->>files: v2 marker 列出五个、v3 marker 列出六个相对路径及 SHA-256；完成标记最后安装
     handler->>db: video_part_id + 实际 transcript_id + artifact_json
     alt 替换或 DB commit 失败
     writer->>files: on_rollback 在释放写锁前清理；不清理新 owner 的有效 marker
@@ -34,13 +34,13 @@ sequenceDiagram
     db-->>handler: 提交发布事实
     handler->>db: 若运行期间 payload 请求改变，attempt 成功但 job 再回 queued
     end
-    files-->>requests: marker 缺失、旧四文件、hash 不符均不视为完整；SQLite/FS 无跨介质事务
+    files-->>requests: marker 缺失、成员缺失、hash 不符均不视为完整；SQLite/FS 无跨介质事务
 ```
 
 ## 边界与恢复
 
 - 转录 bundle 与获人工批准的 publication release 是两个独立发布域。
-- archive.write_archive 支持较丰富的 ASR 参数；当前 workflow.publish 只传已观察到的子集，数据库证据用 workflow asr-evidence 查看。
+- archive.write_archive 支持较丰富的 ASR 参数；当前 workflow.publish 只传已观察到的子集，数据库证据用 workflow asr-evidence 查看。v3 raw JSON 保留转录/ASR 证据，不重复来源元数据；`bundle.md` 由规范 sidecar 和转录内容生成。
 - 受保护写锁解决合作取消/抢占竞态；不能保证掉电后数据库与文件恰好一次一致。
 
 ## 源码证据
