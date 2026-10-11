@@ -11,7 +11,7 @@ import math
 import threading
 import time
 from collections.abc import Callable, Mapping
-from contextlib import AbstractContextManager, ExitStack
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -32,6 +32,12 @@ class WorkerPreparingDrain(RuntimeError):
     """Drain interrupted preparation before any business attempt existed."""
 
 
+class LeaseRenewalFailed(RuntimeError):
+    """Background renewal cannot recover within the current lease budget."""
+
+    error_code = "lease_renewal_failed"
+
+
 class WorkerInputUnavailable(ValueError):
     """An observed input or capacity block prevents creating a business attempt."""
 
@@ -48,6 +54,7 @@ def attempt_checkpoint(job: WorkflowJob) -> None:
     current = getattr(_ATTEMPT_LOCAL, "attempt", None)
     if current is not None and current[0] == (job.job_id, job.lease_owner, job.attempt_count):
         current[2].check_drain()
+        current[2].check_health()
         if current[1].is_set():
             raise LeaseLostError("attempt ownership was lost during inference")
 
@@ -94,6 +101,8 @@ class WorkflowExecutor:
         drain_timeout_seconds: float | None = None,
         prepare_candidate: Callable[[WorkflowJob, Callable[[], None]], None] | None = None,
         candidate_access: Callable[[WorkflowJob], AbstractContextManager[None]] | None = None,
+        drain_checkpoint: Callable[[], None] | None = None,
+        attempt_scope: Callable[[], AbstractContextManager] | None = None,
     ):
         if lease_seconds < 1:
             raise ValueError("lease_seconds must be positive")
@@ -113,6 +122,8 @@ class WorkflowExecutor:
         self.drain_timeout_seconds = drain_timeout_seconds
         self.prepare_candidate = prepare_candidate
         self.candidate_access = candidate_access
+        self.drain_checkpoint = drain_checkpoint
+        self.attempt_scope = attempt_scope or nullcontext
 
     def run(self, *, limit: int | None = None) -> ExecutionSummary:
         if limit is not None and limit < 1:
@@ -166,11 +177,15 @@ class WorkflowExecutor:
                     interval_seconds=self.heartbeat_interval_seconds,
                     drain_requested=self.drain_requested,
                     drain_timeout_seconds=self.drain_timeout_seconds,
+                    drain_checkpoint=self.drain_checkpoint,
                 )
                 heartbeat.start()
                 _ATTEMPT_LOCAL.attempt = ((job.job_id, job.lease_owner, job.attempt_count), heartbeat.cancelled, heartbeat)
                 try:
-                    result = handler(job)
+                    with self.attempt_scope():
+                        heartbeat.check_health()
+                        result = handler(job)
+                        heartbeat.check_health()
                 except Exception as exc:  # noqa: BLE001 - injected handlers return bounded typed diagnostics.
                     from bili_asr.workflow_errors import JobExecutionError
                     details = {"diagnostic": exc.safe_details} if isinstance(exc, JobExecutionError) else None
@@ -221,6 +236,7 @@ class _LeaseHeartbeat:
         interval_seconds: float,
         drain_requested: Callable[[], bool] = lambda: False,
         drain_timeout_seconds: float | None = None,
+        drain_checkpoint: Callable[[], None] | None = None,
     ) -> None:
         self.repository = repository
         self.job = job
@@ -230,6 +246,8 @@ class _LeaseHeartbeat:
         self.cancelled = threading.Event()
         self.drain_requested = drain_requested
         self.drain_timeout_seconds = drain_timeout_seconds
+        self.drain_checkpoint = drain_checkpoint
+        self.failed = threading.Event()
         self._drain_started: float | None = None
         self._thread: threading.Thread | None = None
 
@@ -242,12 +260,21 @@ class _LeaseHeartbeat:
         self._thread.start()
 
     def check_drain(self) -> None:
+        if self.drain_checkpoint is not None:
+            self.drain_checkpoint()
+            return
         if self.drain_requested():
             if self._drain_started is None:
                 self._drain_started = time.monotonic()
             if (self.drain_timeout_seconds is not None
                     and time.monotonic() - self._drain_started >= self.drain_timeout_seconds):
                 raise WorkerDrainTimeout("graceful worker shutdown deadline elapsed")
+
+    def check_health(self) -> None:
+        if self.failed.is_set():
+            raise LeaseRenewalFailed("lease renewal failed before its recovery deadline")
+        if self.cancelled.is_set():
+            raise LeaseLostError("attempt ownership was lost during execution")
 
     def stop(self) -> None:
         self._stop.set()
@@ -258,28 +285,47 @@ class _LeaseHeartbeat:
     def _run(self) -> None:
         # Open the connection inside the heartbeat thread so sqlite's default
         # thread-affinity check is satisfied.
-        lease_repository = self.repository.open_lease_repository()
-        if lease_repository is None:
-            return
+        import sqlite3
+        from bili_asr.archive_maintenance import ArchiveBusyError
+
+        lease_repository = None
+        # Stop degraded execution before lease expiry. Claim timestamps have
+        # second precision, so leave a reserve rather than spending the whole
+        # lease on retries. Successful renewal resets this recovery budget.
+        budget = max(0.1, self.lease_seconds / 2)
+        deadline = time.monotonic() + budget
         try:
             # Renew once before the first wait.  Claim timestamps are stored at
             # second precision; waiting for the first interval can otherwise
             # lose a one-second test lease at a wall-clock boundary.
             while not self._stop.is_set():
                 try:
+                    if lease_repository is None:
+                        lease_repository = self.repository.open_lease_repository()
+                        if lease_repository is None:
+                            return  # In-memory repositories deliberately have no second connection.
                     lease_repository.renew_lease(self.job, lease_seconds=self.lease_seconds)
                 except LeaseLostError:
                     self.cancelled.set()
                     # The terminal write will be fenced by the same attempt tuple.
                     return
-                except Exception:  # noqa: BLE001 - transient lease errors remain fenced at commit.
+                except (sqlite3.Error, OSError, ArchiveBusyError):
                     # A transient SQLite lock or I/O error must not turn a healthy
                     # handler into a false success.  Retry at the next interval;
                     # terminal writes still enforce the exact lease fence.
-                    if self._stop.wait(self.interval_seconds):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self.failed.set()
+                        return
+                    if self._stop.wait(min(self.interval_seconds, remaining)):
                         return
                     continue
+                except Exception:  # noqa: BLE001 - expose fatal background faults to the executor.
+                    self.failed.set()
+                    return
+                deadline = time.monotonic() + budget
                 if self._stop.wait(self.interval_seconds):
                     return
         finally:
-            lease_repository.close()
+            if lease_repository is not None:
+                lease_repository.close()
