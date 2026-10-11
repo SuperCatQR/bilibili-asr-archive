@@ -102,6 +102,8 @@ bili-asr check-asr-env --backend cuda
 
 其他后端可显式选择 `rocm`、`hcu` 或 `amd-wsl`；省略参数时使用 AMD WSL 检查。部署检查通过只表示未发现已知阻塞，模型加载与识别仍需单独验证。探测、预热和就绪条件见 [ASR 部署检查](docs/operations/asr-deployment-readiness.md)。
 
+AMD WSL 检查依次报告五个阶段：`dxg-detection`、`rocm-loader-path`、`torch-present`、`hsa-runtime` 和 `device-probe`，可据此定位设备映射、加载路径或运行时问题。
+
 ### 3. 创建归档并采集元数据
 
 新项目可显式初始化当前通用归档。目标必须是新目录或空目录；已有归档直接使用，版本转换见 [显式升级](docs/operations/archive-upgrades.md)。
@@ -121,6 +123,8 @@ bili-asr fetch-meta --mid 23191782 --limit-pages 2 --incremental
 ```
 
 未显式初始化时，`fetch-meta` 仍可创建默认的 Bilibili 归档；它不会将已有库自动转换成 `universal-v2`。分页恢复、刷新策略和请求预算见 [来源采集说明](docs/guides/source-adapters.md)。
+
+上游采集失败时，`fetch-meta` 返回退出码 2（exit 2）。限流记录为 `risk_interrupted` 并保留原游标；首次采集失败可能尚未生成游标，此时重新执行时省略 `--resume`。凭据被拒绝时先更新 `BILI_SESSDATA`，再重试。
 
 ### 4. 选择目标并执行转录
 
