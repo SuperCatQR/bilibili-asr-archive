@@ -89,8 +89,11 @@ class EditorialConfig:
     def __post_init__(self) -> None:
         if not self.model.strip() or self.rule_version != RULE_VERSION:
             raise ValueError("invalid model or unsupported editorial rule version")
-        if self.base_url != "https://api.deepseek.com":
-            raise ValueError("this adapter uses the official HTTPS DeepSeek endpoint")
+        if self.base_url.rstrip("/") not in {
+            "https://api.deepseek.com",
+            "https://opencode.ai/zen/go/v1",
+        }:
+            raise ValueError("unsupported editorial API endpoint")
         if self.reasoning_effort not in {"low", "high", "max"}:
             raise ValueError("unsupported thinking effort")
         if type(self.top_p) not in {int, float} or not 0.95 <= self.top_p <= 1.0:

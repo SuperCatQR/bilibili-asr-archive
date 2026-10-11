@@ -215,6 +215,8 @@ def _nonnegative_page_index(value: str) -> int:
 def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
     defaults = EditorialConfig()
     parser.add_argument("--editorial-model", default=defaults.model)
+    parser.add_argument("--editorial-base-url", default=defaults.base_url,
+                        help="OpenAI-compatible editorial endpoint (DeepSeek or OpenCode Go)")
     parser.add_argument("--context-tokens", type=int, default=defaults.context_tokens)
     parser.add_argument("--max-input-tokens", type=int, default=defaults.max_input_tokens)
     parser.add_argument("--max-output-tokens", type=int, default=defaults.max_output_tokens)
@@ -227,7 +229,8 @@ def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
-    return EditorialConfig(model=args.editorial_model, context_tokens=args.context_tokens,
+    return EditorialConfig(model=args.editorial_model, base_url=args.editorial_base_url,
+                           context_tokens=args.context_tokens,
                            max_input_tokens=args.max_input_tokens, max_output_tokens=args.max_output_tokens,
                            context_segments=args.context_segments, timeout_seconds=args.api_timeout,
                            reasoning_effort=args.reasoning_effort, top_p=args.top_p,

@@ -1,6 +1,6 @@
 # DeepSeek AI 校对使用说明
 
-当前阅读稿版通过 DeepSeek 官方 API 的 `deepseek-flash` 模型处理固定的数据库转录版本。
+当前阅读稿版通过 OpenAI-compatible Chat Completions API 处理固定的数据库转录版本，默认使用 DeepSeek 官方 API 的 `deepseek-flash` 模型；也支持 OpenCode Go 的 `deepseek-v4.1-flash`。
 AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订，生成中文 Markdown 阅读稿和校对记录。
 业务进度保存在 SQLite；工作器重启后读取固定输入与已有块结果继续执行。
 
@@ -11,6 +11,7 @@ AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订�
 - 新稿件只支持 `ai-draft-v1` / `publish-v1` 和当前 manuscript schema；旧 schema 在任何初始化写入前拒绝，详见 [publication.md](publication.md)。
 - 新建数据库使用包含 `proofread` / `render_document` 的任务类型，以及支持 `cancelled` attempt outcome 和终态约束的工作流表结构。
 - 真实校对需要环境变量 `DEEPSEEK_API_KEY`。密钥仅进入 HTTP Authorization，不写入模型请求快照、结果或文档。
+- 使用 OpenCode Go 时设置 `OPENCODE_API_KEY`，并将 endpoint 设为 `https://opencode.ai/zen/go/v1`。客户端会发送 `User-Agent` 和每个进程会话稳定的 `x-opencode-session`，密钥仍只进入 HTTP Authorization。
 
 当前不提供旧工作流表迁移。旧 `workflow_jobs` 类型约束不支持校对任务，或旧
 `workflow_attempts` 的 outcome / 终态 CHECK 不支持 `cancelled` 时，写入控制命令会明确拒绝。
@@ -86,6 +87,7 @@ bili-asr workflow run --archive-root /srv/bili-archive
 | `--reasoning-effort` | `high` | 开启思考；可选 low / high / max |
 | `--top-p` | 0.95 | 思考模式有效范围 0.95–1.0 |
 | `--editorial-model` | `deepseek-flash` | API 模型标识 |
+| `--editorial-base-url` | `https://api.deepseek.com` | OpenAI-compatible API 基地址；OpenCode Go 使用 `https://opencode.ai/zen/go/v1` |
 | `--context-tokens` | 1,048,576 | 总上下文预算 |
 | `--max-input-tokens` | 480,000 | 提示词、基础文字、参考字幕和只读上下文的预算 |
 | `--max-output-tokens` | 262,144 | 修订输出预留；不可超过 393,216 |
@@ -115,6 +117,23 @@ bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101 \
 官方参考：[模型规格](https://api-docs.deepseek.com/quick_start/pricing/)、
 [Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)、
 [JSON 模式](https://api-docs.deepseek.com/guides/json_mode/)。
+
+### OpenCode Go
+
+```powershell
+$env:OPENCODE_API_KEY = "your-opencode-api-key"
+bili-asr workflow proofread --archive-root C:\path\to\archive --part-id 101 `
+  --editorial-base-url https://opencode.ai/zen/go/v1 `
+  --editorial-model deepseek-v4.1-flash
+```
+
+OpenCode Go 的完整端点是 `https://opencode.ai/zen/go/v1/chat/completions`；项目参数填写不含最后 `/chat/completions` 的基地址。模型标识使用 `deepseek-v4.1-flash`。
+
+随后执行 `bili-asr workflow run --archive-root C:\path\to\archive --only-editorial`。
+计划时会冻结 API 地址、模型和预算；改变 CLI 参数只影响新任务，不会修改已冻结任务。
+Go 官方文档将该服务定位于编程代理及类似请求，字幕阅读稿校对的适用性需要向供应商确认。
+此接入使用兼容协议；OpenCode Go 对 JSON 模式、thinking 和最大输出预算的实际支持需通过小样本验证，不能直接视为已经验证的官方 DeepSeek 规格。
+参考：[OpenCode Go 文档](https://opencode.ai/docs/en/go/)、[模型目录](https://opencode.ai/zen/go/v1/models)。
 
 ## 修订与文档
 

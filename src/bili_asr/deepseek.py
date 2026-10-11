@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from typing import Any
 
 import requests
@@ -27,21 +28,34 @@ def request_body(chunk: dict[str, Any], config: EditorialConfig, *, system_promp
 
 class DeepSeekClient:
     def __init__(self, api_key: str | None = None, *, session: requests.Session | None = None):
-        self.api_key = api_key if api_key is not None else os.environ.get("DEEPSEEK_API_KEY", "")
+        # OpenCode Go keys are separate from direct DeepSeek keys. Keep the
+        # explicit argument first, then select the key by endpoint.
+        self.api_key = api_key
         self.session = session or requests.Session()
         self._owns_session = session is None
+        self.opencode_session = str(uuid.uuid4())
 
     def close(self) -> None:
         if self._owns_session:
             self.session.close()
 
     def complete(self, request: dict[str, Any], config: EditorialConfig) -> dict[str, Any]:
-        if not self.api_key.strip():
-            raise DeepSeekError("DEEPSEEK_API_KEY is not configured")
+        is_opencode = config.base_url.rstrip("/") == "https://opencode.ai/zen/go/v1"
+        env_name = "OPENCODE_API_KEY" if is_opencode else "DEEPSEEK_API_KEY"
+        api_key = self.api_key if self.api_key is not None else os.environ.get(env_name, "")
+        if not api_key.strip():
+            raise DeepSeekError(f"{env_name} is not configured")
+        headers = {
+            "Authorization": "Bearer " + api_key,
+            "User-Agent": "bilibili-asr-archive/1.0",
+            "Content-Type": "application/json",
+        }
+        if is_opencode:
+            headers["x-opencode-session"] = self.opencode_session
         try:
             response = self.session.post(
-                config.base_url + "/chat/completions", json=request,
-                headers={"Authorization": "Bearer " + self.api_key},
+                config.base_url.rstrip("/") + "/chat/completions", json=request,
+                headers=headers,
                 timeout=(30, config.timeout_seconds), allow_redirects=False)
         except requests.RequestException:
             # Exception strings can include request details. Keep them out of
