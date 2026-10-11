@@ -8,10 +8,10 @@ import pytest
 import responses
 
 from bili_asr import cli
-from bili_asr.deepseek import DeepSeekClient, DeepSeekError, parse_response, request_body
+from bili_asr.deepseek import DeepSeekClient, DeepSeekError, normalize_usage, parse_response, request_body
 from bili_asr.editorial import (
     EditorialConfig, RevisionValidationError, TEMPLATE_VERSION, canonical, digest,
-    prepare_input, render_documents, validate_revision,
+    estimate_utf8_tokens, local_precheck, local_revision, prepare_input, render_documents, validate_revision,
 )
 from bili_asr.editorial_runtime import EditorialWorkflowHandlers
 from bili_asr.storage import open_database
@@ -88,6 +88,40 @@ def test_budgeted_chunks_assign_each_segment_once_with_readonly_neighbors():
     assert prepared["chunks"][1]["readonly_context"][0]["segment_id"] in ids
 
 
+def test_local_precheck_only_normalizes_safe_formatting_and_flags_semantics():
+    assert local_precheck("  这是一句。。  ") == {
+        "flags": ["format_whitespace", "repeated_punctuation"],
+        "safe": True,
+        "safe_text": "这是一句。",
+        "actions": ["normalize_whitespace", "collapse_repeated_punctuation"],
+    }
+    flagged = local_precheck("就是这个这个方案")
+    assert flagged["safe"] is False
+    assert "possible_filler" in flagged["flags"]
+    assert "possible_repetition" in flagged["flags"]
+    assert flagged["safe_text"] is None
+
+
+def test_local_revision_only_handles_all_mechanical_segments():
+    chunk = prepare_input(record(("  这是一句。。  ",)), None, EditorialConfig())["chunks"][0]
+    blocks = local_revision(chunk)
+    assert blocks is not None
+    assert blocks[0]["text"] == "这是一句。"
+    semantic = prepare_input(record(("就是这个这个方案",)), None, EditorialConfig())["chunks"][0]
+    assert local_revision(semantic) is None
+
+
+def test_chunk_budget_exposes_component_estimates_without_changing_frozen_identity():
+    prepared = prepare_input(record(("中文" * 30, "第二段")), None, EditorialConfig())
+    budget = prepared["chunks"][0]["budget_estimate"]
+    assert budget["method"] == "utf8-bytes/3"
+    assert budget["system_prompt_tokens"] == estimate_utf8_tokens(
+        prepared["snapshot"]["system_prompt"])
+    assert budget["editable_tokens"] > 0
+    assert budget["request_tokens"] >= budget["system_prompt_tokens"]
+    assert prepared == prepare_input(record(("中文" * 30, "第二段")), None, EditorialConfig())
+
+
 def test_reference_alignment_preserves_unassigned_reference_evidence():
     reference = record(("字幕一", "字幕二", "未匹配"), transcript_id=2, source="subtitle-ai")
     prepared = prepare_input(record(), reference, EditorialConfig())
@@ -98,7 +132,8 @@ def test_reference_alignment_preserves_unassigned_reference_evidence():
 @pytest.mark.parametrize("config", [
     {"context_tokens": 1000}, {"max_output_tokens": 393217}, {"context_tokens": 1048577},
     {"max_input_tokens": -1}, {"timeout_seconds": 0}, {"context_segments": 21},
-    {"base_url": "http://example.test"}, {"reasoning_effort": "invalid"},
+    {"base_url": "http://example.test"}, {"thinking_mode": "invalid"},
+    {"reasoning_effort": "invalid"},
     {"top_p": 0.8}, {"top_p": 1.1}, {"top_p": True}, {"top_p": float("nan")},
 ])
 def test_invalid_model_budgets_fail_before_network(config):
@@ -214,6 +249,38 @@ def test_thinking_and_sampling_settings_are_frozen_in_input_identity():
     assert len({x["input_id"] for x in (first, second, third)}) == 3
     assert first["snapshot"]["config"]["reasoning_effort"] == "high"
     assert first["snapshot"]["config"]["top_p"] == 0.95
+
+
+def test_thinking_mode_is_configurable_and_frozen_with_default_enabled():
+    enabled = EditorialConfig()
+    disabled = EditorialConfig(thinking_mode="disabled", reasoning_effort="max")
+    first = prepare_input(record(), None, enabled)
+    second = prepare_input(record(), None, disabled)
+    assert enabled.thinking_mode == "enabled"
+    assert len({first["input_id"], second["input_id"]}) == 2
+    assert second["snapshot"]["config"]["thinking_mode"] == "disabled"
+    chunk = second["chunks"][0]
+    assert request_body(chunk, disabled)["thinking"] == {"type": "disabled"}
+
+
+def test_normalize_usage_accepts_provider_optional_fields_and_rejects_bad_latency():
+    value = normalize_usage({
+        "id": "req-123", "model": "deepseek-flash",
+        "usage": {
+            "prompt_tokens": 10, "completion_tokens": 20,
+            "prompt_cache_hit_tokens": 4, "prompt_cache_miss_tokens": 6,
+            "completion_tokens_details": {"reasoning_tokens": 7},
+        },
+    }, latency_ms=321)
+    assert value == {
+        "provider_request_id": "req-123", "model": "deepseek-flash",
+        "prompt_tokens": 10, "completion_tokens": 20,
+        "prompt_cache_hit_tokens": 4, "prompt_cache_miss_tokens": 6,
+        "reasoning_tokens": 7, "latency_ms": 321,
+    }
+    assert normalize_usage({"usage": {"prompt_tokens": -1, "completion_tokens": True}})["prompt_tokens"] is None
+    with pytest.raises(ValueError, match="latency_ms"):
+        normalize_usage({}, latency_ms=-1)
 
 
 @pytest.mark.parametrize("value", [

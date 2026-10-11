@@ -16,13 +16,54 @@ class DeepSeekError(RuntimeError):
 
 
 def request_body(chunk: dict[str, Any], config: EditorialConfig, *, system_prompt: str = SYSTEM_PROMPT) -> dict[str, Any]:
+    thinking = {"type": config.thinking_mode}
+    if config.thinking_mode == "enabled":
+        thinking["reasoning_effort"] = config.reasoning_effort
     return {"model": config.model, "messages": [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": canonical(chunk)}],
         "response_format": {"type": "json_object"}, "stream": False,
-        "thinking": {"type": "enabled", "reasoning_effort": config.reasoning_effort},
+        "thinking": thinking,
         "top_p": config.top_p,
         "max_tokens": config.max_output_tokens}
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    """Return provider counters only when they are safe integer values."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def normalize_usage(envelope: dict[str, Any], *, latency_ms: int | None = None) -> dict[str, Any]:
+    """Normalize DeepSeek response usage without discarding the raw envelope.
+
+    The provider has added fields over time (notably cache counters and
+    completion-token details), so callers should persist this compact summary
+    alongside the original response and tolerate missing counters.
+    """
+    usage = envelope.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    details = usage.get("completion_tokens_details")
+    details = details if isinstance(details, dict) else {}
+    summary: dict[str, Any] = {
+        "provider_request_id": envelope.get("id") if isinstance(envelope.get("id"), str) else None,
+        "model": envelope.get("model") if isinstance(envelope.get("model"), str) else None,
+        "prompt_tokens": _nonnegative_int(usage.get("prompt_tokens")),
+        "completion_tokens": _nonnegative_int(usage.get("completion_tokens")),
+        "prompt_cache_hit_tokens": _nonnegative_int(usage.get("prompt_cache_hit_tokens")),
+        "prompt_cache_miss_tokens": _nonnegative_int(usage.get("prompt_cache_miss_tokens")),
+        "reasoning_tokens": _nonnegative_int(details.get("reasoning_tokens")),
+    }
+    if latency_ms is not None:
+        if isinstance(latency_ms, bool) or not isinstance(latency_ms, int) or latency_ms < 0:
+            raise ValueError("latency_ms must be a non-negative integer")
+        summary["latency_ms"] = latency_ms
+    return summary
+
+
+# Short alias for callers that use the provider-neutral term.
+usage_metrics = normalize_usage
 
 
 class DeepSeekClient:

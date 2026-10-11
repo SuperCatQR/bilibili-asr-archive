@@ -125,6 +125,7 @@ def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-output-tokens", type=int, default=defaults.max_output_tokens)
     parser.add_argument("--context-segments", type=int, default=defaults.context_segments)
     parser.add_argument("--api-timeout", type=int, default=defaults.timeout_seconds)
+    parser.add_argument("--thinking-mode", choices=("enabled", "disabled"), default=defaults.thinking_mode)
     parser.add_argument("--reasoning-effort", choices=("low", "high", "max"), default=defaults.reasoning_effort)
     parser.add_argument("--top-p", type=float, default=defaults.top_p)
 
@@ -133,6 +134,7 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
     return EditorialConfig(model=args.editorial_model, context_tokens=args.context_tokens,
                            max_input_tokens=args.max_input_tokens, max_output_tokens=args.max_output_tokens,
                            context_segments=args.context_segments, timeout_seconds=args.api_timeout,
+                           thinking_mode=args.thinking_mode,
                            reasoning_effort=args.reasoning_effort, top_p=args.top_p)
 
 
