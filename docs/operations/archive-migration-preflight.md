@@ -70,7 +70,7 @@ AI 双稿、superseded/withdrawn/current release、较新 draft head 与独立�
 
 固定样本保留旧 typed row、rowid、冻结 JSON 和文件摘要；不能让测试悄悄生成新版源。
 生产 worker 仍运行时不进行权威迁移验收，应先取得一致、完整的离线归档副本。
-真实旧源和大规模副本的已执行验收见[生产副本升级与恢复记录](production-upgrade-validation-2026-10-11.md)；
+真实旧源和大规模副本的已执行验收见[生产副本升级与恢复记录](../evidence/production-upgrade-validation-2026-10-11.md)；
 该记录的日期和来源范围不能代表另一个归档已通过盘点。
 
 文件字节采用流式哈希；当前报告清单仍按表/文件数量占用内存，不宣称整个流程常量内存。

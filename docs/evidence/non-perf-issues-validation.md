@@ -40,6 +40,6 @@
 
 ## 操作与限制
 
-部署/ready/缓存参数见 [部署与就绪说明](asr-deployment-readiness.md)；BW1000 硬件步骤见 [实机验收待办](hygon-bw1000-validation.md)。
+部署/ready/缓存参数见 [部署与就绪说明](../operations/asr-deployment-readiness.md)；BW1000 硬件步骤见 [实机验收待办](../operations/hygon-bw1000-validation.md)。
 抓取保证、重试分类与恢复成本见 [#305/#306 验证说明](bili-crawl-recovery-validation.md)。
 离线 doctor 不导出模型路径/凭据，也不把未检查的 Hub 缓存误判为确定不可用。加载成功与 sentinel 完成分别记录，均不代替质量与硬件验收。

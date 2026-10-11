@@ -57,7 +57,7 @@ timeout 900 python scripts/verify_gpu.py --backend hcu --device cuda:0 \
 1. 短中文、长多块、M4A/AAC、语言与实际热词双遍。
 2. 冷启动/预热/稳态连续任务，设备/dtype/revision 可追溯。
 3. 超时、取消、owned child 回收、准备失败不消耗 attempt、失败后显式恢复。
-4. 写回、五文件 bundle、导出读取，时间戳范围/顺序和 coverage。
+4. 写回、v3 六成员 bundle 与完成 marker、导出读取，时间戳范围/顺序和 coverage。
 5. 人工参考 CER、漏句/重复/异常；有来源时间戳才计算对齐误差。
 6. 实测峰值显存、阶段 wall time、RTF、成功/失败，注明是否包含加载。
 

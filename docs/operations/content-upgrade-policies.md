@@ -16,9 +16,16 @@ release 保持原身份；新 content v2 有自己的摘要、origin 和 pending
 标为 archive-part-projection，其余字段继续遵守原 frozen evidence。
 两条路径都不生成新的 AI 调用、成功任务或与新摘要不匹配的批准事件。
 
-严格阅读站消费使用 `universal-origin-v1`，同时检查 catalog/origins/manifest
-及公开、草稿之间的身份。能打开新数据库不代表所有历史 v1 内容已达到该
-profile；需要明确选择内容转换，并先更新支持新政策的消费者。
+`legacy-description-supplement-v1` 使用
+`publication supplement-source plan --field description`，根据本地已采集简介
+和逐字段成功观察为已保留旧正文的文章生成待审子版。它保留原正文和摘要，
+真实空简介可以补入，未知值阻止计划；详情见 [文章简介补充](../guides/source-description-supplement.md)。
+
+严格阅读站消费按已登记 profile 分派：旧的 `universal-origin-v1` 保留其
+origins v1 / manifest v2，并拒绝新的简介补充证据；简介补充版本要求
+`universal-origin-v2`，使用 catalog v3 / origins v2 / manifest v3。
+两者都检查公开、草稿之间的身份。能打开新数据库不代表历史内容或外部
+Reader 自动支持新 profile；需要明确选择内容转换并升级对应消费者。
 
 ## 从合法的旧时间证据生成 WebVTT
 

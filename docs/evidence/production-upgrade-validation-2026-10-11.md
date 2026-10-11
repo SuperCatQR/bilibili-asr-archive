@@ -181,7 +181,7 @@ failed/cancelled 不被重新规划复活。生产全队列没有用实际昂贵
 
 ## 切换与回退手册
 
-执行命令、空间条件、正式 plan/apply/check 和控制文件交接见 [显式契约升级](archive-upgrades.md)。
+执行命令、空间条件、正式 plan/apply/check 和控制文件交接见 [显式契约升级](../operations/archive-upgrades.md)。
 正式切换前，另行停止旧 worker，checkpoint 并保存完整备份，检查 plan 的精确源/目标/转换器，
 验收目标数据与导出，设置新程序、归档根、artifact roots 和 runtime bindings。
 先只读查询、verify、doctor，核对原模型身份与库外 holds，再显式选择允许续跑的任务。

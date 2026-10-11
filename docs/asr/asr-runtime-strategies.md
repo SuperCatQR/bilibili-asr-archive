@@ -70,7 +70,7 @@ cross-task batching, per-request shared abort, FP8 weights or FP8 KV.
 
 Offline tests verify formulas, configuration identity, finite admission, eager
 fallback, cache cleanup, final-pass alignment and real-process ownership. The
-[2026-10-11 4090 record](asr-gpu-validation-2026-10-11.md) adds a short full-model
+[2026-10-11 4090 record](../evidence/asr-gpu-validation-2026-10-11.md) adds a short full-model
 sample with actual compiled Triton kernels, graph breaks, allocator peaks and
 baseline timings. Human-verified quality, sustained throughput and Hygon/FP8
 hardware behavior remain unverified; profiler timings do not establish speedups.

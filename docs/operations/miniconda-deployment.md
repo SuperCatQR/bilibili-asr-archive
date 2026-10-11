@@ -51,7 +51,7 @@ pip select an arbitrary torch build from the general PyPI index.
 ### AMD WSL ROCm
 
 Provision the driver, DXG transport and ROCm libraries using steps 1-5 in
-[the AMD WSL recipe](wsl-rocm-gpu.md). Its system configuration still applies;
+[the AMD WSL recipe](../wsl-rocm-gpu.md). Its system configuration still applies;
 replace its venv commands with Conda commands here.
 
 ```bash

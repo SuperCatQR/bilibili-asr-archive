@@ -2,7 +2,7 @@
 
 `{archive_root}/archive.db` 是当前归档的持久状态来源：保存视频元数据、采集游标、字幕观察、不可变转录版本、音频对象引用、工作流任务和发布登记。音频及发布产物保存为文件，数据库记录它们的身份与路径。默认归档根目录为 `archive`。
 
-本文按当前源码说明存储与公共 CLI 契约。系统全貌见 [架构文档](architecture.md)；操作细节见 [BVID 选择](workflow-selection.md)、[任务取消](workflow-cancellation.md)、[WebVTT 与 transcript 归档包](webvtt.md)、[AI 校对](ai-proofreading.md)、[元数据搜索](metadata-search.md)。
+本文按当前源码说明存储与公共 CLI 契约。系统全貌见 [架构文档](architecture.md)；操作细节见 [BVID 选择](guides/workflow-selection.md)、[任务取消](guides/workflow-cancellation.md)、[WebVTT 与 transcript 归档包](guides/webvtt.md)、[AI 校对](guides/ai-proofreading.md)、[元数据搜索](guides/metadata-search.md)。
 
 ## 从采集到发布
 
@@ -81,13 +81,13 @@ AI 输入与模型证据冻结在 `editorial_inputs`、`editorial_job_inputs`、
 
 稿件发布保存 `publication_editions` 的不可变完整读者内容、`publication_edition_reviews` 的精确 edition/hash 审核、`publication_releases` 的版本化发布产物，以及 `publication_events` 的追加操作事实。`publication_heads` 对每分 P 分别保存当前 edition 和当前 release；创建或审核 B 不替换公开的 A，只有获批 B 被显式 publish 后才改变 release 指针。withdraw 只清除当前公开指针，保留历史。
 
-完整读者内容使用 canonical JSON SHA-256，渲染的 `publish.md` 另行登记字节 hash。审核必须提交准确内容 hash；发布重新校验 edition、审核、关系和产物。AI 质量状态不是发布批准。命令与导出 schema 见 [稿件发布](publication.md)；`workflow publish` 表示对应版本的 transcript bundle 发布，v2 为五个数据成员，v3 为六个数据成员。
+完整读者内容使用 canonical JSON SHA-256，渲染的 `publish.md` 另行登记字节 hash。审核必须提交准确内容 hash；发布重新校验 edition、审核、关系和产物。AI 质量状态不是发布批准。命令与导出 schema 见 [稿件发布](guides/publication.md)；`workflow publish` 表示对应版本的 transcript bundle 发布，v2 为五个数据成员，v3 为六个数据成员。
 
 ## 数据身份与核心表
 
 源站 P1 对应数据库 `page_index=0`。分 P 的稳定身份为 `(bvid, page_index)`；`video_part_id` 是该数据库分配的内部主键，适合 CLI 精确选择与外键关联。`work_id` 派生为 `BV…:p0`，不存储在实体表；文件目录使用 `BV….p0`，避免将冒号放进路径。公开播放链接的 `?p=` 值为 `page_index + 1`。
 
-来源接口使用纯 [`ContentRef`](../src/bili_asr/platform_identity.py) 的 `(platform, external_video_id, part_index)` 身份；Bilibili adapter 将它绑定到已存 `bvid/page_index/cid`，在网络调用前校验平台及分 P 一致性。`PageIdentity.content_ref` 等是只读派生属性，不改变旧 work ID、文件 key、source JSON 或内容 hash。显式 v2 的 `SourceRepository` 则返回真实通用来源记录；YouTube 单个视频为一个零基处理单元，章节不构造分 P，也不伪造 BVID/CID。完整来源端口约定见 [来源适配边界](source-adapters.md)。
+来源接口使用纯 [`ContentRef`](../src/bili_asr/platform_identity.py) 的 `(platform, external_video_id, part_index)` 身份；Bilibili adapter 将它绑定到已存 `bvid/page_index/cid`，在网络调用前校验平台及分 P 一致性。`PageIdentity.content_ref` 等是只读派生属性，不改变旧 work ID、文件 key、source JSON 或内容 hash。显式 v2 的 `SourceRepository` 则返回真实通用来源记录；YouTube 单个视频为一个零基处理单元，章节不构造分 P，也不伪造 BVID/CID。完整来源端口约定见 [来源适配边界](guides/source-adapters.md)。
 
 时间戳为 Unix 整数秒，视频时长和转录时间轴为整数毫秒。外键默认 `ON DELETE RESTRICT`，存储 API 不通过删除旧版本来覆盖历史结果。
 
@@ -271,7 +271,7 @@ content hash 是以下 canonical 数据的 SHA-256：按 ordinal 排列的 `[sta
 
 `record_local_transcript()` 是单独的 ASR 写入入口，在同一事务内登记模型、新转录与 segments、attempt 和可选 coverage。其内容复用查询同样按 part/source/language/hash，model ID 不是版本唯一身份；重用既有 cue 内容时保留已有 transcript/model 关联。`read_transcript()` 默认取身份的最新 version，显式 version 仍可读取历史内容。
 
-提供 `asr_evidence` 时，它也在同一结果事务写入 `transcript_asr_evidence`；cue 内容复用不跳过本次证据。完整快照与查询合同见 [ASR 参数与诊断](asr-configuration.md)。共享 ownership guard 同时保护诊断、转录、segments 与模型身份写入。
+提供 `asr_evidence` 时，它也在同一结果事务写入 `transcript_asr_evidence`；cue 内容复用不跳过本次证据。完整快照与查询合同见 [ASR 参数与诊断](asr/asr-configuration.md)。共享 ownership guard 同时保护诊断、转录、segments 与模型身份写入。
 
 acquisition run 的开始和结束分别独立提交；每个成功/无字幕/失败的 part attempt 是单独写组。不要将这些会自行提交的方法嵌套到包含其他待提交内容的 `MetadataRepository.transaction()` 中。纯 repository read 方法只执行 SELECT，不 commit，也不改写 caller 已持有的事务。
 
@@ -300,7 +300,7 @@ subtitle 观察的“最新”按 attempt finished_at、run started_at、run row
 
 这些视图描述数据缺口与历史证据，当前工作流依赖图不依赖它们决定“有字幕就不用 ASR”。`workflow plan` 总为有效选中 part 确保 subtitle job；`all`、`selected` 为选中 parts 确保 audio→ASR；`below-threshold` 只在该 part 最新质量评估存在且 score 低于阈值时创建 audio/ASR。没有质量评估不自动视为低分。可选 proofread→render_document 依赖 ASR；字幕结果不作为这条依赖链的 prerequisite。
 
-BVID/part ID 选择先一次性验证全部目标与策略参数，再创建 profile/jobs；重复目标去重，稳定按 BVID/index/internal ID 排序。BVID 未指定 index 时选择所有非 gone parts 并打印 gone 排除项；显式 ID/index 指向 gone、缺失分 P、未知 BVID 或全部 gone 的视频则整次请求失败。重复 plan 通过 dedupe key 保留已有任务状态，不复活 cancelled。完整规则见 [BVID 选择指南](workflow-selection.md)。
+BVID/part ID 选择先一次性验证全部目标与策略参数，再创建 profile/jobs；重复目标去重，稳定按 BVID/index/internal ID 排序。BVID 未指定 index 时选择所有非 gone parts 并打印 gone 排除项；显式 ID/index 指向 gone、缺失分 P、未知 BVID 或全部 gone 的视频则整次请求失败。重复 plan 通过 dedupe key 保留已有任务状态，不复活 cancelled。完整规则见 [BVID 选择指南](guides/workflow-selection.md)。
 
 [服务投影 `workflow_records()`](../src/bili_asr/services/workflow_projection.py) 使用 READ session 和单个 SQLite 读取快照，从 active parts、transcripts、workflow_publications 生成每分 P 一条记录。数据库不存在时返回空集合，不创建数据库。按 `video_part_id` keyset 每批最多 256 个 parts，批量读取候选、发布登记和需要的 segments；不为每个 part 单独查询，也不为未请求文本的读者加载 segments。返回记录仍按 pubdate 降序、BVID/index 排序；返回的全集会保留在内存中，因此这里只保证数据库中间读取有界，不承诺流式结果。
 
@@ -340,7 +340,7 @@ archive/
 
 SQLite 与文件系统不是一个可回滚事务。若文件阶段在取消前已经取得写锁，取消要等该短事务完成，已提交的内容保留；之后取消尚为 running 的 job 仍可成功。若 job 的终态已经提交，取消为 noop。若取消先提交，后续 guard 拒绝最终替换和发布登记。中途文件写入、目录创建、暂存或已提交的早期 acquisition 证据不承诺因取消消失；有效 marker 和数据库状态决定可见结果。
 
-取消不使用旧的 `coordinator/archive-writer.lock` 整次运行锁。claim、短结果提交和 cancel 通过 SQLite 写事务串行化，长时间网络/模型调用在锁外；文件写入还有 writer 自身的进程内互斥。lease 绑定 job ID、owner、attempt count 与截止时间，独立连接续租防止长推理被误回收。取消 queued job 没有伪 attempt，取消 running job 会关闭当前 attempt、清空 lease；依赖不自动级联取消，queued 后继通过 `blocked_by_cancelled` 显示阻塞。详见 [取消指南](workflow-cancellation.md)。
+取消不使用旧的 `coordinator/archive-writer.lock` 整次运行锁。claim、短结果提交和 cancel 通过 SQLite 写事务串行化，长时间网络/模型调用在锁外；文件写入还有 writer 自身的进程内互斥。lease 绑定 job ID、owner、attempt count 与截止时间，独立连接续租防止长推理被误回收。取消 queued job 没有伪 attempt，取消 running job 会关闭当前 attempt、清空 lease；依赖不自动级联取消，queued 后继通过 `blocked_by_cancelled` 显示阻塞。详见 [取消指南](guides/workflow-cancellation.md)。
 
 显式重建已有包只需要存储转录：
 
@@ -353,7 +353,7 @@ bili-asr verify --archive-root archive --format json
 
 publish CLI 会在请求前解析完整 ID 集合并确认每个 part 有候选，报告各 job 的 status。force 请求可重新排队非 cancelled 的已完成发布；若原 job 为 cancelled，它保留取消状态，不更新请求内容。普通重复 plan 不保证重新执行已成功的发布。当前 workflow 发布同步执行，没有旧 `publish-transcripts` 的 pending scan、256 MiB verification budget、独立 publication supervisor 或对应 timeout flags；不要套用旧入口的读预算与整库锁说明。
 
-`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 指定音频、转录及阅读文档的产物写根，数据库保留在 archive root；读取按产物根、归档根的顺序探测，登记路径始终是相对路径。具体边界见 [产物根目录](artifact-root.md)。可选 AI 校对的 revision/rendered Markdown 有独立 schema 与渲染路径，不改变已存 transcript 或上述原始归档包的来源身份。
+`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 指定音频、转录及阅读文档的产物写根，数据库保留在 archive root；读取按产物根、归档根的顺序探测，登记路径始终是相对路径。具体边界见 [产物根目录](operations/artifact-root.md)。可选 AI 校对的 revision/rendered Markdown 有独立 schema 与渲染路径，不改变已存 transcript 或上述原始归档包的来源身份。
 
 ## 诊断与离线契约验证
 
@@ -460,4 +460,4 @@ READ/WRITE 开库不自动补表；publication 只读操作把缺少观察表视
 
 `archive migration-preflight` 在源维护独占锁内使用 `mode=ro&immutable=1`、`query_only` 和禁用 trusted_schema 的连接；不经过当前 `open_database`/initializer。操作者须先停止全部写入并 checkpoint，非空 WAL/journal 拒绝。旧源结构按独立冻结的 Bilibili v1 契约校验（66 个 DDL 对象、38 张权威表），已知完整 FTS 派生组单独标记为可重建；未知/不完整结构拒绝。
 
-逐表摘要包含有效 rowid、SQLite 存储类型和原始 TEXT/BLOB 字节；冻结 JSON 不因指纹而重新格式化。随后独立检查所有 input/revision 身份、完整审核事件和双 head、全部历史 release 与固定模板字节、五类目录和产物引用；检查结束再次验证源集合与物理身份。过期 running 和未完成 run/model call 只计入恢复候选报告。详见 [架构](architecture.md)、[完整时序 17](17-migration-preflight.md)和 [操作指南](archive-migration-preflight.md)。
+逐表摘要包含有效 rowid、SQLite 存储类型和原始 TEXT/BLOB 字节；冻结 JSON 不因指纹而重新格式化。随后独立检查所有 input/revision 身份、完整审核事件和双 head、全部历史 release 与固定模板字节、五类目录和产物引用；检查结束再次验证源集合与物理身份。过期 running 和未完成 run/model call 只计入恢复候选报告。详见 [架构](architecture.md)、[完整时序 17](17-migration-preflight.md)和 [操作指南](operations/archive-migration-preflight.md)。

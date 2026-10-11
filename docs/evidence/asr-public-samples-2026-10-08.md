@@ -1,5 +1,7 @@
 # 公开中文样本：WSL ASR 实测与调优依据
 
+历史记录：本文保留原日期、源码基线、实验结果和当时建议，不代表当前实现或当前生产状态。现行配置与执行边界见 [ASR 文档入口](../asr/README.md)。
+
 日期：2026-10-08。独立分支：`codex/asr-quality-foundation`。本次完成 30 次真实模型推理：12 条公开音频分别测试 Chinese 和自动语言，共 24 次；一条人工拼接音频与一条静音对照分别测试 180 / 120 / 60 秒分块，共 6 次。
 
 短样本两种语言设置输出完全相同，严格 CER 均为 **7.38%**。拼接样本在 180 / 120 秒下为 **7.12%**，60 秒下为 **7.89%**。8 秒数字静音在三个分块设置下均生成“嗯。”。这些证据优先支持改进静音识别与质量诊断；不足以支持修改默认分块或判定自动语言优于显式 Chinese。
@@ -30,7 +32,7 @@
 
 ## 2. 执行路径与评分合同
 
-测试脚本为 [benchmark_public_asr.py](../scripts/benchmark_public_asr.py)，直接调用生产 ASR 模块的 `two_pass_transcribe`，包括实际解码、生成、强制对齐和字幕汇总。没有经过数据库领取任务与发布链路。本次默认热词为空，没有触发热词第二遍；没有测量第二遍 cache 的收益。
+测试脚本为 [benchmark_public_asr.py](../../scripts/benchmark_public_asr.py)，直接调用生产 ASR 模块的 `two_pass_transcribe`，包括实际解码、生成、强制对齐和字幕汇总。没有经过数据库领取任务与发布链路。本次默认热词为空，没有触发热词第二遍；没有测量第二遍 cache 的收益。
 
 参考文本仅在推理结束后用于评分，**不传给模型、不作为热词、不作为 paired subtitle**。结果同时记录最终字幕文字与最终一遍 decoder 原始文字。失败样本按空输出计分并保留参考字符分母，避免仅对成功样本汇总；本次没有失败。
 
@@ -130,7 +132,7 @@ CER = (替换 S + 删除 D + 插入 I) / 参考字符数 N
 4. **补充真实项目基准。** 在独立标注集上覆盖讲座、口语、多人、中英混说、背景音和长静音，记录严格 CER、数字 / 专名差异、人审漏识别与时间戳误差。不要把本次 12 条朗读音频当作项目准确率。
 5. **再测性能。** 现有环境没有可用 GPU，本次没有峰值显存、GPU RTF 或常驻 GPU worker 数据。按项目策略保持空热词，不将热词或由其触发的第二遍 cache 对照列为常规调优任务。
 
-本批增加测量工具和公开证据，没有改变生产识别策略。模块与数据边界的整体建议见 [ASR 设计评审](asr-design-review.md)。
+本批增加测量工具和公开证据，没有改变生产识别策略。模块与数据边界的整体建议见 [ASR 设计评审](asr-design-review-2026-10-08.md)。
 
 ## 7. 复现
 
@@ -154,7 +156,7 @@ ALIGNER_MODEL=/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf
   --cache-root "$PUBLIC_CACHE" --model "$ASR_MODEL" --aligner "$ALIGNER_MODEL" \
   --languages Chinese auto --chunk-seconds 180 \
   --source-revision df18c5b5a41fa332091af7aaeb06a6b928fe5888 \
-  --output docs/asr-public-fleurs-results.json
+  --output /tmp/asr-reproduction/asr-public-fleurs-results.json
 
 "$PY" scripts/benchmark_public_asr.py compose \
   --source "$PUBLIC_CACHE" --cache-root "$CONTROL_CACHE" --gap-seconds 1
@@ -164,10 +166,10 @@ for chunk in 180 120 60; do
     --cache-root "$CONTROL_CACHE" --model "$ASR_MODEL" --aligner "$ALIGNER_MODEL" \
     --languages Chinese --chunk-seconds "$chunk" \
     --source-revision 06ff3b907fb67d5cb933aedd8f6622b7f9af91db \
-    --output "docs/asr-public-controls-$chunk.json" || break
+    --output "/tmp/asr-reproduction/asr-public-controls-$chunk.json" || break
 done
 ```
 
 命令中的 source revision 对应本次运行；在修改后的 checkout 重跑时，应填入实际宿主 `git rev-parse HEAD` 的完整结果，而不是沿用旧值。`timeout` 是实验进程的外部限制，不代表生产 CPU runner 已提供硬超时。重跑会替换指定输出 JSON，若需保留对照应使用新的路径。
 
-评分、失败样本分母、空参考、哈希校验、路径范围和人工拼接由 [专项测试](../tests/test_public_asr_benchmark.py) 验证，WSL 结果为 **13 passed**。本批未重新运行生产代码全量回归；上一批全量结果及适用范围见 [WSL 验证记录](asr-wsl-validation.md)。
+评分、失败样本分母、空参考、哈希校验、路径范围和人工拼接由 [专项测试](../../tests/test_public_asr_benchmark.py) 验证，WSL 结果为 **13 passed**。本批未重新运行生产代码全量回归；上一批全量结果及适用范围见 [WSL 验证记录](asr-wsl-validation-2026-10-08.md)。

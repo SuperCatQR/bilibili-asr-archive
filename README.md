@@ -4,14 +4,14 @@ A local pipeline that collects Bilibili video metadata, acquires subtitle or aud
 
 The explicit `universal-v2` archive adds single-video YouTube ingestion and
 versioned source metadata without rewriting historical Bilibili editions.
-See [current architecture](docs/architecture.md), [explicit upgrades](docs/archive-upgrades.md),
-[source adapters](docs/source-adapters.md), and [ASR workers](docs/asr-workers.md)
+See [current architecture](docs/architecture.md), [explicit upgrades](docs/operations/archive-upgrades.md),
+[source adapters](docs/guides/source-adapters.md), and [ASR workers](docs/asr/asr-workers.md)
 for migration, optional dependencies, worker roles and recovery checks.
 
 Transcript bundles and generic JSON/CSV exports carry stored source descriptions,
-uploader labels and tag observations. See [source metadata and historical refresh](docs/issue-348-source-metadata.md)
+uploader labels and tag observations. See [source metadata and historical refresh](docs/guides/source-metadata.md)
 for an explicit refresh that preserves the published transcript and old bundle,
-and [historical article description supplementation](docs/issue-348-description-supplement.md)
+and [historical article description supplementation](docs/guides/source-description-supplement.md)
 for pending-review editions and reading-site contract requirements.
 
 ## Architecture
@@ -63,7 +63,7 @@ Package boundaries:
 
 Python 3.12 or later is required.
 
-For production, use the [Miniconda deployment guide](docs/miniconda-deployment.md).
+For production, use the [Miniconda deployment guide](docs/operations/miniconda-deployment.md).
 It covers isolated Python 3.12 environments, pinned application dependencies,
 AMD WSL and NVIDIA preflight, non-interactive startup, and deployment evidence.
 `check-asr-env` is an AMD WSL check, not a general CUDA support check.
@@ -140,11 +140,11 @@ bili-asr workflow run --limit 20
 bili-asr workflow status --jobs
 ```
 
-`workflow plan` is idempotent for the same input and policy. Repeat either `--part-id` or `--bvid`; the two selection forms are mutually exclusive. BVID selection uses stored metadata and optionally selects the same zero-based `--page-index` in each video (`0` is source P1). All targets are validated before profiles or jobs are created. See [workflow selection](docs/workflow-selection.md).
+`workflow plan` is idempotent for the same input and policy. Repeat either `--part-id` or `--bvid`; the two selection forms are mutually exclusive. BVID selection uses stored metadata and optionally selects the same zero-based `--page-index` in each video (`0` is source P1). All targets are validated before profiles or jobs are created. See [workflow selection](docs/guides/workflow-selection.md).
 
 Subtitle acquisition is independent; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold`. The first two plan ASR for the explicit selection; `below-threshold` requires a stored quality assessment below `--quality-threshold`. ASR profiles freeze the full effective configuration, including independent model/aligner revisions, chunk size, timeout, hotwords, offline loading and generation budget. Explicit planning arguments override the environment; execution uses the stored snapshot.
 
-Successful ASR runs retain per-chunk diagnostics independently of transcript content deduplication. Inspect them with `bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42`. See [ASR configuration and diagnostics](docs/asr-configuration.md) for parameter defaults and quality flag meanings, and [public sample results](docs/asr-public-samples.md) for the evidence supporting the current baseline. Hotwords remain empty and are outside routine tuning.
+Successful ASR runs retain per-chunk diagnostics independently of transcript content deduplication. Inspect them with `bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42`. See [ASR configuration and diagnostics](docs/asr/asr-configuration.md) for parameter defaults and quality flag meanings, and [public sample results](docs/evidence/asr-public-samples-2026-10-08.md) for the evidence supporting the current baseline. Hotwords remain empty and are outside routine tuning.
 
 Cancel selected jobs using IDs from `workflow status --jobs`:
 
@@ -152,7 +152,7 @@ Cancel selected jobs using IDs from `workflow status --jobs`:
 bili-asr workflow cancel --job-id JOB_ID --job-id ANOTHER_JOB_ID
 ```
 
-Queued and running jobs become `cancelled`; running work stops cooperatively at safe boundaries. Cancellation and result commits share a SQLite write lock. Completed jobs are a no-op; dependants remain queued and are reported as blocked. Retry and repeated planning do not revive the same cancelled job. See [cancellation](docs/workflow-cancellation.md).
+Queued and running jobs become `cancelled`; running work stops cooperatively at safe boundaries. Cancellation and result commits share a SQLite write lock. Completed jobs are a no-op; dependants remain queued and are reported as blocked. Retry and repeated planning do not revive the same cancelled job. See [cancellation](docs/guides/workflow-cancellation.md).
 
 To rebuild a bundle from an existing preferred transcript, without reacquisition:
 
@@ -161,7 +161,7 @@ bili-asr workflow publish --part-id 42
 bili-asr workflow run
 ```
 
-New workflow publications produce six data members and an `archive-bundle-v3` marker with SHA-256 digests. Existing five-member v2 bundles remain readable; four-product bundles require explicit republication. Use `--preserve-transcript` with an installed artifact catalog when refreshing a complete old bundle while preserving its published transcript and original evidence. See [WebVTT and bundle integrity](docs/webvtt.md) and [historical refresh](docs/issue-348-source-metadata.md).
+New workflow publications produce six data members and an `archive-bundle-v3` marker with SHA-256 digests. Existing five-member v2 bundles remain readable; four-product bundles require explicit republication. Use `--preserve-transcript` with an installed artifact catalog when refreshing a complete old bundle while preserving its published transcript and original evidence. See [WebVTT and bundle integrity](docs/guides/webvtt.md) and [historical refresh](docs/guides/source-metadata.md).
 
 Editorial work can be planned from stored transcripts and rendered deterministically:
 
@@ -195,16 +195,16 @@ Editor-confirmed cross-video reading order is maintained separately with
 `publication series edit/validate/show`. Optional `--series-file` on both public
 and draft exports binds those relations to the exact category catalog and adds
 a hashed `series.json` to the existing manifest. No relation is inferred from
-titles or AI output. See [series maintenance and export](docs/publication-series.md).
+titles or AI output. See [series maintenance and export](docs/guides/publication-series.md).
 
 New drafts and pending reviews leave the existing release public. The new
 release replaces it only after explicit publication. See
-[publication.md](docs/publication.md) for editing, expected version checks,
+[publication.md](docs/guides/publication.md) for editing, expected version checks,
 withdrawal, output contracts and separate internal review exports. Transcript
 bundle publication performed by workflow `publish` remains a separate operation.
 Saved input, content and template versions 1 and 2 are validated with their
 registered codecs and renderers. Unknown contracts are refused. Preserve the
-source archive and use an [explicit registered upgrade](docs/archive-upgrades.md)
+source archive and use an [explicit registered upgrade](docs/operations/archive-upgrades.md)
 to a separate target when a supported conversion is required.
 
 To make current unpublished editions visible in the site's separate draft tab,
@@ -258,15 +258,15 @@ example groups included in the output.
 
 `status`, `runs`, and workflow inspection use read-only sessions over an existing compatible database. Queries never initialize a database or refresh views; missing or incompatible databases are refused. Coverage, verification, export, publication export, editorial export and dedup also use read-only projections. `fetch-meta` explicitly bootstraps the archive; `search-index` and `search --rebuild` explicitly write the derived index.
 
-`workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/artifact-root.md](docs/artifact-root.md).
+`workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/operations/artifact-root.md](docs/operations/artifact-root.md).
 
-`bili-asr artifacts` provides read-only inventory, frozen offload plans, an explicit catalog upgrade, verified directory packages, manual audio offload and single-object restore. Production state stays in the archive database after audio moves. Offload uses an exclusive maintenance window and preserves queued, failed or held inputs; restore the retained SHA-256 before running a new consumer. See [artifact storage](docs/artifact-storage.md) for commands, target identity, crash recovery and snapshot limits.
+`bili-asr artifacts` provides read-only inventory, frozen offload plans, an explicit catalog upgrade, verified directory packages, manual audio offload and single-object restore. Production state stays in the archive database after audio moves. Offload uses an exclusive maintenance window and preserves queued, failed or held inputs; restore the retained SHA-256 before running a new consumer. See [artifact storage](docs/operations/artifact-storage.md) for commands, target identity, crash recovery and snapshot limits.
 
-`bili-asr remote` adds explicitly configured Linux/OpenSSH package copying and restoration with strict host keys and client SHA-256 readback. `bili-asr reference` saves a non-self-contained state backup with declared external dependencies and retained holds; offline validation never verifies unseen external bytes or starts workers. See [SSH storage and reference backups](docs/remote-reference-backups.md) for capabilities and execution handoff.
+`bili-asr remote` adds explicitly configured Linux/OpenSSH package copying and restoration with strict host keys and client SHA-256 readback. `bili-asr reference` saves a non-self-contained state backup with declared external dependencies and retained holds; offline validation never verifies unseen external bytes or starts workers. See [SSH storage and reference backups](docs/operations/remote-reference-backups.md) for capabilities and execution handoff.
 
 Database table contracts must match a supported registered layout. Ordinary
 commands refuse incompatible archives and never alter their schema on open.
-Stop writers, preserve the source and inspect the [registered upgrade paths](docs/archive-upgrades.md)
+Stop writers, preserve the source and inspect the [registered upgrade paths](docs/operations/archive-upgrades.md)
 before creating a separate target. Unknown historical layouts need an explicit
 reader and conversion policy; rebuilding from acquisition loses transcript,
 revision and review history and is not a preservation migration.
@@ -275,13 +275,13 @@ Search defaults to `transcripts`. `metadata` searches stored titles,
 descriptions, and tags directly, without FTS or published artifacts. `all`
 returns metadata first, followed by transcript hits under one total limit.
 Dates use UTC video publication days; JSON includes `hit_type`. See
-[metadata search](docs/metadata-search.md).
+[metadata search](docs/guides/metadata-search.md).
 
 The current workflow writes audio, bundles, and documents under `--archive-root`.
 Audio is retained by default. The optional artifact catalog and explicitly
 enabled online policy provide bounded copy/offload and consumer restoration;
 ordinary workflow execution does not enable those policies.
-See [artifact roots](docs/artifact-root.md) and [audio retention](docs/audio-retention-policy.md).
+See [artifact roots](docs/operations/artifact-root.md) and [audio retention](docs/operations/audio-retention-policy.md).
 
 ## Save and Restore an Archive
 
@@ -307,7 +307,7 @@ root (or `BILI_ARTIFACT_ROOT`); restore brings all products into the new archive
 root so the workflow can use their relative paths directly. This version
 supports the current database contract and whole-archive transfer. Configure
 credentials and the compatible ASR runtime on the destination host separately.
-See [archive-snapshots.md](docs/archive-snapshots.md) for consistency, recovery,
+See [archive-snapshots.md](docs/operations/archive-snapshots.md) for consistency, recovery,
 and format details.
 
 ## Tests

@@ -1,6 +1,6 @@
 # 来源身份与采集适配边界
 
-本文描述当前来源适配与持久化边界；固定源码与验证范围见[架构索引](architecture.md)。
+本文描述当前来源适配与持久化边界；固定源码与验证范围见[架构索引](../architecture.md)。
 
 来源身份、平台网络适配、采集策略、数据库持久化和任务调度分别由独立模块负责。
 默认新建库继续采用 `bilibili-v1`；显式 `archive init` 或保真迁移创建 `universal-v2`，
@@ -114,7 +114,7 @@ YouTube 尚未建模的封面、简介、分区与 tags 保持未知。
 和 `timeout_transcriber`，并支持显式 `inference_session` 与 runtime binding resolver。
 CPU runner 按冻结 profile 与实际 runtime binding 缓存并在 `close()` 释放；GPU 可选 legacy、
 oneshot 或 persistent session，session 子进程只负责推理，父进程继续负责租约、取消、
-音频/转录写入与发布。当前进程 runner factory 不跨进程传递，详见 [ASR workers](asr-workers.md)。
+音频/转录写入与发布。当前进程 runner factory 不跨进程传递，详见 [ASR workers](../asr/asr-workers.md)。
 
 ASR 公共包通过普通函数提供 `asr.transcribe()` 与 `asr.provenance()`。
 两者支持显式 `runner_factory`，未显式注入时使用公开包当前的 `ASRRunner`，因此原有
@@ -171,8 +171,8 @@ Bilibili 已认证空列表规则。通过离线测试不表示当前 YouTube �
 
 通用目标新增真实 `source_creators/source_videos` 及 platform observations；旧源保持固定契约。
 `archive migrate` 从只读旧源向独立空目标转换并校验，旧冻结 JSON、审核、release、
-转录与文件字节的保留不依赖新 reader 重写旧内容。完整转换和切换见[显式契约升级](archive-upgrades.md)，
-运行时恢复和模型位置绑定见[归档快照](archive-snapshots.md)。
+转录与文件字节的保留不依赖新 reader 重写旧内容。完整转换和切换见[显式契约升级](../operations/archive-upgrades.md)，
+运行时恢复和模型位置绑定见[归档快照](../operations/archive-snapshots.md)。
 
 ## 旧字幕依赖的显式修复
 

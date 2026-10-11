@@ -46,7 +46,7 @@ python scripts/benchmark_asr_mixing.py --frames 100000 1000000 8000000 --repeats
 | 1,000,000 | 8 MB | 8.083 ms | 1.376 ms | 5.88× |
 | 8,000,000 | 64 MB | 67.336 ms | 12.608 ms | 5.34× |
 
-这是合成输入的 CPU 微基准，不能代表生产整任务或 GPU 吞吐。[机器可读结果](evidence/asr-stereo-mix-implementation-2026-10-11.json)包含每次计时、环境和实现文件 SHA-256。文件哈希针对测量时的源文件字节，跨平台换行转换会改变哈希。
+这是合成输入的 CPU 微基准，不能代表生产整任务或 GPU 吞吐。[机器可读结果](asr-stereo-mix-implementation-2026-10-11.json)包含每次计时、环境和实现文件 SHA-256。文件哈希针对测量时的源文件字节，跨平台换行转换会改变哈希。
 
 ## 验证
 

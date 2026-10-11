@@ -31,7 +31,7 @@ bili-asr workflow status --archive-root archive --jobs
 
 正常退出清理本次 staging；强制终止或掉电可能留下临时文件。当前没有自动遍历历史 staging 并回收的 workflow 任务。SQLite 和文件系统不是一个原子提交介质，失败后的 catalog 与实际文件仍需分别核对。
 
-ASR 成功、失败或 publish 成功均不会触发删除。取消后续 ASR/publish 也不删除此前完成下载的音频。转录包有独立 marker 和摘要契约，见 [WebVTT 与五产物归档包](webvtt.md)。
+ASR 成功、失败或 publish 成功均不会触发删除。取消后续 ASR/publish 也不删除此前完成下载的音频。转录包有独立 marker 和摘要契约，见 [WebVTT 与归档包](../guides/webvtt.md)。
 
 ## 音频存放在哪里
 
@@ -106,4 +106,4 @@ bili-asr coverage --archive-root archive --format json
 
 `audio_budget.py` 有容量测量/预算 helper，`audio_reclaim.py` 有受约束删除 helper，`artifact_root.py` 有 `resolve_keep_audio`。库代码可显式调用，但当前 CLI/`WorkflowRuntime` 没有用它们实现自动预算或回收。旧命令、flags 或环境变量不能激活这些能力。
 
-本文不提供旧日志到 workflow jobs 的迁移命令，也不将保留源码视为兼容旧入口。相关文档：[架构](architecture.md)、[目标选择](workflow-selection.md)、[SQLite 存储](metadata-storage.md)。
+本文不提供旧日志到 workflow jobs 的迁移命令，也不将保留源码视为兼容旧入口。相关文档：[架构](../architecture.md)、[目标选择](../guides/workflow-selection.md)、[SQLite 存储](../metadata-storage.md)。

@@ -1,6 +1,6 @@
 # ASR 参数快照与运行诊断
 
-本页描述 `codex/asr-quality-foundation` 分支已实现的第一批改动。设计依据与后续实验见 [ASR 设计评审](asr-design-review.md)。本批建立可测量、可追溯的基础，尚未用真实音频证明某组参数优于当前默认。
+本页描述源码 `378f415ac5bf2a47de9137ee593f201e86827d43` 的 ASR 配置冻结、执行与诊断。规划时确定配置，任务执行时恢复自己的快照；后续环境变量变化不修改已有任务。历史设计与实验见 [ASR 设计评审](../evidence/asr-design-review-2026-10-08.md)和 [公开样本测试](../evidence/asr-public-samples-2026-10-08.md)，其中的测试结果保留各自的源码与样本身份。
 
 ## 1. 数据与执行关系
 
@@ -43,10 +43,14 @@ flowchart LR
 | `--tokens-per-second` | 无 | 8 |
 | `--min-new-tokens` | 无 | 256 |
 | `--second-pass-cache / --no-second-pass-cache` | 无 | 第二遍关闭生成内 KV cache |
+| `--model-dtype` | `BILI_ASR_MODEL_DTYPE` | bfloat16；也可显式选择 float16 |
+| `--aligner-dtype` | `BILI_ASR_ALIGNER_DTYPE` | bfloat16；也可显式选择 float16 |
 
 识别与对齐模型及各自 processor 都接收自己的 revision 和 `local_files_only`。本地目录必须预先准备好文件；设置 offline 时，缺失文件会失败。允许联网加载时，应显式使用 `--no-offline`。
 
-BF16、16 kHz 重采样与当前分块算法保持为实现常量。分块器在目标附近寻找低能量边界，因此目标秒数不是严格的最大输入长度。当前没有新增对齐器时长上限守卫；实验应遵守 checkpoint 的实际输入约束。
+模型与对齐器分别冻结精度，默认均为 BF16；改成 FP16 会进入带版本的 `precision` 扩展并改变配置哈希。16 kHz 重采样与当前分块算法不通过本页参数调整。分块器在目标附近寻找低能量边界，因此目标秒数不是严格的最大输入长度；应遵守 checkpoint 的实际输入约束。
+
+相邻块批处理默认关闭（ASR 和 aligner 的 batch size 均为 1）。显式的批大小、音频秒数、输入字节和 token 预算进入 `batching` 扩展，详见 [批处理](asr-batching.md)。attention、KV cache 和编译策略使用独立的 `runtime_strategies` 扩展，详见 [运行策略](asr-runtime-strategies.md)；这些配置变化不能靠修改旧任务的环境变量应用。
 
 音频在项目内完成解码、转单声道和重采样后，以 16 kHz float32 波形数组直接传给识别与对齐 processor。短尾仍按原规则填充。这样避免 processor 再按文件路径调用可选解码后端，也省去逐块临时 WAV 写入与 PCM16 量化；不能承诺与此前经过量化的输入产生逐字相同结果。
 
@@ -54,9 +58,9 @@ BF16、16 kHz 重采样与当前分块算法保持为实现常量。分块器在
 
 热词二遍使用独立的生成调用；没有把第一遍 KV cache 传给第二遍。第二遍关闭 cache 是保留的基线，可通过新参数开展对照实验。空候选不会触发第二遍。
 
-项目使用策略为热词一般不考虑，默认保持空，不列入常规调优计划。上文记录已有接口与执行语义；本次未修改这些兼容能力。当前证据支持继续使用现有模型组合、中文任务显式 Chinese、180 秒分块与现有生成预算，尚未证明为最优设置。
+项目使用策略为热词一般不考虑，默认保持空，不列入常规调优计划。上文记录已有接口与执行语义。已记录样本可作为模型组合、中文任务显式 Chinese、180 秒分块与现有生成预算的参考，但尚未证明这些设置对所有视频最优。
 
-CPU runner 在同一 workflow handler 中可复用模型；CUDA / ROCm 仍按任务启动受时限监督的子进程。CPU 没有同等的硬超时终止边界。
+CPU runner 在同一 workflow handler 中可复用模型。CUDA / ROCm 的 `workflow run` 和 `workflow supervise` 默认使用 `--gpu-session persistent`，在同一会话中顺序处理任务并复用模型；完整配置或模型绑定变化时重建会话。`--gpu-session oneshot` 每次请求后关闭子进程，可用于故障定位和回退。推理期限、取消、租约丢失和排空期限仍受监督，会话失败后清理并在后续请求重新建立。CPU 同步推理没有同等的硬超时终止边界。角色、心跳和进程协议见 [ASR worker](asr-workers.md)。
 
 ## 3. 规划与查询
 
@@ -66,17 +70,19 @@ bili-asr workflow run --limit 20
 bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42
 ```
 
-`RUN_ID` 是 ASR acquisition run 的 ID。它位于成功 ASR job 的 `result_json.run_id`，不是 workflow job_id 或 workflow attempt_id。可以通过 SQLite 查找：
+`RUN_ID` 是 ASR acquisition run 的 ID。成功任务的结果保存在 `workflow_attempts.result_json`，不是 `workflow_jobs` 的字段；`run_id` 也不是 workflow job_id 或 workflow attempt_id。可以通过 SQLite 查找成功的 ASR 尝试：
 
 ```sql
-SELECT job_id, video_part_id,
-       json_extract(result_json, '$.run_id') AS acquisition_run_id,
-       json_extract(result_json, '$.quality.status') AS quality_status
-FROM workflow_jobs
-WHERE kind = 'asr' AND status = 'succeeded';
+SELECT j.job_id, j.video_part_id, a.attempt_id,
+       json_extract(a.result_json, '$.run_id') AS acquisition_run_id,
+       json_extract(a.result_json, '$.quality.status') AS quality_status
+FROM workflow_jobs AS j
+JOIN workflow_attempts AS a ON a.job_id = j.job_id
+WHERE j.kind = 'asr' AND a.outcome = 'succeeded'
+ORDER BY a.finished_at, a.attempt_id;
 ```
 
-`asr-evidence` 输出 JSON，找不到对应记录返回退出码 1。该命令与其他 workflow 命令使用相同的数据库打开和 schema 初始化路径。
+`asr-evidence` 输出 JSON，找不到对应记录返回退出码 1。该命令使用 READ 访问已有归档，并只读检查契约；查询不会初始化数据库、补建表或刷新视图。
 
 ## 4. 诊断内容与解释
 
@@ -100,18 +106,18 @@ WHERE kind = 'asr' AND status = 'succeeded';
 
 ## 5. 存储兼容与边界
 
-新增 `workflow_asr_profile_configs` 保存 schema version 2 的完整配置；新增 `transcript_asr_evidence` 保存 schema version 1 的运行证据。打开满足现有 SQLite 合同的数据库时，通过建表语句增量补充；不重写旧 profile 或历史转录，不转换已不兼容的旧式数据库。
+`workflow_asr_profile_configs` 保存 schema version 2 的完整配置；`transcript_asr_evidence` 保存 schema version 1 的运行证据。普通 READ/WRITE 访问只检查已有契约，不执行 DDL。新空归档通过显式 `archive init` 安装当前运行契约；已登记的旧库组合通过 [显式升级](../operations/archive-upgrades.md)在独立目标转换。未知或不兼容的旧式数据库会明确拒绝，不通过打开归档自动补表，也不重写旧 profile 或历史转录。
 
 旧 profile 没有扩展快照时，核对旧配置哈希，保留曾经共用 ASR / aligner revision 的执行语义，并使用旧默认分块、热词和超时。新快照哈希不符或扩展快照被删除时拒绝执行，避免静默回退到默认值。
 
-目前诊断 JSON 绑定于成功转录。模型异常、空整体输出、硬超时及 lease 丢失仍走现有失败记录；尚未持久化其全部中间块诊断。生产诊断没有 VAD、人工基准 CER、峰值显存采集、按块检查点或常驻 GPU worker。独立评测脚本已能按公开参考文本计算 CER，结果见 [公开样本测试](asr-public-samples.md)。
+完整诊断 JSON 绑定于成功转录。模型异常、空整体输出、硬超时及 lease 丢失走失败 attempt 与采集运行记录；没有持久化失败运行的全部中间块诊断。当前没有持久化按块检查点，重试按完整任务执行；常驻 GPU 会话只复用模型，不把上一任务的诊断、热词或输出带到下一任务。VAD、人工基准 CER 与峰值显存不由 `asr-evidence` 质量状态证明；独立 profiling 和评测的范围见 [诊断工具](asr-profiling.md)、[GPU 验证记录](../evidence/asr-gpu-validation-2026-10-11.md)与 [公开样本测试](../evidence/asr-public-samples-2026-10-08.md)。
 
-本批测试使用模型替身验证配置、参数传递、诊断、内容去重和事务回滚，并在 WSL 中用真实的识别与对齐 checkpoint 完成一条 CPU BF16 样本推理。环境、结果与适用范围见 [WSL 验证记录](asr-wsl-validation.md)。真实 GPU 准确率、速度与显存结论需下一批固定音频实验验证。
+历史基础验证使用模型替身检查配置、参数传递、诊断、内容去重和事务回滚，并在 WSL 中用真实的识别与对齐 checkpoint 完成一条 CPU BF16 样本推理；环境、结果与适用范围见 [WSL 验证记录](../evidence/asr-wsl-validation-2026-10-08.md)。后续 GPU 与精度实测单独保存在 [GPU 验证记录](../evidence/asr-gpu-validation-2026-10-11.md)，不把旧 CPU 样本称为当前所有配置的验收。
 
 ## 6. 后续实验
 
 先固定音频哈希、checkpoint commit、人工转写和规范化规则，默认保持空热词，优先在真实项目音频上对照 120 / 180 秒分块、自动语言 / Chinese。记录 CER、边界漏字与重复、异常空块、冷启动和模型复用 RTF、峰值显存及关键术语人工检查结果。热词及其第二遍 cache 不列入常规调优计划。
 
-确认测量结果后再决定默认值；随后推进最终文字单次对齐、VAD 辅助复核、分块检查点及受监督的常驻 GPU worker。具体取舍与官方资料见 [设计评审](asr-design-review.md)。
+确认测量结果后再决定默认值。最终文字单次对齐、VAD 辅助复核和持久化分块检查点仍属于后续设计；已有的受监督常驻 GPU 会话及任务内准备见 [ASR worker](asr-workers.md)。历史取舍与官方资料见 [设计评审](../evidence/asr-design-review-2026-10-08.md)。
 
-首批公开样本语言、分块与静音对照已完成，完整方法、结果和命令见 [公开样本与调优依据](asr-public-samples.md)。该批没有显示缩短分块的准确率收益，并观察到纯静音生成文字；下一步优先验证语音条件诊断。公开朗读与人工拼接样本不能替代真实项目长视频基准。
+首批公开样本语言、分块与静音对照已完成，完整方法、结果和命令见 [公开样本与调优依据](../evidence/asr-public-samples-2026-10-08.md)。该批没有显示缩短分块的准确率收益，并观察到纯静音生成文字；下一步优先验证语音条件诊断。公开朗读与人工拼接样本不能替代真实项目长视频基准。
