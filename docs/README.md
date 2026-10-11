@@ -10,7 +10,7 @@
 | 备份、迁移、升级、恢复或管理存储 | [部署与运维](operations/README.md) |
 | 了解系统边界和调用关系 | [当前架构](architecture.md)、[34 张交互图与流程入口](architecture-sequences.md) |
 | 修改实现、契约或维护文档 | [开发与维护](development/README.md)、[契约镜像](contracts/README.md) |
-| 查阅做过哪些实测及其限制 | [历史验收与实验记录](evidence/README.md) |
+| 查阅做过哪些实测及其限制 | [实测与实验记录](evidence/README.md) |
 
 ## 架构与数据参考
 
@@ -33,6 +33,6 @@
 - `operations/`：部署、存储、迁移、升级、备份与恢复手册。
 - `development/`：CI、发布说明与文档维护约定。
 - `contracts/`：程序发布的契约镜像与示例，由契约工具校验原字节。
-- `evidence/`：固定日期、源码与环境的历史验收及原始结果。
+- `evidence/`：固定日期、源码与环境的真实测量及原始结果。
 
 [WSL ROCm GPU 手册](wsl-rocm-gpu.md) 保留在根目录，因为环境探测工具直接输出这个路径。历史记录保留失败、跳过、未完成验收和原始身份；当前操作以功能指南与实现为准。

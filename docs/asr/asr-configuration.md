@@ -1,6 +1,6 @@
 # ASR 参数快照与运行诊断
 
-本页描述源码 `378f415ac5bf2a47de9137ee593f201e86827d43` 的 ASR 配置冻结、执行与诊断。规划时确定配置，任务执行时恢复自己的快照；后续环境变量变化不修改已有任务。历史设计与实验见 [ASR 设计评审](../evidence/asr-design-review-2026-10-08.md)和 [公开样本测试](../evidence/asr-public-samples-2026-10-08.md)，其中的测试结果保留各自的源码与样本身份。
+本页描述源码 `378f415ac5bf2a47de9137ee593f201e86827d43` 的 ASR 配置冻结、执行与诊断。规划时确定配置，任务执行时恢复自己的快照；后续环境变量变化不修改已有任务。质量实验见 [公开样本测试](../evidence/asr-public-samples-2026-10-08.md)，其中的测试结果保留各自的源码与样本身份。
 
 ## 1. 数据与执行关系
 
@@ -112,12 +112,12 @@ ORDER BY a.finished_at, a.attempt_id;
 
 完整诊断 JSON 绑定于成功转录。模型异常、空整体输出、硬超时及 lease 丢失走失败 attempt 与采集运行记录；没有持久化失败运行的全部中间块诊断。当前没有持久化按块检查点，重试按完整任务执行；常驻 GPU 会话只复用模型，不把上一任务的诊断、热词或输出带到下一任务。VAD、人工基准 CER 与峰值显存不由 `asr-evidence` 质量状态证明；独立 profiling 和评测的范围见 [诊断工具](asr-profiling.md)、[GPU 验证记录](../evidence/asr-gpu-validation-2026-10-11.md)与 [公开样本测试](../evidence/asr-public-samples-2026-10-08.md)。
 
-历史基础验证使用模型替身检查配置、参数传递、诊断、内容去重和事务回滚，并在 WSL 中用真实的识别与对齐 checkpoint 完成一条 CPU BF16 样本推理；环境、结果与适用范围见 [WSL 验证记录](../evidence/asr-wsl-validation-2026-10-08.md)。后续 GPU 与精度实测单独保存在 [GPU 验证记录](../evidence/asr-gpu-validation-2026-10-11.md)，不把旧 CPU 样本称为当前所有配置的验收。
+CPU BF16 链路样本的实际测量与限制见 [公开样本记录](../evidence/asr-public-samples-2026-10-08.md#同日单条-cpu-链路样本)。后续 GPU 与精度实测单独保存在 [GPU 验证记录](../evidence/asr-gpu-validation-2026-10-11.md)，不把旧 CPU 样本称为当前所有配置的验收。
 
 ## 6. 后续实验
 
 先固定音频哈希、checkpoint commit、人工转写和规范化规则，默认保持空热词，优先在真实项目音频上对照 120 / 180 秒分块、自动语言 / Chinese。记录 CER、边界漏字与重复、异常空块、冷启动和模型复用 RTF、峰值显存及关键术语人工检查结果。热词及其第二遍 cache 不列入常规调优计划。
 
-确认测量结果后再决定默认值。最终文字单次对齐、VAD 辅助复核和持久化分块检查点仍属于后续设计；已有的受监督常驻 GPU 会话及任务内准备见 [ASR worker](asr-workers.md)。历史取舍与官方资料见 [设计评审](../evidence/asr-design-review-2026-10-08.md)。
+确认测量结果后再决定默认值。最终文字单次对齐、VAD 辅助复核和持久化分块检查点仍属于后续设计；已有的受监督常驻 GPU 会话及任务内准备见 [ASR worker](asr-workers.md)。
 
 首批公开样本语言、分块与静音对照已完成，完整方法、结果和命令见 [公开样本与调优依据](../evidence/asr-public-samples-2026-10-08.md)。该批没有显示缩短分块的准确率收益，并观察到纯静音生成文字；下一步优先验证语音条件诊断。公开朗读与人工拼接样本不能替代真实项目长视频基准。

@@ -81,6 +81,16 @@ workflow attempt 额外保存 `visible_candidates_exhausted` 与安全候选诊�
 `MetadataRefreshPolicy` 负责 new/missing/stale/force 判断；仓库负责当前事实、观察与页事务，
 来源适配器不自行决定刷新、覆盖或失败补抓。
 
+省略 `--start-page` 隐式恢复或使用 `--resume` 到第 1 页之后的位置前，会在同一请求预算内重新核对已成功页的完整 BVID 顺序前缀；
+列表变化或缺少前缀证据时返回 `metadata_resume_requires_reenumeration`，保留游标，
+使用 `--incremental` 从头发现。`--skip-failed-page` 不能跳过这种核对失败；
+曾跳过的页如果缺少成功前缀证据，后续隐式恢复也会拒绝。
+显式 `--start-page` 是跳过前缀核对的局部扫描，不证明从首页开始的完整覆盖。
+前缀核对只能比较两次运行之间观察到的列表，不能冻结服务器列表；`complete` 只证明本次抵达空页。
+`--operation-retries` 仅重试 detail/parts 的 transport failure，
+重试共用请求协调器的预算和冷却，不重复已经成功的兄弟请求。
+命令参数与逐页提交规则见[元数据分页与恢复](../metadata-storage.md#元数据分页与恢复)。
+
 `RequestScheduler` 在一个协调器内对 gateway 操作计数、串行化、设置单次超时和总预算，
 并共享 rate-control 冷却。它计量应用 gateway 操作，而非 SDK 内部每次 HTTP 子请求，
 也不协调其他进程的请求。SDK 的进程全局 proxy 仅在请求期间设置，使用可取消等待的

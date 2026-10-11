@@ -151,19 +151,17 @@ Model paths are frozen at planning time; the worker reads that stored profile.
 
 ## Rebuild and redeploy
 
-Old project environment/data compatibility is not a requirement. A deployment
-change creates a new isolated environment from the current definitions and
-reruns acceptance. Do not add schema migrations or preserve an old project
-environment merely for compatibility. If reverting code, rebuild its matching
-environment from its recorded dependency export; revalidate GPU and inference.
-An incompatible archive database must be discarded and recollected under the
-project's rebuild-only policy.
+Create a new isolated application environment from the current dependency
+definitions and rerun host acceptance. Reverting code requires its matching
+environment and fresh GPU/inference checks.
 
-For the issue #251 template machine, the original plan to retain the old venv
-was superseded by the user's instruction to remove old project environments
-after successful verification. That cleanup did not include unrelated
-projects, model checkpoints or media files. This guide does not run cleanup
-or delete data on any host.
+Archive data has a separate compatibility contract. Preserve the source and
+use the [registered upgrade paths](archive-upgrades.md) or
+[migration preflight](archive-migration-preflight.md) to convert into an
+independent target. Unknown layouts are rejected; reinstalling Python packages
+does not migrate the database. Do not discard and recollect an archive to work
+around a compatibility error. Follow the upgrade guide's writer shutdown,
+verification and rollback boundaries before switching production.
 
 ## Template trial and reproducibility limits
 
