@@ -1,0 +1,364 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "来源回填：旧转写包与旧文章",
+    "locale": "zh-CN",
+    "output": "docs/sequences/31-source-metadata-migration.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "op",
+      "label": "操作员",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 1,
+          "end_line": 426,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/cli/publication.py",
+          "line": 1,
+          "end_line": 340,
+          "label": "模块定义"
+        }
+      ]
+    },
+    {
+      "id": "workflow",
+      "label": "回填请求",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 52,
+          "end_line": 71,
+          "label": "publish"
+        },
+        {
+          "path": "src/bili_asr/services/publication_refresh.py",
+          "line": 1,
+          "end_line": 40,
+          "label": "模块定义"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "归档数据库",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 175,
+          "end_line": 189,
+          "label": "read_source_metadata_export_many"
+        },
+        {
+          "path": "src/bili_asr/storage/source_supplements.py",
+          "line": 70,
+          "end_line": 100,
+          "label": "capture_description"
+        }
+      ]
+    },
+    {
+      "id": "bundle",
+      "label": "包与不可变组",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 419,
+          "end_line": 581,
+          "label": "_publish"
+        },
+        {
+          "path": "src/bili_asr/services/artifact_groups.py",
+          "line": 120,
+          "end_line": 130,
+          "label": "preserve_existing_publication"
+        }
+      ]
+    },
+    {
+      "id": "article",
+      "label": "文章补充",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/source_supplement.py",
+          "line": 53,
+          "end_line": 102,
+          "label": "plan_source_supplement"
+        },
+        {
+          "path": "src/bili_asr/services/source_supplement.py",
+          "line": 169,
+          "end_line": 224,
+          "label": "apply_source_supplement"
+        }
+      ]
+    },
+    {
+      "id": "export",
+      "label": "导出协议",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 234,
+          "end_line": 245,
+          "label": "_collect_origin"
+        },
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 248,
+          "end_line": 254,
+          "label": "_add_origins"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "op",
+      "to": "workflow",
+      "y": 235,
+      "label": "preserve-transcript / dry-run",
+      "note": "显式请求原 bundle 来源回填；dry-run 仅预览，实际请求需另行执行。",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "workflow",
+      "to": "db",
+      "y": 301,
+      "label": "读取最新发布与转录哈希",
+      "note": "要求 artifact catalog；保存 publication_id、published_at、transcript hash、ordered segments hash。",
+      "variant": "security"
+    },
+    {
+      "id": "m3",
+      "from": "workflow",
+      "to": "op",
+      "y": 367,
+      "label": "返回围栏 / 实际请求入队",
+      "note": "实际请求锁定原 transcript；running 拒绝，cancelled 不复活；仅排 publish job。",
+      "variant": "return"
+    },
+    {
+      "id": "m4",
+      "from": "workflow",
+      "to": "bundle",
+      "y": 498,
+      "label": "worker 认领 publish",
+      "note": "原 publication 的围栏随请求交给 worker；没有字幕、音频、ASR 或 AI job。",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "bundle",
+      "to": "db",
+      "y": 564,
+      "label": "复验围栏与准确转录",
+      "note": "原 publication 或转录/segments 改变即停止并重新规划。",
+      "variant": "security"
+    },
+    {
+      "id": "m6",
+      "from": "bundle",
+      "to": "db",
+      "y": 630,
+      "label": "保留旧完整 artifact group",
+      "note": "核验当前旧 marker 和成员字节，登记不可变对象；原 raw 重新校验对象 hash。",
+      "variant": "security"
+    },
+    {
+      "id": "m7",
+      "from": "bundle",
+      "to": "db",
+      "y": 696,
+      "label": "读取当前已存来源元数据",
+      "note": "一次只读快照读取来源；不联网补抓，不声称为历史发布日期的简介。",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "bundle",
+      "to": "db",
+      "y": 762,
+      "label": "写 v3 并复验租约与围栏",
+      "note": "六个成员与最后 marker；原 raw、segments、provenance、character timing、coverage 保留；提交新发布与完整组。",
+      "variant": "security"
+    },
+    {
+      "id": "m9",
+      "from": "bundle",
+      "to": "op",
+      "y": 828,
+      "label": "回填完成；旧组继续可恢复",
+      "note": "按 artifact group 冲突规则恢复；不能用旧版本覆盖不同的新 slot。",
+      "variant": "return"
+    },
+    {
+      "id": "m10",
+      "from": "op",
+      "to": "article",
+      "y": 959,
+      "label": "plan --field description",
+      "note": "先安装 import-preserved 与 supplement-source 扩展；仅选择当前历史 v2 草稿。此流程独立于旧包回填。",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "article",
+      "to": "db",
+      "y": 1025,
+      "label": "捕获简介与逐字段成功证据",
+      "note": "简介 null 阻止；真实空字符串允许；已知简介/原生 v2 跳过，已有补充证据则阻止多字段链。",
+      "variant": "security"
+    },
+    {
+      "id": "m12",
+      "from": "article",
+      "to": "op",
+      "y": 1091,
+      "label": "返回 planDigest 与阻塞列表",
+      "note": "简介时间只取匹配 value_json 的 last_success_at；无逐字段成功证据时 observedAt 为 null。",
+      "variant": "return"
+    },
+    {
+      "id": "m13",
+      "from": "op",
+      "to": "article",
+      "y": 1157,
+      "label": "apply 同一份无阻塞计划",
+      "note": "修改计划、任一 blocked、空计划均拒绝。",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "article",
+      "to": "db",
+      "y": 1223,
+      "label": "事务复验来源、内容与双头",
+      "note": "复验当前 draft/release heads、内容 hash、来源身份与简介证据；任一改变整批回滚，重试回执保持幂等。",
+      "variant": "security"
+    },
+    {
+      "id": "m15",
+      "from": "article",
+      "to": "db",
+      "y": 1289,
+      "label": "新 pending-review 子版",
+      "note": "复制原正文 UTF-8 字节、编辑摘要、标题与标签，继承 origin；保留旧正式发布与 AI 双稿。",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "article",
+      "to": "op",
+      "y": 1355,
+      "label": "check 核验新版本与证据",
+      "note": "apply 不批准或发布；check 明确 edition 和 supplement 身份。",
+      "variant": "return"
+    },
+    {
+      "id": "m17",
+      "from": "op",
+      "to": "article",
+      "y": 1486,
+      "label": "review 后显式 publish",
+      "note": "按新 edition 完整内容 hash 审核，并校验 expected release；旧批准不批准新版本。",
+      "variant": "security"
+    },
+    {
+      "id": "m18",
+      "from": "op",
+      "to": "export",
+      "y": 1552,
+      "label": "universal-origin-v2 导出",
+      "note": "已审核发布版本用 export；符合从未发布条件的待审版本可用 export-drafts。",
+      "variant": "default"
+    },
+    {
+      "id": "m19",
+      "from": "export",
+      "to": "db",
+      "y": 1618,
+      "label": "校验 origin 与简介补充证据",
+      "note": "catalog 3、origins 2、manifest 3、source-metadata 1；简介值、hash、时间、policy 与字段证据交叉验证。",
+      "variant": "security"
+    },
+    {
+      "id": "m20",
+      "from": "export",
+      "to": "op",
+      "y": 1684,
+      "label": "当前 Reader 仍需升级",
+      "note": "旧 universal-origin-v1 保持并拒绝简介补充；新 profile 不能导入当前仅支持 v1 的 Reader。",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 413,
+      "label": "A1 · 旧包：预览与入队"
+    },
+    {
+      "from": 470,
+      "to": 874,
+      "label": "A2 · 旧包：校验、保留与写 v3"
+    },
+    {
+      "from": 931,
+      "to": 1401,
+      "label": "B1 · 独立选择：旧文章补简介"
+    },
+    {
+      "from": 1458,
+      "to": 1730,
+      "label": "B2 · 重新审核、发布与兼容出口"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "两种回填各自显式执行",
+      "items": [
+        "A 只刷新转写 bundle 的来源快照，保持准确原转录并保存旧组；B 给已保留旧正文的文章创建待审子版。",
+        "普通 export 读取当前数据库，不重写旧包；文章 sourceMetadata 固定在版本里，不随数据库自动变化。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "失败边界与事实时间",
+      "items": [
+        "原目录先保留；缺少 artifact catalog 可先 artifacts upgrade 到独立新 archive。",
+        "旧包无效、围栏陈旧、来源证据改变或双头冲突均拒绝；先修复事实并重新规划。",
+        "逐字段成功采集时间与详情行更新时间分别表达；回填注册时间不是历史原始简介的采集时间。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "源码与协议",
+      "items": [
+        "源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
+        "当前 Reader 新 profile 支持是后续工作；本图不代表生产迁移或外部消费者已升级。"
+      ]
+    }
+  ]
+}

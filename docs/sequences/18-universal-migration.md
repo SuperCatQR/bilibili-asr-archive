@@ -1,6 +1,6 @@
 # 旧归档显式迁移：保真、恢复审计与切换验证
 
-源码固定于提交 `857906d3b3c54b31fd9bc0ba94b84618f68cd6f3`；旧源的独立读取契约仍固定于 `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`，保真基准包由变更前的 writer 生成。
+源码固定于提交 `228e4655c644aa924572429fcfd6451df3e108d5`；旧源的独立读取契约仍固定于 `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`，保真基准包由变更前的 writer 生成。
 
 [交互时序图](18-universal-migration.html) · [完整 Archify 规格](18-universal-migration.json) · [本轮实现说明](../issues-implementation.md)
 
@@ -71,12 +71,12 @@ sequenceDiagram
 
 | 责任 | 证据 |
 | --- | --- |
-| 显式入口与快照迁移选项 | [cli/archive.py:25–59](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/cli/archive.py#L25-L59) |
-| 固定旧源预检和停止条件 | [migration_preflight.py:119–213](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/migration_preflight.py#L119-L213) |
-| 原始typed搬运、比对及目标恢复 | [archive_migration.py:51–128](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/archive_migration.py#L51-L128) |
-| 导入行账本、保护策略与publish例外 | [archive_migration.py:158–297](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/archive_migration.py#L158-L297) |
-| staging、文件复制、审计和安装 | [archive_migration.py:300–395](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/archive_migration.py#L300-L395) |
-| 切换后只读checker | [archive_migration.py:425–474](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/archive_migration.py#L425-L474) |
-| 快照必须携带迁移审计引用 | [storage/snapshots.py:244–351](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/snapshots.py#L244-L351) |
+| 显式入口与快照迁移选项 | [cli/archive.py:25–91](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/cli/archive.py#L25-L91) |
+| 固定旧源预检和停止条件 | [migration_preflight.py:119–213](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/migration_preflight.py#L119-L213) |
+| 原始typed搬运、比对及目标恢复 | [archive_migration.py:51–128](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/archive_migration.py#L51-L128) |
+| 导入行账本、保护策略与publish例外 | [archive_migration.py:158–297](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/archive_migration.py#L158-L297) |
+| staging、文件复制、审计和安装 | [archive_migration.py:300–396](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/archive_migration.py#L300-L396) |
+| 切换后只读checker | [archive_migration.py:427–476](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/archive_migration.py#L427-L476) |
+| 快照必须携带迁移审计引用 | [storage/snapshots.py:266–399](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/storage/snapshots.py#L266-L399) |
 
-图的验证状态见 [本轮图表验证凭据](../issue-diagram-validation/README.md)。自动化 browser-check 与视觉人工审阅分开记录。
+图的验证状态见 [本轮图表验证凭据](../architecture-validation.md)。自动化 browser-check 与视觉人工审阅分开记录。

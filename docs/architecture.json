@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "4f073318c944add37417416155845e55247f9bc1",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -53,7 +53,7 @@
         {
           "path": "src/bili_asr/services/workflow_application.py",
           "line": 37,
-          "end_line": 188,
+          "end_line": 222,
           "label": "WorkflowApplication"
         }
       ]
@@ -171,7 +171,7 @@
     {
       "id": "bundle",
       "label": "转录 Bundle",
-      "sublabel": "v2/v3；准确成员与 marker",
+      "sublabel": "新产物 v3；来源快照与 marker",
       "type": "backend",
       "pos": [
         470,
@@ -184,9 +184,21 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 411,
-          "end_line": 417,
-          "label": "ArchiveWorkflowHandlers.publish"
+          "line": 419,
+          "end_line": 581,
+          "label": "_publish"
+        },
+        {
+          "path": "src/bili_asr/services/publication_refresh.py",
+          "line": 1,
+          "end_line": 40,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 175,
+          "end_line": 189,
+          "label": "read_source_metadata_export_many"
         }
       ]
     },
@@ -236,8 +248,8 @@
     },
     {
       "id": "publication",
-      "label": "完整版本与出口",
-      "sublabel": "准确审核、双 head、origin、系列",
+      "label": "完整版本与来源补充",
+      "sublabel": "待审子版；准确审核与静态导出",
       "type": "backend",
       "pos": [
         470,
@@ -251,7 +263,13 @@
         {
           "path": "src/bili_asr/publication_export.py",
           "line": 1,
-          "end_line": 365,
+          "end_line": 371,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/services/source_supplement.py",
+          "line": 1,
+          "end_line": 224,
           "label": "模块定义"
         }
       ]
@@ -273,7 +291,7 @@
         {
           "path": "src/bili_asr/services/workflow_projection.py",
           "line": 1,
-          "end_line": 252,
+          "end_line": 255,
           "label": "模块定义"
         }
       ]
@@ -403,7 +421,7 @@
     {
       "id": "e9",
       "to": "db",
-      "label": "发布事实",
+      "label": "读来源 / 记发布",
       "from": "bundle"
     },
     {
@@ -500,8 +518,18 @@
       "dot": "rose",
       "title": "版本与恢复",
       "items": [
-        "v1/v2 输入、模板、bundle 与导出按实际保存版本分派；不重写历史身份。",
+        "输入/模板 v1/v2、bundle v2/v3 与导出按实际保存版本分派；不重写历史身份。",
         "upgrade 在新目标转换；完整 snapshot 自包含，reference 需要外部依赖和执行权交接。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "来源元数据与旧数据回填",
+      "items": [
+        "通用 JSON/CSV 投影读取当前数据库；bundle.md 与 source-metadata.json 固定发布时来源快照，两者可以不同。",
+        "旧包显式 preserve-transcript：绑定原 publication 与转录哈希，核验旧 marker 并保留完整 artifact group，再写 v3。",
+        "旧文章 description 补充创建 pending-review 子版，保留原正文与旧 release；需重新审核和显式发布。",
+        "简介补充使用 universal-origin-v2；当前 Reader 仍只支持旧 profile，需消费者升级后导入。"
       ]
     }
   ]

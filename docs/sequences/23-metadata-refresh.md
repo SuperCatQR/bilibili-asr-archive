@@ -1,6 +1,6 @@
 # 增量发现、字段刷新与失败重放
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 对应 issue #286 的当前源元数据与 #287 的增量采集、字段刷新和失败补采。
 
 [交互时序图](23-metadata-refresh.html) · [Archify 规格](23-metadata-refresh.json) · [全部时序图](../architecture-sequences.md)
@@ -95,15 +95,15 @@ sequenceDiagram
 
 ## 固定源码证据
 
-- [CLI 模式、字段与预算参数](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/cli/parser.py#L38-L73)。
-- [分页发现、fan-out 与事务调用](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/metadata_ingest.py#L240-L583)。
-- [定向刷新与失败操作选择](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/metadata_refresh.py#L30-L151)。
-- [成功观察时间与字段事务](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/metadata_refresh.py#L153-L202)。
-- [共享计数、timeout、冷却与等待](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/request_budget.py#L14-L79)。
-- [字段保留与观察账本](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/metadata.py#L365-L420)。
-- [页原子提交与失败证据](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/metadata.py#L545-L720)。
-- [v2 独立 schema 对象](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/schema-observations.sql#L1-L22)。
+- [CLI 模式、字段与预算参数](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/cli/parser.py#L42-L81)。
+- [分页发现、fan-out 与事务调用](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/metadata_ingest.py#L243-L605)。
+- [定向刷新与失败操作选择](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/metadata_refresh.py#L31-L163)。
+- [成功观察时间与字段事务](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/metadata_refresh.py#L165-L214)。
+- [共享计数、timeout、冷却与等待](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/request_budget.py#L14-L79)。
+- [字段保留与观察账本](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/storage/metadata.py#L412-L467)。
+- [页原子提交与失败证据](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/storage/metadata.py#L592-L767)。
+- [v2 独立 schema 对象](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/storage/schema-observations.sql#L1-L22)。
 
 ## 交付验证
 
-Showcase 9/9、零错误/警告，严格 artifact/provenance 检查与真实 Chrome 的四档 light、两档 dark 检查通过。宽度建议只改变 `column_fit=spread` 并重验；正常纵向页面滚动通过声明的可读布局接受，无水平溢出。保留 [紧凑交付凭据](../issue-diagram-validation/23-metadata-refresh/receipt.json)。未进行截图感知评审；离线观察与回归不代表上游账号、实网或生产 archive 切换验收。
+Showcase 9/9、零错误/警告，严格 artifact/provenance 检查与真实 Chrome 的四档 light、两档 dark 检查通过。宽度建议只改变 `column_fit=spread` 并重验；正常纵向页面滚动通过声明的可读布局接受，无水平溢出。保留 [紧凑交付凭据](../architecture-validation.md)。未进行截图感知评审；离线观察与回归不代表上游账号、实网或生产 archive 切换验收。

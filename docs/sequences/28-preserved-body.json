@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "4f073318c944add37417416155845e55247f9bc1",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,7 +23,7 @@
         {
           "path": "src/bili_asr/cli/publication.py",
           "line": 1,
-          "end_line": 338,
+          "end_line": 340,
           "label": "模块定义"
         }
       ]
@@ -72,7 +72,7 @@
           "label": "模块定义"
         }
       ],
-      "sublabel": "Edition 与 "
+      "sublabel": "Edition 与不可变 origin"
     },
     {
       "id": "supplement",
@@ -82,8 +82,14 @@
         {
           "path": "src/bili_asr/services/source_supplement.py",
           "line": 1,
-          "end_line": 217,
+          "end_line": 224,
           "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/storage/source_supplements.py",
+          "line": 70,
+          "end_line": 100,
+          "label": "capture_description"
         }
       ]
     }
@@ -183,18 +189,18 @@
       "id": "m11",
       "to": "supplement",
       "y": 960,
-      "label": "固定已迁入来源证据，不修改旧 frozen input",
+      "label": "显式补分 P 标题或简介",
       "variant": "default",
-      "note": "固定已迁入来源证据，不修改旧 frozen input；条件：opt 显式分 P 标题补充扩展和计划",
+      "note": "plan --field partTitle/description 固定已存来源证据，不修改旧 frozen input；简介仅已 import-preserved 且未知的 v2 可补；条件：opt 显式来源补充扩展和计划",
       "from": "op"
     },
     {
       "id": "m12",
       "to": "db",
       "y": 1026,
-      "label": "新完整 edition 与不可变补充证据",
+      "label": "待审子版与来源证据",
       "variant": "default",
-      "note": "新完整 edition 与不可变补充证据；继承 origin 并重新审核；条件：opt 显式分 P 标题补充扩展和计划",
+      "note": "同一事务验证准确 draft/release heads 与来源证据；原正文、摘要和旧 release 保留；继承 origin 并重新审核；条件：opt 显式来源补充扩展和计划",
       "from": "supplement"
     },
     {
@@ -225,7 +231,7 @@
     {
       "from": 932,
       "to": 1072,
-      "label": "B2 · opt 显式分 P 标题补充扩展和计划"
+      "label": "B2 · opt 显式来源补充扩展和计划"
     },
     {
       "from": 1129,
@@ -239,7 +245,7 @@
       "title": "完整条件路径",
       "items": [
         "B1 条件路径：主流程",
-        "B2 条件路径：opt 显式分 P 标题补充扩展和计划",
+        "B2 条件路径：opt 显式来源补充扩展和计划",
         "B3 条件路径：主流程"
       ]
     },
@@ -247,9 +253,19 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "简介补充另见 31",
+      "items": [
+        "已知简介和原生 v2 跳过；本地简介 null 阻止计划，采集到的空字符串允许补入。",
+        "已有标题补充的文章阻止追加简介；当前不支持多字段补充链。",
+        "简介字段 observedAt 只用匹配 value_json 的 last_success_at；缺少逐字段成功证据则为 null。",
+        "简介补充导出使用 universal-origin-v2，当前 Reader 需要后续升级。"
       ]
     }
   ]

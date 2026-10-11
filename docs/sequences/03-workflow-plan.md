@@ -1,6 +1,6 @@
 # 全集选择验证、配置冻结与依赖规划
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](03-workflow-plan.html) · [Archify 规格](03-workflow-plan.json) · [全部时序图](../architecture-sequences.md)
 
@@ -66,7 +66,7 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:241](../../src/bili_asr/cli/workflow.py#L241)：_execute_workflow。
+- [src/bili_asr/cli/workflow.py:245](../../src/bili_asr/cli/workflow.py#L245)：_execute_workflow。
 - [src/bili_asr/services/workflow_application.py:42](../../src/bili_asr/services/workflow_application.py#L42)：WorkflowApplication.plan。
 - [src/bili_asr/services/workflow_application.py:52](../../src/bili_asr/services/workflow_application.py#L52)：WorkflowApplication.publish。
 - [src/bili_asr/storage/workflow_selection.py:56](../../src/bili_asr/storage/workflow_selection.py#L56)：resolve_workflow_selection。

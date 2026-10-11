@@ -1,6 +1,6 @@
 # 字幕候选、可信证据与独立 ASR
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 对应 issue #285 的字幕结果分类与旧依赖修复；旧文档中的历史基线不被本图替换。
 
 [交互时序图](22-subtitle-candidates.html) · [Archify 规格](22-subtitle-candidates.json) · [全部时序图](../architecture-sequences.md)
@@ -92,14 +92,14 @@ sequenceDiagram
 
 ## 固定源码证据
 
-- [CLI 的预览/应用入口](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/cli/workflow.py#L189-L221)。
-- [任务规划的独立依赖](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/workflow_planning.py#L60-L91)。
-- [旧图修复与事务内计划复验](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/workflow_dependency_repair.py#L12-L85)。
-- [候选预算、typed 读取及失败条件](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/subtitle_ingest.py#L467-L565)。
-- [gateway 合法空正文规范化](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/sources/bilibili_api_gateway.py#L645-L656)。
-- [Bilibili 可信缺口视图](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/schema-transcripts.sql#L262-L331)。
-- [handler 的结果与诊断](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/workflow_runtime.py#L120-L163)。
+- [CLI 的预览/应用入口](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/cli/workflow.py#L245-L286)。
+- [任务规划的独立依赖](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/workflow_planning.py#L60-L91)。
+- [旧图修复与事务内计划复验](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/storage/workflow_dependency_repair.py#L12-L85)。
+- [候选预算、typed 读取及失败条件](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/services/subtitle_ingest.py#L467-L565)。
+- [gateway 合法空正文规范化](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/sources/bilibili_api_gateway.py#L645-L656)。
+- [Bilibili 可信缺口视图](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/storage/schema-transcripts.sql#L262-L331)。
+- [handler 的结果与诊断](https://github.com/SuperCatQR/bilibili-asr-archive/blob/228e4655c644aa924572429fcfd6451df3e108d5/src/bili_asr/workflow_runtime.py#L137-L180)。
 
 ## 交付验证
 
-Showcase 9/9、零错误/警告，严格 artifact/provenance 检查与真实 Chrome 的四档 light、两档 dark 检查通过，READ/Still 状态和水平包含通过。按宽度建议仅将列展开为 `spread` 后完整重验。保留 [紧凑交付凭据](../issue-diagram-validation/22-subtitle-candidates/receipt.json)；未进行截图感知评审，不以离线验证推断账号、实网或 GPU 吞吐可用。
+Showcase 9/9、零错误/警告，严格 artifact/provenance 检查与真实 Chrome 的四档 light、两档 dark 检查通过，READ/Still 状态和水平包含通过。按宽度建议仅将列展开为 `spread` 后完整重验。保留 [紧凑交付凭据](../architecture-validation.md)；未进行截图感知评审，不以离线验证推断账号、实网或 GPU 吞吐可用。

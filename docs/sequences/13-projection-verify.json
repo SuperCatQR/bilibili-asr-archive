@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "4f073318c944add37417416155845e55247f9bc1",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -28,8 +28,8 @@
         },
         {
           "path": "src/bili_asr/export.py",
-          "line": 396,
-          "end_line": 451,
+          "line": 453,
+          "end_line": 508,
           "label": "export_records"
         },
         {
@@ -48,7 +48,7 @@
         {
           "path": "src/bili_asr/services/workflow_projection.py",
           "line": 126,
-          "end_line": 248,
+          "end_line": 251,
           "label": "workflow_records"
         },
         {
@@ -56,12 +56,18 @@
           "line": 40,
           "end_line": 43,
           "label": "choose_transcript"
+        },
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 175,
+          "end_line": 189,
+          "label": "read_source_metadata_export_many"
         }
       ]
     },
     {
       "id": "session",
-      "label": "READ/RUNTI",
+      "label": "只读访问会话",
       "type": "security",
       "sources": [
         {
@@ -175,9 +181,9 @@
       "id": "m4",
       "to": "db",
       "y": 498,
-      "label": "part ID keyset + IN 集合查所有版…",
+      "label": "批量读转录、发布及来源",
       "variant": "default",
-      "note": "part ID keyset + IN 集合查所有版本、最新 publication、所选 segments；条件：loop 每批最多 256 个 active part",
+      "note": "part ID keyset + IN 集合查询所有版本、最新 publication、所选 segments 及六个平铺来源字段；同一 DB 快照内，无逐分 P 元数据查询；条件：loop 每批最多 256 个 active part",
       "from": "projection"
     },
     {
@@ -247,9 +253,9 @@
       "id": "m12",
       "to": "checker",
       "y": 1351,
-      "label": "--status 与 --with-text",
+      "label": "JSON/CSV 追加来源字段",
       "variant": "default",
-      "note": "--status 与 --with-text；普通数据导出不等于 publication 快照；条件：else 普通 export",
+      "note": "--status 与 --with-text；CSV 将六列追加在既有列后；JSON 保留 null 与标签数组；这是当前数据库投影，不重写 bundle 冻结快照；条件：else 普通 export",
       "from": "cli"
     },
     {
@@ -382,9 +388,18 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "来源缺失与时间",
+      "items": [
+        "简介未知为 null，真实空简介为空字符串；不拿 AI 摘要替代。标签数组与采集状态分别保存。",
+        "视频详情时间是详情行最后成功写入时间，不能冒充所有字段的共同采集时间。",
+        "普通简介链接保留；通用导出仍过滤凭据、签名 URL 与媒体链接。"
       ]
     }
   ]

@@ -1,6 +1,6 @@
 # 编辑系列 CAS、导出绑定与静态消费
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互图](29-publication-series.html) · [JSON 规格](29-publication-series.json) · [时序索引](../architecture-sequences.md)
 

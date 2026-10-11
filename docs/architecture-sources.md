@@ -1,6 +1,6 @@
 # 当前源码、命令与契约覆盖
 
-固定源码 `4f073318c944add37417416155845e55247f9bc1`；2026-10-11（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 20 个顶层命令、86 条实际叶命令、203 个 Python 模块、11 份 SQL 资源、47 项稳定契约和 23 份 JSON Schema。
+固定源码 `228e4655c644aa924572429fcfd6451df3e108d5`；2026-10-11（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 20 个顶层命令、86 条实际叶命令、204 个 Python 模块、11 份 SQL 资源、50 项稳定契约和 25 份 JSON Schema。
 
 ## 全部实际命令路径
 
@@ -239,6 +239,7 @@
 | [src/bili_asr/services/metadata_refresh.py](../src/bili_asr/services/metadata_refresh.py) | src/bili_asr/services |
 | [src/bili_asr/services/migration_preflight.py](../src/bili_asr/services/migration_preflight.py) | src/bili_asr/services |
 | [src/bili_asr/services/preserved_body_import.py](../src/bili_asr/services/preserved_body_import.py) | src/bili_asr/services |
+| [src/bili_asr/services/publication_refresh.py](../src/bili_asr/services/publication_refresh.py) | src/bili_asr/services |
 | [src/bili_asr/services/publication_supervisor.py](../src/bili_asr/services/publication_supervisor.py) | src/bili_asr/services |
 | [src/bili_asr/services/reference_backup.py](../src/bili_asr/services/reference_backup.py) | src/bili_asr/services |
 | [src/bili_asr/services/remote_artifacts.py](../src/bili_asr/services/remote_artifacts.py) | src/bili_asr/services |
