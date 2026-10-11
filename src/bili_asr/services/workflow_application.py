@@ -49,8 +49,13 @@ class WorkflowApplication:
             quality_threshold=quality_threshold, editorial_config=editorial_config)
         return PlannedWorkflow(selection, profile_id, jobs)
 
-    def publish(self, part_ids: Iterable[int]) -> list[dict[str, Any]]:
+    def publish(self, part_ids: Iterable[int], *, preserve_transcript: bool = False,
+                dry_run: bool = False) -> list[dict[str, Any]]:
+        if dry_run and not preserve_transcript:
+            raise ValueError("publication dry-run requires --preserve-transcript")
         selection = resolve_workflow_selection(self.session.connection, part_ids=part_ids)
+        if preserve_transcript:
+            return self._refresh_publications(selection, dry_run=dry_run)
         selected = []
         for target in selection.targets:
             # The processing unit ID is authoritative for every platform. BVID is
@@ -64,6 +69,35 @@ class WorkflowApplication:
         with self.repository.commit_guard.transaction():
             return [self._request_publication(target.work_id, target.video_part_id, transcript_id)
                     for target, transcript_id in selected]
+
+    def _refresh_publications(self, selection: WorkflowSelection, *, dry_run: bool) -> list[dict[str, Any]]:
+        from bili_asr.services.publication_refresh import latest_publication, publication_fence
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        require_artifact_catalog(self.session.connection, required=True)
+        # One write reservation validates every selected target before queueing.
+        # Dry-run uses the caller's read-only connection and never installs extensions.
+        def prepare():
+            selected = []
+            for target in selection.targets:
+                publication = latest_publication(self.session.connection, target.video_part_id)
+                if publication is None:
+                    raise ValueError(f"no published bundle for {target.work_id}")
+                selected.append((target, publication, publication_fence(self.session.connection, publication)))
+            return selected
+        if dry_run:
+            return [{"work_id": target.work_id, "transcript_id": publication["transcript_id"],
+                     "preserve_publication": fence, "status": "planned"}
+                    for target, publication, fence in prepare()]
+        with self.repository.commit_guard.transaction():
+            results = []
+            for target, publication, fence in prepare():
+                job_id, created = self.repository.enqueue_publication(
+                    video_part_id=target.video_part_id, transcript_id=publication["transcript_id"],
+                    force=True, preserve_publication=fence)
+                results.append({"work_id": target.work_id, "transcript_id": publication["transcript_id"],
+                                "job_id": job_id, "created": int(created),
+                                "status": self.repository.explain_job(job_id)["status"]})
+            return results
 
     def _request_publication(self, work_id: str, part_id: int, transcript_id: int) -> dict[str, Any]:
         job_id, created = self.repository.enqueue_publication(
