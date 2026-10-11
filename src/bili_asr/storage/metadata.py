@@ -169,6 +169,29 @@ class MetadataRepository:
     def read_source_metadata_many(
         self, video_part_ids: Iterable[int],
     ) -> dict[int, SourceMetadataSnapshot]:
+        """Read frozen-input candidates with bounded set queries."""
+        return self._read_source_metadata_batch(video_part_ids)[0]
+
+    def read_source_metadata_export_many(
+        self, video_part_ids: Iterable[int], *, include_source_metadata: bool = True,
+    ) -> dict[int, dict[str, object]]:
+        """Read current source facts, with field-specific collection semantics.
+
+        The flat fields are export projections, not additions to the frozen
+        source-metadata-v1 codec. In particular details collection time does
+        not claim that uploader names or retained tags were observed then.
+        """
+        snapshots, fields = self._read_source_metadata_batch(
+            video_part_ids, include_source_metadata=include_source_metadata, include_export_facts=True,
+        )
+        return {part_id: {**values, **({"sourceMetadata": snapshots[part_id].to_dict()}
+                                     if include_source_metadata else {})}
+                for part_id, values in fields.items()}
+
+    def _read_source_metadata_batch(
+        self, video_part_ids: Iterable[int], *, include_source_metadata: bool = True,
+        include_export_facts: bool = False,
+    ) -> tuple[dict[int, SourceMetadataSnapshot], dict[int, dict[str, object]]]:
         """Read at most 256 parts with set queries and no archive mutation.
 
         The caller owns any encompassing read snapshot. Bilibili tags and
@@ -187,7 +210,7 @@ class MetadataRepository:
                 seen.add(part_id)
                 part_ids.append(part_id)
         if not part_ids:
-            return {}
+            return {}, {}
         marks = ",".join("?" for _ in part_ids)
         if self.observations_supported():
             query = f"""SELECT s.video_part_id,s.platform,s.external_video_id,s.page_index,
@@ -199,7 +222,7 @@ class MetadataRepository:
                              ELSE s.creator_name END AS creator_name,
                         CASE WHEN s.platform='bilibili' THEN v.pubdate ELSE s.pubdate END AS pubdate,
                         CASE WHEN s.platform='bilibili' THEN v.updated_at ELSE s.observed_at END AS observed_at,
-                        d.pic,d."desc",d.tid,v.aid
+                        d.pic,d."desc",d.tid,v.aid,v.mid,d.observed_at AS details_observed_at
                  FROM v_source_parts s
                  LEFT JOIN videos v ON s.platform='bilibili' AND v.bvid=s.external_video_id
                  LEFT JOIN bilibili_users u ON u.mid=v.mid
@@ -209,7 +232,8 @@ class MetadataRepository:
             query = f"""SELECT p.video_part_id,'bilibili' AS platform,
                         p.bvid AS external_video_id,p.page_index,p.title AS part_title,p.duration_ms,
                         v.title,CAST(v.mid AS TEXT) AS creator_id,u.display_name AS creator_name,
-                        v.pubdate,v.updated_at AS observed_at,d.pic,d."desc",d.tid,v.aid
+                        v.pubdate,v.updated_at AS observed_at,d.pic,d."desc",d.tid,v.aid,
+                        v.mid,d.observed_at AS details_observed_at
                  FROM video_parts p JOIN videos v ON v.bvid=p.bvid
                  JOIN bilibili_users u ON u.mid=v.mid
                  LEFT JOIN video_details d ON d.bvid=v.bvid
@@ -219,6 +243,7 @@ class MetadataRepository:
             raise ValueError("source metadata part is not archived")
         bvids = tuple(dict.fromkeys(row["external_video_id"] for row in rows if row["platform"] == "bilibili"))
         tags: dict[str, list[str]] = {}
+        tag_states: dict[str, str] = {}
         if bvids:
             tag_marks = ",".join("?" for _ in bvids)
             for tag in self.connection.execute(
@@ -227,6 +252,15 @@ class MetadataRepository:
                 values = tags.setdefault(tag["bvid"], [])
                 if tag["tag_name"] not in values:
                     values.append(tag["tag_name"])
+            # Old runtime databases may predate observation storage. Missing
+            # evidence means unknown even when retained tag values exist.
+            has_tag_observations = include_export_facts and self.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='video_tag_observations'"
+            ).fetchone() is not None
+            if has_tag_observations:
+                tag_states = {row["bvid"]: row["state"] for row in self.connection.execute(
+                    f"SELECT bvid,state FROM video_tag_observations WHERE bvid IN ({tag_marks})", bvids,
+                )}
         snapshots = {
             int(row["video_part_id"]): SourceMetadataSnapshot(
                 ContentRef(row["platform"], row["external_video_id"], row["page_index"]),
@@ -234,8 +268,21 @@ class MetadataRepository:
                 row["desc"], row["pic"], row["tid"], tuple(tags.get(row["external_video_id"], ()))
                 if row["platform"] == "bilibili" else (), row["aid"], row["part_title"], row["duration_ms"],
             ) for row in rows
+        } if include_source_metadata else {}
+        fields = {
+            int(row["video_part_id"]): {
+                "video_description": row["desc"],
+                "uploader_mid": row["mid"] if row["platform"] == "bilibili" else None,
+                "uploader_name": row["creator_name"],
+                "video_tags": list(tags.get(row["external_video_id"], ()))
+                    if row["platform"] == "bilibili" else [],
+                "video_tags_state": tag_states.get(row["external_video_id"])
+                    if row["platform"] == "bilibili" else None,
+                "video_details_observed_at": row["details_observed_at"],
+            } for row in rows
         }
-        return {part_id: snapshots[part_id] for part_id in part_ids}
+        return ({part_id: snapshots[part_id] for part_id in part_ids}
+                if include_source_metadata else {}), fields
 
     def upsert_part(self, part: VideoPartRecord) -> int:
         """Insert or update a normalized part and return its local ID.

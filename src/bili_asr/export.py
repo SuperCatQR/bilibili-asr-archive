@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 from .artifact_root import ArtifactRoots
 from bili_asr.search_index.readers import extract_transcript_text
@@ -36,6 +37,13 @@ STANDARD_CSV_COLUMNS: tuple[str, ...] = (
     "md_path",
     "raw_path",
     "audio_path",
+)
+
+# Append these after all previously exported columns, including optional text
+# and custom columns. The positions of those established columns stay stable.
+SOURCE_METADATA_CSV_COLUMNS: tuple[str, ...] = (
+    "video_description", "uploader_mid", "uploader_name", "video_tags",
+    "video_tags_state", "video_details_observed_at",
 )
 
 SENSITIVE_EXPORT_KEYS: frozenset[str] = frozenset(
@@ -110,6 +118,46 @@ def _redact_sensitive_text(text: str) -> str:
     return redacted
 
 
+_DESCRIPTION_URL = re.compile(r"(?i)https?://[^\s\"\'<>]+")
+_SENSITIVE_URL_PARAMS = frozenset({
+    "sessdata", "access_token", "token", "authorization", "auth", "cookie",
+    "signature", "sign", "deadline", "secret", "password", "expires",
+    "x-amz-signature", "x-amz-credential", "x-amz-security-token",
+    "x-goog-signature", "x-goog-credential", "key-pair-id", "wssecret", "w_rid",
+})
+_DESCRIPTION_CREDENTIALS = re.compile(
+    r"(?i)(?<![\w])(?:sessdata|access[_-]?token|authorization|cookie|token|signature|sign|deadline|secret|password)"
+    r"\s*(?:=|:)\s*[^\s,;]+"
+)
+
+
+def _redact_description(text: str) -> str:
+    """Preserve source prose and ordinary links while filtering credentials.
+
+    This exception belongs to description fields only. URL-valued fields and
+    other export strings retain their existing stricter policy.
+    """
+    def redact_url(match: re.Match[str]) -> str:
+        value = match.group(0)
+        try:
+            parsed = urlsplit(value)
+            host = (parsed.hostname or "").lower()
+            keys = {key.lower().replace("-", "_") for key, _ in parse_qsl(parsed.query)}
+            sensitive_keys = {key.replace("-", "_") for key in _SENSITIVE_URL_PARAMS}
+            if (parsed.username is not None or parsed.password is not None
+                    or keys & sensitive_keys
+                    or host == "bilivideo.com" or host.endswith(".bilivideo.com")):
+                return "[redacted]"
+        except ValueError:
+            return "[redacted]"
+        return value
+
+    redacted = _DESCRIPTION_URL.sub(redact_url, text)
+    for pattern in (_DESCRIPTION_CREDENTIALS, _SENSITIVE_PATTERNS[2]):
+        redacted = pattern.sub("[redacted]", redacted)
+    return redacted
+
+
 def _safe_contained_relpath(
     root: str | os.PathLike[str] | None,
     path_val: Any,
@@ -164,6 +212,7 @@ def _contained_relpath_over_bases(
 def _sanitize_value(
     val: Any,
     archive_root: str | os.PathLike[str] | None = None,
+    *, field_name: str | None = None,
 ) -> Any:
     """Recursively sanitize nested dictionaries, lists, and string values."""
     if isinstance(val, dict):
@@ -171,11 +220,14 @@ def _sanitize_value(
         for k, v in sorted(val.items(), key=lambda item: str(item[0])):
             if _is_sensitive_key(str(k)):
                 continue
-            sanitized_dict[str(k)] = _sanitize_value(v, archive_root=archive_root)
+            child_name = "video_description" if field_name == "sourceMetadata" and k == "description" else str(k)
+            sanitized_dict[str(k)] = _sanitize_value(v, archive_root=archive_root, field_name=child_name)
         return sanitized_dict
     elif isinstance(val, list):
         return [_sanitize_value(item, archive_root=archive_root) for item in val]
     elif isinstance(val, str):
+        if field_name == "video_description":
+            return _redact_description(val)
         if val.startswith(("http://", "https://")):
             return "[redacted]"
         return _redact_sensitive_text(val)
@@ -231,7 +283,7 @@ def sanitize_export_entry(
                 raw_sanitized[key_str] = safe_rel
             continue
 
-        raw_sanitized[key_str] = _sanitize_value(value, archive_root=archive_root)
+        raw_sanitized[key_str] = _sanitize_value(value, archive_root=archive_root, field_name=key_str)
 
     if with_text:
         if "transcript_text" not in raw_sanitized:
@@ -263,7 +315,10 @@ def sanitize_export_entry(
     if with_text and "transcript_text" in raw_sanitized:
         ordered["transcript_text"] = raw_sanitized["transcript_text"]
     for k in sorted(raw_sanitized.keys()):
-        if k not in ordered:
+        if k not in ordered and k not in SOURCE_METADATA_CSV_COLUMNS:
+            ordered[k] = raw_sanitized[k]
+    for k in SOURCE_METADATA_CSV_COLUMNS:
+        if k in raw_sanitized:
             ordered[k] = raw_sanitized[k]
 
     return ordered
@@ -360,8 +415,10 @@ def format_csv_export(
         fieldnames.append("transcript_text")
 
     # Add remaining custom columns deterministically
-    extra_keys = sorted(k for k in seen_keys if k not in fieldnames and k != "transcript_text")
+    extra_keys = sorted(k for k in seen_keys if k not in fieldnames
+                        and k != "transcript_text" and k not in SOURCE_METADATA_CSV_COLUMNS)
     fieldnames.extend(extra_keys)
+    fieldnames.extend(SOURCE_METADATA_CSV_COLUMNS)
 
     # Ensure fieldnames has standard columns if rows is empty
     if not fieldnames:
