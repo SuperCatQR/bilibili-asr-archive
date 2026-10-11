@@ -234,6 +234,50 @@ def test_shard_gate_blocks_before_any_test_execution(monkeypatch, capsys):
     assert "was not collected" in capsys.readouterr().err
 
 
+def test_shard_node_file_preserves_parameterized_ids_with_spaces():
+    node_ids = [
+        "tests/test_example.py::test_case[title with spaces]",
+        "tests/test_example.py::test_case[\u4e2d\u6587]",
+    ]
+    path = pytest_shard._write_node_ids(node_ids)
+    try:
+        assert path.read_text(encoding="utf-8").splitlines() == node_ids
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_shard_main_passes_node_file_and_cleans_it_up(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.chdir(ROOT)
+    monkeypatch.delenv("BILI_ASR_CONTRACT_BASELINE_REF", raising=False)
+    node_ids = [
+        "tests/test_example.py::test_case[title with spaces]",
+        "tests/test_example.py::test_case[\u4e2d\u6587]",
+    ]
+    monkeypatch.setattr(pytest_shard, "_node_ids", lambda: node_ids)
+    monkeypatch.setattr(
+        "bili_asr.contracts.release_gate.validate_release_collection",
+        lambda *args, **kwargs: {
+            "registered_edges": 0,
+            "frozen_files": 0,
+            "baseline_count": 0,
+        },
+    )
+    captured = {}
+
+    def run(command, **kwargs):
+        node_file = Path(command[-1][1:])
+        captured["path"] = node_file
+        captured["ids"] = node_file.read_text(encoding="utf-8").splitlines()
+        return SimpleNamespace(returncode=7)
+
+    monkeypatch.setattr(pytest_shard.subprocess, "run", run)
+    assert pytest_shard.main(["--shard-index", "0", "--shard-count", "1"]) == 7
+    assert captured["ids"] == node_ids
+    assert not captured["path"].exists()
+
+
 def test_git_baseline_is_exact_readonly_and_required(monkeypatch):
     from types import SimpleNamespace
     calls = []
