@@ -52,8 +52,8 @@ bili-asr publication series edit --input revised.json --out series-editorial.jso
 
 三个命令仅访问明确指定的 JSON 文件，不打开、初始化或迁移归档数据库。命令始终输出 JSON。
 `edit` 处理完整替换，规范化后用 `--actor` 更新 `updatedBy`，在独占锁中核对原文件字节 SHA-256，
-临时文件写入并 fsync 后原子替换。不存在的文件只接受 `new`，现有无效文件和版本冲突拒绝。
-失败时原文件保留。`.文件名.export.lock` 是持久锁标记，不能当作编辑内容公开或随意删除。
+临时文件写入并 fsync 后原子替换，在释放锁和报告成功前同步父目录（POSIX 执行目录 fsync，Windows 沿用现有平台约定）。不存在的文件只接受 `new`，现有无效文件和版本冲突拒绝。
+替换前失败时原文件保留；替换后目录同步失败则命令报错，但新文件可能已可见，重试前应重新读取当前 SHA-256。`.文件名.export.lock` 是持久锁标记，不能当作编辑内容公开或随意删除。
 对链接或 reparse-point 路径拒绝写入。
 
 ## 可选公开快照成员

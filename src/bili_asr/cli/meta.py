@@ -111,7 +111,7 @@ def _cmd_refresh_meta(args) -> int:
     from bili_asr.request_budget import RequestScheduler
     from bili_asr.services.metadata_refresh import MetadataRefreshService
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
-    from bili_asr.storage import MetadataRepository
+    from bili_asr.storage import MetadataRepository, SchemaContractError
     if getattr(args, "operation_retries", 0) != 0:
         write_stderr("fetch-meta: --operation-retries applies only to paginated collection")
         return 1
@@ -136,6 +136,9 @@ def _cmd_refresh_meta(args) -> int:
                 outcomes.extend(service.refresh(args.bvid, operations=args.fields or ("summary", "details", "parts", "tags"), policy=policy))
         finally:
             connection.close()
+    except SchemaContractError as error:
+        write_stderr(f"fetch-meta: {error}")
+        return 1
     except (ValueError, OSError, sqlite3.Error) as error:
         write_stderr(f"fetch-meta: invalid refresh ({type(error).__name__})")
         return 1

@@ -60,6 +60,8 @@ class _Totals:
         self.outcomes = Counter()
         self.jobs = {}
         self.audio = {}
+        self.audio_attempts = Counter()
+        self.conflicting_audio = set()
         self.latencies = []
         self.retry_attempts = 0
         self.attempt_wall_s = 0.0
@@ -97,10 +99,16 @@ class _Totals:
         duration_ms = _number(audio.get("duration_ms"))
         digest = audio.get("sha256")
         if duration_ms is not None and duration_ms > 0 and isinstance(digest, str) and _SHA256.fullmatch(digest):
+            self.audio_attempts[digest] += 1
             held = self.audio.get(digest)
             if held is not None and held != duration_ms / 1000:
-                raise ValueError("conflicting durations for one audio identity")
-            self.audio[digest] = duration_ms / 1000
+                self.conflicting_audio.add(digest)
+            # A conflict invalidates the identity permanently for this window;
+            # a third matching observation cannot restore its earlier credit.
+            if digest not in self.conflicting_audio:
+                self.audio[digest] = duration_ms / 1000
+            else:
+                self.audio.pop(digest, None)
         else:
             self.unknown_success_audio += 1
         passes = _mapping(evidence.get("diagnostics")).get("passes")
@@ -127,11 +135,16 @@ class _Totals:
                 # v1's last reason cannot reconstruct per-chunk counts.
                 self.legacy_prefetch_passes += 1
 
-    def report(self, window_s: int) -> dict:
+    def report(self, window_s: int, conflicting_audio: set[str]) -> dict:
         terminal = sum(self.outcomes[k] for k in ("succeeded", "failed", "cancelled"))
         jobs = Counter(self.jobs.values())
         terminal_jobs = sum(jobs[k] for k in ("succeeded", "failed", "cancelled"))
-        audio_s = sum(self.audio.values())
+        conflicts = conflicting_audio.intersection(self.audio_attempts)
+        known_audio = {digest: duration for digest, duration in self.audio.items()
+                       if digest not in conflicting_audio}
+        audio_s = math.fsum(known_audio[digest] for digest in sorted(known_audio))
+        conflicting_attempts = sum(self.audio_attempts[digest] for digest in conflicts)
+        unknown_audio = self.unknown_success_audio + conflicting_attempts
         return {
             "attempt_outcomes": {k: self.outcomes[k] for k in ("running", "succeeded", "failed", "cancelled")},
             "terminal_attempt_success_rate": self.outcomes["succeeded"] / terminal if terminal else None,
@@ -142,11 +155,13 @@ class _Totals:
             "failure_cancelled_attempt_wall_s": self.failure_wall_s,
             "retry_attempt_wall_s": self.retry_wall_s,
             "unique_success_audio_s": audio_s,
-            "known_unique_audio_count": len(self.audio),
-            "audio_s_per_wall_s": audio_s / window_s if self.unknown_success_audio == 0 else None,
+            "known_unique_audio_count": len(known_audio),
+            "audio_s_per_wall_s": audio_s / window_s if unknown_audio == 0 else None,
             "known_audio_s_per_wall_s_lower_bound": audio_s / window_s,
-            "audio_credit_complete": self.unknown_success_audio == 0,
-            "unknown_success_audio_attempts": self.unknown_success_audio,
+            "audio_credit_complete": unknown_audio == 0,
+            "unknown_success_audio_attempts": unknown_audio,
+            "conflicting_audio_identity_count": len(conflicts),
+            "conflicting_success_audio_attempts": conflicting_attempts,
             "excluded_boundary_success_attempts": self.boundary_successes,
             "successful_attempt_latency_s": {"samples": len(self.latencies),
                 "p50": _percentile(self.latencies, 0.5), "p95": _percentile(self.latencies, 0.95)},
@@ -205,6 +220,8 @@ def _read_report(connection, start: int, end: int, max_attempts: int) -> dict:
                    "clock": "stored_utc_epoch", "timestamp_resolution_s": 1, "interval": "[start,end)"},
         "accounting": {
             "audio_credit": "successful_attempt_fully_inside_window_unique_audio_sha256",
+            "audio_conflicts": "duration_conflicts_in_report_window_invalidate_identity_in_totals_and_all_groups",
+            "group_audio_credit": "unique_within_group; identities_shared_by_groups_are_not_additive; conflicts_use_report_window_domain",
             "attempt_cost": "all_overlapping_attempts_clipped_to_window_sum_not_throughput_denominator",
             "scope": "workflow_asr_attempts; standalone_acquisition_runs_are_counts_only",
             "latency": "successful_fully_contained_attempts_seconds_resolution",
@@ -217,9 +234,9 @@ def _read_report(connection, start: int, end: int, max_attempts: int) -> dict:
             "effective_policy": "unknown_unless_explicitly_recorded; unknown_groups_are_not_configuration_rankings",
             "max_attempts": max_attempts,
         },
-        "totals": totals.report(end - start),
+        "totals": totals.report(end - start, totals.conflicting_audio),
         "groups": [{"profile_sha256": key[0], "runtime_binding_sha256": key[1],
-                    "effective_policy_sha256": key[2], **value.report(end - start)}
+                    "effective_policy_sha256": key[2], **value.report(end - start, totals.conflicting_audio)}
                    for key, value in sorted(groups.items())],
         "acquisition_run_outcomes": acquisition_counts(connection, start, end),
     }

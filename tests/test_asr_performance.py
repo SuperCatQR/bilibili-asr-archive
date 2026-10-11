@@ -109,6 +109,110 @@ def test_missing_success_audio_is_unknown_not_zero_throughput(tmp_path):
     assert totals["unknown_success_audio_attempts"] == 1
 
 
+def _add_success(connection, name, digest, duration_ms, *, model="m"):
+    part = connection.execute("SELECT COUNT(*) FROM workflow_jobs").fetchone()[0] + 1
+    connection.execute("INSERT INTO workflow_jobs VALUES (?, 'asr', 1, ?, 'succeeded')", (name, part))
+    evidence = {"schema_version": 1, "audio": {"sha256": digest, "duration_ms": duration_ms},
+                "runtime_binding": {"model": model}, "diagnostics": {"passes": [{}]}}
+    connection.execute("INSERT INTO transcript_asr_evidence VALUES (?, ?, ?, ?)",
+                       (name, part, part, json.dumps(evidence)))
+    connection.execute("INSERT INTO workflow_attempts VALUES (?, ?, 102, 114, 'succeeded', ?)",
+                       (name, name, json.dumps({"run_id": name})))
+
+
+@pytest.mark.parametrize("duration_ms, expected_audio_s, expected_unknown", [(10000, 10, 0), (20000, 0, 2)])
+def test_repeated_audio_identity_keeps_only_consistent_duration_credit(
+        tmp_path, duration_ms, expected_audio_s, expected_unknown):
+    connection = _database(tmp_path)
+    _add_success(connection, "repeat", "b" * 64, duration_ms)
+    totals = asr_performance_report(connection, start=100, end=120)["totals"]
+    assert totals["unique_success_audio_s"] == expected_audio_s
+    assert totals["known_unique_audio_count"] == int(expected_unknown == 0)
+    assert totals["unknown_success_audio_attempts"] == expected_unknown
+    assert totals["conflicting_success_audio_attempts"] == expected_unknown
+    assert totals["conflicting_audio_identity_count"] == int(expected_unknown > 0)
+    assert totals["audio_credit_complete"] is (expected_unknown == 0)
+    assert totals["audio_s_per_wall_s"] == (0.5 if expected_unknown == 0 else None)
+
+
+@pytest.mark.parametrize("third_duration", [10000, 20000, 30000])
+def test_duration_conflicts_invalidate_all_attempts_and_groups_order_independently(
+        tmp_path, monkeypatch, third_duration):
+    import bili_asr.services.asr_performance as service
+    connection = _database(tmp_path)
+    _add_success(connection, "conflict", "b" * 64, 20000, model="other")
+    _add_success(connection, "third", "b" * 64, third_duration)
+    _add_success(connection, "reliable", "c" * 64, 30000, model="reliable")
+    _add_success(connection, "duplicate", "c" * 64, 30000, model="other")
+    rows = performance_attempts(connection, 100, 120, 100)
+    reports = []
+    for ordered in (rows, list(reversed(rows)), rows[2:] + rows[:2]):
+        monkeypatch.setattr(service, "performance_attempts", lambda *args: ordered)
+        reports.append(service.asr_performance_report(connection, start=100, end=120))
+    assert reports[0] == reports[1] == reports[2]
+    report = reports[0]
+    totals = report["totals"]
+    assert totals["unique_success_audio_s"] == 30
+    assert totals["known_unique_audio_count"] == 1
+    assert totals["conflicting_audio_identity_count"] == 1
+    assert totals["conflicting_success_audio_attempts"] == 3
+    assert totals["unknown_success_audio_attempts"] == 3
+    assert totals["audio_credit_complete"] is False
+    assert totals["audio_s_per_wall_s"] is None
+    assert totals["known_audio_s_per_wall_s_lower_bound"] == 1.5
+    assert totals["attempt_outcomes"]["succeeded"] == 5
+    assert totals["overlapping_attempt_wall_s"] == 59
+    assert totals["successful_attempt_latency_s"]["samples"] == 5
+    assert totals["pass_counts"] == {"single": 5, "multiple": 0, "unknown": 0}
+    affected = [group for group in report["groups"] if group["conflicting_audio_identity_count"]]
+    assert sorted(group["unknown_success_audio_attempts"] for group in affected) == [1, 2]
+    assert all(group["audio_s_per_wall_s"] is None for group in affected)
+    reliable = [group for group in report["groups"] if group["audio_credit_complete"]]
+    assert len(reliable) == 1
+    assert reliable[0]["audio_s_per_wall_s"] == 1.5
+    # Groups deduplicate within each configuration; they are explicitly nonadditive.
+    assert sum(group["unique_success_audio_s"] for group in report["groups"]) == 60
+    assert "not_additive" in report["accounting"]["group_audio_credit"]
+
+
+def test_conflict_domain_excludes_boundary_attempts_and_combines_missing_audio(tmp_path):
+    connection = _database(tmp_path)
+    _add_success(connection, "boundary", "b" * 64, 20000)
+    connection.execute("UPDATE workflow_attempts SET started_at=90 WHERE attempt_id='boundary'")
+    _add_success(connection, "missing", "d" * 64, None)
+    totals = asr_performance_report(connection, start=100, end=120)["totals"]
+    assert totals["unique_success_audio_s"] == 10
+    assert totals["conflicting_audio_identity_count"] == 0
+    assert totals["excluded_boundary_success_attempts"] == 1
+    assert totals["unknown_success_audio_attempts"] == 1
+    assert totals["audio_credit_complete"] is False
+
+
+def test_cli_emits_valid_incomplete_report_for_conflicting_projected_evidence(
+        tmp_path, monkeypatch, capsys):
+    import bili_asr.services.asr_performance as service
+    from bili_asr.cli import main
+    from bili_asr.storage import open_database
+    connection = _database(tmp_path)
+    _add_success(connection, "conflict", "b" * 64, 20000, model="other")
+    _add_success(connection, "third", "b" * 64, 10000)
+    _add_success(connection, "reliable", "c" * 64, 30000)
+    rows = performance_attempts(connection, 100, 120, 100)
+    connection.close()
+    root = tmp_path / "archive"
+    open_database(root).close()
+    monkeypatch.setattr(service, "performance_attempts", lambda *args: rows)
+    before = {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()}
+    assert main(["workflow", "asr-performance", "--archive-root", str(root),
+                 "--start", "100", "--end", "120"]) == 0
+    totals = json.loads(capsys.readouterr().out)["totals"]
+    assert totals["audio_credit_complete"] is False
+    assert totals["audio_s_per_wall_s"] is None
+    assert totals["unique_success_audio_s"] == 30
+    assert totals["conflicting_success_audio_attempts"] == 3
+    assert {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()} == before
+
+
 def test_job_success_rate_counts_a_retry_chain_once_and_keeps_queued_nonterminal(tmp_path):
     connection = _database(tmp_path)
     connection.execute("INSERT INTO workflow_attempts VALUES ('prior', 'j1', 100, 101, 'failed', '{}')")
