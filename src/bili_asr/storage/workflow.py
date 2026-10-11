@@ -667,13 +667,17 @@ class WorkflowRepository:
         with (self.owned_transaction(source_job) if source_job is not None else self._write_transaction()):
             return self.enqueue_publication(video_part_id=video_part_id, transcript_id=transcript_id, force=force)
 
-    def enqueue_publication(self, *, video_part_id: int, transcript_id: int, force: bool = False) -> tuple[str, bool]:
+    def enqueue_publication(self, *, video_part_id: int, transcript_id: int, force: bool = False,
+                            preserve_publication: Mapping[str, Any] | None = None) -> tuple[str, bool]:
         """Persist a request inside the application's existing write transaction."""
         if not self.connection.in_transaction:
             raise RuntimeError("publication enqueue requires a write transaction")
         self.require_cancellation_contract()
         now = _now()
         payload = {"schema_version": 1, "transcript_id": int(transcript_id), "video_part_id": int(video_part_id)}
+        if preserve_publication is not None:
+            payload.update(preserve_publication=dict(preserve_publication),
+                           publication_request_id=str(uuid4()))
         validate_payload(JobKind.PUBLISH, payload, part_id=video_part_id)
         dedupe_key = f"publish:{video_part_id}"
         row = self.connection.execute(
@@ -690,10 +694,12 @@ class WorkflowRepository:
                 dedupe_key=dedupe_key,
             )
             return job_id, created
+        if preserve_publication is not None and row["status"] == "running":
+            raise ValueError("publication refresh requires an idle publication job; wait for the current attempt and plan again")
         previous = json.loads(str(row["payload_json"]))
         if row["status"] == "cancelled":
             return str(row["job_id"]), False
-        if force or int(previous.get("transcript_id", -1)) != transcript_id:
+        if force or int(previous.get("transcript_id", -1)) != transcript_id or preserve_publication is not None:
             if row["status"] == "running":
                 # Keep the current lease intact.  _terminal sees the newer
                 # request and returns this part to the queue once this
@@ -846,8 +852,10 @@ class WorkflowRepository:
                 outcome == "succeeded"
                 and job["kind"] == JobKind.PUBLISH.value
                 and result is not None
-                and int(current_payload.get("transcript_id", -1))
-                != int(result.get("requested_transcript_id", -1))
+                and (int(current_payload.get("transcript_id", -1))
+                     != int(result.get("requested_transcript_id", -1))
+                     or current_payload.get("publication_request_id")
+                     != result.get("publication_request_id"))
             )
             new_status = "queued" if retry_at is not None or request_changed_while_running else outcome
             self.connection.execute(

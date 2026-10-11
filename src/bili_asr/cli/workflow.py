@@ -164,6 +164,10 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     publish = actions.add_parser("publish", help="Rebuild archive bundles from the preferred stored transcript")
     publish.add_argument("--archive-root", default=archive_root)
     publish.add_argument("--part-id", type=int, action="append", required=True)
+    publish.add_argument("--artifact-root", default=None)
+    publish.add_argument("--preserve-transcript", action="store_true",
+                         help="Refresh metadata on the latest published transcript; preserve its old bundle via the artifact catalog")
+    publish.add_argument("--dry-run", action="store_true", help="Inspect refresh targets without enqueueing jobs")
     status.add_argument("--details", action="store_true", help="Explain each job and its unsatisfied dependencies")
     explain = actions.add_parser("explain", help="Inspect a job, its dependency blockers and latest attempt")
     explain.set_defaults(database_policy=ArchiveAccessMode.READ)
@@ -252,11 +256,12 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         supervisor.run()
         return 0
     artifact_roots = None
-    if args.workflow_action in {"run", "render"}:
+    if args.workflow_action in {"run", "render", "publish"}:
         artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
                                    require_writable=args.workflow_action == "run")
     readonly = args.workflow_action in {"status", "explain", "asr-evidence", "asr-performance"} or (
-        args.workflow_action == "repair-dependencies" and not args.apply)
+        args.workflow_action == "repair-dependencies" and not args.apply) or (
+        args.workflow_action == "publish" and args.dry_run)
     mode = ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE
     session = ArchiveSession(args.archive_root, mode=mode, artifact_roots=artifact_roots).open()
     connection = session.connection
@@ -308,7 +313,8 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                       f"status={item.status} changed={int(item.changed)}")
             return 0
         if args.workflow_action == "publish":
-            for item in application.publish(args.part_id):
+            for item in application.publish(args.part_id, preserve_transcript=args.preserve_transcript,
+                                            dry_run=args.dry_run):
                 print("workflow publish: " + " ".join(f"{name}={value}" for name, value in item.items()))
             return 0
         if args.workflow_action == "explain":

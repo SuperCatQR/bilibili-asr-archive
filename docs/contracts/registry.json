@@ -791,6 +791,65 @@
       "schema": "publication-origins-v1.schema.json"
     },
     {
+      "identity": "universal-origin-v2",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/schemas/publication-origins-v2.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "universal-origin-v1",
+        "legacy-description-supplement-v1"
+      ],
+      "schema": "publication-origins-v2.schema.json"
+    },
+    {
+      "identity": "publication-origin-manifest/v3",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/schemas/publication-origin-manifest-v3.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "universal-origin-v2"
+      ],
+      "schema": "publication-origin-manifest-v3.schema.json"
+    },
+    {
+      "identity": "legacy-description-supplement-v1",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/source_supplements.py",
+        "src/bili_asr/contracts/content_policies.py"
+      ],
+      "consumers": [
+        "storage.source_supplements",
+        "publication_origins"
+      ],
+      "capabilities": [
+        "content-upgrade",
+        "export"
+      ],
+      "dependencies": [
+        "legacy-part-title-supplement-v1"
+      ],
+      "schema": null
+    },
+    {
       "identity": "editorial-export-manifest/v1",
       "owner": "publication",
       "authority": [
@@ -1296,6 +1355,90 @@
       "consumer_profile": "universal-origin-v1",
       "converter": "services.source_supplement",
       "sample": "tests/test_source_supplement.py"
+    },
+    {
+      "identity": "legacy-description-supplement-v1",
+      "source_content": [
+        "publication-content/v2",
+        "legacy-frozen-facts-v1"
+      ],
+      "target_content": "publication-content/v2",
+      "body_rule": "parent-body-utf8-identical",
+      "review_status": "pending-review",
+      "release_rule": "preserve-current-release",
+      "field_kinds": [
+        [
+          "aid",
+          "unobserved"
+        ],
+        [
+          "categoryId",
+          "unobserved"
+        ],
+        [
+          "coverUrl",
+          "unobserved"
+        ],
+        [
+          "creatorId",
+          "unobserved"
+        ],
+        [
+          "creatorName",
+          "unobserved"
+        ],
+        [
+          "description",
+          "archive-video-details-projection"
+        ],
+        [
+          "durationMs",
+          "unobserved"
+        ],
+        [
+          "externalVideoId",
+          "legacy-input"
+        ],
+        [
+          "metadataObservedAt",
+          "unobserved"
+        ],
+        [
+          "partIndex",
+          "legacy-input"
+        ],
+        [
+          "partTitle",
+          "unobserved"
+        ],
+        [
+          "platform",
+          "legacy-input"
+        ],
+        [
+          "pubdateUnix",
+          "unobserved"
+        ],
+        [
+          "sourcePublishedAt",
+          "unobserved"
+        ],
+        [
+          "tags",
+          "unobserved"
+        ],
+        [
+          "title",
+          "legacy-input"
+        ],
+        [
+          "version",
+          "legacy-input"
+        ]
+      ],
+      "consumer_profile": "universal-origin-v2",
+      "converter": "services.source_supplement",
+      "sample": "tests/test_description_supplement.py"
     }
   ],
   "release_acceptance": {

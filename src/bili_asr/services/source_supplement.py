@@ -1,4 +1,4 @@
-"""Plan and atomically supplement collected part titles without new inference."""
+"""Plan and atomically supplement one collected source field without inference."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.publication_content import normalize_actor
-from bili_asr.source_supplements import POLICY
+from bili_asr.source_supplements import DESCRIPTION_POLICY, POLICY
 from bili_asr.storage.archive_contracts import require_universal_contract
 from bili_asr.storage.import_origins import import_origin, require_import_extension
 from bili_asr.storage.publication import (
@@ -18,7 +18,7 @@ from bili_asr.storage.publication import (
     read_edition,
 )
 from bili_asr.storage.source_supplements import (
-    capture_part_title,
+    capture_field,
     edition_supplement,
     require_supplement_extension,
 )
@@ -45,19 +45,22 @@ def check_source_supplement(connection, *, edition_id: str, artifact_roots) -> d
     if link is None:
         raise ValueError("source-supplement: edition has no supplemental evidence")
     evidence = stored_supplement(connection, link, edition["content"]["source"]["metadata"], edition["video_part_id"])
-    return {**checked, "supplementId": evidence["supplementId"], "partTitle": evidence["evidence"]["value"],
+    field = evidence["evidence"]["field"]
+    return {**checked, "supplementId": evidence["supplementId"], field: evidence["evidence"]["value"],
             "observedAt": evidence["evidence"]["observedAt"]}
 
 
-def plan_source_supplement(connection, *, edition_ids: list[str], artifact_roots) -> dict:
+def plan_source_supplement(connection, *, edition_ids: list[str], artifact_roots, field: str = "partTitle") -> dict:
     from bili_asr.services.preserved_body_import import check_preserved_body_import
     require_universal_contract(connection)
+    if field not in {"partTitle", "description"}:
+        raise ValueError("source-supplement: unsupported field")
     if (not isinstance(edition_ids, list) or not 1 <= len(edition_ids) <= MAX_BATCH
             or any(not isinstance(identity, str) or re.fullmatch(r"[0-9a-f]{32}", identity) is None for identity in edition_ids)
             or len(set(edition_ids)) != len(edition_ids)):
         raise ValueError("source-supplement: select 1..100 unique edition IDs")
     entries, skipped, blocked, seen = [], [], [], set()
-    stats = {"field": "partTitle", "selected": len(edition_ids), "knownBefore": 0,
+    stats = {"field": field, "selected": len(edition_ids), "knownBefore": 0,
              "unknownBefore": 0, "eligible": 0, "excludedNative": 0}
     owned = not connection.in_transaction
     if owned:
@@ -76,20 +79,22 @@ def plan_source_supplement(connection, *, edition_ids: list[str], artifact_roots
                     skipped.append({"editionId": identity, "reason": "not-preserved-legacy"})
                     continue
                 metadata = edition["content"]["source"]["metadata"]
-                if metadata["partTitle"] is not None:
+                if metadata[field] is not None:
                     stats["knownBefore"] += 1
                     skipped.append({"editionId": identity, "reason": "already-known"})
                     continue
                 stats["unknownBefore"] += 1
+                if edition_supplement(connection, identity) is not None:
+                    raise ValueError("source-supplement: existing supplement evidence must be retained; multiple-field supplementation is unsupported")
                 check_preserved_body_import(connection, edition_id=identity, artifact_roots=artifact_roots)
-                evidence = capture_part_title(connection, edition)
+                evidence = capture_field(connection, edition, field)
                 entries.append({"editionId": identity, "videoPartId": edition["video_part_id"],
                     "expectedContentSha256": edition["content_sha256"],
                     "expectedReleaseId": edition["current_release_id"], "supplement": evidence})
                 stats["eligible"] += 1
             except (ValueError, OSError) as error:
                 blocked.append({"editionId": identity, "reason": str(error)})
-        plan = {"schemaVersion": 1, "policyVersion": POLICY, "entries": entries,
+        plan = {"schemaVersion": 1, "policyVersion": DESCRIPTION_POLICY if field == "description" else POLICY, "entries": entries,
                 "skipped": skipped, "blocked": blocked, "fieldStats": stats}
         return {**plan, "planDigest": digest(plan)}
     finally:
@@ -101,7 +106,8 @@ def _validate_plan(plan: dict) -> None:
     fields = {"schemaVersion", "policyVersion", "entries", "skipped", "blocked", "fieldStats", "planDigest"}
     if not isinstance(plan, dict) or set(plan) != fields:
         raise ValueError("source-supplement: unknown plan fields")
-    if (type(plan["schemaVersion"]) is not int or plan["schemaVersion"] != 1 or plan["policyVersion"] != POLICY
+    field = "description" if plan.get("policyVersion") == DESCRIPTION_POLICY else "partTitle"
+    if (type(plan["schemaVersion"]) is not int or plan["schemaVersion"] != 1 or plan["policyVersion"] not in {POLICY, DESCRIPTION_POLICY}
             or plan["planDigest"] != digest({key: value for key, value in plan.items() if key != "planDigest"})
             or not isinstance(plan["entries"], list) or not 1 <= len(plan["entries"]) <= MAX_BATCH
             or not isinstance(plan["skipped"], list) or not isinstance(plan["blocked"], list) or plan["blocked"]):
@@ -119,7 +125,7 @@ def _validate_plan(plan: dict) -> None:
                 or skipped["reason"] not in {"already-known", "not-preserved-legacy"}):
             raise ValueError("source-supplement: invalid skipped selection")
     selected = [entry["editionId"] for entry in plan["entries"]] + [entry["editionId"] for entry in plan["skipped"]]
-    expected_stats = {"field": "partTitle", "selected": len(selected), "eligible": len(plan["entries"]),
+    expected_stats = {"field": field, "selected": len(selected), "eligible": len(plan["entries"]),
         "unknownBefore": len(plan["entries"]), "knownBefore": sum(item["reason"] == "already-known" for item in plan["skipped"]),
         "excludedNative": sum(item["reason"] == "not-preserved-legacy" for item in plan["skipped"])}
     if (len(set(selected)) != len(selected) or len(selected) > MAX_BATCH or plan["fieldStats"] != expected_stats
@@ -166,6 +172,7 @@ def apply_source_supplement(connection, *, plan: dict, artifact_roots, actor: st
     actor = normalize_actor(actor)
     require_universal_contract(connection)
     require_supplement_extension(connection, required=True)
+    field = plan["fieldStats"]["field"]
     repository = PublicationRepository(connection)
     with repository.transaction():
         receipt = _receipt(connection, plan, artifact_roots)
@@ -182,14 +189,14 @@ def apply_source_supplement(connection, *, plan: dict, artifact_roots, actor: st
             if (parent["video_part_id"] != entry["videoPartId"]
                     or parent["content_sha256"] != entry["expectedContentSha256"]
                     or parent["content_version"] != 2 or import_origin(connection, parent["edition_id"]) is None
-                    or parent["content"]["source"]["metadata"]["partTitle"] is not None
+                    or parent["content"]["source"]["metadata"][field] is not None
                     or edition_supplement(connection, parent["edition_id"]) is not None):
                 raise ValueError("source-supplement: selected frozen content differs from plan")
             check_preserved_body_import(connection, edition_id=parent["edition_id"], artifact_roots=artifact_roots)
-            if capture_part_title(connection, parent) != entry["supplement"]:
-                raise ValueError("source-supplement: collected title evidence changed or was invented")
+            if capture_field(connection, parent, field) != entry["supplement"]:
+                raise ValueError("source-supplement: collected source evidence changed or was invented")
             content = deepcopy(parent["content"])
-            content["source"]["metadata"]["partTitle"] = entry["supplement"]["evidence"]["value"]
+            content["source"]["metadata"][field] = entry["supplement"]["evidence"]["value"]
             prepared.append((entry, parent, content))
         results = []
         for entry, parent, content in prepared:
@@ -204,7 +211,7 @@ def apply_source_supplement(connection, *, plan: dict, artifact_roots, actor: st
                                    (supplement["supplementId"], raw, int(time.time())))
             edition = repository.insert_edition(part_id=parent["video_part_id"], revision_id=parent["revision_id"],
                 content=content, parent_edition_id=parent["edition_id"], actor=actor,
-                note=f"Supplement collected part title {supplement['supplementId']}", event_type="edited", content_version=2)
+                note=f"Supplement collected {field} {supplement['supplementId']}", event_type="edited", content_version=2)
             connection.execute("INSERT INTO publication_source_supplements VALUES (?,?,?)",
                                (edition["edition_id"], supplement["supplementId"], edition["edition_id"]))
             read_edition(connection, edition["edition_id"])

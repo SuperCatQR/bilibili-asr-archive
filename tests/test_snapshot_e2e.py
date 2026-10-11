@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from bili_asr import archive
-from bili_asr.artifacts import BUNDLE_SCHEMA, REQUIRED_ARTIFACT_KEYS
+from bili_asr.artifacts import BUNDLE_SCHEMA_V3, REQUIRED_ARTIFACT_KEYS, SOURCE_METADATA_KEY
 from bili_asr.cli.main import main
 from bili_asr.storage import (
     AsrPolicy,
@@ -198,8 +198,13 @@ def test_snapshot_cli_moves_metadata_audio_and_progress_then_resumes_offline(
         marker = archive.bundle_marker_path(artifacts["srt_path"])
         bundle_bytes[marker.as_posix()] = (target / marker).read_bytes()
         marker_document = json.loads(bundle_bytes[marker.as_posix()])
-        assert marker_document["schema"] == BUNDLE_SCHEMA
-        assert set(marker_document["artifacts"]) == set(REQUIRED_ARTIFACT_KEYS)
+        assert marker_document["schema"] == BUNDLE_SCHEMA_V3
+        assert set(marker_document["artifacts"]) == set(REQUIRED_ARTIFACT_KEYS) | {SOURCE_METADATA_KEY}
+        metadata_artifact = marker_document["artifacts"][SOURCE_METADATA_KEY]
+        metadata_bytes = (target / metadata_artifact["path"]).read_bytes()
+        assert hashlib.sha256(metadata_bytes).hexdigest() == metadata_artifact["sha256"]
+        assert json.loads(metadata_bytes)["title"] == "portable archive"
+        bundle_bytes[metadata_artifact["path"]] = metadata_bytes
         assert (target / artifacts["vtt_path"]).read_text(encoding="utf-8").startswith("WEBVTT\n")
         assert (target / artifacts["txt_path"]).read_text(encoding="utf-8") == TRANSCRIPT_TEXT + "\n"
         completed_jobs = [dict(row) for row in connection.execute("SELECT * FROM workflow_jobs ORDER BY job_id")]

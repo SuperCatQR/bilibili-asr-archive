@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
 
-from bili_asr.contracts.registry import LEGACY_FACTS_POLICY, SOURCE_SUPPLEMENT_POLICY
+from bili_asr.contracts.registry import DESCRIPTION_SUPPLEMENT_POLICY, LEGACY_FACTS_POLICY, SOURCE_SUPPLEMENT_POLICY
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,10 @@ _POLICIES = (
         tuple((name, "archive-part-projection" if name == "partTitle" else kind) for name, kind in _FIELDS),
         "universal-origin-v1", "services.source_supplement",
         "tests/test_source_supplement.py"),
+    ContentPolicy(DESCRIPTION_SUPPLEMENT_POLICY, ("publication-content/v2", LEGACY_FACTS_POLICY),
+        "publication-content/v2", "parent-body-utf8-identical", "pending-review", "preserve-current-release",
+        tuple((name, "archive-video-details-projection" if name == "description" else kind) for name, kind in _FIELDS),
+        "universal-origin-v2", "services.source_supplement", "tests/test_description_supplement.py"),
 )
 CONTENT_POLICIES = MappingProxyType({entry.identity: entry for entry in _POLICIES})
 

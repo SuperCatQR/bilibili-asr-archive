@@ -152,13 +152,14 @@ def workflow_records(
     try:
         connection.execute("BEGIN")
         universal = runtime_contract(connection) == UNIVERSAL_V2
-        metadata_repository = MetadataRepository(connection) if universal else None
+        metadata_repository = MetadataRepository(connection)
         records: dict[str, dict[str, Any]] = {}
         order: dict[str, tuple[int, str, str, int]] = {}
         for parts in _part_batches(connection, universal=universal):
             part_ids = tuple(int(part["video_part_id"]) for part in parts)
-            metadata_snapshots = (metadata_repository.read_source_metadata_many(part_ids)
-                                  if metadata_repository is not None else {})
+            source_facts = metadata_repository.read_source_metadata_export_many(
+                part_ids, include_source_metadata=universal,
+            )
             preferred = _preferred_transcripts(connection, part_ids)
             publications = _latest_publications(connection, part_ids)
             publication_errors = {
@@ -200,8 +201,10 @@ def workflow_records(
                 }
                 if identity.platform != "bilibili":
                     entry.update(platform=identity.platform, external_video_id=identity.external_video_id)
+                entry.update({key: value for key, value in source_facts[part_id].items()
+                              if key != "sourceMetadata"})
                 if universal:
-                    metadata = metadata_snapshots[part_id].to_dict()
+                    metadata = source_facts[part_id]["sourceMetadata"]
                     entry.update(pubdateUnix=metadata["pubdateUnix"], sourcePublishedAt=metadata["sourcePublishedAt"],
                                  sourceMetadata=metadata)
                 if publication_error is not None:

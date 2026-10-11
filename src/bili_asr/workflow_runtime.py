@@ -423,6 +423,7 @@ class ArchiveWorkflowHandlers:
         if job.video_part_id is None:
             raise RuntimeError("missing_video_part")
         source_part = SourceRepository(self.connection).part(job.video_part_id)
+        refresh = job.payload.get("preserve_publication")
         rows = [
             {**source_part, "part_title": source_part["title"], **dict(row)}
             for row in self.connection.execute(
@@ -430,6 +431,32 @@ class ArchiveWorkflowHandlers:
                    ORDER BY source_kind, language, version DESC""", (job.video_part_id,),
             )
         ]
+        if refresh is not None:
+            rows = [row for row in rows if row["transcript_id"] == job.payload["transcript_id"]]
+        preserved_raw = None
+        preserved_publication = None
+        if refresh is not None:
+            from bili_asr.services.publication_refresh import assert_publication_fence
+            from bili_asr.services.artifact_groups import preserve_existing_publication, object_storage_key
+            from bili_asr.storage.artifact_catalog import require_artifact_catalog
+            require_artifact_catalog(self.connection, required=True)
+            with self.repository.owned_transaction(job):
+                preserved_publication = assert_publication_fence(
+                    self.connection, job.video_part_id, int(job.payload["transcript_id"]), refresh)
+                # Reverify the actual current bytes even when a group was captured
+                # earlier. The catalog alone cannot prove the mutable slot.
+                group_id = preserve_existing_publication(self.connection, self.artifact_roots, preserved_publication)
+                raw_object = self.connection.execute(
+                    "SELECT object_id FROM artifact_group_members WHERE group_id=? AND role='raw_path'",
+                    (group_id,)).fetchone()[0]
+            from bili_asr.artifact_inventory import require_regular_file
+            old_raw_path = self.artifact_roots.write_base / object_storage_key(raw_object)
+            require_regular_file(old_raw_path)
+            encoded = old_raw_path.read_bytes()
+            import hashlib
+            if hashlib.sha256(encoded).hexdigest() != raw_object:
+                raise ValueError("preserved transcript raw bytes changed")
+            preserved_raw = json.loads(encoded)
         candidates = ordered_candidates(rows)
         if len(candidates) != 1:
             raise RuntimeError("transcript_missing")
@@ -462,12 +489,19 @@ class ArchiveWorkflowHandlers:
         }
         if source_part["platform"] != "bilibili":
             entry.update(platform=source_part["platform"], external_video_id=source_part["external_video_id"])
-        from bili_asr.storage.archive_contracts import UNIVERSAL_V2, runtime_contract
-        if runtime_contract(self.connection) == UNIVERSAL_V2:
-            from bili_asr.storage.metadata import MetadataRepository
-            metadata = MetadataRepository(self.connection).read_source_metadata(job.video_part_id).to_dict()
-            entry.update(pubdateUnix=metadata["pubdateUnix"],
-                         sourcePublishedAt=metadata["sourcePublishedAt"], sourceMetadata=metadata)
+        from bili_asr.storage.metadata import MetadataRepository
+        metadata_repository = MetadataRepository(self.connection)
+        owns_read = not self.connection.in_transaction
+        if owns_read:
+            self.connection.execute("BEGIN")
+        try:
+            values = metadata_repository.read_source_metadata_export_many([job.video_part_id])[job.video_part_id]
+        finally:
+            if owns_read:
+                self.connection.rollback()
+        metadata = values["sourceMetadata"]
+        entry.update(pubdateUnix=metadata["pubdateUnix"],
+                     sourcePublishedAt=metadata["sourcePublishedAt"], **values)
         asr_provenance = None
         if source_kind == "asr-local":
             model = self.connection.execute(
@@ -479,6 +513,10 @@ class ArchiveWorkflowHandlers:
                 "model": str(model["model_name"]) if model is not None else "unknown",
                 "revision": str(model["revision"]) if model is not None else "",
             }
+        if preserved_raw is not None:
+            # Preserve ASR provenance, coverage and character timing evidence.
+            # Refreshing metadata must not replace them with today's defaults.
+            asr_provenance = preserved_raw.get("provenance")
         paths = {key: os.path.relpath(path, self.artifact_roots.write_base).replace(os.sep, "/")
                  for key, path in archive.bundle_paths(self.artifact_roots.write_base, entry).items()}
 
@@ -487,6 +525,8 @@ class ArchiveWorkflowHandlers:
             # Marker, final bytes and publication fact share cancellation's lock.
             # The writer invalidates the marker if this transaction cannot commit.
             with self.repository.owned_transaction(job, on_rollback=invalidate):
+                if refresh is not None:
+                    assert_publication_fence(self.connection, job.video_part_id, transcript_id, refresh)
                 yield
                 # A part owns one mutable bundle slot. Same-second republishing
                 # an earlier transcript must still become the newest committed
@@ -525,12 +565,16 @@ class ArchiveWorkflowHandlers:
             entry,
             segments,
             source="asr" if source_kind == "asr-local" else "subtitle",
+            raw=preserved_raw,
             asr_provenance=asr_provenance,
+            characters=preserved_raw.get("characters") if preserved_raw is not None else None,
+            coverage=preserved_raw.get("coverage") if preserved_raw is not None else None,
             before_replace=lambda: self.repository.assert_lease(job),
             publication_guard=publication_guard,
         )
         return {
             "requested_transcript_id": int(job.payload["transcript_id"]),
+            "publication_request_id": job.payload.get("publication_request_id"),
             "transcript_id": transcript_id,
             "source_kind": source_kind,
             **paths,

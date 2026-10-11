@@ -894,6 +894,10 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     bvid = str(entry["bvid"]) if entry.get("platform", "bilibili") == "bilibili" else None
     finals = bundle_paths(root, entry)
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "video_title": entry.get("video_title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
+    for field in ("video_description", "uploader_mid", "uploader_name", "video_tags",
+                  "video_tags_state", "video_details_observed_at"):
+        if field in entry:
+            frontmatter[field] = entry[field]
     if entry.get("platform", "bilibili") != "bilibili":
         frontmatter.pop("bvid")
         frontmatter.update(platform=entry["platform"], external_video_id=entry["external_video_id"])

@@ -75,7 +75,7 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
 
 def _allowed_file(name: str, kind: str, profile: str | None = None) -> bool:
     if name == "origins.json":
-        return profile == "universal-origin-v1" and kind in {"publication-export", "publication-draft-export"}
+        return profile in {"universal-origin-v1", "universal-origin-v2"} and kind in {"publication-export", "publication-draft-export"}
     if kind == "publication-export":
         return name in {"catalog.json", "series.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
     if kind == "publication-draft-export":
@@ -159,7 +159,7 @@ def _file_parts(name: str, kind: str, profile: str | None = None) -> tuple[str, 
 
 
 def _snapshot_id(files: list[dict[str, str]], kind: str | None = None, profile: str | None = None) -> str:
-    value = files if profile is None else {"schemaVersion": 2, "manuscriptType": kind, "contractProfile": profile, "files": files}
+    value = files if profile is None else {"schemaVersion": 3 if profile == "universal-origin-v2" else 2, "manuscriptType": kind, "contractProfile": profile, "files": files}
     canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -253,7 +253,9 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
             if catalog["schemaVersion"] != 3 or "origins.json" not in expected_files:
                 raise ExportSnapshotError("origin profile requires catalog v3 and origins.json")
             origins = read_json(directory / "origins.json")
-            _contract_json("universal-origin-v1", origins)
+            _contract_json(profile, origins)
+            if origins["contractProfile"] != profile:
+                raise ExportSnapshotError("origins and manifest profiles differ")
             validate_origins(origins, catalog["articles"], manuscript_type)
         if article_files != expected_files - {manifest_name, "catalog.json", "series.json", "origins.json"}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
@@ -434,7 +436,7 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes], pro
     """
     if kind not in {"publication-export", "publication-draft-export", "editorial-export"} or not files:
         raise ExportSnapshotError("unsupported or empty export snapshot")
-    if profile is not None and (profile != "universal-origin-v1" or kind == "editorial-export"):
+    if profile is not None and (profile not in {"universal-origin-v1", "universal-origin-v2"} or kind == "editorial-export"):
         raise ExportSnapshotError("unsupported export origin profile")
     output = checked_path(output)
     for name, content in files.items():
@@ -443,7 +445,8 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes], pro
             raise ExportSnapshotError("export content must be bytes")
     records = [{"path": name, "sha256": hashlib.sha256(files[name]).hexdigest()} for name in sorted(files)]
     snapshot_id = _snapshot_id(records, kind, profile)
-    manifest = {"schemaVersion": 2 if profile is not None else 1, "manuscriptType": kind, "snapshotId": snapshot_id, "files": records}
+    manifest = {"schemaVersion": 3 if profile == "universal-origin-v2" else 2 if profile is not None else 1,
+                "manuscriptType": kind, "snapshotId": snapshot_id, "files": records}
     if profile is not None:
         manifest["contractProfile"] = profile
     output.parent.mkdir(parents=True, exist_ok=True)

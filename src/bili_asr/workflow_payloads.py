@@ -46,6 +46,21 @@ def validate_payload(kind: JobKind, payload: Mapping[str, Any], *,
             _positive_id(reference, "reference_transcript_id")
     elif kind is JobKind.PUBLISH:
         _positive_id(payload.get("transcript_id"), "transcript_id")
+        if "preserve_publication" in payload:
+            expected = payload["preserve_publication"]
+            if not isinstance(expected, Mapping) or set(expected) != {
+                "publication_id", "published_at", "transcript_sha256", "segments_sha256"
+            }:
+                raise ValueError("workflow payload: invalid publication refresh fence")
+            _positive_id(expected["publication_id"], "publication_id")
+            if type(expected["published_at"]) is not int or expected["published_at"] < 0:
+                raise ValueError("workflow payload: invalid publication timestamp")
+            for name in ("transcript_sha256", "segments_sha256"):
+                digest = expected[name]
+                if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                    raise ValueError("workflow payload: invalid transcript digest")
+        if "publication_request_id" in payload:
+            _text(payload["publication_request_id"], "publication_request_id")
     elif kind is JobKind.PROOFREAD:
         _one_reference(payload, "input_id", "asr_job_id")
         if "repair_of_job_id" in payload:

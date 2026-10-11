@@ -7,7 +7,7 @@ from copy import deepcopy
 from functools import lru_cache
 
 from bili_asr.canonical_json import canonical, digest
-from bili_asr.source_supplements import KIND, POLICY, validate_supplement
+from bili_asr.source_supplements import DESCRIPTION_KIND, KIND, POLICY, validate_supplement
 from bili_asr.storage.archive_contracts import _resource
 
 
@@ -67,6 +67,47 @@ def capture_part_title(connection, edition: dict) -> dict:
     return result
 
 
+def capture_description(connection, edition: dict) -> dict:
+    """Freeze the retained database description and its field observation time.
+
+    A legacy video-details timestamp may have come from another field update,
+    so without the per-field receipt the acquisition time remains unknown.
+    This reads local facts only and makes no upstream request.
+    """
+    from bili_asr.storage.sources import SourceRepository
+    part = SourceRepository(connection).part(edition["video_part_id"])
+    source = edition["content"]["source"]["metadata"]
+    ref = part["content_ref"]
+    if (ref.platform != "bilibili" or any(source[field] != value for field, value in (
+            ("platform", ref.platform), ("externalVideoId", ref.external_video_id), ("partIndex", ref.part_index)))):
+        raise ValueError("source-supplement: current part differs from frozen identity")
+    row = connection.execute('SELECT "desc" FROM video_details WHERE bvid=?', (ref.external_video_id,)).fetchone()
+    if row is None or row[0] is None:
+        raise ValueError("source-supplement: description is unknown; collect real source metadata first")
+    observed = connection.execute("SELECT last_success_at,value_json FROM source_metadata_observations "
+        "WHERE platform='bilibili' AND external_id=? AND operation='details' AND field='desc'",
+        (ref.external_video_id,)).fetchone()
+    stamp = None
+    if observed and observed[0] is not None:
+        if observed[1] is None or json.loads(observed[1]) != row[0]:
+            raise ValueError("source-supplement: description disagrees with successful field observation")
+        stamp = observed[0]
+    evidence = {"version": 2, "platform": ref.platform, "externalVideoId": ref.external_video_id,
+        "partIndex": ref.part_index, "videoPartId": edition["video_part_id"], "cid": part["cid"],
+        "field": "description", "value": row[0], "sourceKind": DESCRIPTION_KIND, "observedAt": stamp}
+    result = {"supplementId": digest(evidence), "evidence": evidence}
+    validate_supplement(result, {**source, "description": row[0]}, edition["video_part_id"])
+    return result
+
+
+def capture_field(connection, edition: dict, field: str) -> dict:
+    if field == "partTitle":
+        return capture_part_title(connection, edition)
+    if field == "description":
+        return capture_description(connection, edition)
+    raise ValueError("source-supplement: unsupported field")
+
+
 def stored_supplement(connection, link: dict, source: dict, part_id: int) -> dict:
     row = connection.execute("SELECT * FROM source_metadata_supplements WHERE supplement_id=?", (link["supplement_id"],)).fetchone()
     if row is None:
@@ -91,9 +132,10 @@ def expected_source(connection, edition: dict, baseline: dict) -> dict:
         return source
     current_metadata = edition["content"]["source"]["metadata"]
     supplement = stored_supplement(connection, link, current_metadata, edition["video_part_id"])
-    if source["metadata"]["partTitle"] is not None:
-        raise ValueError("source-supplement: cannot overwrite a frozen title")
-    source["metadata"]["partTitle"] = supplement["evidence"]["value"]
+    field = supplement["evidence"]["field"]
+    if source["metadata"][field] is not None:
+        raise ValueError("source-supplement: cannot overwrite a frozen source value")
+    source["metadata"][field] = supplement["evidence"]["value"]
     from bili_asr.storage.import_origins import body_digest, import_origin
     from bili_asr.storage.publication import PublicationRepository
     repository = PublicationRepository(connection)
