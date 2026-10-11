@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import signal
 import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -104,7 +103,7 @@ class WorkflowApplication:
     def run(self, *, worker_id: str, sessdata: str | None,
             only_editorial: bool = False, limit: int | None = None,
             kinds: tuple[JobKind, ...] | None = None, role: str | None = None,
-            drain_file: str | None = None, drain_timeout_seconds: float | None = None,
+            drain_file: str | None = None, drain_timeout_seconds: float | None = 60,
             gpu_session: str = "persistent", config_resolver=None,
             asr_prefetch: bool = False, asr_prefetch_bytes: int = 64 * 1024 * 1024,
             poll_interval_seconds: float = 0, shutdown_event: threading.Event | None = None,
@@ -155,12 +154,9 @@ class WorkflowApplication:
                 from bili_asr.services.source_workflow import compose_source_handlers
                 registered.update(compose_source_handlers(archive, source_registry))
             stop = shutdown_event or threading.Event()
-            if threading.current_thread() is threading.main_thread():
-                def request_drain(_signum, _frame):
-                    stop.set()
-                for signum in (signal.SIGINT, signal.SIGTERM):
-                    previous = signal.signal(signum, request_drain)
-                    resources.callback(signal.signal, signum, previous)
+            from bili_asr.workflow_shutdown import WorkerShutdown
+            shutdown = resources.enter_context(WorkerShutdown(
+                stop, drain_file=drain_file, timeout=drain_timeout_seconds).install())
             def prepare(candidate, checkpoint):
                 if not only_editorial:
                     archive.prepare_candidate(candidate, checkpoint, timeout_seconds=warmup_timeout_seconds,
@@ -173,8 +169,9 @@ class WorkflowApplication:
             executor = WorkflowExecutor(
                 self.repository, worker_id=worker_id, handlers=registered,
                 kinds=tuple(registered) if selected is None else tuple(dict.fromkeys(selected)),
-                drain_requested=lambda: stop.is_set() or (drain_file is not None and Path(drain_file).exists()),
+                drain_requested=shutdown.requested,
                 drain_timeout_seconds=drain_timeout_seconds,
+                drain_checkpoint=shutdown.checkpoint, attempt_scope=shutdown.attempt,
                 prepare_candidate=prepare if not only_editorial and gpu_session != "legacy" else None,
                 candidate_access=access)
             succeeded = failed = cancelled = blocked = 0

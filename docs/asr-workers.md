@@ -8,7 +8,11 @@
 
 默认运行至队列空闲后退出；`--poll-interval 5` 保持当前进程和 GPU 会话，持续查询新就绪任务，不为每次空闲重建模型。`--limit` 是整个调用的任务数量上限。
 
-`--drain-file PATH` 检测到文件存在后停止下一次 claim，当前任务继续 heartbeat 和正常提交。SIGINT/SIGTERM 同样请求排空。`--drain-timeout SECONDS` 从在途 GPU 请求首次观察到排空开始计时，期限到达就终止推理会话并记录 `worker_drain_timeout`。CPU/HTTP handler 的 cooperative checkpoint 行为由各自端口决定；独立监督器的最终期限会终止自己拥有的控制进程，未提交任务由原租约恢复机制处理。
+`--drain-file PATH` 检测到文件存在后停止下一次 claim，SIGINT/SIGTERM 同样请求排空。`workflow run` 和 `supervise` 的 `--drain-timeout SECONDS` 默认均为 60 秒，从首次观察到排空请求开始计时，期间当前任务继续 heartbeat。期限内完成的任务正常提交；合作 checkpoint 到期终止推理会话，并按原 attempt/owner 记录 `worker_drain_timeout`、清空租约。校对在每块请求前后同样检查。重复停止信号会立即中断仍在运行的 handler，使用相同失败码；一旦进入超时清理，不再用重复信号打断回收。
+
+POSIX 主线程运行且调用方没有占用 SIGALRM/timer 时，独立 watchdog 在期限到达后也能中断阻塞的 Python/HTTP handler；结束时恢复原信号处理器。Windows、非主线程运行，以及调用方已有 alarm 的场景仅提供合作检查。Python 信号不能保证中断长期不返回解释器的原生代码，因此监督器仍在业务宽限后额外预留 5 秒清理时间，最终硬杀自己拥有的残存进程。严重数据库写竞争也可能耗尽此预算；未提交任务按原租约机制恢复，不按 worker 名批量重置任务。
+
+心跳打开连接和续期均允许瞬时 SQLite/I/O 错误恢复，连接的锁等待保留较低的原配置、上限为 1000ms。恢复预算是当前租约时长的一半，成功续期后重置；持续失败或确定的契约错误向 executor/checkpoint 暴露 `lease_renewal_failed`，禁止接受 handler 的后续成功返回。合作 handler 会提前停止；无合作检查的阻塞调用仍需其超时或停机边界。租约已经丢失时继续使用原 fence，不能覆盖后来 attempt 的结果。
 
 ```bash
 bili-asr workflow run --archive-root /srv/archive --role asr \
@@ -42,7 +46,7 @@ bili-asr workflow supervise --archive-root /srv/archive \
 
 重启采用 0.5 秒起、最多 30 秒的指数退避。连续快速退出超过 `--max-restarts`（默认 8）时监督器排空并退出；健康运行 60 秒后重置该槽位连续错误计数。各角色 0–32 个槽位，可按设备/外部服务预算选择；默认不硬编码生产“两路”。同归档第二个 supervisor 在创建任何进程前拒绝。
 
-监督器收到信号或排空 token 时停止补槽，对自己拥有的控制进程请求排空，统一期限到达后终止剩余进程。控制进程若发现监督父进程异常退出，会请求排空并在期限后硬退出；其推理 child 由自己的 parent guardian 回收。失败和租约恢复仍属于原 workflow，不另造恢复队列。
+监督器收到信号或排空 token 时停止补槽，对自己拥有的控制进程请求排空，业务期限加 5 秒清理余量后终止剩余进程。控制进程若发现监督父进程异常退出，会请求排空并使用相同余量后硬退出；其推理 child 由自己的 parent guardian 回收。失败和租约恢复仍属于原 workflow，不另造恢复队列。
 
 ## 任务内 trace 与实验预取
 

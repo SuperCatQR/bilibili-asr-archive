@@ -21,6 +21,10 @@ from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
 from bili_asr.services.workflow_application import WorkflowApplication
 
+# Reserve time for GPU session reaping and terminal persistence. Severe writer
+# contention still falls back to hard termination and the existing lease fence.
+_DRAIN_CLEANUP_SECONDS = 5.0
+
 
 @contextmanager
 def _slot_lock(root: Path):
@@ -71,7 +75,8 @@ def _controller(options: dict, role: str, worker_id: str):
     if os.name == "posix":
         os.setsid()
     stop = threading.Event()
-    threading.Thread(target=_controller_parent_guard, args=(stop, options["drain_timeout"]),
+    threading.Thread(target=_controller_parent_guard,
+                     args=(stop, options["drain_timeout"] + _DRAIN_CLEANUP_SECONDS),
                      daemon=True, name="workflow-supervisor-parent").start()
     try:
         from bili_asr.runtime_bindings import load_runtime_bindings
@@ -203,7 +208,7 @@ class WorkerSupervisor:
                     # Windows has no equivalent to SIGTERM delivery to a Python handler.
                     # The normal drain-file path is graceful; terminate is the bounded fallback.
                     slot.process.terminate()
-        deadline = time.monotonic() + self.options["drain_timeout"]
+        deadline = time.monotonic() + self.options["drain_timeout"] + _DRAIN_CLEANUP_SECONDS
         while any(slot.process is not None and slot.process.is_alive() for slot in self.slots):
             if time.monotonic() >= deadline:
                 break

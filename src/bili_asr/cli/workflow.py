@@ -109,8 +109,8 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     worker_selection.add_argument("--role", choices=tuple(WORKER_ROLES),
                                   help="Select the fixed ASR/acquisition/editorial/CPU handler set")
     run.add_argument("--drain-file", default=None, help="Stop claiming when this file exists")
-    run.add_argument("--drain-timeout", type=float, default=None,
-                     help="Grace period after drain; GPU inference is terminated on expiry")
+    run.add_argument("--drain-timeout", type=float, default=60,
+                     help="Grace period after drain (default: 60s); repeated signal interrupts the current task")
     run.add_argument("--gpu-session", choices=("persistent", "oneshot"), default="persistent",
                      help="Reuse one killable model session or restart for each GPU task")
     run.add_argument("--asr-prefetch", action="store_true",

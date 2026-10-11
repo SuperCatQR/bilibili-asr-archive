@@ -67,7 +67,7 @@ class WorkflowRepository:
         from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
 
         connection = open_archive_connection(self._database_path, mode=ArchiveAccessMode.WRITE,
-                                             busy_timeout_ms=self._busy_timeout_ms)
+                                             busy_timeout_ms=min(self._busy_timeout_ms, 1000))
         return type(self)(connection)
 
     def register_profile(self, profile: AsrProfile) -> int:
