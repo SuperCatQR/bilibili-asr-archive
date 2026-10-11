@@ -19,6 +19,8 @@
 | [图表验证记录](architecture-validation.md) | 32 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
 | [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
 | [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
+| [来源元数据与历史回填](issue-348-source-metadata.md) | 简介与来源字段、JSON/CSV、锁定原转录的 bundle 回填 |
+| [历史文章简介补充](issue-348-description-supplement.md) | 保留旧正文的新待审版本、来源证据及阅读站契约升级范围 |
 | [AI 校对与出版架构](ai-proofreading-architecture.md) | 固定提交的输入冻结、历史模板、完整版本、标签、审核、release 与三类导出 |
 | [Issues 架构评估](issues-architecture-assessment.md) | 实施前对七项 issues 的代码依据、依赖、风险与验收要求 |
 | [Issues 实现与架构边界](issues-implementation.md) | 本分支七项实现、层间依赖、新旧契约、操作入口与验证限制 |

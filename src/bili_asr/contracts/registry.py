@@ -13,6 +13,8 @@ ASR_EVIDENCE_VERSION = 1
 BUNDLE_SCHEMA = "archive-bundle-v2"
 BUNDLE_SCHEMA_V3 = "archive-bundle-v3"
 ORIGIN_PROFILE = "universal-origin-v1"
+ORIGIN_PROFILE_V2 = "universal-origin-v2"
+DESCRIPTION_SUPPLEMENT_POLICY = "legacy-description-supplement-v1"
 IMPORT_EXTENSION = "preserved-body-import-v1"
 LEGACY_FACTS_POLICY = "legacy-frozen-facts-v1"
 STORED_VTT_POLICY = "stored-segments-webvtt/v1"
@@ -134,6 +136,14 @@ _CONTRACTS = (
           dependencies=(ORIGIN_PROFILE,)),
     _json(ORIGIN_PROFILE, "publication-origins-v1.schema.json",
           dependencies=("publication-content/v2", SOURCE_SUPPLEMENT_POLICY)),
+    _json(ORIGIN_PROFILE_V2, "publication-origins-v2.schema.json",
+          dependencies=(ORIGIN_PROFILE, DESCRIPTION_SUPPLEMENT_POLICY)),
+    _json("publication-origin-manifest/v3", "publication-origin-manifest-v3.schema.json",
+          dependencies=(ORIGIN_PROFILE_V2,)),
+    Contract(DESCRIPTION_SUPPLEMENT_POLICY, "sources", ("src/bili_asr/source_supplements.py",
+             "src/bili_asr/contracts/content_policies.py"),
+             ("storage.source_supplements", "publication_origins"),
+             ("content-upgrade", "export"), (SOURCE_SUPPLEMENT_POLICY,)),
     _json("editorial-export-manifest/v1", "editorial-export-manifest.schema.json"),
     _json("editorial-import-export-manifest/v1", "editorial-import-export-manifest.schema.json",
           dependencies=(IMPORT_EXTENSION, "editorial-export-manifest/v1")),
@@ -166,9 +176,9 @@ def manifest_contract(kind: str, profile: str | None, *, imported: bool = False)
     if kind not in {"publication-export", "publication-draft-export", "editorial-export"}:
         raise ValueError("unsupported export kind")
     if profile is not None:
-        if profile != ORIGIN_PROFILE or kind == "editorial-export":
+        if profile not in {ORIGIN_PROFILE, ORIGIN_PROFILE_V2} or kind == "editorial-export":
             raise ValueError("unsupported export profile")
-        return "publication-origin-manifest/v2"
+        return "publication-origin-manifest/v3" if profile == ORIGIN_PROFILE_V2 else "publication-origin-manifest/v2"
     if imported and kind == "editorial-export":
         return "editorial-import-export-manifest/v1"
     return kind + "-manifest/v1"

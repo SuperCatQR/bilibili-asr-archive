@@ -184,7 +184,7 @@ def _cmd_supplement_source(args: argparse.Namespace) -> int:
                     selection = _json_object(args.selection_file)
                     if set(selection) != {"editionIds"}:
                         raise ValueError("selection file must contain only editionIds")
-                    result = plan_source_supplement(connection, edition_ids=selection["editionIds"], artifact_roots=roots)
+                    result = plan_source_supplement(connection, edition_ids=selection["editionIds"], artifact_roots=roots, field=args.field)
                     if args.out:
                         from bili_asr.export_snapshot import checked_path, json_bytes
                         with checked_path(Path(args.out)).open("xb") as stream:
@@ -292,7 +292,7 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     draft_scope.add_argument("--edition-id", dest="edition_ids", action="append", default=None, help="Explicit current unpublished edition scope; repeat to select multiple")
     draft_scope.add_argument("--empty-scope", dest="edition_ids", action="store_const", const=[], help="Explicitly export an empty draft snapshot")
     for command in (export, drafts):
-        command.add_argument("--contract-profile", choices=("universal-origin-v1",), default=None)
+        command.add_argument("--contract-profile", choices=("universal-origin-v1", "universal-origin-v2"), default=None)
 
     preserved = actions.add_parser("import-preserved", help="Import verified legacy prose without inference")
     import_actions = preserved.add_subparsers(dest="import_action", required=True)
@@ -309,18 +309,20 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     _common(check, archive_root, artifacts=ArtifactPolicy.READ)
     check.add_argument("--edition-id", required=True)
 
-    supplement = actions.add_parser("supplement-source", help="Supplement collected legacy part titles with immutable evidence")
+    supplement = actions.add_parser("supplement-source", help="Supplement collected legacy source facts with immutable evidence")
     supplement_actions = supplement.add_subparsers(dest="supplement_action", required=True)
     install = supplement_actions.add_parser("install", help="Install title evidence extension on an offline archive copy")
     _common(install, archive_root, database=ArchiveAccessMode.MAINTENANCE)
-    plan = supplement_actions.add_parser("plan", help="Inspect titles and create an evidence-bound read-only plan")
+    plan = supplement_actions.add_parser("plan", help="Inspect one source field and create an evidence-bound read-only plan")
     _common(plan, archive_root, artifacts=ArtifactPolicy.READ)
     plan.add_argument("--selection-file", required=True)
     plan.add_argument("--out", default=None)
+    plan.add_argument("--field", choices=("partTitle", "description"), default="partTitle",
+                      help="Freeze one unknown field from collected local source facts")
     apply = supplement_actions.add_parser("apply", help="Create new pending-review editions atomically")
     _common(apply, archive_root, artifacts=ArtifactPolicy.READ, actor=True, database=ArchiveAccessMode.WRITE)
     apply.add_argument("--plan-file", required=True)
-    check = supplement_actions.add_parser("check", help="Verify supplemental titles and preserved historical artifacts")
+    check = supplement_actions.add_parser("check", help="Verify supplemental source facts and preserved historical artifacts")
     _common(check, archive_root, artifacts=ArtifactPolicy.READ)
     check.add_argument("--edition-id", required=True)
 

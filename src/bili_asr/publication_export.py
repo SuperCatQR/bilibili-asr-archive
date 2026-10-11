@@ -232,19 +232,25 @@ def export_publication_drafts(
 
 
 def _collect_origin(connection, edition, roots, profile, origins) -> None:
-    if profile is not None and profile != PROFILE:
+    from bili_asr.contracts.registry import ORIGIN_PROFILE_V2
+    from bili_asr.source_supplements import DESCRIPTION_POLICY
+    if profile is not None and profile not in {PROFILE, ORIGIN_PROFILE_V2}:
         raise ExportSnapshotError("unsupported export origin profile")
     if profile:
-        origins.append(public_origin(connection, edition, roots))
+        origin = public_origin(connection, edition, roots)
+        if origin.get("policyVersion") == DESCRIPTION_POLICY and profile != ORIGIN_PROFILE_V2:
+            raise ExportSnapshotError("description-supplemented editions require universal-origin-v2 export profile")
+        origins.append(origin)
     elif import_origin(connection, edition["edition_id"]) is not None:
         raise ExportSnapshotError("imported editions require universal-origin-v1 export profile")
 
 
 def _add_origins(files, origins, manuscript_type, profile) -> None:
+    from bili_asr.contracts.registry import ORIGIN_PROFILE_V2
     if profile is not None:
-        if profile != PROFILE:
+        if profile not in {PROFILE, ORIGIN_PROFILE_V2}:
             raise ExportSnapshotError("unsupported export origin profile")
-        files["origins.json"] = json_bytes({"schemaVersion": 1, "manuscriptType": manuscript_type,
+        files["origins.json"] = json_bytes({"schemaVersion": 2 if profile == ORIGIN_PROFILE_V2 else 1, "manuscriptType": manuscript_type,
             "contractProfile": profile, "entries": sorted(origins, key=lambda entry: entry["editionId"])})
 
 

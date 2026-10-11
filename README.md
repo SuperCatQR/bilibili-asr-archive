@@ -8,6 +8,12 @@ See [Issues implementation and architecture](docs/issues-implementation.md),
 [source adapters](docs/source-adapters.md), and [ASR workers](docs/asr-workers.md)
 for migration, optional dependencies, worker roles and recovery checks.
 
+Transcript bundles and generic JSON/CSV exports carry stored source descriptions,
+uploader labels and tag observations. See [source metadata and historical refresh](docs/issue-348-source-metadata.md)
+for an explicit refresh that preserves the published transcript and old bundle,
+and [historical article description supplementation](docs/issue-348-description-supplement.md)
+for pending-review editions and reading-site contract requirements.
+
 ## Architecture
 
 ```text

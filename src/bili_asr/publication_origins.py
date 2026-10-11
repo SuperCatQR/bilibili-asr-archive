@@ -5,7 +5,8 @@ import re
 
 from bili_asr.canonical_json import digest
 from bili_asr.contracts.registry import ORIGIN_PROFILE as PROFILE
-from bili_asr.source_supplements import POLICY as SUPPLEMENT_POLICY, KIND as SUPPLEMENT_KIND, validate_supplement
+from bili_asr.contracts.registry import ORIGIN_PROFILE_V2
+from bili_asr.source_supplements import DESCRIPTION_POLICY, POLICY as SUPPLEMENT_POLICY, validate_supplement
 from bili_asr.contracts.content_policies import content_policy, missing_value
 from bili_asr.contracts.registry import LEGACY_FACTS_POLICY
 
@@ -50,11 +51,13 @@ def public_origin(connection, edition: dict, artifact_roots) -> dict:
     link = edition_supplement(connection, edition["edition_id"])
     if link:
         supplement = stored_supplement(connection, link, edition["content"]["source"]["metadata"], edition["video_part_id"])
-        result["policyVersion"] = SUPPLEMENT_POLICY
+        field = supplement["evidence"]["field"]
+        result["policyVersion"] = DESCRIPTION_POLICY if field == "description" else SUPPLEMENT_POLICY
         result["metadataSupplement"] = supplement
         for fact in result["metadataEvidence"]:
-            if fact["field"] == "partTitle":
-                fact.update(kind=SUPPLEMENT_KIND, valueSha256=digest(supplement["evidence"]["value"]))
+            if fact["field"] == field:
+                fact.update(kind=supplement["evidence"]["sourceKind"], observedAt=supplement["evidence"]["observedAt"],
+                            valueSha256=digest(supplement["evidence"]["value"]))
     return result
 
 
@@ -68,8 +71,8 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
         return isinstance(identity, str) and re.fullmatch(rf"[0-9a-f]{{{size}}}", identity) is not None
 
     if (not isinstance(value, dict) or set(value) != {"schemaVersion", "manuscriptType", "contractProfile", "entries"}
-            or type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1
-            or value["manuscriptType"] != manuscript_type or value["contractProfile"] != PROFILE
+            or type(value["schemaVersion"]) is not int or value["schemaVersion"] != (2 if value.get("contractProfile") == ORIGIN_PROFILE_V2 else 1)
+            or value["manuscriptType"] != manuscript_type or value["contractProfile"] not in {PROFILE, ORIGIN_PROFILE_V2}
             or not isinstance(value["entries"], list)):
         fail("unknown origins envelope")
     indexed = {article["editionId"]: article for article in articles}
@@ -80,7 +83,10 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
         if not isinstance(entry, dict):
             fail("origin must be an object")
         native = entry.get("kind") == "ai-generated-v2"
-        supplemented = not native and entry.get("policyVersion") == SUPPLEMENT_POLICY
+        policies = {LEGACY_FACTS_POLICY, SUPPLEMENT_POLICY}
+        if value["contractProfile"] == ORIGIN_PROFILE_V2:
+            policies.add(DESCRIPTION_POLICY)
+        supplemented = not native and entry.get("policyVersion") in {SUPPLEMENT_POLICY, DESCRIPTION_POLICY}
         expected_fields = COMMON if native else COMMON | IMPORTED | ({"metadataSupplement"} if supplemented else set())
         if entry.get("kind") not in {"ai-generated-v2", "preserved-legacy-body", "edited-after-preservation"} or set(entry) != expected_fields:
             fail("unknown origin kind or fields")
@@ -109,13 +115,15 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
         for field, size in (("legacyEditionId", 32), ("legacyReleaseId", 64)):
             if entry[field] is not None and not hexadecimal(entry[field], size):
                 fail("invalid legacy identity")
-        if (entry["legacyAiRevisionId"] != article["aiRevisionId"] or entry["policyVersion"] not in {LEGACY_FACTS_POLICY, SUPPLEMENT_POLICY}
+        if (entry["legacyAiRevisionId"] != article["aiRevisionId"] or entry["policyVersion"] not in policies
                 or entry["reviewArtifactSha256"] != article["reviewArtifactSha256"]
                 or type(entry["importedAt"]) is not int or not 0 <= entry["importedAt"] <= 2**53 - 1):
             fail("invalid import binding or time")
         if supplemented:
             try:
                 validate_supplement(entry["metadataSupplement"], article["sourceMetadata"], article["videoPartId"])
+                if entry["metadataSupplement"]["evidence"]["field"] != ("description" if entry["policyVersion"] == DESCRIPTION_POLICY else "partTitle"):
+                    fail("supplement field differs from policy")
             except (ValueError, KeyError, TypeError) as error:
                 fail(str(error))
         preserved = entry["kind"] == "preserved-legacy-body"
@@ -133,7 +141,9 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
                 fail("unknown evidence field")
             fields.append(field)
             expected_kind = content_policy(entry["policyVersion"]).field_kind(field)
-            if (fact["kind"] != expected_kind or fact["observedAt"] is not None
+            observed = (entry["metadataSupplement"]["evidence"]["observedAt"]
+                        if entry["policyVersion"] == DESCRIPTION_POLICY and field == "description" else None)
+            if (fact["kind"] != expected_kind or type(fact["observedAt"]) is not type(observed) or fact["observedAt"] != observed
                     or fact["valueSha256"] != digest(article["sourceMetadata"][field])):
                 fail("metadata evidence differs from frozen-facts policy")
             if expected_kind == "unobserved" and article["sourceMetadata"][field] != missing_value(field):
