@@ -1,6 +1,6 @@
 # 增量发现、字段刷新与失败重放
 
-源码基线：`857906d3b3c54b31fd9bc0ba94b84618f68cd6f3`。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 对应 issue #286 的当前源元数据与 #287 的增量采集、字段刷新和失败补采。
 
 [交互时序图](23-metadata-refresh.html) · [Archify 规格](23-metadata-refresh.json) · [全部时序图](../architecture-sequences.md)

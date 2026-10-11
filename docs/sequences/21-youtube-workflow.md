@@ -1,6 +1,6 @@
 # YouTube 单视频：统一任务、租约与归档消费链
 
-源码固定于提交 `857906d3b3c54b31fd9bc0ba94b84618f68cd6f3`。
+源码固定于提交 `4f073318c944add37417416155845e55247f9bc1`。Mermaid 保留条件、循环与内部动作；HTML 展开跨参与者消息，完整说明见卡片。
 
 [交互时序图](21-youtube-workflow.html) · [完整 Archify 规格](21-youtube-workflow.json) · [本轮实现说明](../issues-implementation.md)
 

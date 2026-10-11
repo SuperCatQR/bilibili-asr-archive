@@ -3,25 +3,20 @@
 [项目 README](../README.md) 提供安装和常用命令。以下文档以当前源码为依据，
 解释工作流、数据所有权、产物契约和运行限制；架构图是可审阅的源码快照。
 
-本分支新增来源、迁移、恢复检查和 GPU worker 的完整实施说明见
-[Issues 实现与架构边界](issues-implementation.md)。下列原有架构图绑定其固定提交，新增能力以本分支实施说明、对应使用指南和测试为准。
-
-本轮新增 [多平台归档架构图](issues-architecture.html)（[JSON](issues-architecture.json)）、
-[七张新增时序图](architecture-sequences.md#本轮新增流程)、[图表凭据](issue-diagram-validation/README.md)
-和 [WSL 验证记录](issues-validation.md)。新图绑定完成实现后的固定源码，旧图保留历史身份。
+当前架构与 30 个时序流程统一核对 2026-10-11 的 main 源码 `4f073318c944add37417416155845e55247f9bc1`。图的真实验收范围见 [验证记录](architecture-validation.md)。
 
 ## 架构与数据
 
 | 文档 | 内容 |
 | --- | --- |
-| [契约治理与兼容边界](contract-governance.md) | 单一登记、15 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
+| [契约治理与兼容边界](contract-governance.md) | 单一登记、23 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
 | [当前架构](architecture.md) | 固定提交的执行模型，以及本分支新增职责与契约入口 |
 | [音频分层与手动迁出](artifact-storage.md) | 只读盘点、保真 catalog 升级、目标封包核验、条件释放和同 SHA 恢复；生产状态独立延续 |
 | [SSH 存储与引用型备份](remote-reference-backups.md) | 已核验远程包、明确的外部依赖、离线/在线检查、保真状态恢复与显式 worker 交接 |
 | [全景架构图](architecture.html) | 固定提交的可交互组件、关系与源码证据；[JSON](architecture.json) |
-| [完整时序图](architecture-sequences.md) | 17 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
-| [源码与覆盖清单](architecture-sources.md) | 固定提交的 16 个顶层命令、35 条命令路径、122 个模块与旧 schema；[机器清单](architecture-coverage.json) |
-| [图表验证记录](architecture-validation.md) | 19 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
+| [完整时序图](architecture-sequences.md) | 30 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
+| [源码与覆盖清单](architecture-sources.md) | 20 个顶层命令、86 条命令路径、203 个模块与基础/可选契约；[机器清单](architecture-coverage.json) |
+| [图表验证记录](architecture-validation.md) | 32 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
 | [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
 | [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
 | [AI 校对与出版架构](ai-proofreading-architecture.md) | 固定提交的输入冻结、历史模板、完整版本、标签、审核、release 与三类导出 |

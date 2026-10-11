@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,7 +23,7 @@
         {
           "path": "src/bili_asr/cli/parser.py",
           "line": 11,
-          "end_line": 115,
+          "end_line": 138,
           "label": "build_parser"
         }
       ]
@@ -48,27 +48,8 @@
       ]
     },
     {
-      "id": "handler",
-      "label": "命令处理器",
-      "type": "backend",
-      "sources": [
-        {
-          "path": "src/bili_asr/cli/workflow.py",
-          "line": 147,
-          "end_line": 271,
-          "label": "_execute_workflow"
-        },
-        {
-          "path": "src/bili_asr/cli/publication.py",
-          "line": 60,
-          "end_line": 121,
-          "label": "_cmd_publication"
-        }
-      ]
-    },
-    {
       "id": "session",
-      "label": "ArchiveSession",
+      "label": "ArchiveSes",
       "type": "security",
       "sources": [
         {
@@ -82,6 +63,26 @@
           "line": 84,
           "end_line": 160,
           "label": "archive_access"
+        }
+      ],
+      "sublabel": "ArchiveSession 与产物根"
+    },
+    {
+      "id": "handler",
+      "label": "命令处理器",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 241,
+          "end_line": 420,
+          "label": "_execute_workflow"
+        },
+        {
+          "path": "src/bili_asr/cli/publication.py",
+          "line": 63,
+          "end_line": 134,
+          "label": "_cmd_publication"
         }
       ]
     },
@@ -98,14 +99,14 @@
         },
         {
           "path": "src/bili_asr/storage/database.py",
-          "line": 525,
-          "end_line": 537,
+          "line": 530,
+          "end_line": 550,
           "label": "initialize_schema"
         },
         {
           "path": "src/bili_asr/storage/database.py",
-          "line": 540,
-          "end_line": 561,
+          "line": 553,
+          "end_line": 582,
           "label": "require_archive_schema"
         }
       ]
@@ -114,203 +115,259 @@
   "messages": [
     {
       "id": "m1",
-      "from": "operator",
       "to": "cli",
-      "y": 180,
-      "label": "命令与参数",
-      "variant": "default"
+      "y": 235,
+      "label": "安装入口或 python -m bili_asr",
+      "variant": "default",
+      "note": "安装入口或 python -m bili_asr；解析命令与子命令；条件：主流程",
+      "from": "operator"
     },
     {
       "id": "m2",
-      "from": "cli",
       "to": "operator",
-      "y": 222,
-      "label": "帮助并退出",
-      "variant": "return"
+      "y": 366,
+      "label": "输出帮助并退出",
+      "variant": "return",
+      "note": "输出帮助并退出；条件：alt 无子命令或帮助请求",
+      "from": "cli"
     },
     {
       "id": "m3",
-      "from": "cli",
       "to": "session",
-      "y": 264,
-      "label": "独立文件/数据库策略",
-      "variant": "default"
+      "y": 497,
+      "label": "CommandSpec 独立声明 artifact …",
+      "variant": "default",
+      "note": "CommandSpec 独立声明 artifact 与 database 模式；子命令覆盖；条件：else 有效命令",
+      "from": "cli"
     },
     {
       "id": "m4",
-      "from": "cli",
       "to": "session",
-      "y": 306,
-      "label": "命令访问 lease",
-      "variant": "security"
+      "y": 628,
+      "label": "READ/WRITE/BOOTSTRAP 共享锁",
+      "variant": "default",
+      "note": "READ/WRITE/BOOTSTRAP 共享锁；MAINTENANCE 独占；覆盖整个命令调用；条件：else 有效命令 / opt 需要数据库访问",
+      "from": "cli"
     },
     {
       "id": "m5",
-      "from": "cli",
       "to": "handler",
-      "y": 348,
-      "label": "分派用例",
-      "variant": "default"
+      "y": 759,
+      "label": "分派已注册入口",
+      "variant": "default",
+      "note": "分派已注册入口；条件：else 有效命令",
+      "from": "cli"
     },
     {
       "id": "m6",
-      "from": "handler",
       "to": "session",
-      "y": 390,
-      "label": "显式 BOOTSTRAP",
-      "variant": "default"
+      "y": 890,
+      "label": "采集或全新 archive 初始化",
+      "variant": "default",
+      "note": "采集或全新 archive 初始化；条件：else 有效命令 / alt 显式 BOOTSTRAP",
+      "from": "handler"
     },
     {
       "id": "m7",
-      "from": "session",
       "to": "db",
-      "y": 432,
-      "label": "校验后初始化",
-      "variant": "default"
+      "y": 956,
+      "label": "按已登记 archive contract 分派",
+      "variant": "default",
+      "note": "按已登记 archive contract 分派；新空目标显式 universal-v2 bootstrap，旧 v1 保持兼容；条件：else 有效命令 / alt 显式 BOOTSTRAP",
+      "from": "session"
     },
     {
       "id": "m8",
-      "from": "handler",
       "to": "session",
-      "y": 474,
-      "label": "READ 或 WRITE",
-      "variant": "default"
+      "y": 1022,
+      "label": "返回配置连接",
+      "variant": "return",
+      "note": "返回配置连接；不兼容则 SchemaContractError；条件：else 有效命令 / alt 显式 BOOTSTRAP",
+      "from": "db"
     },
     {
       "id": "m9",
-      "from": "session",
-      "to": "db",
-      "y": 516,
-      "label": "现存契约；无 DDL",
-      "variant": "default"
+      "to": "session",
+      "y": 1153,
+      "label": "open_archive_connection",
+      "variant": "default",
+      "note": "open_archive_connection；RUNTIME 或 MANUSCRIPT 契约；条件：else 有效命令 / else READ 或 WRITE 已有运行库",
+      "from": "handler"
     },
     {
       "id": "m10",
-      "from": "handler",
-      "to": "session",
-      "y": 558,
-      "label": "索引专用 NONE",
-      "variant": "default"
+      "to": "db",
+      "y": 1219,
+      "label": "mode=ro/query_only 或 mode=rw",
+      "variant": "default",
+      "note": "mode=ro/query_only 或 mode=rw；busy timeout/foreign_keys；只读契约检查，无 DDL；条件：else 有效命令 / else READ 或 WRITE 已有运行库",
+      "from": "session"
     },
     {
       "id": "m11",
-      "from": "session",
-      "to": "db",
-      "y": 600,
-      "label": "保留历史 schema",
-      "variant": "default"
+      "to": "session",
+      "y": 1285,
+      "label": "有效连接",
+      "variant": "return",
+      "note": "有效连接；缺失或不兼容明确失败，不自动补库；条件：else 有效命令 / else READ 或 WRITE 已有运行库",
+      "from": "db"
     },
     {
       "id": "m12",
-      "from": "handler",
       "to": "session",
-      "y": 642,
-      "label": "旧源 MAINTENANCE",
-      "variant": "default"
+      "y": 1416,
+      "label": "READ/WRITE + NONE",
+      "variant": "default",
+      "note": "READ/WRITE + NONE；专用 store/index 形状检查；条件：else 有效命令 / else 专用历史索引",
+      "from": "handler"
     },
     {
       "id": "m13",
-      "from": "handler",
       "to": "db",
-      "y": 684,
-      "label": "固定旧契约只读",
-      "variant": "default"
+      "y": 1482,
+      "label": "保留旧 schema",
+      "variant": "default",
+      "note": "保留旧 schema；显式 build 只允许 FTS DDL，新空归档才 BOOTSTRAP；条件：else 有效命令 / else 专用历史索引",
+      "from": "session"
     },
     {
       "id": "m14",
-      "from": "session",
-      "to": "handler",
-      "y": 726,
-      "label": "配置连接；lease 绑定",
-      "variant": "return"
+      "to": "session",
+      "y": 1613,
+      "label": "显式源根",
+      "variant": "default",
+      "note": "显式源根；服务获取 MAINTENANCE 独占锁；条件：else 有效命令 / else archive migration-preflight",
+      "from": "handler"
     },
     {
       "id": "m15",
-      "from": "handler",
-      "to": "session",
-      "y": 768,
-      "label": "close 释放连接访问",
-      "variant": "default"
+      "to": "db",
+      "y": 1679,
+      "label": "immutable=1 / query_only",
+      "variant": "default",
+      "note": "immutable=1 / query_only；固定旧源契约，不调用 initializer；条件：else 有效命令 / else archive migration-preflight",
+      "from": "handler"
     },
     {
       "id": "m16",
-      "from": "handler",
-      "to": "cli",
-      "y": 810,
-      "label": "结果与诊断",
-      "variant": "return"
+      "to": "handler",
+      "y": 1810,
+      "label": "连接绑定维护访问 lease，程序化调用直到 clo…",
+      "variant": "return",
+      "note": "连接绑定维护访问 lease，程序化调用直到 close 才释放；条件：else 有效命令",
+      "from": "session"
     },
     {
       "id": "m17",
-      "from": "cli",
+      "to": "cli",
+      "y": 1876,
+      "label": "返回结果与退出码",
+      "variant": "return",
+      "note": "返回结果与退出码；条件：else 有效命令",
+      "from": "handler"
+    },
+    {
+      "id": "m18",
+      "to": "session",
+      "y": 1942,
+      "label": "关闭连接、释放命令访问",
+      "variant": "default",
+      "note": "关闭连接、释放命令访问；嵌套用户引用计数支持非 LIFO 关闭；条件：else 有效命令",
+      "from": "cli"
+    },
+    {
+      "id": "m19",
       "to": "operator",
-      "y": 852,
-      "label": "退出码",
-      "variant": "return"
+      "y": 2008,
+      "label": "结果与诊断按各命令契约输出",
+      "variant": "return",
+      "note": "结果与诊断按各命令契约输出；BUSY/LOCKED 超时给出可恢复诊断；条件：else 有效命令",
+      "from": "cli"
     }
   ],
   "segments": [
     {
-      "from": 210,
-      "to": 234,
-      "label": "B01 alt 帮助"
+      "from": 207,
+      "to": 281,
+      "label": "B1 · 主流程"
     },
     {
-      "from": 252,
-      "to": 360,
-      "label": "B02 else 有效命令"
+      "from": 338,
+      "to": 412,
+      "label": "B2 · alt 无子命令或帮助请求"
     },
     {
-      "from": 378,
-      "to": 444,
-      "label": "B03 alt BOOTSTRAP"
+      "from": 469,
+      "to": 543,
+      "label": "B3 · else 有效命令"
     },
     {
-      "from": 462,
-      "to": 528,
-      "label": "B04 else READ/WRITE"
+      "from": 600,
+      "to": 674,
+      "label": "B4 · opt 需要数据库访问"
     },
     {
-      "from": 546,
-      "to": 612,
-      "label": "B05 else 历史索引"
+      "from": 731,
+      "to": 805,
+      "label": "B5 · else 有效命令"
     },
     {
-      "from": 630,
-      "to": 696,
-      "label": "B06 else 迁移源"
+      "from": 862,
+      "to": 1068,
+      "label": "B6 · alt 显式 BOOTSTRAP"
     },
     {
-      "from": 714,
-      "to": 864,
-      "label": "B07 返回与释放"
+      "from": 1125,
+      "to": 1331,
+      "label": "B7 · else READ 或 WRITE 已有运行库"
+    },
+    {
+      "from": 1388,
+      "to": 1528,
+      "label": "B8 · else 专用历史索引"
+    },
+    {
+      "from": 1585,
+      "to": 1725,
+      "label": "B9 · else archive migration-pref"
+    },
+    {
+      "from": 1782,
+      "to": 2049,
+      "label": "B10 · else 有效命令"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "访问与契约",
+      "title": "完整条件路径",
       "items": [
-        "READ 为 mode=ro/query_only，WRITE 为现存库 mode=rw；两者不调用 initializer 或刷新视图。",
-        "BOOTSTRAP 是显式初始化入口；RUNTIME/MANUSCRIPT 用读操作验证业务契约，NONE 保留专用历史校验。",
-        "search-index 已有库只加 FTS，新空归档才 bootstrap；status/runs 与 workflow 查询不因查询新建 archive.db。"
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt 无子命令或帮助请求",
+        "B3 条件路径：else 有效命令",
+        "B4 条件路径：else 有效命令 / opt 需要数据库访问",
+        "B5 条件路径：else 有效命令",
+        "B6 条件路径：else 有效命令 / alt 显式 BOOTSTRAP",
+        "B7 条件路径：else 有效命令 / else READ 或 WRITE 已有运行库",
+        "B8 条件路径：else 有效命令 / else 专用历史索引",
+        "B9 条件路径：else 有效命令 / else archive migration-preflight",
+        "B10 条件路径：else 有效命令"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "内部动作",
+      "items": [
+        "ArchiveSession 与产物根：flag > BILI_ARTIFACT_ROOT > archive root；WRITE 检查可写性；metadata search 跳过产物探测（else 有效命令 / opt 需要产物根）"
       ]
     },
     {
       "dot": "rose",
-      "title": "锁与内部动作",
+      "title": "身份与阅读边界",
       "items": [
-        "READ/WRITE/BOOTSTRAP 共享维护访问，MAINTENANCE 独占；CLI 协调整次调用，连接持有独立 session 到 close。",
-        "嵌套访问引用计数支持连接非 LIFO 关闭；失败契约检查也 close，跨线程关闭失败保留原 lease。",
-        "路径解析 flag > BILI_ARTIFACT_ROOT > archive root；metadata search 跳过产物根探测；SQLite 决定事务写顺序。"
-      ]
-    },
-    {
-      "dot": "slate",
-      "title": "条件阅读",
-      "items": [
-        "B01 与 B02 互斥；B03/B04/B05/B06 是命令选择的互斥访问路径。完整内部动作与异常见同名 Markdown。",
-        "16 个注册顶层命令；archive migration-preflight 使用显式源根与固定旧契约，不运行当前 initializer。"
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]

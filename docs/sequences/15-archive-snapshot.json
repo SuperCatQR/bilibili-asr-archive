@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -17,26 +17,27 @@
   "participants": [
     {
       "id": "cli",
-      "label": "snapshot 命令",
+      "label": "snapsho",
       "type": "frontend",
       "sources": [
         {
           "path": "src/bili_asr/cli/snapshot.py",
-          "line": 29,
-          "end_line": 47,
+          "line": 47,
+          "end_line": 87,
           "label": "_cmd_snapshot"
         },
         {
           "path": "src/bili_asr/cli/registry.py",
           "line": 1,
-          "end_line": 65,
-          "label": "模块边界"
+          "end_line": 76,
+          "label": "模块定义"
         }
-      ]
+      ],
+      "sublabel": "snapshot 命令"
     },
     {
       "id": "access",
-      "label": "维护访问",
+      "label": "Archive",
       "type": "security",
       "sources": [
         {
@@ -51,7 +52,8 @@
           "end_line": 160,
           "label": "archive_access"
         }
-      ]
+      ],
+      "sublabel": "ArchiveSes"
     },
     {
       "id": "service",
@@ -60,20 +62,20 @@
       "sources": [
         {
           "path": "src/bili_asr/services/archive_snapshot.py",
-          "line": 157,
-          "end_line": 221,
+          "line": 172,
+          "end_line": 257,
           "label": "save_snapshot"
         },
         {
           "path": "src/bili_asr/services/archive_snapshot.py",
-          "line": 317,
-          "end_line": 323,
+          "line": 370,
+          "end_line": 376,
           "label": "check_snapshot"
         },
         {
           "path": "src/bili_asr/services/archive_snapshot.py",
-          "line": 335,
-          "end_line": 360,
+          "line": 388,
+          "end_line": 454,
           "label": "restore_snapshot"
         }
       ]
@@ -85,20 +87,20 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/snapshots.py",
-          "line": 182,
-          "end_line": 206,
+          "line": 213,
+          "end_line": 237,
           "label": "create_database_snapshot"
         },
         {
           "path": "src/bili_asr/storage/snapshots.py",
-          "line": 235,
-          "end_line": 294,
+          "line": 266,
+          "end_line": 367,
           "label": "required_artifacts"
         },
         {
           "path": "src/bili_asr/storage/snapshots.py",
-          "line": 297,
-          "end_line": 343,
+          "line": 390,
+          "end_line": 441,
           "label": "recover_interrupted_jobs"
         }
       ]
@@ -122,8 +124,8 @@
         },
         {
           "path": "src/bili_asr/services/archive_snapshot.py",
-          "line": 291,
-          "end_line": 314,
+          "line": 327,
+          "end_line": 350,
           "label": "_validate_into"
         }
       ]
@@ -132,234 +134,250 @@
   "messages": [
     {
       "id": "m1",
-      "from": "cli",
       "to": "access",
-      "y": 180,
-      "label": "声明维护访问策略",
-      "variant": "security"
+      "y": 235,
+      "label": "CommandSpec 声明 save/restor…",
+      "variant": "default",
+      "note": "CommandSpec 声明 save/restore MAINTENANCE；check 无档案连接；稳定锁位于根旁；条件：主流程",
+      "from": "cli"
     },
     {
       "id": "m2",
-      "from": "cli",
       "to": "service",
-      "y": 220,
-      "label": "调用快照服务",
-      "variant": "default"
+      "y": 301,
+      "label": "选择 save/check/restore",
+      "variant": "default",
+      "note": "选择 save/check/restore；服务库入口也独立取得维护访问；条件：主流程",
+      "from": "cli"
     },
     {
       "id": "m3",
-      "from": "service",
       "to": "access",
-      "y": 300,
-      "label": "取得独占维护访问",
-      "variant": "security"
+      "y": 432,
+      "label": "MAINTENANCE.access",
+      "variant": "default",
+      "note": "MAINTENANCE.access；排除全部 Session reader/writer/heartbeat；持锁直到安装结束；条件：alt save",
+      "from": "service"
     },
     {
       "id": "m4",
-      "from": "service",
       "to": "db",
-      "y": 340,
-      "label": "校验并拒绝活跃 job",
-      "variant": "default"
+      "y": 498,
+      "label": "无 DDL 校验 schema/integrity/FK",
+      "variant": "security",
+      "note": "无 DDL 校验 schema/integrity/FK；拒绝有效 lease 的 running job；条件：alt save",
+      "from": "service"
     },
     {
       "id": "m5",
-      "from": "service",
       "to": "files",
-      "y": 380,
-      "label": "共享产物清单规则",
-      "variant": "default"
+      "y": 564,
+      "label": "artifact_inventory.collect…",
+      "variant": "default",
+      "note": "artifact_inventory.collect_artifacts；配置产物根优先，档案根回退；递归拒绝暂存、链接与碰撞；条件：alt save",
+      "from": "service"
     },
     {
       "id": "m6",
-      "from": "service",
       "to": "db",
-      "y": 420,
-      "label": "SQLite 有界备份",
-      "variant": "default"
+      "y": 630,
+      "label": "SQLite backup",
+      "variant": "security",
+      "note": "SQLite backup；有界 busy deadline；备份后再次校验 schema/FK 并拒绝活跃 job；条件：alt save",
+      "from": "service"
     },
     {
       "id": "m7",
-      "from": "service",
       "to": "files",
-      "y": 500,
-      "label": "有界流式保存",
-      "variant": "default"
+      "y": 761,
+      "label": "stream_hash 每次最多 1MiB",
+      "variant": "security",
+      "note": "stream_hash 每次最多 1MiB；边写 ZIP 边 hash；读前/open/读后身份核对；每文件 size/SHA-256；条件：alt save / loop archive.db 与全部已选物理产物",
+      "from": "service"
     },
     {
       "id": "m8",
-      "from": "service",
       "to": "db",
-      "y": 580,
-      "label": "读取全部产物引用",
-      "variant": "default"
+      "y": 892,
+      "label": "required_artifacts",
+      "variant": "security",
+      "note": "required_artifacts；音频、成功 attempt、完整 bundle/marker、双稿、全部历史 release；条件：alt save",
+      "from": "service"
     },
     {
       "id": "m9",
-      "from": "service",
       "to": "files",
-      "y": 620,
-      "label": "持久安装新 ZIP",
-      "variant": "default"
+      "y": 958,
+      "label": "加入 manifest",
+      "variant": "default",
+      "note": "加入 manifest；复核 ZIP 内全部 marker；fsync 后不覆盖安装到根外新目标；条件：alt save",
+      "from": "service"
     },
     {
       "id": "m10",
-      "from": "service",
       "to": "access",
-      "y": 660,
-      "label": "清理并释放访问",
-      "variant": "security"
+      "y": 1024,
+      "label": "退出维护上下文",
+      "variant": "default",
+      "note": "退出维护上下文；stage 清理；临时 DB 不建立持久锁文件；条件：alt save",
+      "from": "service"
     },
     {
       "id": "m11",
-      "from": "service",
       "to": "files",
-      "y": 740,
-      "label": "离线校验 ZIP",
-      "variant": "default"
+      "y": 1155,
+      "label": "严格 portable 路径、成员集合/size/h…",
+      "variant": "default",
+      "note": "严格 portable 路径、成员集合/size/hash、公共 bundle basenames/marker；仅提取临时 DB；条件：else check",
+      "from": "service"
     },
     {
       "id": "m12",
-      "from": "service",
       "to": "db",
-      "y": 780,
-      "label": "只读验证临时 DB",
-      "variant": "default"
+      "y": 1221,
+      "label": "校验 snapshot contract 与所有 r…",
+      "variant": "security",
+      "note": "校验 snapshot contract 与所有 references；不创建持久档案，不刷新源 schema；条件：else check",
+      "from": "service"
     },
     {
       "id": "m13",
-      "from": "service",
       "to": "access",
-      "y": 860,
-      "label": "锁住新或空目标",
-      "variant": "security"
+      "y": 1352,
+      "label": "MAINTENANCE.access 允许新目标",
+      "variant": "default",
+      "note": "MAINTENANCE.access 允许新目标；目标不存在或为空；稳定锁不随 rename 移动；条件：else restore",
+      "from": "service"
     },
     {
       "id": "m14",
-      "from": "service",
       "to": "files",
-      "y": 900,
-      "label": "解包并校验 staging",
-      "variant": "default"
+      "y": 1418,
+      "label": "ZIP 解包到 staging",
+      "variant": "security",
+      "note": "ZIP 解包到 staging；校验全部 manifest/hash/marker/reference；通过后才允许恢复任务；条件：else restore",
+      "from": "service"
     },
     {
       "id": "m15",
-      "from": "service",
       "to": "db",
-      "y": 940,
-      "label": "恢复 job 与 attempt",
-      "variant": "default"
+      "y": 1484,
+      "label": "running attempt failed/sna…",
+      "variant": "security",
+      "note": "running attempt failed/snapshot_restored；running job queued；清 lease；cancelled 保留；条件：else restore",
+      "from": "service"
     },
     {
       "id": "m16",
-      "from": "service",
       "to": "db",
-      "y": 980,
-      "label": "记录未完成调用",
-      "variant": "default"
+      "y": 1550,
+      "label": "未完成 ingestion/acquisition 失败",
+      "variant": "default",
+      "note": "未完成 ingestion/acquisition 失败；未结束 model call 记录恢复原因；只改恢复 staging；条件：else restore",
+      "from": "service"
     },
     {
       "id": "m17",
-      "from": "service",
       "to": "db",
-      "y": 1020,
-      "label": "复验并 fsync",
-      "variant": "default"
+      "y": 1616,
+      "label": "再次 schema/FK 校验并 fsync",
+      "variant": "security",
+      "note": "再次 schema/FK 校验并 fsync；条件：else restore",
+      "from": "service"
     },
     {
       "id": "m18",
-      "from": "service",
       "to": "files",
-      "y": 1060,
-      "label": "安装恢复根",
-      "variant": "default"
+      "y": 1682,
+      "label": "暂存 rename 为恢复 root",
+      "variant": "default",
+      "note": "暂存 rename 为恢复 root；产物合并到恢复根；不覆盖旧档案；条件：else restore",
+      "from": "service"
     },
     {
       "id": "m19",
-      "from": "service",
       "to": "access",
-      "y": 1100,
-      "label": "释放目标访问",
-      "variant": "security"
+      "y": 1748,
+      "label": "释放目标维护访问并清理 staging",
+      "variant": "default",
+      "note": "释放目标维护访问并清理 staging；条件：else restore",
+      "from": "service"
     },
     {
       "id": "m20",
-      "from": "service",
       "to": "cli",
-      "y": 1180,
-      "label": "返回统计或失败",
-      "variant": "return"
+      "y": 1879,
+      "label": "返回快照或恢复统计",
+      "variant": "return",
+      "note": "返回快照或恢复统计；任一校验失败立即停止并释放已持访问；条件：主流程",
+      "from": "service"
     }
   ],
   "segments": [
     {
-      "from": 288,
-      "to": 440,
-      "label": "B01 alt save"
+      "from": 207,
+      "to": 347,
+      "label": "B1 · 主流程"
     },
     {
-      "from": 488,
-      "to": 520,
-      "label": "B02 alt save → loop archive.db 与全部已选物理产物"
+      "from": 404,
+      "to": 676,
+      "label": "B2 · alt save"
     },
     {
-      "from": 568,
-      "to": 680,
-      "label": "B03 alt save"
+      "from": 733,
+      "to": 807,
+      "label": "B3 · loop archive.db 与全部已选物理产物"
     },
     {
-      "from": 728,
-      "to": 800,
-      "label": "B04 else check"
+      "from": 864,
+      "to": 1070,
+      "label": "B4 · alt save"
     },
     {
-      "from": 848,
-      "to": 1120,
-      "label": "B05 else restore"
+      "from": 1127,
+      "to": 1267,
+      "label": "B5 · else check"
+    },
+    {
+      "from": 1324,
+      "to": 1794,
+      "label": "B6 · else restore"
+    },
+    {
+      "from": 1851,
+      "to": 1920,
+      "label": "B7 · 主流程"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "边界与恢复",
+      "title": "完整条件路径",
       "items": [
-        "MAINTENANCE 由统一 ArchiveSession 取得独占访问；普通查询、写入和心跳连接均持有共享访问直至 close。外部直接 SQLite writer 仍必须由操作者停止。",
-        "artifact_inventory 统一路径、冲突、临时文件和有界流式 hash；artifacts 公开 BUNDLE_BASENAMES/BUNDLE_MARKER_NAME/owns_bundle_paths，维护服务不导入 archive 私有实现。",
-        "快照 storage 通过 storage.publication 的公开 identity reader 校验历史 release；纯 publication_identity 验证准确审核、事件、path/hash 和固定 renderer，无反向 application 依赖。",
-        "check 不打开持久 archive Session。stage DB 使用共享 connect_database 配置且不创建邻接维护锁；恢复只改 staging，成功后才发布目标根。"
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt save",
+        "B3 条件路径：alt save / loop archive.db 与全部已选物理产物",
+        "B4 条件路径：alt save",
+        "B5 条件路径：else check",
+        "B6 条件路径：else restore",
+        "B7 条件路径：主流程"
       ]
     },
     {
-      "dot": "slate",
-      "title": "完整条件与操作",
+      "dot": "emerald",
+      "title": "内部动作",
       "items": [
-        "m1：共同步骤；CommandSpec 声明 save/restore MAINTENANCE；check 无档案连接；稳定锁位于根旁",
-        "m2：共同步骤；选择 save/check/restore；服务库入口也独立取得维护访问",
-        "m3：alt save；MAINTENANCE.access；排除全部 Session reader/writer/heartbeat；持锁直到安装结束",
-        "m4：alt save；无 DDL 校验 schema/integrity/FK；拒绝有效 lease 的 running job",
-        "m5：alt save；artifact_inventory.collect_artifacts；配置产物根优先，档案根回退；递归拒绝暂存、链接与碰撞",
-        "m6：alt save；SQLite backup；有界 busy deadline；备份后再次校验 schema/FK 并拒绝活跃 job",
-        "m7：alt save → loop archive.db 与全部已选物理产物；stream_hash 每次最多 1MiB；边写 ZIP 边 hash；读前/open/读后身份核对；每文件 size/SHA-256",
-        "m8：alt save；required_artifacts；音频、成功 attempt、完整 bundle/marker、双稿、全部历史 release",
-        "m9：alt save；加入 manifest；复核 ZIP 内全部 marker；fsync 后不覆盖安装到根外新目标",
-        "m10：alt save；退出维护上下文；stage 清理；临时 DB 不建立持久锁文件",
-        "m11：else check；严格 portable 路径、成员集合/size/hash、公共 bundle basenames/marker；仅提取临时 DB",
-        "m12：else check；校验 snapshot contract 与所有 references；不创建持久档案，不刷新源 schema",
-        "m13：else restore；MAINTENANCE.access 允许新目标；目标不存在或为空；稳定锁不随 rename 移动",
-        "m14：else restore；ZIP 解包到 staging；校验全部 manifest/hash/marker/reference；通过后才允许恢复任务",
-        "m15：else restore；running attempt failed/snapshot_restored；running job queued；清 lease；cancelled 保留",
-        "m16：else restore；未完成 ingestion/acquisition 失败；未结束 model call 记录恢复原因；只改恢复 staging",
-        "m17：else restore；再次 schema/FK 校验并 fsync",
-        "m18：else restore；暂存 rename 为恢复 root；产物合并到恢复根；不覆盖旧档案",
-        "m19：else restore；释放目标维护访问并清理 staging",
-        "m20：共同步骤；返回快照或恢复统计；任一校验失败立即停止并释放已持访问"
+        "数据库与身份：storage.publication.verify_release_identity 读取准确 edition/review/events；纯 publication_identity 验证历史 renderer（alt save）"
       ]
     },
     {
-      "dot": "amber",
-      "title": "参与者内部动作",
+      "dot": "rose",
+      "title": "身份与阅读边界",
       "items": [
-        "数据库与身份：storage.publication.verify_release_identity 读取准确 edition/review/events；纯 publication_identity 验证历史 renderer"
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]

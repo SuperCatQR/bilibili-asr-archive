@@ -1,6 +1,6 @@
 # 字幕候选、可信证据与独立 ASR
 
-源码基线：`857906d3b3c54b31fd9bc0ba94b84618f68cd6f3`。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 对应 issue #285 的字幕结果分类与旧依赖修复；旧文档中的历史基线不被本图替换。
 
 [交互时序图](22-subtitle-candidates.html) · [Archify 规格](22-subtitle-candidates.json) · [全部时序图](../architecture-sequences.md)

@@ -4982,12 +4982,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       </div>
     </div>
 
-    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"857906d3b3c54b31fd9bc0ba94b84618f68cd6f3","shortRevision":"857906d","label":"SuperCatQR/bilibili-asr-archive","href":"https://github.com/SuperCatQR/bilibili-asr-archive/tree/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3"},"referenceCount":13,"nodes":{"cli":[{"path":"src/bili_asr/cli/parser.py","line":38,"endLine":73,"label":"增量、字段和预算参数","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/cli/parser.py#L38-L73"},{"path":"src/bili_asr/cli/meta.py","line":14,"endLine":141,"label":"分页及定向刷新入口","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/cli/meta.py#L14-L141"}],"service":[{"path":"src/bili_asr/services/metadata_ingest.py","line":240,"endLine":583,"label":"起点、页 fan-out、失败及提交","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/metadata_ingest.py#L240-L583"},{"path":"src/bili_asr/services/metadata_refresh.py","line":30,"endLine":151,"label":"选中操作与失败恢复","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/metadata_refresh.py#L30-L151"},{"path":"src/bili_asr/services/metadata_refresh.py","line":153,"endLine":202,"label":"成功时间和字段写入","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/metadata_refresh.py#L153-L202"}],"policy":[{"path":"src/bili_asr/metadata_policy.py","line":9,"endLine":45,"label":"new/missing/stale/force 与观察","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/metadata_policy.py#L9-L45"}],"gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":915,"endLine":948,"label":"元数据字段和复用 pages","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/sources/bilibili_api_gateway.py#L915-L948"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":956,"endLine":1026,"label":"typed TagRead 与受控错误","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/sources/bilibili_api_gateway.py#L956-L1026"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":1276,"endLine":1295,"label":"请求范围与共享协调器","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/sources/bilibili_api_gateway.py#L1276-L1295"}],"budget":[{"path":"src/bili_asr/request_budget.py","line":14,"endLine":79,"label":"计数、超时、冷却与重试等待","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/request_budget.py#L14-L79"}],"repo":[{"path":"src/bili_asr/storage/metadata.py","line":365,"endLine":420,"label":"字段保留与观察账本","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/metadata.py#L365-L420"},{"path":"src/bili_asr/storage/metadata.py","line":545,"endLine":720,"label":"整页原子提交与失败证据","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/metadata.py#L545-L720"},{"path":"src/bili_asr/storage/schema-observations.sql","line":1,"endLine":22,"label":"显式 v2 观察与 attempts","href":"https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/schema-observations.sql#L1-L22"}]}}</script>
+    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"4f073318c944add37417416155845e55247f9bc1","shortRevision":"4f07331","label":"SuperCatQR/bilibili-asr-archive","linkMode":"local-only"},"referenceCount":13,"nodes":{"CLI":[{"path":"src/bili_asr/cli/parser.py","line":11,"endLine":138,"label":"build_parser"},{"path":"src/bili_asr/cli/meta.py","line":14,"endLine":104,"label":"_cmd_fetch_meta"}],"Service":[{"path":"src/bili_asr/services/metadata_ingest.py","line":243,"endLine":251,"label":"MetadataIngestor.replay_page"},{"path":"src/bili_asr/services/metadata_refresh.py","line":31,"endLine":53,"label":"MetadataRefreshService.refresh"},{"path":"src/bili_asr/services/metadata_refresh.py","line":165,"endLine":186,"label":"MetadataRefreshService._needs_read"}],"Policy":[{"path":"src/bili_asr/metadata_policy.py","line":8,"endLine":28,"label":"MetadataRefreshPolicy"}],"Gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":915,"endLine":948,"label":"BilibiliApiGateway.get_video_metadata"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":956,"endLine":1026,"label":"BilibiliApiGateway.read_video_tags"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":1276,"endLine":1295,"label":"BilibiliApiGateway._await_upstream"}],"Budget":[{"path":"src/bili_asr/request_budget.py","line":14,"endLine":79,"label":"RequestScheduler"}],"Repo":[{"path":"src/bili_asr/storage/metadata.py","line":365,"endLine":384,"label":"MetadataRepository.observe_video_details"},{"path":"src/bili_asr/storage/metadata.py","line":545,"endLine":687,"label":"MetadataRepository.record_page"},{"path":"src/bili_asr/storage/schema-observations.sql","line":1,"endLine":22,"label":"模块定义"}]}}</script>
     <script id="archify-i18n-data" type="application/json">{"locale":"zh-CN","messages":{"viewer.kind.frontend":"前端","viewer.kind.backend":"后端","viewer.kind.database":"数据库","viewer.kind.cloud":"云服务","viewer.kind.security":"安全","viewer.kind.messagebus":"消息总线","viewer.kind.external":"外部系统","viewer.kind.neutral":"中性","viewer.kind.node":"节点","viewer.kind.start":"开始","viewer.kind.active":"活动","viewer.kind.waiting":"等待","viewer.kind.decision":"决策","viewer.kind.success":"成功","viewer.kind.failure":"失败","viewer.toolbar.actions":"图表操作","viewer.theme.toggle.title":"切换主题（T）","viewer.theme.toggle":"切换颜色主题","viewer.theme.dark":"深色","viewer.theme.light":"浅色","viewer.preset.choose.title":"选择视觉风格（S 循环切换）","viewer.preset.choose":"选择视觉风格","viewer.preset.style":"风格","viewer.preset.menu":"视觉风格","viewer.preset.identity":"视觉表达","viewer.preset.cycles":"循环切换","viewer.preset.classic":"经典","viewer.preset.classic.short":"经典","viewer.preset.classic.hint":"稳定的技术默认风格","viewer.preset.flow":"信号流","viewer.preset.flow.short":"流动","viewer.preset.flow.hint":"突出动态流向","viewer.preset.blueprint":"蓝图","viewer.preset.blueprint.hint":"工程评审","viewer.preset.editorial":"编辑风格","viewer.preset.editorial.hint":"适合发布与上线说明","viewer.preset.badge.signalFlow":"信号流","viewer.preset.badge.blueprint":"蓝图 / 修订 01","viewer.preset.badge.editorial":"编辑风格 / 现场笔记","viewer.preset.badge.editorialPlate":"ARCHIFY / 图版 04","viewer.preset.current":"当前视觉风格：{style}。选择视觉风格","viewer.motion.live":"动态","viewer.motion.still":"静态","viewer.motion.pause":"暂停动效","viewer.motion.resume":"恢复动效","viewer.motion.reduced":"已根据减少动态效果偏好暂停动效","viewer.motion.hidden":"页面不可见时已暂停动效","viewer.motion.yielding":"暂停动效；当前让位于{owner}","viewer.motion.yielding.title":"动态预览已启用 · 正在让位于{owner}","viewer.owner.route":"路径探测","viewer.owner.lens":"语义透镜","viewer.owner.relationship":"关系预览","viewer.owner.intent":"意图追踪","viewer.owner.focus":"语义聚焦","viewer.owner.legend":"图例预览","viewer.owner.reader":"读者交互","viewer.present.enter":"进入演示模式","viewer.present.enter.title":"演示模式（F）","viewer.present.exit":"退出演示模式","viewer.present.exit.title":"退出演示模式（F 或 Escape）","viewer.present.present":"演示","viewer.present.exit.label":"退出","viewer.export.button":"导出","viewer.export.button.title":"导出图表（E）","viewer.export.diagram":"导出图表","viewer.export.menu":"导出","viewer.export.subtitle":"便携、整洁的输出","viewer.export.share":"分享","viewer.export.shareCard":"分享卡片","viewer.export.routeShareCard":"路径分享卡片","viewer.export.reachShareCard":"可达范围分享卡片","viewer.export.copyDiagram":"复制图表","viewer.export.clipboardPng":"复制 PNG 到剪贴板","viewer.export.raster":"位图","viewer.export.image":"图像","viewer.export.lossless":"无损图像","viewer.export.compact":"紧凑图像","viewer.export.modern":"现代图像格式","viewer.export.vectorMotion":"矢量与动效","viewer.export.vectorMotion.heading":"矢量与动效","viewer.export.editable":"可编辑矢量图","viewer.export.svg.auto":"SVG · 自动","viewer.export.svg.auto.hint":"匹配宿主主题","viewer.export.svg.light":"SVG · 浅色","viewer.export.svg.light.hint":"始终浅色","viewer.export.svg.dark":"SVG · 深色","viewer.export.svg.dark.hint":"始终深色","viewer.export.motion6s":"6 秒动效","viewer.export.unsupported":"当前浏览器不支持","viewer.export.clipboardUnsupported":"当前浏览器不支持写入图片剪贴板","viewer.export.clipboardUnsupported.short":"此浏览器不支持写入图片剪贴板。","viewer.export.motionUnavailable":"当前浏览器无法录制动效","viewer.export.webmUnavailable":"当前浏览器不支持 WebM","viewer.export.failed":"导出失败：{message}","viewer.export.unknownVariant":"未知的分享卡片类型：{variant}","viewer.export.routeRequired":"请先追踪路径，再导出路径分享卡片","viewer.export.reachRequired":"请先追踪编写可达范围，再导出可达范围分享卡片","viewer.export.unknown":"未知错误","viewer.export.routeFailed":"路径分享卡片导出失败：{message}","viewer.export.reachFailed":"可达范围分享卡片导出失败：{message}","viewer.export.copyFailed":"复制失败：{message}","viewer.export.copiedPng":"已将 PNG 复制到剪贴板","viewer.export.downloadedRoute":"已下载路径分享卡片","viewer.export.downloadedReach":"已下载可达范围分享卡片","viewer.export.downloadedWebm":"已下载 WebM","viewer.export.recording":"正在录制 6 秒动效…","viewer.export.card.routeSummary.one":"路径：{source} → {target} · {count} 步","viewer.export.card.routeSummary.other":"路径：{source} → {target} · {count} 步","viewer.export.card.reachSummary":"从{origin}开始的编写{direction} · {nodes} · {links} · 最深 {hops}","viewer.export.card.node.one":"{count} 个节点","viewer.export.card.node.other":"{count} 个节点","viewer.export.card.link.one":"{count} 条连接","viewer.export.card.link.other":"{count} 条连接","viewer.export.card.hop.one":"{count} 跳","viewer.export.card.hop.other":"{count} 跳","viewer.export.card.routeBadge":"ARCHIFY · 路径 · {hops}","viewer.export.card.reachBadge":"ARCHIFY · {direction}可达范围","viewer.export.direction.upstream":"上游","viewer.export.direction.downstream":"下游","viewer.export.error.canvasUnavailable":"无法为{label}使用画布","viewer.export.error.contextUnavailable":"无法为{label}创建二维画布上下文","viewer.export.error.toBlobUnavailable":"{label}无法使用 canvas.toBlob","viewer.export.error.toBlobNull":"{label}的 canvas.toBlob 未返回数据","viewer.export.error.variantsCombined":"无法同时组合多种分享卡片类型","viewer.export.error.viewerState":"分享卡片导出无法移除临时 Viewer 状态","viewer.export.error.routeState":"路径卡片导出无法安全保留已解析路径","viewer.export.error.reachState":"可达范围卡片导出无法安全保留编写的可达范围","viewer.export.error.webmRequirements":"WebM 动效导出需要追踪动画及浏览器 MediaRecorder 支持","viewer.export.error.mediaRecorder":"MediaRecorder 录制失败","viewer.export.error.emptyWebm":"MediaRecorder 生成了空的 WebM","viewer.export.error.webmBackground":"无法为 WebM 导出加载 SVG 背景","viewer.guide.title":"探索此系统","viewer.focus.selectedNodes":"已选择 {count} 个节点","viewer.guide.eyebrow":"图表指南","viewer.guide.close":"关闭图表指南","viewer.guide.inspecting":"正在检查已编译语义","viewer.guide.actions":"图表探索操作","viewer.guide.find":"查找任意节点","viewer.guide.find.hint":"搜索标签、职责、类型和稳定 ID。","viewer.guide.route":"追踪路径","viewer.guide.route.aria":"追踪有向路径","viewer.guide.route.hint":"查看两个语义节点如何按编写方向连接。","viewer.guide.map":"查看完整系统","viewer.guide.map.hint":"打开带实时视口和稳定节点的语义雷达。","viewer.guide.lens":"比较语义类型","viewer.guide.lens.hint":"统计角色、显示流量并比较直接编写的连接。","viewer.guide.present":"进入演示模式","viewer.guide.present.hint":"让实时图表占满视口，同时不改变导出。","viewer.guide.shortcuts":"其他键盘快捷键","viewer.guide.shortcut.export":"导出","viewer.guide.shortcut.theme":"主题","viewer.guide.shortcut.style":"风格","viewer.guide.shortcut.reset":"重置","viewer.guide.shortcut.zoomIn":"放大","viewer.guide.shortcut.zoomOut":"缩小","viewer.guide.shortcut.close":"关闭","viewer.guide.facts":"{nodes} · {relationships}","viewer.guide.fact.node.one":"{count} 个语义节点","viewer.guide.fact.node.other":"{count} 个语义节点","viewer.guide.fact.relationship.one":"{count} 条关系","viewer.guide.fact.relationship.other":"{count} 条关系","viewer.guide.open":"打开图表指南","viewer.finder.title":"查找节点","viewer.finder.close":"关闭节点查找器","viewer.finder.placeholder":"搜索标签或 ID","viewer.finder.search":"搜索图表节点","viewer.finder.results":"图表节点","viewer.finder.empty":"没有匹配的节点","viewer.finder.result.focus":"聚焦{label}","viewer.finder.result.routeStart":"选择{label}作为路径起点","viewer.finder.result.routeTarget":"选择{label}作为路径终点，{links}","viewer.finder.status.empty":"没有匹配的节点","viewer.finder.status.count.one":"{count} 个匹配节点","viewer.finder.status.count.other":"{count} 个匹配节点","viewer.finder.noun.nodes":"个节点","viewer.finder.link.one":"{count} 条连接","viewer.finder.link.other":"{count} 条连接","viewer.finder.result.focus.one":"聚焦{label}，{count} 条相关连接","viewer.finder.result.focus.other":"聚焦{label}，{count} 条相关连接","viewer.finder.status.filtered":"{visible}/{available} {noun}","viewer.finder.status.all":"{available} {noun}","viewer.passport.eyebrow":"语义护照","viewer.passport.metadata":"节点元数据","viewer.passport.evidence":"已验证的源代码证据","viewer.passport.verified":"已验证来源","viewer.passport.verificationScope":"已按固定修订版本验证本地 Git 证据，未检查远程访问权限。","viewer.passport.reach":"编写可达范围","viewer.passport.reach.trace":"追踪编写的可达性","viewer.passport.upstream":"上游","viewer.passport.downstream":"下游","viewer.passport.upstream.trace":"追踪上游编写可达性","viewer.passport.downstream.trace":"追踪下游编写可达性","viewer.passport.close":"关闭语义护照","viewer.passport.move":"移动语义护照。可拖动、使用方向键移动，或按 Home 恢复自动位置。","viewer.passport.copy":"复制链接","viewer.passport.copy.focus":"复制聚焦节点的链接","viewer.passport.relations":"关系","viewer.passport.relations.show":"显示关联关系","viewer.passport.relations.hide":"隐藏关联关系","viewer.passport.relations.list":"关联关系","viewer.passport.copyRelation":"复制关系","viewer.passport.copyNode":"复制节点","viewer.passport.copyPinned":"复制固定关系的链接","viewer.passport.copySource":"复制来源节点的链接","viewer.passport.copy.focused.success":"已复制聚焦节点链接","viewer.passport.copy.pinned.success":"已复制固定关系链接","viewer.passport.copy.focused.failed":"无法复制聚焦节点链接","viewer.passport.copy.pinned.failed":"无法复制固定关系链接","viewer.passport.relationship.none":"没有关联关系","viewer.passport.relationship.count.one":"{count} 条关系","viewer.passport.relationship.count.other":"{count} 条关系","viewer.passport.relationship.show.one":"显示 {count} 条关联关系","viewer.passport.relationship.show.other":"显示 {count} 条关联关系","viewer.passport.relationship.summary":"{out} 条出向 · {in} 条入向{loops}","viewer.passport.relationship.loops":" · {count} 条自环","viewer.passport.relationship.explorer":"直接关系浏览器","viewer.passport.relationship.help":"使用方向键浏览关系。按 Enter 或空格键固定详情；按 Escape 清除。","viewer.passport.relationship.loopsBack":"回环","viewer.passport.relationship.connectsTo":"连接到","viewer.passport.relationship.connectsFrom":"连接自","viewer.passport.relationship.pinned":"已固定关系 · {from} → {to} · {label}","viewer.passport.relationship.inspect":"检查第 {index}/{total} 条关系：{from} 到 {to}，{label}。按 Enter 查看详情。","viewer.passport.relationship.group.out":"出向","viewer.passport.relationship.group.in":"入向","viewer.passport.relationship.group.loop":"自环","viewer.passport.relationship.row":"{group}：{relationship}，{neighbor}","viewer.passport.relationship.direction.out":"出 →","viewer.passport.relationship.direction.in":"← 入","viewer.passport.relationship.direction.loop":"自环","viewer.passport.sourceCount.one":"{count} 个已验证来源引用","viewer.passport.sourceCount.other":"{count} 个已验证来源引用","viewer.passport.sourceMarker":"来源","viewer.passport.beacon.one":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.beacon.other":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.repository.open":"打开已验证的仓库修订版本 {revision}","viewer.passport.source.open":"打开修订版本 {revision} 中已验证的来源 {path}","viewer.passport.source.openLink":"打开 ↗","viewer.passport.reach.upstream.one":"追踪 {count} 个上游编写节点","viewer.passport.reach.upstream.other":"追踪 {count} 个上游编写节点","viewer.passport.reach.downstream.one":"追踪 {count} 个下游编写节点","viewer.passport.reach.downstream.other":"追踪 {count} 个下游编写节点","viewer.passport.reach.noUpstream":"没有上游编写节点","viewer.passport.reach.noDownstream":"没有下游编写节点","viewer.passport.reach.status":"{direction} · {nodes} 个节点 · {links} 条连接 · 最深 {hops} 跳","viewer.route.eyebrow":"路径","viewer.route.start":"点击路径的起点","viewer.route.start.find":"查找起点","viewer.route.start.find.aria":"查找路径起点","viewer.route.copy":"复制链接","viewer.route.copy.aria":"复制已追踪路径的链接","viewer.route.clear":"清除","viewer.route.clear.aria":"清除路径探测","viewer.route.traced":"路径","viewer.route.pickTwo":"在图上点两个节点","viewer.route.pickOne":"在图上点一个节点","viewer.route.controls":"路径旅程控制","viewer.route.previous":"上一个路径位置","viewer.route.play":"播放路径旅程","viewer.route.pause":"暂停路径旅程","viewer.route.replay":"重播路径旅程","viewer.route.next":"下一个路径位置","viewer.route.journey":"旅程","viewer.route.pause.label":"暂停","viewer.route.replay.label":"重播","viewer.route.overview":"总览","viewer.route.overview.aria":"显示完整路径总览","viewer.route.instructions":"先点起点，再点终点，沿箭头方向找路。","viewer.route.destination":"从{label}出发，走到哪里？","viewer.route.destination.find":"查找目标","viewer.route.destination.find.aria":"查找可达的路径目标","viewer.route.differentDestination":"选择其他目标","viewer.route.distinct":"请选两个不同的节点。","viewer.route.unreachable":"走不到{label}","viewer.route.unreachable.detail":"沿箭头方向，从{source}走不到{target}。请选一个高亮节点。","viewer.route.start.instructions":"接着选终点，能走到的节点会亮起。","viewer.route.copy.success":"已复制路径链接","viewer.route.copy.failed":"无法复制路径链接","viewer.route.position":"路径位置 {index}/{total}：{label}","viewer.route.step":"第 {index}/{total} 步 · {phase} · {label}","viewer.route.motionRequired":"自动旅程需要动态模式","viewer.route.trigger.clear":"清除已追踪路径","viewer.route.overview.status":"{nodes} · {hops} · 最短路径","viewer.route.overview.node.one":"{count} 个节点","viewer.route.overview.node.other":"{count} 个节点","viewer.route.overview.hop.one":"{count} 步","viewer.route.overview.hop.other":"{count} 步","viewer.route.phase.playing":"播放中","viewer.route.phase.complete":"已完成","viewer.route.phase.inspecting":"检查中","viewer.route.destination.count.one":"有 {count} 个能走到的节点已高亮，点一下。","viewer.route.destination.count.other":"有 {count} 个能走到的节点已高亮，点一个。","viewer.route.noOutgoing":"这个节点没有向外的箭头。清除后换一个起点。","viewer.route.result.title":"{source} 到 {target}","viewer.route.finder.source.title":"选择路径起点","viewer.route.finder.source.placeholder":"搜索路径来源","viewer.route.finder.source.empty":"没有匹配的路径来源","viewer.route.finder.source.results":"可作为路径起点的节点","viewer.route.finder.source.noun":"个路径来源","viewer.route.finder.source.badge":"起点","viewer.route.finder.target.title":"从{label}出发的目标","viewer.route.finder.target.placeholder":"搜索可达目标","viewer.route.finder.target.empty":"没有匹配的可达目标","viewer.route.finder.target.results":"可达路径目标","viewer.route.finder.target.noun":"个可达目标","viewer.route.hop.one":"{count} 跳","viewer.route.hop.other":"{count} 跳","viewer.lens.eyebrow":"语义透镜","viewer.lens.title":"比较系统角色","viewer.lens.close":"关闭语义透镜","viewer.lens.instruction":"最多选择两种语义类型。选择一种可显示其真实流量；选择两种只比较直接编写的关系。","viewer.lens.kinds":"语义类型","viewer.lens.choose":"选择一种类型以检查其节点和相连关系。","viewer.lens.copy":"复制语义透镜链接","viewer.lens.clear":"清除语义透镜","viewer.lens.open":"打开语义透镜","viewer.lens.openActive":"打开当前语义透镜","viewer.lens.legend":"语义图例","viewer.lens.legend.inspect.one":"检查{label}，{count} 个节点","viewer.lens.legend.inspect.other":"检查{label}，{count} 个节点","viewer.lens.kind.count.one":"{label}，{count} 个节点","viewer.lens.kind.count.other":"{label}，{count} 个节点","viewer.lens.compare.one":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.compare.other":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.single":"{nodes} · {relationships} · 已连接节点保持可见","viewer.lens.node.one":"{count} 个{label}节点","viewer.lens.node.other":"{count} 个{label}节点","viewer.lens.relationship.one":"{count} 条相连关系","viewer.lens.relationship.other":"{count} 条相连关系","viewer.radar.title":"语义雷达","viewer.radar.building":"正在构建总览","viewer.radar.openFull":"打开完整语义雷达","viewer.radar.open":"打开雷达","viewer.radar.close":"关闭语义雷达","viewer.radar.surface":"图表总览。点击节点进行聚焦，或使用方向键平移。","viewer.radar.click":"点击节点","viewer.radar.drag":"拖动平移","viewer.radar.space":"语义雷达需要更多地图可见空间。","viewer.radar.nodes":"语义图表雷达节点","viewer.radar.focus":"从语义雷达聚焦{label}","viewer.radar.status":"{count} 个节点 · {viewport}","viewer.radar.fullMap":"{count} 个节点 · 完整地图","viewer.radar.compacted":"已收紧雷达，避免遮挡语义护照或地图控件。","viewer.radar.cancelWaiting":"取消等待更多地图空间的语义雷达","viewer.radar.needsSpace":"语义雷达需要更多可见地图空间","viewer.radar.viewport.full":"完整地图","viewer.radar.viewport.width":"宽度 {percent}%","viewer.radar.viewport.scale":"视口 {percent}%","viewer.nav.controls":"图表视图控制","viewer.nav.route":"追踪有向路径","viewer.nav.route.title":"追踪路径（R）","viewer.nav.route.short":"路径","viewer.nav.radar":"打开语义雷达","viewer.nav.radar.title":"语义雷达（M）","viewer.nav.radar.short":"地图","viewer.nav.lens":"打开语义透镜","viewer.nav.lens.title":"语义透镜（L）","viewer.nav.lens.short":"透镜","viewer.nav.find":"查找节点","viewer.nav.find.title":"查找节点（/）","viewer.outline.title":"节点索引","viewer.rail.show":"要点与索引","viewer.rail.controls":"侧栏","viewer.rail.collapse":"收起侧栏","viewer.rail.bottom":"移到图下方","viewer.rail.right":"移到图右侧","viewer.nav.guide":"打开图表指南","viewer.nav.guide.title":"图表指南（?）","viewer.nav.zoomOut":"缩小","viewer.nav.zoomOut.title":"缩小（-）","viewer.nav.reset":"重置图表视图","viewer.nav.reset.title":"重置视图（0）","viewer.nav.read":"阅读","viewer.nav.zoomIn":"放大","viewer.nav.zoomIn.title":"放大（+）","viewer.nav.camera":"{hint}。重置图表视图","viewer.nav.camera.title":"{semantic}{hint} · 重置视图（0）","viewer.nav.camera.semantic":"语义相机已启用 · ","viewer.nav.level.map":"概览","viewer.nav.level.read":"阅读","viewer.nav.level.full":"完整","viewer.nav.level.auto":"自动","viewer.nav.detail.map":"放大以显示关系标签和节点上下文","viewer.nav.detail.read":"再次放大以显示标签和注释","viewer.nav.detail.full":"完整图表详情","viewer.intent.summary":"{label}。{out} 条出向，{in} 条入向{loops}。共 {total} 条连接。按 Enter 查看详情。","viewer.intent.loops":"，{count} 条自环","viewer.common.copied":"已复制","viewer.common.copyFailed":"复制失败","viewer.common.copyLink":"复制链接","viewer.common.clear":"清除","viewer.common.close":"关闭"}}</script>
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 920 1737" data-sequence-column-fit="spread" data-reader-fit="intrinsic-height" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 920 3463" data-sequence-column-fit="spread" data-reader-fit="intrinsic-height" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">增量发现、字段刷新与失败重放</title>
         <desc id="archify-diagram-description">由 Archify 生成的时序图。</desc>
         <!-- Definitions -->
@@ -5013,281 +5013,422 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Time Segments -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="0" x="48" y="160" width="824" height="315" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="0" x="48" y="207" width="824" height="602" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="512" width="824" height="423" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="866" width="824" height="206" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="972" width="824" height="369" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="1129" width="824" height="140" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="3" x="48" y="1378" width="824" height="261" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="3" x="48" y="1326" width="824" height="206" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="4" x="48" y="1589" width="824" height="140" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="5" x="48" y="1786" width="824" height="404" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="6" x="48" y="2247" width="824" height="74" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="7" x="48" y="2378" width="824" height="74" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="8" x="48" y="2509" width="824" height="74" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="9" x="48" y="2640" width="824" height="140" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="10" x="48" y="2837" width="824" height="74" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="11" x="48" y="2968" width="824" height="140" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="12" x="48" y="3165" width="824" height="74" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="13" x="48" y="3296" width="824" height="69" rx="10" class="c-lane" stroke-width="1"/>
 
         <!-- Lifelines -->
-        <path d="M 116.5 142 L 116.5 1641" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 258.3 142 L 258.3 1641" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 400.1 142 L 400.1 1641" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 541.9000000000001 142 L 541.9000000000001 1641" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 683.7 142 L 683.7 1641" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 825.5 142 L 825.5 1641" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 116.5 142 L 116.5 3367" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 258.3 142 L 258.3 3367" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 400.1 142 L 400.1 3367" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 541.9000000000001 142 L 541.9000000000001 3367" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 683.7 142 L 683.7 3367" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 825.5 142 L 825.5 3367" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
 
         <!-- Activations -->
 
 
         <!-- Messages -->
-        <g data-edge-from="cli" data-edge-to="service" data-edge-label="选择分页扫描" data-edge-key="0" data-edge-id="collect">
-          <path data-composition-edge-from="cli" data-composition-edge-to="service" data-composition-edge-id="collect" data-composition-points="123.5,180;251.3,180" d="M 123.5 180 L 251.3 180" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="CLI" data-edge-to="Service" data-edge-label="--incremental 或 --resume/-…" data-edge-key="0" data-edge-id="m1">
+          <path data-composition-edge-from="CLI" data-composition-edge-to="Service" data-composition-edge-id="m1" data-composition-points="123.5,235;251.3,235" d="M 123.5 235 L 251.3 235" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="141.8" y="160" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="187.4" y="170" class="t-muted" font-size="11" text-anchor="middle">选择分页扫描</text>
+          <rect x="89.00000000000001" y="215" width="196.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="187.4" y="225" class="t-muted" font-size="11" text-anchor="middle">--incremental 或 --resume/-…</text>
         </g>
-        <text data-detail="fine" x="135.5" y="198" class="t-dim" font-size="7">incremental→第 1 页</text>
+        <text data-detail="fine" x="135.5" y="253" class="t-dim" font-size="7">--incremental 或 --resume/--start-page；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="读取已有游标" data-edge-key="1" data-edge-id="cursor">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="cursor" data-composition-points="265.3,234;818.5,234" d="M 265.3 234 L 818.5 234" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="读取已存扫描游标" data-edge-key="1" data-edge-id="m2">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m2" data-composition-points="265.3,301;818.5,301" d="M 265.3 301 L 818.5 301" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="496.29999999999995" y="214" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="224" class="t-muted" font-size="11" text-anchor="middle">读取已有游标</text>
+          <rect x="483.09999999999997" y="281" width="117.6" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="291" class="t-muted" font-size="11" text-anchor="middle">读取已存扫描游标</text>
         </g>
-        <text data-detail="fine" x="277.3" y="252" class="t-dim" font-size="7">resume 仅恢复旧扫描位置</text>
+        <text data-detail="fine" x="277.3" y="319" class="t-dim" font-size="7">读取已存扫描游标；建立缺失用户和 run；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="确定起页并建 run" data-edge-key="2" data-edge-id="start">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="start" data-composition-points="265.3,288;818.5,288" d="M 265.3 288 L 818.5 288" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-edge-from="Service" data-edge-to="Gateway" data-edge-label="请求当前视频列表页" data-edge-key="2" data-edge-id="m3">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Gateway" data-composition-edge-id="m3" data-composition-points="265.3,367;534.9000000000001,367" d="M 265.3 367 L 534.9000000000001 367" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="483.09999999999997" y="268" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="278" class="t-edge-emphasis" font-size="11" text-anchor="middle">确定起页并建 run</text>
+          <rect x="334.70000000000005" y="347" width="130.8" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="357" class="t-muted" font-size="11" text-anchor="middle">请求当前视频列表页</text>
         </g>
-        <text data-detail="fine" x="277.3" y="306" class="t-dim" font-size="7">显式 start 可覆盖；新用户先建立</text>
+        <text data-detail="fine" x="277.3" y="385" class="t-dim" font-size="7">请求当前视频列表页；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="gateway" data-edge-label="请求本页列表" data-edge-key="3" data-edge-id="list">
-          <path data-composition-edge-from="service" data-composition-edge-to="gateway" data-composition-edge-id="list" data-composition-points="265.3,342;534.9000000000001,342" d="M 265.3 342 L 534.9000000000001 342" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Gateway" data-edge-to="Budget" data-edge-label="shared run(operation, scop…" data-edge-key="3" data-edge-id="m4">
+          <path data-composition-edge-from="Gateway" data-composition-edge-to="Budget" data-composition-edge-id="m4" data-composition-points="548.9000000000001,433;676.7,433" d="M 548.9000000000001 433 L 676.7 433" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="354.5" y="322" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="400.1" y="332" class="t-muted" font-size="11" text-anchor="middle">请求本页列表</text>
+          <rect x="517.7" y="413" width="190.2" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="423" class="t-muted" font-size="11" text-anchor="middle">shared run(operation, scop…</text>
         </g>
-        <text data-detail="fine" x="277.3" y="360" class="t-dim" font-size="7">列表始终读取，不用游标证明增量</text>
+        <text data-detail="fine" x="560.9000000000001" y="451" class="t-dim" font-size="7">shared run(operation, scoped_call)；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="gateway" data-edge-to="budget" data-edge-label="消耗统一请求预算" data-edge-key="4" data-edge-id="budget-page">
-          <path data-composition-edge-from="gateway" data-composition-edge-to="budget" data-composition-edge-id="budget-page" data-composition-points="548.9000000000001,396;676.7,396" d="M 548.9000000000001 396 L 676.7 396" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="Budget" data-edge-to="Gateway" data-edge-label="计数、总 deadline、单次 timeout、p…" data-edge-key="4" data-edge-id="m5">
+          <path data-composition-edge-from="Budget" data-composition-edge-to="Gateway" data-composition-edge-id="m5" data-composition-points="676.7,499;548.9000000000001,499" d="M 676.7 499 L 548.9000000000001 499" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="554.0000000000001" y="376" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="612.8000000000001" y="386" class="t-edge-security" font-size="11" text-anchor="middle">消耗统一请求预算</text>
+          <rect x="491.30000000000007" y="479" width="243" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="489" class="t-muted" font-size="11" text-anchor="middle">计数、总 deadline、单次 timeout、p…</text>
         </g>
-        <text data-detail="fine" x="560.9000000000001" y="414" class="t-dim" font-size="7">计数含应用重试；SDK 子请求不单计</text>
+        <text data-detail="fine" x="560.9000000000001" y="517" class="t-dim" font-size="7">计数、总 deadline、单次 timeout、pacing/cooldown 后调用；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="gateway" data-edge-to="service" data-edge-label="返回视频摘要" data-edge-key="5" data-edge-id="response">
-          <path data-composition-edge-from="gateway" data-composition-edge-to="service" data-composition-edge-id="response" data-composition-points="534.9000000000001,450;265.3,450" d="M 534.9000000000001 450 L 265.3 450" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Gateway" data-edge-to="Service" data-edge-label="校验后的 VideoSummary 集合" data-edge-key="5" data-edge-id="m6">
+          <path data-composition-edge-from="Gateway" data-composition-edge-to="Service" data-composition-edge-id="m6" data-composition-points="534.9000000000001,565;265.3,565" d="M 534.9000000000001 565 L 265.3 565" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="354.5" y="430" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="400.1" y="440" class="t-muted" font-size="11" text-anchor="middle">返回视频摘要</text>
+          <rect x="308.3" y="545" width="183.6" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="555" class="t-muted" font-size="11" text-anchor="middle">校验后的 VideoSummary 集合</text>
         </g>
-        <text data-detail="fine" x="277.3" y="468" class="t-dim" font-size="7">同页重复 BVID 共用答案</text>
+        <text data-detail="fine" x="277.3" y="583" class="t-dim" font-size="7">校验后的 VideoSummary 集合；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="批取当前事实" data-edge-key="6" data-edge-id="facts">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="facts" data-composition-points="265.3,532;818.5,532" d="M 265.3 532 L 818.5 532" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="集合读取当前 aid、parts、tags 成功状态…" data-edge-key="6" data-edge-id="m7">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m7" data-composition-points="265.3,631;818.5,631" d="M 265.3 631 L 818.5 631" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="496.29999999999995" y="512" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="522" class="t-muted" font-size="11" text-anchor="middle">批取当前事实</text>
+          <rect x="407.2" y="611" width="269.4" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="621" class="t-muted" font-size="11" text-anchor="middle">集合读取当前 aid、parts、tags 成功状态…</text>
         </g>
-        <text data-detail="fine" x="277.3" y="550" class="t-dim" font-size="7">已有 parts、aid、标签观察及时间</text>
+        <text data-detail="fine" x="277.3" y="649" class="t-dim" font-size="7">集合读取当前 aid、parts、tags 成功状态与时间；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="policy" data-edge-label="计算读取策略" data-edge-key="7" data-edge-id="decision">
-          <path data-composition-edge-from="service" data-composition-edge-to="policy" data-composition-edge-id="decision" data-composition-points="265.3,586;393.1,586" d="M 265.3 586 L 393.1 586" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Policy" data-edge-label="new/missing/stale/force 决定…" data-edge-key="7" data-edge-id="m8">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Policy" data-composition-edge-id="m8" data-composition-points="265.3,697;393.1,697" d="M 265.3 697 L 393.1 697" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="283.6" y="566" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="329.20000000000005" y="576" class="t-muted" font-size="11" text-anchor="middle">计算读取策略</text>
+          <rect x="227.50000000000006" y="677" width="203.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="329.20000000000005" y="687" class="t-muted" font-size="11" text-anchor="middle">new/missing/stale/force 决定…</text>
         </g>
-        <text data-detail="fine" x="277.3" y="604" class="t-dim" font-size="7">new/missing/stale/force</text>
+        <text data-detail="fine" x="277.3" y="715" class="t-dim" font-size="7">new/missing/stale/force 决定 expensive 操作；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="policy" data-edge-to="service" data-edge-label="读取或复用结果" data-edge-key="8" data-edge-id="reuse">
-          <path data-composition-edge-from="policy" data-composition-edge-to="service" data-composition-edge-id="reuse" data-composition-points="393.1,640;265.3,640" d="M 393.1 640 L 265.3 640" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Policy" data-edge-to="Service" data-edge-label="读取或复用" data-edge-key="8" data-edge-id="m9">
+          <path data-composition-edge-from="Policy" data-composition-edge-to="Service" data-composition-edge-id="m9" data-composition-points="393.1,763;265.3,763" d="M 393.1 763 L 265.3 763" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="277.00000000000006" y="620" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="329.20000000000005" y="630" class="t-muted" font-size="11" text-anchor="middle">读取或复用结果</text>
+          <rect x="290.20000000000005" y="743" width="78" height="18" rx="3" class="c-mask"/>
+          <text x="329.20000000000005" y="753" class="t-muted" font-size="11" text-anchor="middle">读取或复用</text>
         </g>
-        <text data-detail="fine" x="277.3" y="658" class="t-dim" font-size="7">复用不刷新观察时间</text>
+        <text data-detail="fine" x="277.3" y="781" class="t-dim" font-size="7">读取或复用；发现页不被省略；条件：alt 分页发现或恢复</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="gateway" data-edge-label="补详情或 parts" data-edge-key="9" data-edge-id="detail">
-          <path data-composition-edge-from="service" data-composition-edge-to="gateway" data-composition-edge-id="detail" data-composition-points="265.3,694;534.9000000000001,694" d="M 265.3 694 L 534.9000000000001 694" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Gateway" data-edge-label="必要时补 detail/parts" data-edge-key="9" data-edge-id="m10">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Gateway" data-composition-edge-id="m10" data-composition-points="265.3,894;534.9000000000001,894" d="M 265.3 894 L 534.9000000000001 894" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="347.90000000000003" y="674" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="400.1" y="684" class="t-muted" font-size="11" text-anchor="middle">补详情或 parts</text>
+          <rect x="324.8" y="874" width="150.6" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="884" class="t-muted" font-size="11" text-anchor="middle">必要时补 detail/parts</text>
         </g>
-        <text data-detail="fine" x="277.3" y="712" class="t-dim" font-size="7">有效 view pages 直接复用</text>
+        <text data-detail="fine" x="277.3" y="912" class="t-dim" font-size="7">必要时补 detail/parts；tags 返回本次 typed TagRead；条件：alt 分页发现或恢复 / loop 每 distinct BVID</text>
         </g>
 
-        <g data-edge-from="gateway" data-edge-to="budget" data-edge-label="共享超时与冷却" data-edge-key="10" data-edge-id="scope">
-          <path data-composition-edge-from="gateway" data-composition-edge-to="budget" data-composition-edge-id="scope" data-composition-points="548.9000000000001,748;676.7,748" d="M 548.9000000000001 748 L 676.7 748" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="Gateway" data-edge-to="Budget" data-edge-label="消耗同一预算" data-edge-key="10" data-edge-id="m11">
+          <path data-composition-edge-from="Gateway" data-composition-edge-to="Budget" data-composition-edge-id="m11" data-composition-points="548.9000000000001,960;676.7,960" d="M 548.9000000000001 960 L 676.7 960" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="560.6" y="728" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="612.8000000000001" y="738" class="t-edge-security" font-size="11" text-anchor="middle">共享超时与冷却</text>
+          <rect x="567.2" y="940" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="950" class="t-muted" font-size="11" text-anchor="middle">消耗同一预算</text>
         </g>
-        <text data-detail="fine" x="560.9000000000001" y="766" class="t-dim" font-size="7">单次 deadline 受总 deadline 限制</text>
+        <text data-detail="fine" x="560.9000000000001" y="978" class="t-dim" font-size="7">消耗同一预算；retry/backoff 不绕过冷却；条件：alt 分页发现或恢复 / loop 每 distinct BVID</text>
         </g>
 
-        <g data-edge-from="gateway" data-edge-to="service" data-edge-label="返回字段及 TagRead" data-edge-key="11" data-edge-id="dto">
-          <path data-composition-edge-from="gateway" data-composition-edge-to="service" data-composition-edge-id="dto" data-composition-points="534.9000000000001,802;265.3,802" d="M 534.9000000000001 802 L 265.3 802" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Gateway" data-edge-to="Service" data-edge-label="DTO 或有界错误" data-edge-key="11" data-edge-id="m12">
+          <path data-composition-edge-from="Gateway" data-composition-edge-to="Service" data-composition-edge-id="m12" data-composition-points="534.9000000000001,1026;265.3,1026" d="M 534.9000000000001 1026 L 265.3 1026" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="334.70000000000005" y="782" width="130.8" height="18" rx="3" class="c-mask"/>
-          <text x="400.1" y="792" class="t-muted" font-size="11" text-anchor="middle">返回字段及 TagRead</text>
+          <rect x="347.90000000000003" y="1006" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="1016" class="t-muted" font-size="11" text-anchor="middle">DTO 或有界错误</text>
         </g>
-        <text data-detail="fine" x="277.3" y="820" class="t-dim" font-size="7">present/empty 与 unavailable 分开</text>
+        <text data-detail="fine" x="277.3" y="1044" class="t-dim" font-size="7">DTO 或有界错误；成功 view pages 可复用；条件：alt 分页发现或恢复 / loop 每 distinct BVID</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="整页事实原子提交" data-edge-key="12" data-edge-id="page-commit">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="page-commit" data-composition-points="265.3,856;818.5,856" d="M 265.3 856 L 818.5 856" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="一个页事务" data-edge-key="12" data-edge-id="m13">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m13" data-composition-points="265.3,1157;818.5,1157" d="M 265.3 1157 L 818.5 1157" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="483.09999999999997" y="836" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="846" class="t-edge-emphasis" font-size="11" text-anchor="middle">整页事实原子提交</text>
+          <rect x="502.9" y="1137" width="78" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1147" class="t-muted" font-size="11" text-anchor="middle">一个页事务</text>
         </g>
-        <text data-detail="fine" x="277.3" y="874" class="t-dim" font-size="7">载荷、发现、页与游标同时成功</text>
+        <text data-detail="fine" x="277.3" y="1175" class="t-dim" font-size="7">一个页事务：用户、视频、parts、详情、tags、discovery、cursor、page；条件：alt 分页发现或恢复 / alt 本页必要 fan-out 与身份校验通过</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="失败页只记证据" data-edge-key="13" data-edge-id="page-error">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="page-error" data-composition-points="265.3,910;818.5,910" d="M 265.3 910 L 818.5 910" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="Repo" data-edge-to="Service" data-edge-label="全部提交" data-edge-key="13" data-edge-id="m14">
+          <path data-composition-edge-from="Repo" data-composition-edge-to="Service" data-composition-edge-id="m14" data-composition-points="818.5,1223;265.3,1223" d="M 818.5 1223 L 265.3 1223" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="489.7" y="890" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="900" class="t-edge-security" font-size="11" text-anchor="middle">失败页只记证据</text>
+          <rect x="509.5" y="1203" width="64.8" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1213" class="t-muted" font-size="11" text-anchor="middle">全部提交</text>
         </g>
-        <text data-detail="fine" x="277.3" y="928" class="t-dim" font-size="7">不提交该页载荷；旧成功页保留</text>
+        <text data-detail="fine" x="277.3" y="1241" class="t-dim" font-size="7">全部提交；空页 complete，上限 limited；条件：alt 分页发现或恢复 / alt 本页必要 fan-out 与身份校验通过</text>
         </g>
 
-        <g data-edge-from="cli" data-edge-to="service" data-edge-label="指定 BVID 与操作" data-edge-key="14" data-edge-id="target">
-          <path data-composition-edge-from="cli" data-composition-edge-to="service" data-composition-edge-id="target" data-composition-points="123.5,992;251.3,992" d="M 123.5 992 L 251.3 992" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="v2 另记失败 operation 的安全 mid/…" data-edge-key="14" data-edge-id="m15">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m15" data-composition-points="265.3,1354;818.5,1354" d="M 265.3 1354 L 818.5 1354" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="128.60000000000002" y="972" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="187.40000000000003" y="982" class="t-muted" font-size="11" text-anchor="middle">指定 BVID 与操作</text>
+          <rect x="423.7" y="1334" width="236.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1344" class="t-muted" font-size="11" text-anchor="middle">v2 另记失败 operation 的安全 mid/…</text>
         </g>
-        <text data-detail="fine" x="135.5" y="1010" class="t-dim" font-size="7">summary/details/parts/tags</text>
+        <text data-detail="fine" x="277.3" y="1372" class="t-dim" font-size="7">v2 另记失败 operation 的安全 mid/page；条件：alt 分页发现或恢复 / else gateway、CID 或 topology 失败</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="校验全部归档目标" data-edge-key="15" data-edge-id="check-target">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="check-target" data-composition-points="265.3,1046;818.5,1046" d="M 265.3 1046 L 818.5 1046" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="failed/risk_interrupted pa…" data-edge-key="15" data-edge-id="m16">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m16" data-composition-points="265.3,1420;818.5,1420" d="M 265.3 1420 L 818.5 1420" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="483.09999999999997" y="1026" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="1036" class="t-edge-security" font-size="11" text-anchor="middle">校验全部归档目标</text>
+          <rect x="446.79999999999995" y="1400" width="190.2" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1410" class="t-muted" font-size="11" text-anchor="middle">failed/risk_interrupted pa…</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1064" class="t-dim" font-size="7">WRITE；不改分页游标</text>
+        <text data-detail="fine" x="277.3" y="1438" class="t-dim" font-size="7">failed/risk_interrupted page 与 run；该页无实体载荷；条件：alt 分页发现或恢复 / else gateway、CID 或 topology 失败</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="policy" data-edge-label="检查成功时间与 TTL" data-edge-key="16" data-edge-id="target-policy">
-          <path data-composition-edge-from="service" data-composition-edge-to="policy" data-composition-edge-id="target-policy" data-composition-points="265.3,1100;393.1,1100" d="M 265.3 1100 L 393.1 1100" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Repo" data-edge-to="Service" data-edge-label="已成功页保留" data-edge-key="16" data-edge-id="m17">
+          <path data-composition-edge-from="Repo" data-composition-edge-to="Service" data-composition-edge-id="m17" data-composition-points="818.5,1486;265.3,1486" d="M 818.5 1486 L 265.3 1486" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="263.80000000000007" y="1080" width="130.8" height="18" rx="3" class="c-mask"/>
-          <text x="329.20000000000005" y="1090" class="t-muted" font-size="11" text-anchor="middle">检查成功时间与 TTL</text>
+          <rect x="496.29999999999995" y="1466" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1476" class="t-muted" font-size="11" text-anchor="middle">已成功页保留</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1118" class="t-dim" font-size="7">缺字段或旧观察则读取</text>
+        <text data-detail="fine" x="277.3" y="1504" class="t-dim" font-size="7">已成功页保留；默认 cursor 不前移；条件：alt 分页发现或恢复 / else gateway、CID 或 topology 失败</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="gateway" data-edge-label="读取所需操作" data-edge-key="17" data-edge-id="target-read">
-          <path data-composition-edge-from="service" data-composition-edge-to="gateway" data-composition-edge-id="target-read" data-composition-points="265.3,1154;534.9000000000001,1154" d="M 265.3 1154 L 534.9000000000001 1154" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="CLI" data-edge-to="Service" data-edge-label="--bvid ... --fields summar…" data-edge-key="17" data-edge-id="m18">
+          <path data-composition-edge-from="CLI" data-composition-edge-to="Service" data-composition-edge-id="m18" data-composition-points="123.5,1617;251.3,1617" d="M 123.5 1617 L 251.3 1617" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="354.5" y="1134" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="400.1" y="1144" class="t-muted" font-size="11" text-anchor="middle">读取所需操作</text>
+          <rect x="92.30000000000001" y="1597" width="190.2" height="18" rx="3" class="c-mask"/>
+          <text x="187.4" y="1607" class="t-muted" font-size="11" text-anchor="middle">--bvid ... --fields summar…</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1172" class="t-dim" font-size="7">summary/details 共用一次 view</text>
+        <text data-detail="fine" x="135.5" y="1635" class="t-dim" font-size="7">--bvid ... --fields summary details parts tags；可选 TTL/mode；条件：else 定向刷新归档视频</text>
         </g>
 
-        <g data-edge-from="gateway" data-edge-to="budget" data-edge-label="沿用同一协调器" data-edge-key="18" data-edge-id="target-budget">
-          <path data-composition-edge-from="gateway" data-composition-edge-to="budget" data-composition-edge-id="target-budget" data-composition-points="548.9000000000001,1208;676.7,1208" d="M 548.9000000000001 1208 L 676.7 1208" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="在网络读取前校验全部 BVID 已归档" data-edge-key="18" data-edge-id="m19">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m19" data-composition-points="265.3,1683;818.5,1683" d="M 265.3 1683 L 818.5 1683" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="560.6" y="1188" width="104.39999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="612.8000000000001" y="1198" class="t-edge-security" font-size="11" text-anchor="middle">沿用同一协调器</text>
+          <rect x="430.29999999999995" y="1663" width="223.2" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1673" class="t-edge-security" font-size="11" text-anchor="middle">在网络读取前校验全部 BVID 已归档</text>
         </g>
-        <text data-detail="fine" x="560.9000000000001" y="1226" class="t-dim" font-size="7">auth/rate/budget 失败停止</text>
+        <text data-detail="fine" x="277.3" y="1701" class="t-dim" font-size="7">在网络读取前校验全部 BVID 已归档；条件：else 定向刷新归档视频</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="按观察状态写字段" data-edge-key="19" data-edge-id="fields">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="fields" data-composition-points="265.3,1262;818.5,1262" d="M 265.3 1262 L 818.5 1262" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="读取成功观察与时间" data-edge-key="19" data-edge-id="m20">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m20" data-composition-points="265.3,1814;818.5,1814" d="M 265.3 1814 L 818.5 1814" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="483.09999999999997" y="1242" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="1252" class="t-edge-emphasis" font-size="11" text-anchor="middle">按观察状态写字段</text>
+          <rect x="476.5" y="1794" width="130.8" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="1804" class="t-muted" font-size="11" text-anchor="middle">读取成功观察与时间</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1280" class="t-dim" font-size="7">present 更新；明确 empty 撤回</text>
+        <text data-detail="fine" x="277.3" y="1832" class="t-dim" font-size="7">读取成功观察与时间；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="失败保留成功事实" data-edge-key="20" data-edge-id="retain">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="retain" data-composition-points="265.3,1316;818.5,1316" d="M 265.3 1316 L 818.5 1316" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Policy" data-edge-label="判断缺失或成功观察过期" data-edge-key="20" data-edge-id="m21">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Policy" data-composition-edge-id="m21" data-composition-points="265.3,1880;393.1,1880" d="M 265.3 1880 L 393.1 1880" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="483.09999999999997" y="1296" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="1306" class="t-muted" font-size="11" text-anchor="middle">失败保留成功事实</text>
+          <rect x="250.60000000000005" y="1860" width="157.2" height="18" rx="3" class="c-mask"/>
+          <text x="329.20000000000005" y="1870" class="t-muted" font-size="11" text-anchor="middle">判断缺失或成功观察过期</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1334" class="t-dim" font-size="7">不清空 tags；追加 operation attempt</text>
+        <text data-detail="fine" x="277.3" y="1898" class="t-dim" font-size="7">判断缺失或成功观察过期；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation</text>
         </g>
 
-        <g data-edge-from="cli" data-edge-to="service" data-edge-label="请求 refresh-failed" data-edge-key="21" data-edge-id="retry">
-          <path data-composition-edge-from="cli" data-composition-edge-to="service" data-composition-edge-id="retry" data-composition-points="123.5,1398;251.3,1398" d="M 123.5 1398 L 251.3 1398" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Policy" data-edge-to="Service" data-edge-label="reused 或读取" data-edge-key="21" data-edge-id="m22">
+          <path data-composition-edge-from="Policy" data-composition-edge-to="Service" data-composition-edge-id="m22" data-composition-points="393.1,1946;265.3,1946" d="M 393.1 1946 L 265.3 1946" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="118.70000000000002" y="1378" width="137.39999999999998" height="18" rx="3" class="c-mask"/>
-          <text x="187.4" y="1388" class="t-muted" font-size="11" text-anchor="middle">请求 refresh-failed</text>
+          <rect x="280.30000000000007" y="1926" width="97.8" height="18" rx="3" class="c-mask"/>
+          <text x="329.20000000000005" y="1936" class="t-muted" font-size="11" text-anchor="middle">reused 或读取</text>
         </g>
-        <text data-detail="fine" x="135.5" y="1416" class="t-dim" font-size="7">旧 v1 明确拒绝账本恢复</text>
+        <text data-detail="fine" x="277.3" y="1964" class="t-dim" font-size="7">reused 或读取；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="按最新失败选操作" data-edge-key="22" data-edge-id="latest">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="latest" data-composition-points="265.3,1452;818.5,1452" d="M 265.3 1452 L 818.5 1452" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Gateway" data-edge-label="summary/details 共用一次 view" data-edge-key="22" data-edge-id="m23">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Gateway" data-composition-edge-id="m23" data-composition-points="265.3,2012;534.9000000000001,2012" d="M 265.3 2012 L 534.9000000000001 2012" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="483.09999999999997" y="1432" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="1442" class="t-muted" font-size="11" text-anchor="middle">按最新失败选操作</text>
+          <rect x="298.40000000000003" y="1992" width="203.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="2002" class="t-edge-security" font-size="11" text-anchor="middle">summary/details 共用一次 view</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1470" class="t-dim" font-size="7">已归档重抓对应 operation</text>
+        <text data-detail="fine" x="277.3" y="2030" class="t-dim" font-size="7">summary/details 共用一次 view；parts 复用已校验 pages；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="gateway" data-edge-label="新视频失败→重抓页" data-edge-key="23" data-edge-id="replay">
-          <path data-composition-edge-from="service" data-composition-edge-to="gateway" data-composition-edge-id="replay" data-composition-points="265.3,1506;534.9000000000001,1506" d="M 265.3 1506 L 534.9000000000001 1506" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-edge-from="Gateway" data-edge-to="Budget" data-edge-label="同一个协调器计数与 deadline" data-edge-key="23" data-edge-id="m24">
+          <path data-composition-edge-from="Gateway" data-composition-edge-to="Budget" data-composition-edge-id="m24" data-composition-points="548.9000000000001,2078;676.7,2078" d="M 548.9000000000001 2078 L 676.7 2078" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="338" y="1486" width="124.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="400.1" y="1496" class="t-edge-emphasis" font-size="11" text-anchor="middle">新视频失败→重抓页</text>
+          <rect x="517.7" y="2058" width="190.2" height="18" rx="3" class="c-mask"/>
+          <text x="612.8000000000001" y="2068" class="t-muted" font-size="11" text-anchor="middle">同一个协调器计数与 deadline</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1524" class="t-dim" font-size="7">持久 mid/page；同页合并一次</text>
+        <text data-detail="fine" x="560.9000000000001" y="2096" class="t-dim" font-size="7">同一个协调器计数与 deadline；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="repo" data-edge-label="保留更后成功游标" data-edge-key="24" data-edge-id="safe-cursor">
-          <path data-composition-edge-from="service" data-composition-edge-to="repo" data-composition-edge-id="safe-cursor" data-composition-points="265.3,1560;818.5,1560" d="M 265.3 1560 L 818.5 1560" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="Gateway" data-edge-to="Service" data-edge-label="present/empty/missing/unav…" data-edge-key="24" data-edge-id="m25">
+          <path data-composition-edge-from="Gateway" data-composition-edge-to="Service" data-composition-edge-id="m25" data-composition-points="534.9000000000001,2144;265.3,2144" d="M 534.9000000000001 2144 L 265.3 2144" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="483.09999999999997" y="1540" width="117.6" height="18" rx="3" class="c-mask"/>
-          <text x="541.9" y="1550" class="t-edge-security" font-size="11" text-anchor="middle">保留更后成功游标</text>
+          <rect x="305" y="2124" width="190.2" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="2134" class="t-muted" font-size="11" text-anchor="middle">present/empty/missing/unav…</text>
         </g>
-        <text data-detail="fine" x="277.3" y="1578" class="t-dim" font-size="7">成功补实体；未找到原 BV 仍失败</text>
+        <text data-detail="fine" x="277.3" y="2162" class="t-dim" font-size="7">present/empty/missing/unavailable/denied 字段；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation</text>
         </g>
 
-        <g data-edge-from="service" data-edge-to="cli" data-edge-label="返回结果与请求计数" data-edge-key="25" data-edge-id="result">
-          <path data-composition-edge-from="service" data-composition-edge-to="cli" data-composition-edge-id="result" data-composition-points="251.3,1614;123.5,1614" d="M 251.3 1614 L 123.5 1614" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="独立事务更新已观察字段与 last-success，…" data-edge-key="25" data-edge-id="m26">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m26" data-composition-points="265.3,2275;818.5,2275" d="M 265.3 2275 L 818.5 2275" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="122" y="1594" width="130.8" height="18" rx="3" class="c-mask"/>
-          <text x="187.4" y="1604" class="t-muted" font-size="11" text-anchor="middle">返回结果与请求计数</text>
+          <rect x="403.9" y="2255" width="276" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="2265" class="t-muted" font-size="11" text-anchor="middle">独立事务更新已观察字段与 last-success，…</text>
         </g>
-        <text data-detail="fine" x="135.5" y="1632" class="t-dim" font-size="7">operation/state/error_code</text>
+        <text data-detail="fine" x="277.3" y="2293" class="t-dim" font-size="7">独立事务更新已观察字段与 last-success，追加 attempt；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation / alt operation 成功</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="保留最后成功事实" data-edge-key="26" data-edge-id="m27">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m27" data-composition-points="265.3,2406;818.5,2406" d="M 265.3 2406 L 818.5 2406" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="483.09999999999997" y="2386" width="117.6" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="2396" class="t-muted" font-size="11" text-anchor="middle">保留最后成功事实</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="2424" class="t-dim" font-size="7">保留最后成功事实；记 unavailable/denied attempt；条件：else 定向刷新归档视频 / loop 选中 BVID 与 operation / else operation 失败</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="CLI" data-edge-label="operation/state/error_code" data-edge-key="27" data-edge-id="m28">
+          <path data-composition-edge-from="Service" data-composition-edge-to="CLI" data-composition-edge-id="m28" data-composition-points="251.3,2537;123.5,2537" d="M 251.3 2537 L 123.5 2537" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="95.60000000000001" y="2517" width="183.6" height="18" rx="3" class="c-mask"/>
+          <text x="187.4" y="2527" class="t-muted" font-size="11" text-anchor="middle">operation/state/error_code</text>
+        </g>
+        <text data-detail="fine" x="135.5" y="2555" class="t-dim" font-size="7">operation/state/error_code；分页 cursor 不变；条件：else 定向刷新归档视频</text>
+        </g>
+
+        <g data-edge-from="CLI" data-edge-to="Service" data-edge-label="从最新 operation attempt 选择失败" data-edge-key="28" data-edge-id="m29">
+          <path data-composition-edge-from="CLI" data-composition-edge-to="Service" data-composition-edge-id="m29" data-composition-points="123.5,2668;251.3,2668" d="M 123.5 2668 L 251.3 2668" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="72.50000000000001" y="2648" width="229.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="187.4" y="2658" class="t-muted" font-size="11" text-anchor="middle">从最新 operation attempt 选择失败</text>
+        </g>
+        <text data-detail="fine" x="135.5" y="2686" class="t-dim" font-size="7">从最新 operation attempt 选择失败；条件：opt 显式 --refresh-failed（仅 universal-v2）</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="读取失败 BVID/operation 与安全上下文" data-edge-key="29" data-edge-id="m30">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m30" data-composition-points="265.3,2734;818.5,2734" d="M 265.3 2734 L 818.5 2734" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="417.09999999999997" y="2714" width="249.6" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="2724" class="t-muted" font-size="11" text-anchor="middle">读取失败 BVID/operation 与安全上下文</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="2752" class="t-dim" font-size="7">读取失败 BVID/operation 与安全上下文；条件：opt 显式 --refresh-failed（仅 universal-v2）</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="Gateway" data-edge-label="仅重抓失败 operation，成功追加结果" data-edge-key="30" data-edge-id="m31">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Gateway" data-composition-edge-id="m31" data-composition-points="265.3,2865;534.9000000000001,2865" d="M 265.3 2865 L 534.9000000000001 2865" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="281.90000000000003" y="2845" width="236.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="2855" class="t-muted" font-size="11" text-anchor="middle">仅重抓失败 operation，成功追加结果</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="2883" class="t-dim" font-size="7">仅重抓失败 operation，成功追加结果；条件：opt 显式 --refresh-failed（仅 universal-v2） / alt 视频已经归档</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="Gateway" data-edge-label="重新读取原页面及必要 fan-out" data-edge-key="31" data-edge-id="m32">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Gateway" data-composition-edge-id="m32" data-composition-points="265.3,2996;534.9000000000001,2996" d="M 265.3 2996 L 534.9000000000001 2996" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="301.70000000000005" y="2976" width="196.79999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="400.1" y="2986" class="t-muted" font-size="11" text-anchor="middle">重新读取原页面及必要 fan-out</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="3014" class="t-dim" font-size="7">重新读取原页面及必要 fan-out；条件：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="原子补回实体" data-edge-key="32" data-edge-id="m33">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m33" data-composition-points="265.3,3062;818.5,3062" d="M 265.3 3062 L 818.5 3062" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="496.29999999999995" y="3042" width="91.19999999999999" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="3052" class="t-muted" font-size="11" text-anchor="middle">原子补回实体</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="3080" class="t-dim" font-size="7">原子补回实体；不回退已经更后的 cursor；条件：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="Repo" data-edge-label="保留 metadata_retry_context_…" data-edge-key="33" data-edge-id="m34">
+          <path data-composition-edge-from="Service" data-composition-edge-to="Repo" data-composition-edge-id="m34" data-composition-points="265.3,3193;818.5,3193" d="M 265.3 3193 L 818.5 3193" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="440.2" y="3173" width="203.39999999999998" height="18" rx="3" class="c-mask"/>
+          <text x="541.9" y="3183" class="t-muted" font-size="11" text-anchor="middle">保留 metadata_retry_context_…</text>
+        </g>
+        <text data-detail="fine" x="277.3" y="3211" class="t-dim" font-size="7">保留 metadata_retry_context_changed；条件：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存 / alt 源页变动，原 BV 不在该页</text>
+        </g>
+
+        <g data-edge-from="Service" data-edge-to="CLI" data-edge-label="当前恢复结果与 request metrics" data-edge-key="34" data-edge-id="m35">
+          <path data-composition-edge-from="Service" data-composition-edge-to="CLI" data-composition-edge-id="m35" data-composition-points="251.3,3324;123.5,3324" d="M 251.3 3324 L 123.5 3324" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="82.4" y="3304" width="210" height="18" rx="3" class="c-mask"/>
+          <text x="187.4" y="3314" class="t-muted" font-size="11" text-anchor="middle">当前恢复结果与 request metrics</text>
+        </g>
+        <text data-detail="fine" x="135.5" y="3342" class="t-dim" font-size="7">当前恢复结果与 request metrics；条件：opt 显式 --refresh-failed（仅 universal-v2）</text>
         </g>
 
         <!-- Segment Labels -->
         <g data-graph-role="segment-label" data-segment-id="0">
-          <rect x="56" y="138" width="107.60000000000001" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="151" class="t-dim" font-size="9" font-weight="600">分页增量或恢复扫描</text>
+          <rect x="56" y="185" width="133.60000000000002" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="198" class="t-dim" font-size="9" font-weight="600">B1 · alt 分页发现或恢复</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="1">
-          <rect x="56" y="490" width="118" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="503" class="t-dim" font-size="9" font-weight="600">按操作决定读取或复用</text>
+          <rect x="56" y="844" width="149.20000000000002" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="857" class="t-dim" font-size="9" font-weight="600">B2 · loop 每 distinct BVID</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="2">
-          <rect x="56" y="950" width="118" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="963" class="t-dim" font-size="9" font-weight="600">指定 BVID 与字段刷新</text>
+          <rect x="56" y="1107" width="222" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1120" class="t-dim" font-size="9" font-weight="600">B3 · alt 本页必要 fan-out 与身份校验通过</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="3">
-          <rect x="56" y="1356" width="97.2" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="1369" class="t-dim" font-size="9" font-weight="600">显式 v2 失败补采</text>
+          <rect x="56" y="1304" width="190.8" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1317" class="t-dim" font-size="9" font-weight="600">B4 · else gateway、CID 或 topology</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="4">
+          <rect x="56" y="1567" width="149.20000000000002" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1580" class="t-dim" font-size="9" font-weight="600">B5 · else 定向刷新归档视频</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="5">
+          <rect x="56" y="1764" width="180.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="1777" class="t-dim" font-size="9" font-weight="600">B6 · loop 选中 BVID 与 operation</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="6">
+          <rect x="56" y="2225" width="133.60000000000002" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="2238" class="t-dim" font-size="9" font-weight="600">B7 · alt operation 成功</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="7">
+          <rect x="56" y="2356" width="138.8" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="2369" class="t-dim" font-size="9" font-weight="600">B8 · else operation 失败</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="8">
+          <rect x="56" y="2487" width="149.20000000000002" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="2500" class="t-dim" font-size="9" font-weight="600">B9 · else 定向刷新归档视频</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="9">
+          <rect x="56" y="2618" width="206.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="2631" class="t-dim" font-size="9" font-weight="600">B10 · opt 显式 --refresh-failed（仅 u</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="10">
+          <rect x="56" y="2815" width="128.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="2828" class="t-dim" font-size="9" font-weight="600">B11 · alt 视频已经归档</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="11">
+          <rect x="56" y="2946" width="185.6" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="2959" class="t-dim" font-size="9" font-weight="600">B12 · else 首次发现的视频尚未保存</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="12">
+          <rect x="56" y="3143" width="190.8" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="3156" class="t-dim" font-size="9" font-weight="600">B13 · alt 源页变动，原 BV 不在该页</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="13">
+          <rect x="56" y="3274" width="206.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="3287" class="t-dim" font-size="9" font-weight="600">B14 · opt 显式 --refresh-failed（仅 u</text>
         </g>
 
         <!-- Participants -->
-        <g id="node-cli" data-node-id="cli" data-node-label="采集命令" tabindex="0" role="button" aria-label="聚焦采集命令，时序参与者" aria-pressed="false" data-node-kind="frontend" data-node-context="时序参与者">
-          <title>采集命令 · 时序参与者</title>
+        <g id="node-CLI" data-node-id="CLI" data-node-label="fetch-m" tabindex="0" role="button" aria-label="聚焦fetch-m，fetch-meta, 时序参与者" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="fetch-meta" data-node-context="时序参与者">
+          <title>fetch-m · fetch-meta · 时序参与者</title>
           <rect x="62" y="72" width="109" height="60" rx="6" class="c-mask"/>
           <rect x="62" y="72" width="109" height="60" rx="6" class="c-frontend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(68 78) scale(0.6875)">
@@ -5296,80 +5437,82 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="116.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">采集命令</text>
+          <text data-node-label="" data-detail-anchor="" x="116.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">fetch-m</text>
+          <text data-detail="context" x="116.5" y="122" class="t-muted" font-size="7" text-anchor="middle">fetch-meta</text>
         </g>
 
-        <g id="node-service" data-node-id="service" data-node-label="元数据服务" tabindex="0" role="button" aria-label="聚焦元数据服务，时序参与者" aria-pressed="false" data-node-kind="backend" data-node-context="时序参与者">
-          <title>元数据服务 · 时序参与者</title>
+        <g id="node-Service" data-node-id="Service" data-node-label="Ingesto" tabindex="0" role="button" aria-label="聚焦Ingesto，Ingestor /, 时序参与者" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Ingestor /" data-node-context="时序参与者">
+          <title>Ingesto · Ingestor / · 时序参与者</title>
           <rect x="203.8" y="72" width="109" height="60" rx="6" class="c-mask"/>
           <rect x="203.8" y="72" width="109" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(209.8 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" x="258.3" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">元数据服务</text>
+          <text data-node-label="" data-detail-anchor="" x="258.3" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Ingesto</text>
+          <text data-detail="context" x="258.3" y="122" class="t-muted" font-size="7" text-anchor="middle">Ingestor /</text>
         </g>
 
-        <g id="node-policy" data-node-id="policy" data-node-label="字段刷新策略" tabindex="0" role="button" aria-label="聚焦字段刷新策略，时序参与者" aria-pressed="false" data-node-kind="backend" data-node-context="时序参与者">
-          <title>字段刷新策略 · 时序参与者</title>
+        <g id="node-Policy" data-node-id="Policy" data-node-label="Metadat" tabindex="0" role="button" aria-label="聚焦Metadat，MetadataRe, 时序参与者" aria-pressed="false" data-node-kind="backend" data-node-sublabel="MetadataRe" data-node-context="时序参与者">
+          <title>Metadat · MetadataRe · 时序参与者</title>
           <rect x="345.6" y="72" width="109" height="60" rx="6" class="c-mask"/>
           <rect x="345.6" y="72" width="109" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(351.6 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" x="400.1" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">字段刷新策略</text>
+          <text data-node-label="" data-detail-anchor="" x="400.1" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Metadat</text>
+          <text data-detail="context" x="400.1" y="122" class="t-muted" font-size="7" text-anchor="middle">MetadataRe</text>
         </g>
 
-        <g id="node-gateway" data-node-id="gateway" data-node-label="平台网关" tabindex="0" role="button" aria-label="聚焦平台网关，时序参与者" aria-pressed="false" data-node-kind="external" data-node-context="时序参与者">
-          <title>平台网关 · 时序参与者</title>
+        <g id="node-Gateway" data-node-id="Gateway" data-node-label="Bilibil" tabindex="0" role="button" aria-label="聚焦Bilibil，Bilibili g, 时序参与者" aria-pressed="false" data-node-kind="external" data-node-sublabel="Bilibili g" data-node-context="时序参与者">
+          <title>Bilibil · Bilibili g · 时序参与者</title>
           <rect x="487.4000000000001" y="72" width="109" height="60" rx="6" class="c-mask"/>
           <rect x="487.4000000000001" y="72" width="109" height="60" rx="6" class="c-external" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(493.4000000000001 78) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" x="541.9000000000001" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">平台网关</text>
+          <text data-node-label="" data-detail-anchor="" x="541.9000000000001" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Bilibil</text>
+          <text data-detail="context" x="541.9000000000001" y="122" class="t-muted" font-size="7" text-anchor="middle">Bilibili g</text>
         </g>
 
-        <g id="node-budget" data-node-id="budget" data-node-label="共享请求预算" tabindex="0" role="button" aria-label="聚焦共享请求预算，时序参与者" aria-pressed="false" data-node-kind="security" data-node-context="时序参与者">
-          <title>共享请求预算 · 时序参与者</title>
+        <g id="node-Budget" data-node-id="Budget" data-node-label="Request" tabindex="0" role="button" aria-label="聚焦Request，RequestSch, 时序参与者" aria-pressed="false" data-node-kind="security" data-node-sublabel="RequestSch" data-node-context="时序参与者">
+          <title>Request · RequestSch · 时序参与者</title>
           <rect x="629.2" y="72" width="109" height="60" rx="6" class="c-mask"/>
           <rect x="629.2" y="72" width="109" height="60" rx="6" class="c-security" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(635.2 78) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" x="683.7" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">共享请求预算</text>
+          <text data-node-label="" data-detail-anchor="" x="683.7" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Request</text>
+          <text data-detail="context" x="683.7" y="122" class="t-muted" font-size="7" text-anchor="middle">RequestSch</text>
         </g>
 
-        <g id="node-repo" data-node-id="repo" data-node-label="事实与观察库" tabindex="0" role="button" aria-label="聚焦事实与观察库，时序参与者" aria-pressed="false" data-node-kind="database" data-node-context="时序参与者">
-          <title>事实与观察库 · 时序参与者</title>
+        <g id="node-Repo" data-node-id="Repo" data-node-label="Metadat" tabindex="0" role="button" aria-label="聚焦Metadat，MetadataRe, 时序参与者" aria-pressed="false" data-node-kind="database" data-node-sublabel="MetadataRe" data-node-context="时序参与者">
+          <title>Metadat · MetadataRe · 时序参与者</title>
           <rect x="771" y="72" width="109" height="60" rx="6" class="c-mask"/>
           <rect x="771" y="72" width="109" height="60" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(777 78) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-node-label="" x="825.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">事实与观察库</text>
+          <text data-node-label="" data-detail-anchor="" x="825.5" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Metadat</text>
+          <text data-detail="context" x="825.5" y="122" class="t-muted" font-size="7" text-anchor="middle">MetadataRe</text>
         </g>
 
         <!-- Legend -->
         <g data-legend="">
-          <text x="40" y="1663" class="t-primary" font-size="12" font-weight="650">图例</text>
-          <g data-legend-semantic-kind="emphasis" data-legend-x="40" data-legend-baseline="1683" data-legend-width="93">
-            <path d="M 40 1680 L 74 1680" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-            <text x="83" y="1683" class="t-muted" font-size="10" font-weight="500">主路径请求</text>
+          <text x="40" y="3389" class="t-primary" font-size="12" font-weight="650">图例</text>
+          <g data-legend-semantic-kind="return" data-legend-x="40" data-legend-baseline="3409" data-legend-width="63">
+            <path d="M 40 3406 L 74 3406" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+            <text x="83" y="3409" class="t-muted" font-size="10" font-weight="500">返回</text>
           </g>
-          <g data-legend-semantic-kind="return" data-legend-x="155" data-legend-baseline="1683" data-legend-width="63">
-            <path d="M 155 1680 L 189 1680" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
-            <text x="198" y="1683" class="t-muted" font-size="10" font-weight="500">返回</text>
+          <g data-legend-semantic-kind="security" data-legend-x="125" data-legend-baseline="3409" data-legend-width="63">
+            <path d="M 125 3406 L 159 3406" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+            <text x="168" y="3409" class="t-muted" font-size="10" font-weight="500">安全</text>
           </g>
-          <g data-legend-semantic-kind="security" data-legend-x="240" data-legend-baseline="1683" data-legend-width="63">
-            <path d="M 240 1680 L 274 1680" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-            <text x="283" y="1683" class="t-muted" font-size="10" font-weight="500">安全</text>
-          </g>
-          <g data-legend-semantic-kind="default" data-legend-x="325" data-legend-baseline="1683" data-legend-width="83">
-            <path d="M 325 1680 L 359 1680" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-            <text x="368" y="1683" class="t-muted" font-size="10" font-weight="500">普通消息</text>
+          <g data-legend-semantic-kind="default" data-legend-x="210" data-legend-baseline="3409" data-legend-width="83">
+            <path d="M 210 3406 L 244 3406" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+            <text x="253" y="3409" class="t-muted" font-size="10" font-weight="500">普通消息</text>
           </g>
         </g>
       </svg>
@@ -5551,36 +5694,47 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>起点与当前事实</h3>
+          <h3>完整条件路径</h3>
         </div>
         <ul>
-          <li>incremental 从 head 发现；resume 是扫描恢复游标；两者不能同时指定。</li>
-          <li>常规分页补 pubdate=0；已知正值由显式 summary refresh 修正，0 不覆盖已知时间。</li>
-          <li>元数据刷新更新当前事实；已冻结的 input、edition、审核与 release 不重写。</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot amber"></div>
-          <h3>观察与预算边界</h3>
-        </div>
-        <ul>
-          <li>present 或明确 empty 可以更新字段；missing/unavailable/denied 保留最后成功事实。</li>
-          <li>成功空 tags 才清空集合；typed TagRead 随本次调用携带错误，服务不读共享错误属性。</li>
-          <li>预算按一个协调器的 gateway operation 计量，跨 worker 不构成全局限流。</li>
+          <li>B1 条件路径：alt 分页发现或恢复</li>
+          <li>B2 条件路径：alt 分页发现或恢复 / loop 每 distinct BVID</li>
+          <li>B3 条件路径：alt 分页发现或恢复 / alt 本页必要 fan-out 与身份校验通过</li>
+          <li>B4 条件路径：alt 分页发现或恢复 / else gateway、CID 或 topology 失败</li>
+          <li>B5 条件路径：else 定向刷新归档视频</li>
+          <li>B6 条件路径：else 定向刷新归档视频 / loop 选中 BVID 与 operation</li>
+          <li>B7 条件路径：else 定向刷新归档视频 / loop 选中 BVID 与 operation / alt operation 成功</li>
+          <li>B8 条件路径：else 定向刷新归档视频 / loop 选中 BVID 与 operation / else operation 失败</li>
+          <li>B9 条件路径：else 定向刷新归档视频</li>
+          <li>B10 条件路径：opt 显式 --refresh-failed（仅 universal-v2）</li>
+          <li>B11 条件路径：opt 显式 --refresh-failed（仅 universal-v2） / alt 视频已经归档</li>
+          <li>B12 条件路径：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存</li>
+          <li>B13 条件路径：opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存 / alt 源页变动，原 BV 不在该页</li>
+          <li>B14 条件路径：opt 显式 --refresh-failed（仅 universal-v2）</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>失败恢复与事务</h3>
+          <h3>内部动作</h3>
         </div>
         <ul>
-          <li>页 fan-out 失败时 v2 ledger 单独保存安全 mid/page；失败页无实体载荷。</li>
-          <li>重放成功不回退已经越过该页的游标；上游页已变且 BV 不再存在时保留 metadata_retry_context_changed。</li>
-          <li>新旧 schema 与恢复入口显式分开；源码基线 857906d3b3c54b31fd9bc0ba94b84618f68cd6f3。</li>
+          <li>Ingestor / RefreshService：强制第 1 页，重新观察 head（alt 分页发现或恢复 / alt incremental）</li>
+          <li>Ingestor / RefreshService：显式 start-page 优先，否则存储 next_page，否则第 1 页（alt 分页发现或恢复 / else 恢复或显式起点）</li>
+          <li>Ingestor / RefreshService：用持久 mid/page 重放整页，同页去重（opt 显式 --refresh-failed（仅 universal-v2） / else 首次发现的视频尚未保存）</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot rose"></div>
+          <h3>身份与阅读边界</h3>
+        </div>
+        <ul>
+          <li>全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。</li>
+          <li>条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。</li>
+          <li>本图描述代码，不代替网络、GPU、付费模型或生产切换验收。</li>
         </ul>
       </div>
     </div>

@@ -6,436 +6,546 @@
     "locale": "zh-CN",
     "output": "docs/sequences/18-universal-migration.html",
     "quality_profile": "showcase",
+    "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
     {
-      "id": "cli",
+      "id": "CLI",
+      "label": "archive",
       "type": "frontend",
-      "label": "archive CLI",
-      "sublabel": "显式迁移入口",
       "sources": [
         {
           "path": "src/bili_asr/cli/archive.py",
-          "line": 25,
-          "end_line": 59,
-          "label": "init / migrate / check"
+          "line": 13,
+          "end_line": 64,
+          "label": "add_archive_parser"
         }
-      ]
+      ],
+      "sublabel": "archive CLI"
     },
     {
-      "id": "migration",
+      "id": "M",
+      "label": "archive",
       "type": "backend",
-      "label": "迁移服务",
-      "sublabel": "离线转换与安装",
       "sources": [
         {
           "path": "src/bili_asr/services/archive_migration.py",
           "line": 300,
-          "end_line": 395,
+          "end_line": 394,
           "label": "migrate_archive"
         },
         {
           "path": "src/bili_asr/services/archive_migration.py",
-          "line": 425,
-          "end_line": 474,
-          "label": "持续迁移检查"
+          "line": 427,
+          "end_line": 476,
+          "label": "check_migrated_archive"
         }
-      ]
+      ],
+      "sublabel": "archive_mi"
     },
     {
-      "id": "preflight",
+      "id": "P",
+      "label": "固定旧源预检",
       "type": "security",
-      "label": "源预检",
-      "sublabel": "固定旧契约",
       "sources": [
         {
           "path": "src/bili_asr/services/migration_preflight.py",
           "line": 119,
           "end_line": 213,
-          "label": "只读完整预检"
+          "label": "migration_preflight"
         },
         {
           "path": "src/bili_asr/storage/migration_source.py",
           "line": 176,
           "end_line": 228,
-          "label": "固定旧源检查"
+          "label": "inspect_migration_source"
         }
       ]
     },
     {
-      "id": "legacy",
-      "type": "database",
+      "id": "S",
       "label": "旧源 DB",
-      "sublabel": "immutable 读取",
+      "type": "database",
       "sources": [
         {
           "path": "src/bili_asr/services/archive_migration.py",
           "line": 51,
-          "end_line": 100,
-          "label": "备份与 typed 搬运"
+          "end_line": 61,
+          "label": "_backup_legacy"
         },
         {
           "path": "src/bili_asr/storage/migration_source.py",
-          "line": 255,
-          "end_line": 292,
-          "label": "原始单元格与行摘要"
+          "line": 267,
+          "end_line": 285,
+          "label": "iter_legacy_rows"
         }
       ]
     },
     {
-      "id": "stage",
+      "id": "T",
+      "label": "独立 v2 s",
       "type": "database",
-      "label": "目标 DB",
-      "sublabel": "独立 v2 staging",
       "sources": [
         {
           "path": "src/bili_asr/services/archive_migration.py",
           "line": 64,
-          "end_line": 128,
-          "label": "保真与目标恢复"
+          "end_line": 100,
+          "label": "_copy_authority"
         },
         {
           "path": "src/bili_asr/services/archive_migration.py",
           "line": 227,
-          "end_line": 297,
-          "label": "导入行保护账本"
+          "end_line": 250,
+          "label": "_row_ledger"
         },
         {
           "path": "src/bili_asr/storage/archive_contracts.py",
           "line": 1,
-          "end_line": 94,
-          "label": "显式目标契约"
+          "end_line": 138,
+          "label": "模块定义"
         }
-      ]
+      ],
+      "sublabel": "独立 v2 stag"
     },
     {
-      "id": "files",
+      "id": "F",
+      "label": "源文件与目标目",
       "type": "cloud",
-      "label": "产物与审计",
-      "sublabel": "源文件 / 目标目录",
       "sources": [
         {
           "path": "src/bili_asr/services/archive_migration.py",
-          "line": 336,
-          "end_line": 393,
-          "label": "流式复制与安装"
+          "line": 300,
+          "end_line": 394,
+          "label": "migrate_archive"
         },
         {
           "path": "src/bili_asr/services/archive_migration.py",
-          "line": 425,
-          "end_line": 474,
-          "label": "审计与冻结文件核验"
+          "line": 427,
+          "end_line": 476,
+          "label": "check_migrated_archive"
         },
         {
           "path": "src/bili_asr/storage/snapshots.py",
-          "line": 244,
-          "end_line": 351,
-          "label": "快照必须携带审计"
+          "line": 266,
+          "end_line": 367,
+          "label": "required_artifacts"
         }
-      ]
-    }
-  ],
-  "segments": [
-    {
-      "from": 165,
-      "to": 410,
-      "label": "停止写入后预检；dry-run 可在此返回"
-    },
-    {
-      "from": 425,
-      "to": 775,
-      "label": "独立 staging 搬运与验证"
-    },
-    {
-      "from": 790,
-      "to": 1115,
-      "label": "仅恢复目标；写入审计后安装"
-    },
-    {
-      "from": 1130,
-      "to": 1420,
-      "label": "切换后只读检查；新增事实与冻结历史分开核验"
+      ],
+      "sublabel": "源文件与目标目录"
     }
   ],
   "messages": [
     {
-      "id": "request",
-      "from": "cli",
-      "to": "migration",
-      "y": 180,
-      "label": "显式 source / target",
-      "variant": "emphasis"
+      "id": "m1",
+      "to": "M",
+      "y": 235,
+      "label": "migrate",
+      "variant": "default",
+      "note": "migrate；显式 source-root / source-snapshot、target-root；条件：主流程",
+      "from": "CLI"
     },
     {
-      "id": "locks",
-      "from": "migration",
-      "to": "preflight",
-      "y": 220,
-      "label": "维护锁与根边界",
-      "variant": "security"
+      "id": "m2",
+      "to": "P",
+      "y": 301,
+      "label": "migration_preflight",
+      "variant": "default",
+      "note": "migration_preflight；条件：主流程",
+      "from": "M"
     },
     {
-      "id": "source-check",
-      "from": "preflight",
-      "to": "legacy",
-      "y": 260,
-      "label": "旧契约、FK、WAL、lease",
-      "variant": "security"
+      "id": "m3",
+      "to": "S",
+      "y": 367,
+      "label": "immutable/query_only",
+      "variant": "default",
+      "note": "immutable/query_only；固定 DDL、integrity、FK 与完整历史；条件：主流程",
+      "from": "P"
     },
     {
-      "id": "source-files",
-      "from": "preflight",
-      "to": "files",
-      "y": 300,
-      "label": "全部文件 hash 与 marker",
-      "variant": "default"
+      "id": "m4",
+      "to": "CLI",
+      "y": 498,
+      "label": "拒绝",
+      "variant": "return",
+      "note": "拒绝；要求停止 writer 并 checkpoint；条件：alt 有非空 WAL/journal 或有效/缺失 lease",
+      "from": "P"
     },
     {
-      "id": "source-plan",
-      "from": "preflight",
-      "to": "migration",
-      "y": 340,
-      "label": "源 fingerprint + 恢复候选",
-      "variant": "return"
+      "id": "m5",
+      "to": "S",
+      "y": 629,
+      "label": "流式读取38张表，记录rowid、类型、原始TEXT…",
+      "variant": "default",
+      "note": "流式读取38张表，记录rowid、类型、原始TEXT/BLOB摘要；条件：else 源为停止且已 checkpoint 的支持版本",
+      "from": "P"
     },
     {
-      "id": "dry-run",
-      "from": "migration",
-      "to": "cli",
-      "y": 380,
-      "label": "dry-run：仅报告",
-      "variant": "return"
+      "id": "m6",
+      "to": "F",
+      "y": 695,
+      "label": "全量清单、读前后身份、所有历史引用与完整marker核验",
+      "variant": "default",
+      "note": "全量清单、读前后身份、所有历史引用与完整marker核验；条件：else 源为停止且已 checkpoint 的支持版本",
+      "from": "P"
     },
     {
-      "id": "backup",
-      "from": "migration",
-      "to": "legacy",
-      "y": 445,
-      "label": "只读一致备份",
-      "variant": "default"
+      "id": "m7",
+      "to": "M",
+      "y": 761,
+      "label": "source fingerprint、逐表/文件清单…",
+      "variant": "return",
+      "note": "source fingerprint、逐表/文件清单、恢复候选；条件：else 源为停止且已 checkpoint 的支持版本",
+      "from": "P"
     },
     {
-      "id": "boot",
-      "from": "migration",
-      "to": "stage",
-      "y": 485,
-      "label": "显式 bootstrap v2",
-      "variant": "emphasis"
+      "id": "m8",
+      "to": "CLI",
+      "y": 892,
+      "label": "只返回计划，不创建目标",
+      "variant": "return",
+      "note": "只返回计划，不创建目标；条件：alt dry-run",
+      "from": "M"
     },
     {
-      "id": "read-rows",
-      "from": "migration",
-      "to": "legacy",
-      "y": 525,
-      "label": "38 表原始 typed 行",
-      "variant": "default"
-    },
-    {
-      "id": "copy-rows",
-      "from": "migration",
-      "to": "stage",
-      "y": 565,
-      "label": "保留 rowid / TEXT / BLOB",
-      "variant": "emphasis"
-    },
-    {
-      "id": "table-hashes",
-      "from": "stage",
-      "to": "migration",
-      "y": 605,
-      "label": "逐表摘要一致 + FK 有效",
-      "variant": "return"
-    },
-    {
-      "id": "copy-files",
-      "from": "migration",
-      "to": "files",
-      "y": 645,
-      "label": "源文件流式复制到 staging",
-      "variant": "default"
-    },
-    {
-      "id": "copy-check",
-      "from": "files",
-      "to": "migration",
-      "y": 685,
-      "label": "size / SHA 与源一致",
-      "variant": "return"
-    },
-    {
-      "id": "artifacts-check",
-      "from": "migration",
-      "to": "stage",
-      "y": 725,
-      "label": "schema 与产物引用校验",
-      "variant": "security"
-    },
-    {
-      "id": "recover",
-      "from": "migration",
-      "to": "stage",
-      "y": 810,
-      "label": "仅恢复确认中断的目标行",
-      "variant": "security"
-    },
-    {
-      "id": "recovery-result",
-      "from": "stage",
-      "to": "migration",
-      "y": 850,
-      "label": "逐字段 before / after 审计",
-      "variant": "return"
-    },
-    {
-      "id": "ledger",
-      "from": "migration",
-      "to": "files",
-      "y": 890,
-      "label": "映射 + typed 行账本",
-      "variant": "emphasis"
-    },
-    {
-      "id": "record",
-      "from": "migration",
-      "to": "stage",
-      "y": 930,
-      "label": "immutable migration_records",
-      "variant": "emphasis"
-    },
-    {
-      "id": "report-file",
-      "from": "migration",
-      "to": "files",
-      "y": 970,
-      "label": "精确 JSON 迁移报告",
-      "variant": "default"
-    },
-    {
-      "id": "source-recheck",
-      "from": "migration",
-      "to": "preflight",
-      "y": 1010,
-      "label": "安装前重验源 fingerprint",
-      "variant": "security"
-    },
-    {
-      "id": "install",
-      "from": "migration",
-      "to": "files",
-      "y": 1050,
-      "label": "fsync 后 rename 安装",
-      "variant": "emphasis"
-    },
-    {
-      "id": "installed-result",
-      "from": "migration",
-      "to": "cli",
-      "y": 1090,
-      "label": "完成；同步异常如实警告",
-      "variant": "return"
-    },
-    {
-      "id": "later-check",
-      "from": "cli",
-      "to": "migration",
-      "y": 1145,
+      "id": "m9",
+      "to": "T",
+      "y": 1023,
       "label": "migration-check",
-      "variant": "emphasis"
+      "variant": "default",
+      "note": "migration-check；条件：else 同源指纹的已完成目标",
+      "from": "M"
     },
     {
-      "id": "audit-check",
-      "from": "migration",
-      "to": "files",
-      "y": 1185,
-      "label": "报告 / 映射 / 账本 hash",
-      "variant": "security"
+      "id": "m10",
+      "to": "CLI",
+      "y": 1089,
+      "label": "reused=true",
+      "variant": "return",
+      "note": "reused=true；不重复转换；条件：else 同源指纹的已完成目标",
+      "from": "M"
     },
     {
-      "id": "frozen-check",
-      "from": "migration",
-      "to": "stage",
-      "y": 1225,
-      "label": "导入冻结行与身份校验",
-      "variant": "security"
+      "id": "m11",
+      "to": "S",
+      "y": 1220,
+      "label": "只读一致SQLite backup到调用专属临时目录",
+      "variant": "default",
+      "note": "只读一致SQLite backup到调用专属临时目录；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
     },
     {
-      "id": "frozen-files",
-      "from": "migration",
-      "to": "files",
-      "y": 1265,
-      "label": "冻结历史文件仍须一致",
-      "variant": "security"
+      "id": "m12",
+      "to": "T",
+      "y": 1286,
+      "label": "显式bootstrap universal-v2",
+      "variant": "default",
+      "note": "显式bootstrap universal-v2；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
     },
     {
-      "id": "current-delta",
-      "from": "stage",
-      "to": "migration",
-      "y": 1305,
-      "label": "合法 current_fact_deltas",
-      "variant": "return"
+      "id": "m13",
+      "to": "S",
+      "y": 1417,
+      "label": "读取有效rowid及逐单元格SQLite类型/原始字节",
+      "variant": "default",
+      "note": "读取有效rowid及逐单元格SQLite类型/原始字节；条件：else 新的空目标，且空间和expected-fingerprint检查通过 / loop 每张旧权威表",
+      "from": "M"
     },
     {
-      "id": "check-result",
-      "from": "migration",
-      "to": "cli",
-      "y": 1345,
-      "label": "valid；新增行不影响基线",
-      "variant": "return"
+      "id": "m14",
+      "to": "T",
+      "y": 1483,
+      "label": "插入原rowid",
+      "variant": "security",
+      "note": "插入原rowid；TEXT通过CAST原样绑定；条件：else 新的空目标，且空间和expected-fingerprint检查通过 / loop 每张旧权威表",
+      "from": "M"
+    },
+    {
+      "id": "m15",
+      "to": "T",
+      "y": 1549,
+      "label": "原字段逐表摘要必须与源一致",
+      "variant": "default",
+      "note": "原字段逐表摘要必须与源一致；条件：else 新的空目标，且空间和expected-fingerprint检查通过 / loop 每张旧权威表",
+      "from": "M"
+    },
+    {
+      "id": "m16",
+      "to": "T",
+      "y": 1680,
+      "label": "为旧input/content注册不可变versio…",
+      "variant": "default",
+      "note": "为旧input/content注册不可变version=1；检查FK；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m17",
+      "to": "F",
+      "y": 1746,
+      "label": "全部产物流式复制到staging，fsync并比对s…",
+      "variant": "security",
+      "note": "全部产物流式复制到staging，fsync并比对size/SHA；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m18",
+      "to": "T",
+      "y": 1812,
+      "label": "校验目标schema和所有产物引用",
+      "variant": "security",
+      "note": "校验目标schema和所有产物引用；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m19",
+      "to": "T",
+      "y": 1878,
+      "label": "仅恢复已确认中断的目标job/attempt/run…",
+      "variant": "default",
+      "note": "仅恢复已确认中断的目标job/attempt/run/model call；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m20",
+      "to": "M",
+      "y": 1944,
+      "label": "每个允许变更的before/after、identi…",
+      "variant": "return",
+      "note": "每个允许变更的before/after、identity、reason；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "T"
+    },
+    {
+      "id": "m21",
+      "to": "F",
+      "y": 2010,
+      "label": "写ID映射、typed导入行账本及各自hash",
+      "variant": "default",
+      "note": "写ID映射、typed导入行账本及各自hash；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m22",
+      "to": "T",
+      "y": 2076,
+      "label": "写immutable migration_records",
+      "variant": "default",
+      "note": "写immutable migration_records；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m23",
+      "to": "F",
+      "y": 2142,
+      "label": "写精确JSON迁移报告，flush/fsync",
+      "variant": "default",
+      "note": "写精确JSON迁移报告，flush/fsync；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m24",
+      "to": "T",
+      "y": 2208,
+      "label": "重验schema、全部产物及审计引用",
+      "variant": "default",
+      "note": "重验schema、全部产物及审计引用；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m25",
+      "to": "P",
+      "y": 2274,
+      "label": "再次预检",
+      "variant": "default",
+      "note": "再次预检；源fingerprint仍须一致；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m26",
+      "to": "F",
+      "y": 2340,
+      "label": "fsync DB和目录",
+      "variant": "default",
+      "note": "fsync DB和目录；检查空目标后rename安装；条件：else 新的空目标，且空间和expected-fingerprint检查通过",
+      "from": "M"
+    },
+    {
+      "id": "m27",
+      "to": "CLI",
+      "y": 2471,
+      "label": "installed=true + target_pa…",
+      "variant": "return",
+      "note": "installed=true + target_parent_directory_sync_failed；条件：else 新的空目标，且空间和expected-fingerprint检查通过 / alt 安装后父目录同步失败",
+      "from": "M"
+    },
+    {
+      "id": "m28",
+      "to": "CLI",
+      "y": 2602,
+      "label": "完成报告，source_unchanged=true",
+      "variant": "return",
+      "note": "完成报告，source_unchanged=true；条件：else 新的空目标，且空间和expected-fingerprint检查通过 / else 同步成功",
+      "from": "M"
+    },
+    {
+      "id": "m29",
+      "to": "M",
+      "y": 2733,
+      "label": "切换后可重复运行migration-check",
+      "variant": "default",
+      "note": "切换后可重复运行migration-check；条件：主流程",
+      "from": "CLI"
+    },
+    {
+      "id": "m30",
+      "to": "T",
+      "y": 2799,
+      "label": "只读检查唯一immutable报告及身份",
+      "variant": "default",
+      "note": "只读检查唯一immutable报告及身份；条件：主流程",
+      "from": "M"
+    },
+    {
+      "id": "m31",
+      "to": "F",
+      "y": 2865,
+      "label": "磁盘报告精确字节、ID映射和typed行账本摘要",
+      "variant": "default",
+      "note": "磁盘报告精确字节、ID映射和typed行账本摘要；条件：主流程",
+      "from": "M"
+    },
+    {
+      "id": "m32",
+      "to": "T",
+      "y": 2931,
+      "label": "按导入rowid校验冻结列，新增行不影响基线",
+      "variant": "security",
+      "note": "按导入rowid校验冻结列，新增行不影响基线；条件：主流程",
+      "from": "M"
+    },
+    {
+      "id": "m33",
+      "to": "F",
+      "y": 2997,
+      "label": "音频、双稿、全部历史release原始字节必须不变",
+      "variant": "security",
+      "note": "音频、双稿、全部历史release原始字节必须不变；条件：主流程",
+      "from": "M"
+    },
+    {
+      "id": "m34",
+      "to": "T",
+      "y": 3063,
+      "label": "当前元数据/head/控制状态变化按表报告",
+      "variant": "default",
+      "note": "当前元数据/head/控制状态变化按表报告；条件：主流程",
+      "from": "M"
+    },
+    {
+      "id": "m35",
+      "to": "CLI",
+      "y": 3129,
+      "label": "valid、imported_baseline_ma…",
+      "variant": "return",
+      "note": "valid、imported_baseline_matches、current_fact_deltas、mutable_artifact_deltas；条件：主流程",
+      "from": "M"
     }
   ],
-  "activations": [
+  "segments": [
     {
-      "participant": "migration",
-      "from": 175,
-      "to": 1100,
-      "type": "backend"
+      "from": 207,
+      "to": 413,
+      "label": "B1 · 主流程"
     },
     {
-      "participant": "preflight",
-      "from": 215,
-      "to": 350,
-      "type": "security"
+      "from": 470,
+      "to": 544,
+      "label": "B2 · alt 有非空 WAL/journal 或有效/缺失 "
     },
     {
-      "participant": "migration",
-      "from": 1140,
-      "to": 1355,
-      "type": "backend"
+      "from": 601,
+      "to": 807,
+      "label": "B3 · else 源为停止且已 checkpoint 的支持版"
+    },
+    {
+      "from": 864,
+      "to": 938,
+      "label": "B4 · alt dry-run"
+    },
+    {
+      "from": 995,
+      "to": 1135,
+      "label": "B5 · else 同源指纹的已完成目标"
+    },
+    {
+      "from": 1192,
+      "to": 1332,
+      "label": "B6 · else 新的空目标，且空间和expected-fin"
+    },
+    {
+      "from": 1389,
+      "to": 1595,
+      "label": "B7 · loop 每张旧权威表"
+    },
+    {
+      "from": 1652,
+      "to": 2386,
+      "label": "B8 · else 新的空目标，且空间和expected-fin"
+    },
+    {
+      "from": 2443,
+      "to": 2517,
+      "label": "B9 · alt 安装后父目录同步失败"
+    },
+    {
+      "from": 2574,
+      "to": 2648,
+      "label": "B10 · else 同步成功"
+    },
+    {
+      "from": 2705,
+      "to": 3170,
+      "label": "B11 · 主流程"
     }
   ],
   "cards": [
     {
-      "dot": "rose",
-      "title": "旧源保护",
+      "dot": "cyan",
+      "title": "完整条件路径",
       "items": [
-        "先停掉所有 writer 并 checkpoint；非空 WAL/journal、有效或未知 lease 会拒绝迁移。",
-        "不升级旧源、不恢复旧任务、不重编码历史 JSON；源和目标目录必须互不包含。",
-        "dry-run 不创建目标；任一 staging 步骤失败均不安装部分归档。"
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt 有非空 WAL/journal 或有效/缺失 lease",
+        "B3 条件路径：else 源为停止且已 checkpoint 的支持版本",
+        "B4 条件路径：alt dry-run",
+        "B5 条件路径：else 同源指纹的已完成目标",
+        "B6 条件路径：else 新的空目标，且空间和expected-fingerprint检查通过",
+        "B7 条件路径：else 新的空目标，且空间和expected-fingerprint检查通过 / loop 每张旧权威表",
+        "B8 条件路径：else 新的空目标，且空间和expected-fingerprint检查通过",
+        "B9 条件路径：else 新的空目标，且空间和expected-fingerprint检查通过 / alt 安装后父目录同步失败",
+        "B10 条件路径：else 新的空目标，且空间和expected-fingerprint检查通过 / else 同步成功",
+        "B11 条件路径：主流程"
       ]
     },
     {
       "dot": "emerald",
-      "title": "保真与审计",
+      "title": "内部动作",
       "items": [
-        "搬运时逐一核对 38 表：有效 rowid、SQLite 类型、原始 TEXT/BLOB 和逐表摘要。",
-        "仅目标上的运行行转换为可恢复状态；完成和取消历史保持原值，记录每个允许变化。",
-        "ID 映射、导入行账本、迁移报告和其 hash 随数据库及快照一起保留。"
+        "archive_migration：拒绝链接、重叠根；按确定顺序持有源和目标维护锁（主流程）"
       ]
     },
     {
-      "dot": "cyan",
-      "title": "持续 checker",
+      "dot": "rose",
+      "title": "身份与阅读边界",
       "items": [
-        "新行不参与旧行比对；元数据、heads、调度和可替换关系的合法变化按表计数报告。",
-        "仅已知规范 publish:<part> 请求允许绑定到同 part 的另一转录；其他旧 payload 严格保真。",
-        "音频、双稿及发布历史字节必须不变；可变 transcript bundle 差异单独列出。",
-        "目标已安装后若父目录同步失败，返回 installed 与警告，避免声称没有安装。"
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]
