@@ -203,8 +203,9 @@ jobs:
           from pathlib import Path
 
           project = metadata("bili-asr")
-          if project["License"] != "GPL-3.0-only":
-              raise SystemExit(f"unexpected software license metadata: {project['License']!r}")
+          license_expression = project.get("License-Expression") or project.get("License")
+          if license_expression != "GPL-3.0-only":
+              raise SystemExit(f"unexpected software license metadata: {license_expression!r}")
           if "GPL-3.0-only" not in Path("pyproject.toml").read_text(encoding="utf-8"):
               raise SystemExit("pyproject.toml does not declare GPL-3.0-only")
           if not Path("LICENSE").is_file() or not Path("CONTENT-LICENSE.md").is_file():
