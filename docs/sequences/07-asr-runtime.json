@@ -2,14 +2,14 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "ASR 工厂、GPU 超时端口与逐次证据",
+    "title": "ASR 执行分派、冻结输入与受保护结果",
     "locale": "zh-CN",
     "output": "docs/sequences/07-asr-runtime.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -17,89 +17,53 @@
   "participants": [
     {
       "id": "handler",
-      "label": "ASR handler",
+      "label": "ASR Handler",
       "type": "backend",
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 211,
-          "end_line": 316,
+          "line": 279,
+          "end_line": 287,
           "label": "ArchiveWorkflowHandlers.local_asr"
-        },
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 420,
-          "end_line": 427,
-          "label": "ArchiveWorkflowHandlers._runner"
-        },
-        {
-          "path": "src/bili_asr/workflow_runtime_ports.py",
-          "line": 43,
-          "end_line": 46,
-          "label": "RunnerFactory"
         }
       ]
     },
     {
       "id": "db",
-      "label": "转录与运行证据",
+      "label": "运行与转录",
       "type": "database",
       "sources": [
         {
           "path": "src/bili_asr/storage/transcripts.py",
           "line": 331,
-          "end_line": 516,
+          "end_line": 517,
           "label": "TranscriptRepository.record_local_transcript"
-        },
-        {
-          "path": "src/bili_asr/storage/workflow.py",
-          "line": 365,
-          "end_line": 383,
-          "label": "WorkflowRepository.dependency_result"
         }
       ]
     },
     {
       "id": "audio",
-      "label": "归档音频",
-      "type": "database",
+      "label": "准确音频",
+      "type": "backend",
       "sources": [
         {
-          "path": "src/bili_asr/artifact_root.py",
-          "line": 334,
-          "end_line": 366,
-          "label": "resolve_audio_path"
-        },
-        {
-          "path": "src/bili_asr/asr/audio.py",
-          "line": 128,
-          "end_line": 155,
-          "label": "_read_audio"
+          "path": "src/bili_asr/services/workflow_audio_access.py",
+          "line": 1,
+          "end_line": 71,
+          "label": "模块定义"
         }
       ]
     },
     {
-      "id": "timeout",
-      "label": "超时推理端口",
+      "id": "session",
+      "label": "监督会话",
       "type": "backend",
       "sources": [
         {
-          "path": "src/bili_asr/workflow_runtime_ports.py",
-          "line": 49,
-          "end_line": 60,
-          "label": "TimeoutTranscriber"
-        },
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 57,
-          "end_line": 132,
-          "label": "transcribe_with_timeout"
-        },
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 32,
-          "end_line": 54,
-          "label": "_isolated_transcribe_worker"
+          "path": "src/bili_asr/asr/session.py",
+          "line": 154,
+          "end_line": 376,
+          "label": "AsrInferenceSession"
         }
       ]
     },
@@ -110,46 +74,22 @@
       "sources": [
         {
           "path": "src/bili_asr/asr/runner.py",
-          "line": 203,
-          "end_line": 697,
+          "line": 214,
+          "end_line": 928,
           "label": "ASRRunner"
-        },
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 700,
-          "end_line": 726,
-          "label": "two_pass_transcribe"
-        },
-        {
-          "path": "src/bili_asr/asr/provenance.py",
-          "line": 32,
-          "end_line": 35,
-          "label": "_redact"
         }
       ]
     },
     {
       "id": "model",
-      "label": "模型与 aligner",
+      "label": "HF 后端",
       "type": "backend",
       "sources": [
         {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 163,
-          "end_line": 200,
-          "label": "_load_qwen_models"
-        },
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 326,
-          "end_line": 361,
-          "label": "ASRRunner._transcribe_chunk"
-        },
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 363,
-          "end_line": 380,
-          "label": "ASRRunner._align_chunk"
+          "path": "src/bili_asr/asr/backend.py",
+          "line": 1,
+          "end_line": 75,
+          "label": "模块定义"
         }
       ]
     }
@@ -157,280 +97,289 @@
   "messages": [
     {
       "id": "m1",
-      "from": "handler",
       "to": "db",
-      "y": 180,
-      "label": "音频依赖与冻结 profile",
+      "y": 235,
+      "label": "读取精确 audio prerequisite re…",
       "variant": "default",
-      "note": "解码任务并要求精确 audio succeeded result；读取冻结 profile 与 reference ID"
+      "note": "读取精确 audio prerequisite result、冻结 profile 与参考版本；条件：主流程",
+      "from": "handler"
     },
     {
       "id": "m2",
-      "from": "handler",
       "to": "audio",
-      "y": 212,
-      "label": "按精确 storage key 解析可用归档音频",
+      "y": 301,
+      "label": "核验已登记输入摘要",
       "variant": "default",
-      "note": "按精确 storage key 解析可用归档音频"
+      "note": "核验已登记输入摘要；外置对象须先恢复，不能重新下载冒充旧输入；条件：主流程",
+      "from": "handler"
     },
     {
       "id": "m3",
-      "from": "handler",
       "to": "db",
-      "y": 244,
-      "label": "开始 acquisition run",
+      "y": 367,
+      "label": "登记 acquisition run",
       "variant": "default",
-      "note": "开始 acquisition run"
+      "note": "登记 acquisition run；条件：主流程",
+      "from": "handler"
     },
     {
       "id": "m4",
-      "from": "handler",
-      "to": "timeout",
-      "y": 316,
-      "label": "调用超时推理端口",
+      "to": "session",
+      "y": 498,
+      "label": "完整 request 身份、模型绑定、总期限与 ch…",
       "variant": "default",
-      "note": "timeout_transcriber(config, path, timeout_seconds, diagnostics_sink)"
+      "note": "完整 request 身份、模型绑定、总期限与 checkpoint；条件：alt CUDA/ROCm 且 persistent 或 oneshot 会话",
+      "from": "handler"
     },
     {
       "id": "m5",
-      "from": "timeout",
       "to": "runner",
-      "y": 388,
-      "label": "子进程创建 Runner",
+      "y": 564,
+      "label": "子进程执行",
       "variant": "default",
-      "note": "spawn 子进程用冻结 config 创建 ASRRunner 并运行两遍转录"
+      "note": "子进程执行；persistent 复用模型，oneshot 成功后关闭；条件：alt CUDA/ROCm 且 persistent 或 oneshot 会话",
+      "from": "session"
+    },
+    {
+      "id": "m6",
+      "to": "session",
+      "y": 695,
+      "label": "transcribe_with_timeout",
+      "variant": "default",
+      "note": "transcribe_with_timeout；隔离进程和硬截止；条件：else legacy GPU 端口",
+      "from": "handler"
     },
     {
       "id": "m7",
-      "from": "handler",
       "to": "runner",
-      "y": 460,
-      "label": "runner_factory(config)",
+      "y": 761,
+      "label": "单次冻结 config 推理",
       "variant": "default",
-      "note": "runner_factory(config)；按冻结 profile ID 复用；close 释放"
+      "note": "单次冻结 config 推理；条件：else legacy GPU 端口",
+      "from": "session"
     },
     {
       "id": "m8",
-      "from": "handler",
       "to": "runner",
-      "y": 492,
-      "label": "当前进程 two_pass_transcribe",
+      "y": 892,
+      "label": "当前进程 runner",
       "variant": "default",
-      "note": "当前进程 two_pass_transcribe；CPU 无同等可终止硬超时"
+      "note": "当前进程 runner；按 profile 与绑定复用，无同等硬终止；条件：else CPU",
+      "from": "handler"
     },
     {
       "id": "m9",
-      "from": "runner",
       "to": "audio",
-      "y": 564,
-      "label": "soundfile 优先、ffmpeg RF64 回退",
+      "y": 1023,
+      "label": "soundfile/ffmpeg RF64 解码",
       "variant": "default",
-      "note": "soundfile 优先、ffmpeg RF64 回退；mono 16 kHz float32"
+      "note": "soundfile/ffmpeg RF64 解码；mono 16 kHz；完整切块；条件：主流程",
+      "from": "runner"
+    },
+    {
+      "id": "m10",
+      "to": "model",
+      "y": 1154,
+      "label": "CPU 准备、token/输入预算校验后传设备",
+      "variant": "security",
+      "note": "CPU 准备、token/输入预算校验后传设备；HF generate；条件：loop 每一遍的单块或有界批次；只处理当前任务",
+      "from": "runner"
     },
     {
       "id": "m11",
-      "from": "runner",
-      "to": "model",
-      "y": 636,
-      "label": "按块时长算 token 预算",
-      "variant": "default",
-      "note": "按块时长算 token 预算；记录 EOS、token、文本与耗时；空输出记入诊断"
+      "to": "runner",
+      "y": 1220,
+      "label": "每块文本、语言、EOS 与执行诊断",
+      "variant": "return",
+      "note": "每块文本、语言、EOS 与执行诊断；条件：loop 每一遍的单块或有界批次；只处理当前任务",
+      "from": "model"
     },
     {
       "id": "m12",
-      "from": "runner",
       "to": "model",
-      "y": 708,
-      "label": "同一波形与文本送 aligner",
+      "y": 1351,
+      "label": "同一波形与该遍文本执行真实 ForcedAligner",
       "variant": "default",
-      "note": "同一波形与文本送 aligner；字符时间不插值"
+      "note": "同一波形与该遍文本执行真实 ForcedAligner；条件：loop 每一遍的单块或有界批次；只处理当前任务 / opt 非空文本",
+      "from": "runner"
     },
     {
       "id": "m13",
-      "from": "model",
       "to": "runner",
-      "y": 740,
-      "label": "字符对齐结果",
+      "y": 1417,
+      "label": "字符时间",
       "variant": "return",
-      "note": "字符对齐结果"
+      "note": "字符时间；恢复 chunk ID 与全局偏移；条件：loop 每一遍的单块或有界批次；只处理当前任务 / opt 非空文本",
+      "from": "model"
+    },
+    {
+      "id": "m14",
+      "to": "model",
+      "y": 1548,
+      "label": "新 generation 与新对齐",
+      "variant": "default",
+      "note": "新 generation 与新对齐；不跨任务/两遍复用 KV prefix；条件：opt 第一遍证据保留了热词",
+      "from": "runner"
     },
     {
       "id": "m15",
-      "from": "runner",
-      "to": "model",
-      "y": 812,
-      "label": "按第一遍与可选字幕证据筛选再转录",
-      "variant": "default",
-      "note": "按第一遍与可选字幕证据筛选再转录；不跨遍共享 prefix KV cache"
+      "to": "session",
+      "y": 1679,
+      "label": "segments、coverage、provenan…",
+      "variant": "return",
+      "note": "segments、coverage、provenance、运行策略与诊断；条件：alt GPU Session",
+      "from": "runner"
+    },
+    {
+      "id": "m16",
+      "to": "handler",
+      "y": 1745,
+      "label": "响应身份、checkpoint 与期限复验通过",
+      "variant": "return",
+      "note": "响应身份、checkpoint 与期限复验通过；条件：alt GPU Session",
+      "from": "session"
     },
     {
       "id": "m17",
-      "from": "runner",
-      "to": "timeout",
-      "y": 924,
-      "label": "推理结果与证据",
+      "to": "handler",
+      "y": 1876,
+      "label": "原始执行结果",
       "variant": "return",
-      "note": "segments、coverage、provenance 与 diagnostics"
+      "note": "原始执行结果；条件：else CPU",
+      "from": "runner"
     },
     {
       "id": "m18",
-      "from": "timeout",
-      "to": "handler",
-      "y": 956,
-      "label": "可界定超时的推理结果",
-      "variant": "return",
-      "note": "可界定超时的推理结果"
+      "to": "runner",
+      "y": 2007,
+      "label": "GPU owner 有界终止",
+      "variant": "security",
+      "note": "GPU owner 有界终止；迟到结果丢弃；条件：alt 超时、取消、失租或非法结果",
+      "from": "session"
     },
     {
       "id": "m19",
-      "from": "runner",
-      "to": "handler",
-      "y": 1028,
-      "label": "CPU 推理结果与证据",
-      "variant": "return",
-      "note": "segments、coverage、provenance 与 diagnostics"
+      "to": "db",
+      "y": 2073,
+      "label": "按本次权限收尾失败",
+      "variant": "security",
+      "note": "按本次权限收尾失败；不改新 owner 结果；条件：alt 超时、取消、失租或非法结果",
+      "from": "handler"
     },
     {
       "id": "m20",
-      "from": "timeout",
-      "to": "handler",
-      "y": 1100,
-      "label": "超时或推理失败",
-      "variant": "return",
-      "note": "默认超时端口在内部 terminate/kill 子进程并抛出 inference_timeout；其他推理异常传播到 handler。"
+      "to": "db",
+      "y": 2204,
+      "label": "BEGIN IMMEDIATE",
+      "variant": "default",
+      "note": "BEGIN IMMEDIATE；transcript/segments/model/coverage/evidence/attempt 同事务保存；条件：else 非空转录且精确租约有效",
+      "from": "handler"
     },
     {
       "id": "m21",
-      "from": "handler",
       "to": "db",
-      "y": 1132,
-      "label": "acquisition run 失败收尾",
-      "variant": "default",
-      "note": "acquisition run 失败收尾；异常到 executor fail"
-    },
-    {
-      "id": "m22",
-      "from": "handler",
-      "to": "db",
-      "y": 1204,
-      "label": "转录与证据保护事务",
+      "y": 2270,
+      "label": "commit 前再次复验 owner、attempt…",
       "variant": "security",
-      "note": "共享 guard 在进入与提交前复验 lease；transcript/segments、model、coverage、ASR evidence 与 attempt 共同回滚"
-    },
-    {
-      "id": "m23",
-      "from": "handler",
-      "to": "db",
-      "y": 1236,
-      "label": "同内容仍记录新 evidence",
-      "variant": "default",
-      "note": "同内容仍记录新 evidence；run 收尾与 publish 请求后续提交"
+      "note": "commit 前再次复验 owner、attempt 和 expiry；随后请求 publish；条件：else 非空转录且精确租约有效",
+      "from": "handler"
     }
   ],
   "segments": [
     {
-      "from": 304,
-      "to": 328,
-      "label": "B01 alt CUDA 或 ROCm profile"
+      "from": 207,
+      "to": 413,
+      "label": "B1 · 主流程"
     },
     {
-      "from": 376,
-      "to": 400,
-      "label": "B02 opt 默认生产超时端口"
+      "from": 470,
+      "to": 610,
+      "label": "B2 · alt CUDA/ROCm 且 persistent "
     },
     {
-      "from": 448,
-      "to": 504,
-      "label": "B03 else CPU profile"
+      "from": 667,
+      "to": 807,
+      "label": "B3 · else legacy GPU 端口"
     },
     {
-      "from": 624,
-      "to": 648,
-      "label": "B04 loop 每个音频块"
+      "from": 864,
+      "to": 938,
+      "label": "B4 · else CPU"
     },
     {
-      "from": 696,
-      "to": 752,
-      "label": "B05 opt 非空输出"
+      "from": 995,
+      "to": 1069,
+      "label": "B5 · 主流程"
     },
     {
-      "from": 800,
-      "to": 824,
-      "label": "B06 opt 第一遍证据保留了热词"
+      "from": 1126,
+      "to": 1266,
+      "label": "B6 · loop 每一遍的单块或有界批次；只处理当前任务"
     },
     {
-      "from": 912,
-      "to": 968,
-      "label": "B07 alt 默认 GPU 子进程结果"
+      "from": 1323,
+      "to": 1463,
+      "label": "B7 · opt 非空文本"
     },
     {
-      "from": 1016,
-      "to": 1040,
-      "label": "B08 else CPU profile"
+      "from": 1520,
+      "to": 1594,
+      "label": "B8 · opt 第一遍证据保留了热词"
     },
     {
-      "from": 1088,
-      "to": 1144,
-      "label": "B09 alt GPU 超时或推理失败"
+      "from": 1651,
+      "to": 1791,
+      "label": "B9 · alt GPU Session"
     },
     {
-      "from": 1192,
-      "to": 1248,
-      "label": "B10 else 非空结果且 lease 有效"
+      "from": 1848,
+      "to": 1922,
+      "label": "B10 · else CPU"
+    },
+    {
+      "from": 1979,
+      "to": 2119,
+      "label": "B11 · alt 超时、取消、失租或非法结果"
+    },
+    {
+      "from": 2176,
+      "to": 2311,
+      "label": "B12 · else 非空转录且精确租约有效"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "已固定源码基线",
+      "title": "完整条件路径",
       "items": [
-        "代码提交 5d7a57e201564a10dec7a360b2ef8f7874dc51a7；源码引用指向本地路径。文档更新与产物生成使用该提交的源码证据。",
-        "真实字幕/ASR 结果复用同一 JobCommitGuard 完整事务；legacy write_guard 回调也有退出检查。认领、续约、终态在获写锁后取时，exact expiry 不续约、不提交。"
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt CUDA/ROCm 且 persistent 或 oneshot 会话",
+        "B3 条件路径：else legacy GPU 端口",
+        "B4 条件路径：else CPU",
+        "B5 条件路径：主流程",
+        "B6 条件路径：loop 每一遍的单块或有界批次；只处理当前任务",
+        "B7 条件路径：loop 每一遍的单块或有界批次；只处理当前任务 / opt 非空文本",
+        "B8 条件路径：opt 第一遍证据保留了热词",
+        "B9 条件路径：alt GPU Session",
+        "B10 条件路径：else CPU",
+        "B11 条件路径：alt 超时、取消、失租或非法结果",
+        "B12 条件路径：else 非空转录且精确租约有效"
       ]
     },
     {
       "dot": "emerald",
-      "title": "边界与恢复",
+      "title": "内部动作",
       "items": [
-        "runner_factory 只构建当前进程 CPU runner；GPU 默认由 timeout_transcriber 启动受监督子进程，另一个注入端口提供受控推理边界。",
-        "ASR 公开包和 runner/provenance 子模块使用普通 Python 模块。asr.provenance() 保持函数调用，显式 runner_factory 与公开 ASRRunner 替换进入真实调用，不跨模块写 class。",
-        "provenance 只拥有语言、脱敏和证据规则；依赖方向为 runner -> provenance，已消除 provenance -> runner eager 循环。",
-        "GPU 超时与手动取消是不同机制；取消在调用后的 checkpoint/提交事务阻断新写入。",
-        "失败或取消的全部中间块诊断尚未持久化；质量告警不等于 CER，也不自动禁止归档发布。",
-        "workflow publish 没有把全部 transcript_asr_evidence/coverage/characters 交给 bundle writer；数据库证据不等于必然随包发布。"
+        "Qwen3 Runner：校验原始时间与覆盖；不排序或夹紧回退时间（loop 每一遍的单块或有界批次；只处理当前任务）"
       ]
     },
     {
-      "dot": "amber",
-      "title": "参与者内部动作",
+      "dot": "rose",
+      "title": "身份与阅读边界",
       "items": [
-        "步骤 6 · 超时推理端口：父进程持续读取 Queue；避免 join 前队列死锁；监控硬截止",
-        "步骤 10 · Qwen3 Runner：全量切块；波形交 processor，路径不交 processor",
-        "步骤 14 · Qwen3 Runner：校验字符时间、覆盖范围与 cue；块偏移回全局",
-        "步骤 16 · Qwen3 Runner：纯 provenance 脱敏与语言规则；runner 依赖规则，规则不创建 runner"
-      ]
-    },
-    {
-      "dot": "violet",
-      "title": "完整条件路径",
-      "items": [
-        "B01：alt CUDA 或 ROCm profile",
-        "B02：alt CUDA 或 ROCm profile → opt 默认生产超时端口",
-        "B03：else CPU profile",
-        "B04：loop 每个音频块",
-        "B05：loop 每个音频块 → opt 非空输出",
-        "B06：opt 第一遍证据保留了热词",
-        "B07：alt 默认 GPU 子进程结果",
-        "B08：else CPU profile",
-        "B09：alt GPU 超时或推理失败",
-        "B10：else 非空结果且 lease 有效"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "注入的超时推理端口",
-      "items": [
-        "替换 timeout_transcriber 时，端口负责提供相同的有界结果与 diagnostics 契约，可绕过默认模型和子进程；runner_factory 仅作用于当前进程 CPU 路径。"
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]

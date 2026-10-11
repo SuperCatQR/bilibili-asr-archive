@@ -1,8 +1,8 @@
 # 持久 GPU 会话：租约、热模型与故障回收
 
-源码固定于提交 `857906d3b3c54b31fd9bc0ba94b84618f68cd6f3`。以下 Mermaid 保留[最终 Archify 规格](19-persistent-asr.json)的全部 29 条跨参与者消息，并补充源码中的条件、轮询、自调用与退出边界；[交互时序图](19-persistent-asr.html)按准入、正常完成及异常替代路径展示同一过程。
+源码固定于提交 `4f073318c944add37417416155845e55247f9bc1`。Mermaid 保留条件、循环与内部动作；HTML 展开跨参与者消息，完整说明见卡片。
 
-Worker 父进程领取任务、续约并提交权威状态，ASR Handler 读取冻结 profile、音频依赖与配对字幕，解析可验证的运行时模型绑定后构造本次推理身份。GPU 子进程只持有模型和任务输入，不连接 SQLite。每次请求同时绑定 `protocol=1`、会话 `generation`、随机 `request_id`、`job_id`、`owner`、`attempt_count`、`profile_digest` 与 `runtime_binding`，父端逐项比较响应并在响应前后执行 checkpoint；数据库写入又独立检查当前 owner、attempt、running 状态与未过期租约。推理响应通过不等于任务已经完成，转录保存、发布排队及尝试终态仍必须分别通过围栏。
+Worker 父进程在 claim 前完成准确候选的输入准入与模型准备，再领取任务、续约并提交权威状态，ASR Handler 读取冻结 profile、音频依赖与配对字幕，解析可验证的运行时模型绑定后构造本次推理身份。GPU 子进程只持有模型和任务输入，不连接 SQLite。每次请求同时绑定 `protocol=1`、会话 `generation`、随机 `request_id`、`job_id`、`owner`、`attempt_count`、`profile_digest` 与 `runtime_binding`，父端逐项比较响应并在响应前后执行 checkpoint；数据库写入又独立检查当前 owner、attempt、running 状态与未过期租约。推理响应通过不等于任务已经完成，转录保存、发布排队及尝试终态仍必须分别通过围栏。
 
 ```mermaid
 sequenceDiagram
@@ -16,7 +16,10 @@ sequenceDiagram
 
     rect rgb(235, 245, 249)
         Note over W,D: 准入；已请求 drain 时不再领取新任务
-        W->>D: 仅 claim 可执行 ASR
+        W->>D: peek 精确 candidate；未领取时读取冻结 profile 与绑定
+        W->>S: prepare 冷加载/显式 warmup；可随 drain 中断
+        S->>G: 创建或复用准确配置的模型；不持有执行 lease
+        W->>D: expected_candidate claim；候选变化重新选择
         D-->>W: owner + attempt
         W->>H: local_asr(job)
         H->>D: 读取冻结配置与音频
@@ -99,23 +102,20 @@ sequenceDiagram
 
 drain 文件或停止信号先停止领取新任务，活动推理在宽限期内继续心跳；超过宽限期后通过 checkpoint 进入同一失败处理。Session 关闭先发送哨兵并有界等待，随后按需要对自有进程组 TERM、KILL、join 和关闭队列。Linux 子进程建立独立进程组，内核父死信号在原生推理占用 GIL 时仍可杀死 GPU owner，独立 EOF 守护负责清理同组解码后代。Supervisor 回收已拥有的句柄并在重启前清理退出组。`oneshot` 是每次推理后关闭的回退配置；CPU 与 legacy 路径另见[实施说明](../issues-implementation.md)和[ASR worker 文档](../asr-workers.md)。阶段 wall-time、父端等待与任务间隙只是诊断证据，WSL 控制测试不能代替真实 GPU 利用率、生产部署或 Windows 完整进程树验收。
 
-源码证据均固定于 `857906d3b3c54b31fd9bc0ba94b84618f68cd6f3`：
+## 源码证据
 
-| 责任 | 固定源码证据 |
-| --- | --- |
-| Worker 组成、资源关闭、信号与 drain 配置 | [workflow_application.py:102–168](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/services/workflow_application.py#L102-L168) |
-| 任务领取、Handler 调用、finish/fail 与失租处理 | [workflow.py:103–172](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/workflow.py#L103-L172) |
-| 独立心跳连接、drain 宽限期和续约失租 token | [workflow.py:178–247](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/workflow.py#L178-L247) |
-| checkpoint 的权威取消与租约检查 | [workflow_runtime.py:114–120](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/workflow_runtime.py#L114-L120) |
-| 冻结配置、音频、运行登记、Session 请求、转录与发布排队 | [workflow_runtime.py:241–350](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/workflow_runtime.py#L241-L350) |
-| running、owner、attempt、期限及事务前后围栏 | [job_commit.py:23–62](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/job_commit.py#L23-L62) |
-| 工作流 claim/续约入口与终态提交 | [storage/workflow.py:203–294](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/workflow.py#L203-L294)、[storage/workflow.py:687–748](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/storage/workflow.py#L687-L748) |
-| 请求身份、父死信号、EOF 守护与 GPU 请求循环 | [asr/session.py:31–111](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/asr/session.py#L31-L111) |
-| 配置 key、串行请求、期限、响应校验与终止关闭 | [asr/session.py:128–267](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/asr/session.py#L128-L267) |
-| 模型绑定的 manifest、固定身份与文件校验 | [runtime_bindings.py:95–179](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/runtime_bindings.py#L95-L179) |
-| 同一音频复用范围与预取配置 | [asr/runner.py:276–301](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/asr/runner.py#L276-L301) |
-| 推理诊断、波形准备、深度一预算预取与回收 | [asr/runner.py:473–713](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/asr/runner.py#L473-L713) |
-| 双轮热词重建与新生成调用 | [asr/runner.py:831–864](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/asr/runner.py#L831-L864) |
-| Supervisor drain、拥有句柄回收与重启边界 | [workflow_supervisor.py:90–225](https://github.com/SuperCatQR/bilibili-asr-archive/blob/857906d3b3c54b31fd9bc0ba94b84618f68cd6f3/src/bili_asr/workflow_supervisor.py#L90-L225) |
-
-[本图验证凭证](../issue-diagram-validation/19-persistent-asr/receipt.json)记录固定源码 SHA、规格与 HTML 摘要；showcase 验证 9/9 通过、0 errors、0 warnings，`validate`、`deliver`、strict `check` 与自动化 `browser-check` 均通过，视觉人工审阅为 `not-requested`。其他图表的统一证据见[验证索引](../issue-diagram-validation/README.md)。
+- [src/bili_asr/services/workflow_application.py:96](../../src/bili_asr/services/workflow_application.py#L96)：WorkflowApplication.render。
+- [src/bili_asr/workflow.py:128](../../src/bili_asr/workflow.py#L128)：WorkflowExecutor.run。
+- [src/bili_asr/workflow_supervisor.py:1](../../src/bili_asr/workflow_supervisor.py#L1)：模块定义。
+- [src/bili_asr/storage/job_commit.py:23](../../src/bili_asr/storage/job_commit.py#L23)：JobCommitGuard.assert_lease。
+- [src/bili_asr/storage/workflow.py:262](../../src/bili_asr/storage/workflow.py#L262)：WorkflowRepository.claim。
+- [src/bili_asr/storage/workflow.py:814](../../src/bili_asr/storage/workflow.py#L814)：WorkflowRepository._terminal。
+- [src/bili_asr/workflow_runtime.py:118](../../src/bili_asr/workflow_runtime.py#L118)：ArchiveWorkflowHandlers._inference_checkpoint。
+- [src/bili_asr/workflow_runtime.py:279](../../src/bili_asr/workflow_runtime.py#L279)：ArchiveWorkflowHandlers.local_asr。
+- [src/bili_asr/runtime_bindings.py:95](../../src/bili_asr/runtime_bindings.py#L95)：ModelBindings._checkpoint。
+- [src/bili_asr/asr/session.py:157](../../src/bili_asr/asr/session.py#L157)：AsrInferenceSession.__init__。
+- [src/bili_asr/asr/session.py:80](../../src/bili_asr/asr/session.py#L80)：_session_worker。
+- [src/bili_asr/asr/runner.py:530](../../src/bili_asr/asr/runner.py#L530)：ASRRunner.transcribe。
+- [src/bili_asr/asr/runner.py:931](../../src/bili_asr/asr/runner.py#L931)：two_pass_transcribe。
+- [src/bili_asr/asr/session.py:61](../../src/bili_asr/asr/session.py#L61)：InferenceRequest.identity。
+- [src/bili_asr/asr/session.py:326](../../src/bili_asr/asr/session.py#L326)：AsrInferenceSession.terminate。

@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "产物副本、迁出、消费 pin 与精确恢复",
+    "locale": "zh-CN",
+    "output": "docs/sequences/24-artifact-storage.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "op",
+      "label": "运维或消费者",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/artifacts.py",
+          "line": 1,
+          "end_line": 270,
+          "label": "模块定义"
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "label": "存储用例",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/artifact_transfer.py",
+          "line": 286,
+          "end_line": 364,
+          "label": "transfer_artifacts"
+        },
+        {
+          "path": "src/bili_asr/services/artifact_consumer.py",
+          "line": 42,
+          "end_line": 77,
+          "label": "candidate_artifact_access"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "副本 Cata",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/artifact_catalog.py",
+          "line": 186,
+          "end_line": 399,
+          "label": "ArtifactCatalog"
+        }
+      ],
+      "sublabel": "副本 Catalog"
+    },
+    {
+      "id": "local",
+      "label": "本地文件",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/artifact_release.py",
+          "line": 1,
+          "end_line": 157,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/services/artifact_groups.py",
+          "line": 169,
+          "end_line": 256,
+          "label": "restore_artifact_group"
+        }
+      ]
+    },
+    {
+      "id": "target",
+      "label": "已绑定目录",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/artifact_packages.py",
+          "line": 1,
+          "end_line": 541,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/storage_targets.py",
+          "line": 1,
+          "end_line": 132,
+          "label": "模块定义"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "to": "service",
+      "y": 235,
+      "label": "inventory/deep 与冻结 plan",
+      "variant": "default",
+      "note": "inventory/deep 与冻结 plan；显式 holds 声明；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m2",
+      "to": "db",
+      "y": 301,
+      "label": "读取生产引用、pin、组与副本身份",
+      "variant": "default",
+      "note": "读取生产引用、pin、组与副本身份；生产状态独立于驻留；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m3",
+      "to": "local",
+      "y": 367,
+      "label": "核验 size/hash/generation",
+      "variant": "default",
+      "note": "核验 size/hash/generation；文本必须是完整不可变组；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m4",
+      "to": "op",
+      "y": 433,
+      "label": "plan 摘要、候选和保留理由",
+      "variant": "return",
+      "note": "plan 摘要、候选和保留理由；未知 hold 阻止释放；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m5",
+      "to": "service",
+      "y": 499,
+      "label": "transfer copy/offload",
+      "variant": "default",
+      "note": "transfer copy/offload；重新核验同一计划；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m6",
+      "to": "local",
+      "y": 630,
+      "label": "archive 独占维护锁",
+      "variant": "default",
+      "note": "archive 独占维护锁；条件：alt 手动维护窗口",
+      "from": "service"
+    },
+    {
+      "id": "m7",
+      "to": "local",
+      "y": 761,
+      "label": "共享维护锁、publication 资源锁和对象独占…",
+      "variant": "default",
+      "note": "共享维护锁、publication 资源锁和对象独占 fence；条件：else artifact-online 显式策略",
+      "from": "service"
+    },
+    {
+      "id": "m8",
+      "to": "target",
+      "y": 892,
+      "label": "有界批次流式写不可变包",
+      "variant": "security",
+      "note": "有界批次流式写不可变包；目标身份校验；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m9",
+      "to": "service",
+      "y": 958,
+      "label": "重新读取完整包与成员",
+      "variant": "return",
+      "note": "重新读取完整包与成员；SHA/大小/manifest 一致；条件：主流程",
+      "from": "target"
+    },
+    {
+      "id": "m10",
+      "to": "db",
+      "y": 1024,
+      "label": "登记 verified 外部副本和 transfer…",
+      "variant": "default",
+      "note": "登记 verified 外部副本和 transfer journal；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m11",
+      "to": "local",
+      "y": 1155,
+      "label": "准确源代次隔离到 quarantine",
+      "variant": "security",
+      "note": "准确源代次隔离到 quarantine；保存 release intent；条件：opt offload 且所有保留条件满足",
+      "from": "service"
+    },
+    {
+      "id": "m12",
+      "to": "target",
+      "y": 1221,
+      "label": "删除前重读目标对象并固定目标代次",
+      "variant": "default",
+      "note": "删除前重读目标对象并固定目标代次；条件：opt offload 且所有保留条件满足",
+      "from": "service"
+    },
+    {
+      "id": "m13",
+      "to": "db",
+      "y": 1287,
+      "label": "短 BEGIN IMMEDIATE",
+      "variant": "default",
+      "note": "短 BEGIN IMMEDIATE；复验 live hold、consumer、pin 与策略；条件：opt offload 且所有保留条件满足",
+      "from": "service"
+    },
+    {
+      "id": "m14",
+      "to": "local",
+      "y": 1353,
+      "label": "删除自有隔离副本",
+      "variant": "default",
+      "note": "删除自有隔离副本；目标代次不得变化；条件：opt offload 且所有保留条件满足",
+      "from": "service"
+    },
+    {
+      "id": "m15",
+      "to": "db",
+      "y": 1419,
+      "label": "登记 released",
+      "variant": "security",
+      "note": "登记 released；不重置 job、attempt 或审核；条件：opt offload 且所有保留条件满足",
+      "from": "service"
+    },
+    {
+      "id": "m16",
+      "to": "service",
+      "y": 1550,
+      "label": "消费准确已登记音频",
+      "variant": "default",
+      "note": "消费准确已登记音频；claim 前检查；条件：主流程",
+      "from": "op"
+    },
+    {
+      "id": "m17",
+      "to": "local",
+      "y": 1616,
+      "label": "共享对象 fence 与持久 consumer pin",
+      "variant": "default",
+      "note": "共享对象 fence 与持久 consumer pin；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m18",
+      "to": "db",
+      "y": 1747,
+      "label": "预留恢复空间与 ASR 工作空间",
+      "variant": "default",
+      "note": "预留恢复空间与 ASR 工作空间；按对象去重恢复；条件：alt 输入外置",
+      "from": "service"
+    },
+    {
+      "id": "m19",
+      "to": "target",
+      "y": 1813,
+      "label": "读取准确对象包",
+      "variant": "default",
+      "note": "读取准确对象包；条件：alt 输入外置",
+      "from": "service"
+    },
+    {
+      "id": "m20",
+      "to": "local",
+      "y": 1879,
+      "label": "hash 校验后安装原 storage key",
+      "variant": "security",
+      "note": "hash 校验后安装原 storage key；组恢复 marker 最后安装；条件：alt 输入外置",
+      "from": "service"
+    },
+    {
+      "id": "m21",
+      "to": "db",
+      "y": 2010,
+      "label": "保存 input blocked 与 60 秒 ba…",
+      "variant": "default",
+      "note": "保存 input blocked 与 60 秒 backoff；条件：else 目标/空间不可用",
+      "from": "service"
+    },
+    {
+      "id": "m22",
+      "to": "op",
+      "y": 2076,
+      "label": "不 claim，不消耗 attempt",
+      "variant": "return",
+      "note": "不 claim，不消耗 attempt；保留生产成果；条件：else 目标/空间不可用",
+      "from": "service"
+    },
+    {
+      "id": "m23",
+      "to": "op",
+      "y": 2207,
+      "label": "ready 后执行",
+      "variant": "return",
+      "note": "ready 后执行；pin 持有到本次消费结束；条件：主流程",
+      "from": "service"
+    }
+  ],
+  "segments": [
+    {
+      "from": 207,
+      "to": 545,
+      "label": "B1 · 主流程"
+    },
+    {
+      "from": 602,
+      "to": 676,
+      "label": "B2 · alt 手动维护窗口"
+    },
+    {
+      "from": 733,
+      "to": 807,
+      "label": "B3 · else artifact-online 显式策略"
+    },
+    {
+      "from": 864,
+      "to": 1070,
+      "label": "B4 · 主流程"
+    },
+    {
+      "from": 1127,
+      "to": 1465,
+      "label": "B5 · opt offload 且所有保留条件满足"
+    },
+    {
+      "from": 1522,
+      "to": 1662,
+      "label": "B6 · 主流程"
+    },
+    {
+      "from": 1719,
+      "to": 1925,
+      "label": "B7 · alt 输入外置"
+    },
+    {
+      "from": 1982,
+      "to": 2122,
+      "label": "B8 · else 目标/空间不可用"
+    },
+    {
+      "from": 2179,
+      "to": 2248,
+      "label": "B9 · 主流程"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "B1 条件路径：主流程",
+        "B2 条件路径：alt 手动维护窗口",
+        "B3 条件路径：else artifact-online 显式策略",
+        "B4 条件路径：主流程",
+        "B5 条件路径：opt offload 且所有保留条件满足",
+        "B6 条件路径：主流程",
+        "B7 条件路径：alt 输入外置",
+        "B8 条件路径：else 目标/空间不可用",
+        "B9 条件路径：主流程"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
+  ]
+}

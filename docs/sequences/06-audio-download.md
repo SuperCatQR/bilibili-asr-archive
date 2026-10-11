@@ -1,6 +1,6 @@
 # 音频来源、流式摘要与受保护登记
 
-源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（架构解耦修复后的代码提交；源码链接采用本地路径）。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [Archify 规格](06-audio-download.json) · [交互时序图](06-audio-download.html) · [全部时序图](../architecture-sequences.md)
 
@@ -56,18 +56,19 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/workflow_runtime.py:135–159](../../src/bili_asr/workflow_runtime.py#L135)：`ArchiveWorkflowHandlers.audio`。
-- [src/bili_asr/workflow_runtime.py:161–172](../../src/bili_asr/workflow_runtime.py#L161)：`ArchiveWorkflowHandlers._download_audio`。
-- [src/bili_asr/workflow_runtime.py:174–209](../../src/bili_asr/workflow_runtime.py#L174)：`ArchiveWorkflowHandlers._store_audio`。
-- [src/bili_asr/artifact_root.py:369–388](../../src/bili_asr/artifact_root.py#L369)：`usable_audio_path`。
-- [src/bili_asr/path_policy.py:101–143](../../src/bili_asr/path_policy.py#L101)：`confined_audio_path`。
-- [src/bili_asr/artifact_inventory.py:122–130](../../src/bili_asr/artifact_inventory.py#L122)：`stream_hash`。
-- [src/bili_asr/sources/bilibili_source.py:90–118](../../src/bili_asr/sources/bilibili_source.py#L90)：`BilibiliAudioSource`。
-- [src/bili_asr/sources/protocols.py:79–89](../../src/bili_asr/sources/protocols.py#L79)：`AudioSource`。
-- [src/bili_asr/audio.py:222–337](../../src/bili_asr/audio.py#L222)：`download_audio`。
-- [src/bili_asr/bili_client.py:602–630](../../src/bili_asr/bili_client.py#L602)：`BiliClient.fetch_playurl_audio`。
-- [src/bili_asr/bili_client.py:632–657](../../src/bili_asr/bili_client.py#L632)：`BiliClient.download_audio_stream`。
-- [src/bili_asr/storage/workflow.py:283–291](../../src/bili_asr/storage/workflow.py#L283)：`WorkflowRepository.owned_transaction`。
-- [src/bili_asr/workflow_runtime_ports.py:19–20](../../src/bili_asr/workflow_runtime_ports.py#L19)：`AudioClientFactory`。
-- [src/bili_asr/page_identity.py:19–30](../../src/bili_asr/page_identity.py#L19)：`PageIdentity`。
-- [src/bili_asr/platform_identity.py:17–48](../../src/bili_asr/platform_identity.py#L17)：`ContentRef`。
+- [src/bili_asr/workflow_runtime.py:181](../../src/bili_asr/workflow_runtime.py#L181)：ArchiveWorkflowHandlers.audio。
+- [src/bili_asr/workflow_runtime.py:211](../../src/bili_asr/workflow_runtime.py#L211)：ArchiveWorkflowHandlers._download_audio。
+- [src/bili_asr/workflow_runtime.py:1](../../src/bili_asr/workflow_runtime.py#L1)：模块定义。
+- [src/bili_asr/artifact_root.py:369](../../src/bili_asr/artifact_root.py#L369)：usable_audio_path。
+- [src/bili_asr/path_policy.py:101](../../src/bili_asr/path_policy.py#L101)：confined_audio_path。
+- [src/bili_asr/artifact_inventory.py:122](../../src/bili_asr/artifact_inventory.py#L122)：stream_hash。
+- [src/bili_asr/sources/bilibili_source.py:103](../../src/bili_asr/sources/bilibili_source.py#L103)：BilibiliAudioSource。
+- [src/bili_asr/sources/protocols.py:81](../../src/bili_asr/sources/protocols.py#L81)：AudioSource。
+- [src/bili_asr/audio.py:222](../../src/bili_asr/audio.py#L222)：download_audio。
+- [src/bili_asr/bili_client.py:602](../../src/bili_asr/bili_client.py#L602)：BiliClient.fetch_playurl_audio。
+- [src/bili_asr/bili_client.py:632](../../src/bili_asr/bili_client.py#L632)：BiliClient.download_audio_stream。
+- [src/bili_asr/storage/workflow.py:342](../../src/bili_asr/storage/workflow.py#L342)：WorkflowRepository.owned_transaction。
+
+## 平台与准确输入
+
+Bilibili 分支保留上述真实 gateway/client 调用；universal-v2 按来源 registry 分派 SourceWorkflowHandlers，YouTube 与候选字幕见 [21](21-youtube-workflow.md)、[22](22-subtitle-candidates.md)。启用 catalog 后复用音频先验证已登记摘要，外置输入见 [24](24-artifact-storage.md)，不能将同名新字节当旧输入。

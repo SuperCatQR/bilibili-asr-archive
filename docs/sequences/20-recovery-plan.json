@@ -5,59 +5,433 @@
     "title": "快照恢复：完整校验、暂存改写与安装审计",
     "locale": "zh-CN",
     "output": "docs/sequences/20-recovery-plan.html",
-    "column_fit": "spread",
     "quality_profile": "showcase",
-    "repository": {"url": "https://github.com/SuperCatQR/bilibili-asr-archive.git", "revision": "857906d3b3c54b31fd9bc0ba94b84618f68cd6f3", "provider": "github", "link_mode": "web"}
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
   },
   "participants": [
-    {"id": "operator", "type": "external", "label": "操作者 / CLI", "sublabel": "显式命令边界", "sources": [{"path": "src/bili_asr/cli/snapshot.py", "line": 13, "end_line": 72}]},
-    {"id": "service", "type": "backend", "label": "恢复服务", "sublabel": "检查与安装协调", "sources": [{"path": "src/bili_asr/services/archive_recovery.py", "line": 38, "end_line": 278}, {"path": "src/bili_asr/services/archive_snapshot.py", "line": 292, "end_line": 333}, {"path": "src/bili_asr/services/archive_snapshot.py", "line": 353, "end_line": 418}]},
-    {"id": "snapshot", "type": "database", "label": "快照 ZIP", "sublabel": "原包保持不变", "sources": [{"path": "src/bili_asr/services/archive_snapshot.py", "line": 225, "end_line": 323}]},
-    {"id": "stage", "type": "database", "label": "暂存 SQLite", "sublabel": "恢复改写仅在此", "sources": [{"path": "src/bili_asr/storage/snapshots.py", "line": 157, "end_line": 189}, {"path": "src/bili_asr/storage/snapshots.py", "line": 331, "end_line": 392}, {"path": "src/bili_asr/services/archive_recovery.py", "line": 126, "end_line": 220}]},
-    {"id": "audit", "type": "database", "label": "NDJSON 审计", "sublabel": "可选独立新文件", "sources": [{"path": "src/bili_asr/services/archive_snapshot.py", "line": 359, "end_line": 417}]},
-    {"id": "target", "type": "database", "label": "目标归档", "sublabel": "新建或空目录", "sources": [{"path": "src/bili_asr/services/archive_recovery.py", "line": 243, "end_line": 278}, {"path": "src/bili_asr/services/archive_snapshot.py", "line": 353, "end_line": 418}, {"path": "src/bili_asr/services/archive_recovery.py", "line": 280, "end_line": 316}]}
-  ],
-  "segments": [
-    {"from": 150, "to": 475, "label": "inspect / plan：只读包与本机环境，不创建目标"},
-    {"from": 485, "to": 1130, "label": "restore --report：重验、暂存事务、持久化审计再安装"},
-    {"from": 1140, "to": 1335, "label": "doctor：读取已安装事实，派生运行就绪度"}
+    {
+      "id": "operator",
+      "label": "操作者 / C",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/snapshot.py",
+          "line": 1,
+          "end_line": 87,
+          "label": "模块定义"
+        }
+      ],
+      "sublabel": "操作者 / CLI"
+    },
+    {
+      "id": "service",
+      "label": "恢复服务",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_recovery.py",
+          "line": 38,
+          "end_line": 71,
+          "label": "RuntimeProbe.local"
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 327,
+          "end_line": 350,
+          "label": "_validate_into"
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 388,
+          "end_line": 454,
+          "label": "restore_snapshot"
+        }
+      ]
+    },
+    {
+      "id": "snapshot",
+      "label": "快照 ZIP",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 260,
+          "end_line": 266,
+          "label": "_manifest_object"
+        }
+      ]
+    },
+    {
+      "id": "stage",
+      "label": "暂存 SQLi",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/snapshots.py",
+          "line": 173,
+          "end_line": 210,
+          "label": "validate_snapshot_database"
+        },
+        {
+          "path": "src/bili_asr/storage/snapshots.py",
+          "line": 379,
+          "end_line": 387,
+          "label": "preview_interrupted_jobs"
+        },
+        {
+          "path": "src/bili_asr/services/archive_recovery.py",
+          "line": 126,
+          "end_line": 219,
+          "label": "_job_report"
+        }
+      ],
+      "sublabel": "暂存 SQLite"
+    },
+    {
+      "id": "audit",
+      "label": "NDJSON ",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 388,
+          "end_line": 454,
+          "label": "restore_snapshot"
+        }
+      ],
+      "sublabel": "NDJSON 审计"
+    },
+    {
+      "id": "target",
+      "label": "目标归档",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_recovery.py",
+          "line": 243,
+          "end_line": 277,
+          "label": "plan_restore"
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 388,
+          "end_line": 454,
+          "label": "restore_snapshot"
+        },
+        {
+          "path": "src/bili_asr/services/archive_recovery.py",
+          "line": 280,
+          "end_line": 317,
+          "label": "doctor_archive"
+        }
+      ]
+    }
   ],
   "messages": [
-    {"id": "plan-request", "from": "operator", "to": "service", "y": 175, "label": "inspect 或 plan", "variant": "emphasis"},
-    {"id": "read-verify-package", "from": "service", "to": "snapshot", "y": 220, "label": "校验 manifest/全部字节", "variant": "security"},
-    {"id": "manifest-bytes", "from": "snapshot", "to": "service", "y": 265, "label": "包内容与声明契约", "variant": "return"},
-    {"id": "read-only-database", "from": "service", "to": "stage", "y": 310, "label": "临时 DB 只读检查", "variant": "default"},
-    {"id": "queue-facts", "from": "stage", "to": "service", "y": 355, "label": "任务/依赖/冻结配置", "variant": "return"},
-    {"id": "target-preflight", "from": "service", "to": "target", "y": 400, "label": "plan 检查空目录与空间", "variant": "security"},
-    {"id": "planned-report", "from": "service", "to": "operator", "y": 445, "label": "完整性/运行缺项/plan_id", "variant": "return"},
-    {"id": "restore-request", "from": "operator", "to": "service", "y": 510, "label": "显式 restore --report", "variant": "emphasis"},
-    {"id": "revalidate-archive", "from": "service", "to": "snapshot", "y": 555, "label": "再次完整校验快照", "variant": "security"},
-    {"id": "create-private-stage", "from": "service", "to": "stage", "y": 600, "label": "私有暂存解压与 DB 验证", "variant": "security"},
-    {"id": "begin-recovery", "from": "service", "to": "stage", "y": 645, "label": "BEGIN IMMEDIATE 恢复", "variant": "emphasis"},
-    {"id": "recovery-decisions", "from": "stage", "to": "service", "y": 690, "label": "逐行 before/after 决策", "variant": "return"},
-    {"id": "private-audit", "from": "service", "to": "audit", "y": 735, "label": "写入私有暂存审计", "variant": "default"},
-    {"id": "commit-staging", "from": "stage", "to": "service", "y": 780, "label": "恢复事务提交与计数", "variant": "return"},
-    {"id": "fsync-stage", "from": "service", "to": "stage", "y": 825, "label": "再验契约，持久化暂存", "variant": "security"},
-    {"id": "reserve-audit", "from": "service", "to": "audit", "y": 870, "label": "新文件 xb + 审计 fsync", "variant": "security"},
-    {"id": "final-target-check", "from": "service", "to": "target", "y": 915, "label": "锁内再次确认目标为空", "variant": "security"},
-    {"id": "install-staging", "from": "service", "to": "target", "y": 960, "label": "rename 安装暂存归档", "variant": "emphasis"},
-    {"id": "installed-audit", "from": "service", "to": "audit", "y": 1005, "label": "追加 archive_installed", "variant": "default"},
-    {"id": "installed-report", "from": "service", "to": "operator", "y": 1050, "label": "installed=true + 警告", "variant": "return"},
-    {"id": "doctor-request", "from": "operator", "to": "service", "y": 1160, "label": "显式 snapshot doctor", "variant": "emphasis"},
-    {"id": "doctor-reads", "from": "service", "to": "target", "y": 1205, "label": "只读 DB/产物/完整标记", "variant": "security"},
-    {"id": "doctor-facts", "from": "target", "to": "service", "y": 1250, "label": "当前归档与任务事实", "variant": "return"},
-    {"id": "doctor-result", "from": "service", "to": "operator", "y": 1295, "label": "data_complete / runtime_ready", "variant": "return"}
+    {
+      "id": "m1",
+      "to": "service",
+      "y": 235,
+      "label": "inspect 或 plan",
+      "variant": "default",
+      "note": "inspect 或 plan；条件：主流程",
+      "from": "operator"
+    },
+    {
+      "id": "m2",
+      "to": "snapshot",
+      "y": 301,
+      "label": "校验 manifest/全部字节",
+      "variant": "security",
+      "note": "校验 manifest/全部字节；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m3",
+      "to": "service",
+      "y": 367,
+      "label": "包内容与声明契约",
+      "variant": "return",
+      "note": "包内容与声明契约；条件：主流程",
+      "from": "snapshot"
+    },
+    {
+      "id": "m4",
+      "to": "stage",
+      "y": 433,
+      "label": "临时 DB 只读检查",
+      "variant": "default",
+      "note": "临时 DB 只读检查；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m5",
+      "to": "service",
+      "y": 499,
+      "label": "任务/依赖/冻结配置",
+      "variant": "return",
+      "note": "任务/依赖/冻结配置；条件：主流程",
+      "from": "stage"
+    },
+    {
+      "id": "m6",
+      "to": "target",
+      "y": 630,
+      "label": "plan 检查空目录与空间",
+      "variant": "default",
+      "note": "plan 检查空目录与空间；条件：opt 仅 snapshot plan",
+      "from": "service"
+    },
+    {
+      "id": "m7",
+      "to": "operator",
+      "y": 761,
+      "label": "完整性/运行缺项/plan_id",
+      "variant": "return",
+      "note": "完整性/运行缺项/plan_id；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m8",
+      "to": "service",
+      "y": 827,
+      "label": "显式 restore --report",
+      "variant": "default",
+      "note": "显式 restore --report；条件：主流程",
+      "from": "operator"
+    },
+    {
+      "id": "m9",
+      "to": "snapshot",
+      "y": 893,
+      "label": "再次完整校验快照",
+      "variant": "security",
+      "note": "再次完整校验快照；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m10",
+      "to": "stage",
+      "y": 959,
+      "label": "私有暂存解压与 DB 验证",
+      "variant": "default",
+      "note": "私有暂存解压与 DB 验证；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m11",
+      "to": "stage",
+      "y": 1025,
+      "label": "BEGIN IMMEDIATE 恢复",
+      "variant": "default",
+      "note": "BEGIN IMMEDIATE 恢复；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m12",
+      "to": "service",
+      "y": 1156,
+      "label": "逐行 before/after 决策",
+      "variant": "return",
+      "note": "逐行 before/after 决策；条件：opt 指定 --report / loop 每个中断实体的恢复预览",
+      "from": "stage"
+    },
+    {
+      "id": "m13",
+      "to": "audit",
+      "y": 1222,
+      "label": "写入私有暂存审计",
+      "variant": "default",
+      "note": "写入私有暂存审计；条件：opt 指定 --report / loop 每个中断实体的恢复预览",
+      "from": "service"
+    },
+    {
+      "id": "m14",
+      "to": "service",
+      "y": 1353,
+      "label": "恢复事务提交与计数",
+      "variant": "return",
+      "note": "恢复事务提交与计数；条件：主流程",
+      "from": "stage"
+    },
+    {
+      "id": "m15",
+      "to": "stage",
+      "y": 1419,
+      "label": "再验契约，持久化暂存",
+      "variant": "default",
+      "note": "再验契约，持久化暂存；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m16",
+      "to": "audit",
+      "y": 1550,
+      "label": "新文件 xb + 审计 fsync",
+      "variant": "default",
+      "note": "新文件 xb + 审计 fsync；条件：opt 指定 --report",
+      "from": "service"
+    },
+    {
+      "id": "m17",
+      "to": "target",
+      "y": 1681,
+      "label": "锁内再次确认目标为空",
+      "variant": "default",
+      "note": "锁内再次确认目标为空；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m18",
+      "to": "target",
+      "y": 1747,
+      "label": "rename 安装暂存归档",
+      "variant": "default",
+      "note": "rename 安装暂存归档；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m19",
+      "to": "audit",
+      "y": 1878,
+      "label": "追加 archive_installed",
+      "variant": "default",
+      "note": "追加 archive_installed；条件：opt 指定 --report",
+      "from": "service"
+    },
+    {
+      "id": "m20",
+      "to": "operator",
+      "y": 2009,
+      "label": "installed=true + 警告",
+      "variant": "return",
+      "note": "installed=true + 警告；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m21",
+      "to": "service",
+      "y": 2075,
+      "label": "显式 snapshot doctor",
+      "variant": "default",
+      "note": "显式 snapshot doctor；条件：主流程",
+      "from": "operator"
+    },
+    {
+      "id": "m22",
+      "to": "target",
+      "y": 2141,
+      "label": "只读 DB/产物/完整标记",
+      "variant": "default",
+      "note": "只读 DB/产物/完整标记；条件：主流程",
+      "from": "service"
+    },
+    {
+      "id": "m23",
+      "to": "service",
+      "y": 2207,
+      "label": "当前归档与任务事实",
+      "variant": "return",
+      "note": "当前归档与任务事实；条件：主流程",
+      "from": "target"
+    },
+    {
+      "id": "m24",
+      "to": "operator",
+      "y": 2273,
+      "label": "data_complete / runtime_re…",
+      "variant": "return",
+      "note": "data_complete / runtime_ready；条件：主流程",
+      "from": "service"
+    }
   ],
-  "activations": [
-    {"participant": "service", "from": 170, "to": 455, "type": "backend"},
-    {"participant": "service", "from": 505, "to": 1065, "type": "backend"},
-    {"participant": "stage", "from": 595, "to": 840, "type": "database"},
-    {"participant": "audit", "from": 730, "to": 1020, "type": "database"},
-    {"participant": "service", "from": 1155, "to": 1310, "type": "backend"}
+  "segments": [
+    {
+      "from": 207,
+      "to": 545,
+      "label": "B1 · 主流程"
+    },
+    {
+      "from": 602,
+      "to": 676,
+      "label": "B2 · opt 仅 snapshot plan"
+    },
+    {
+      "from": 733,
+      "to": 1071,
+      "label": "B3 · 主流程"
+    },
+    {
+      "from": 1128,
+      "to": 1268,
+      "label": "B4 · loop 每个中断实体的恢复预览"
+    },
+    {
+      "from": 1325,
+      "to": 1465,
+      "label": "B5 · 主流程"
+    },
+    {
+      "from": 1522,
+      "to": 1596,
+      "label": "B6 · opt 指定 --report"
+    },
+    {
+      "from": 1653,
+      "to": 1793,
+      "label": "B7 · 主流程"
+    },
+    {
+      "from": 1850,
+      "to": 1924,
+      "label": "B8 · opt 指定 --report"
+    },
+    {
+      "from": 1981,
+      "to": 2314,
+      "label": "B9 · 主流程"
+    }
   ],
   "cards": [
-    {"dot": "cyan", "title": "完整性与就绪度分开判断", "items": ["完整校验包括逐文件尺寸/摘要、便携路径、bundle 标记、数据库契约与外部产物引用。", "inspect/plan 临时提取 DB 以读取事实；不会创建或修改目标，原快照不被改写。", "任务状态由队列、依赖、available_at、取消、lease 和坏 payload 派生，不增加第二套持久状态。", "本机仅检查工具、包、设备、凭据名称与模型绑定；model_load_tested=false，凭据不代表在线验真。"]},
-    {"dot": "emerald", "title": "恢复事务与报告", "items": ["仅暂存 DB：running job → queued；running attempt/ingestion/acquisition → failed；未完成模型调用被关闭。", "清除中断任务 lease 并加入 snapshot_recovery 证据；既有尝试计数、已完成与 cancelled 终态保留。", "可选报告逐行记录实体、identity、before、after、snapshot_id 和 reason，不复制原始秘密。", "报告必须是归档及原快照之外的新文件；碰撞或安装前写入失败时，目标归档不安装。"]},
-    {"dot": "rose", "title": "安装后的真实结果", "items": ["restore 使用维护锁并再次验包/目标，不凭之前 plan_id 跳过校验，也不自动启动 worker。", "rename 后归档已安装；目录同步或审计追加失败以 installed=true 与 warnings 报告。", "doctor 只读校验安装后产物和任务事实；运行缺项需重新配置环境、凭据或显式模型 bindings。", "离线恢复不是生产切换或真实 GPU 验收；旧包格式保持原有版本。"]}
+    {
+      "dot": "cyan",
+      "title": "完整条件路径",
+      "items": [
+        "inspect / plan：完整验包并派生本机就绪度，不创建或改写目标",
+        "B1 条件路径：主流程",
+        "B2 条件路径：opt 仅 snapshot plan",
+        "B3 条件路径：主流程",
+        "临时提取仅含 DB；逐文件流式校验仍覆盖完整 ZIP",
+        "plan_id 仅标识计划；原快照与目标不被改写",
+        "restore：显式执行，维护锁保护下独立重验并安装",
+        "验证报告路径与目标；获取维护锁并确认目标不存在或为空",
+        "B4 条件路径：opt 指定 --report / loop 每个中断实体的恢复预览",
+        "B5 条件路径：主流程",
+        "暂存审计记录 recovery_committed；事务异常回滚且不安装",
+        "B6 条件路径：opt 指定 --report",
+        "报告碰撞或安装前写入失败即终止，不安装目标归档",
+        "B7 条件路径：主流程",
+        "B8 条件路径：opt 指定 --report",
+        "B9 条件路径：主流程",
+        "安装后目录同步或报告追加失败以 warnings 返回；无失败时不含 warnings",
+        "doctor：读取当前归档事实，独立判断完整性与运行就绪度",
+        "不改任务状态，不启动 worker；模型未实际加载，凭据未在线验证"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    }
   ]
 }

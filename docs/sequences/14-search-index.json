@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -35,84 +35,8 @@
       ]
     },
     {
-      "id": "index",
-      "label": "索引构建/读取",
-      "type": "backend",
-      "sources": [
-        {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 426,
-          "end_line": 542,
-          "label": "TranscriptSearchIndex.build"
-        },
-        {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 320,
-          "end_line": 362,
-          "label": "TranscriptSearchIndex._new_store_rows"
-        },
-        {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 546,
-          "end_line": 640,
-          "label": "TranscriptSearchIndex.search_blocks"
-        }
-      ]
-    },
-    {
-      "id": "session",
-      "label": "ArchiveSession",
-      "type": "security",
-      "sources": [
-        {
-          "path": "src/bili_asr/archive_session.py",
-          "line": 64,
-          "end_line": 149,
-          "label": "ArchiveSession"
-        }
-      ]
-    },
-    {
-      "id": "db",
-      "label": "SQLite / FTS5",
-      "type": "database",
-      "sources": [
-        {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 283,
-          "end_line": 311,
-          "label": "TranscriptSearchIndex._store_progress"
-        },
-        {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 364,
-          "end_line": 410,
-          "label": "TranscriptSearchIndex._published_md_candidates"
-        }
-      ]
-    },
-    {
-      "id": "reader",
-      "label": "元数据/MD 读取",
-      "type": "backend",
-      "sources": [
-        {
-          "path": "src/bili_asr/search_index/metadata.py",
-          "line": 1,
-          "end_line": 60,
-          "label": "模块入口"
-        },
-        {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 412,
-          "end_line": 424,
-          "label": "TranscriptSearchIndex._published_md_text_for"
-        }
-      ]
-    },
-    {
       "id": "query",
-      "label": "组合查询",
+      "label": "查询分派",
       "type": "backend",
       "sources": [
         {
@@ -122,271 +46,417 @@
           "label": "search_archive"
         }
       ]
+    },
+    {
+      "id": "index",
+      "label": "索引构建/读取",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 437,
+          "end_line": 555,
+          "label": "TranscriptSearchIndex.build"
+        },
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 331,
+          "end_line": 373,
+          "label": "TranscriptSearchIndex._new_store_rows"
+        },
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 559,
+          "end_line": 655,
+          "label": "TranscriptSearchIndex.search_blocks"
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "label": "Archive",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive_session.py",
+          "line": 64,
+          "end_line": 149,
+          "label": "ArchiveSession"
+        }
+      ],
+      "sublabel": "ArchiveSes"
+    },
+    {
+      "id": "db",
+      "label": "SQLite ",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 294,
+          "end_line": 322,
+          "label": "TranscriptSearchIndex._store_progress"
+        },
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 375,
+          "end_line": 421,
+          "label": "TranscriptSearchIndex._published_md_candidates"
+        }
+      ],
+      "sublabel": "SQLite 与 F"
+    },
+    {
+      "id": "reader",
+      "label": "元数据及文本读",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/metadata.py",
+          "line": 1,
+          "end_line": 158,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 423,
+          "end_line": 435,
+          "label": "TranscriptSearchIndex._published_md_text_for"
+        }
+      ],
+      "sublabel": "元数据及文本读取"
+    },
+    {
+      "id": "files",
+      "label": "归档 MD 回",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/query.py",
+          "line": 21,
+          "end_line": 63,
+          "label": "search_archive"
+        }
+      ],
+      "sublabel": "归档 MD 回退"
     }
   ],
   "messages": [
     {
       "id": "m1",
-      "from": "cli",
       "to": "index",
-      "y": 180,
-      "label": "显式 build/rebuild",
-      "variant": "default"
+      "y": 235,
+      "label": "build",
+      "variant": "default",
+      "note": "build；已有索引/数据保持增量；条件：opt search-index 或 search --rebuild",
+      "from": "cli"
     },
     {
       "id": "m2",
-      "from": "index",
       "to": "session",
-      "y": 222,
-      "label": "WRITE/NONE 或新库",
-      "variant": "default"
+      "y": 301,
+      "label": "已有库 WRITE/NONE + store 检查",
+      "variant": "default",
+      "note": "已有库 WRITE/NONE + store 检查；新空归档 BOOTSTRAP；条件：opt search-index 或 search --rebuild",
+      "from": "index"
     },
     {
       "id": "m3",
-      "from": "session",
       "to": "db",
-      "y": 264,
-      "label": "保持旧库；新库初始化",
-      "variant": "default"
+      "y": 367,
+      "label": "共享维护访问",
+      "variant": "default",
+      "note": "共享维护访问；既有 schema 无 initializer；条件：opt search-index 或 search --rebuild",
+      "from": "session"
     },
     {
       "id": "m4",
-      "from": "index",
       "to": "db",
-      "y": 306,
-      "label": "恢复 cursor；固定上界",
-      "variant": "default"
+      "y": 433,
+      "label": "确保 FTS",
+      "variant": "default",
+      "note": "确保 FTS；有 cursor 则恢复；旧索引键在 SQLite 临时主键表，分页验证连续前缀；条件：opt search-index 或 search --rebuild",
+      "from": "index"
     },
     {
       "id": "m5",
-      "from": "index",
       "to": "db",
-      "y": 348,
-      "label": "keyset LIMIT 500",
-      "variant": "default"
+      "y": 499,
+      "label": "捕获 MAX transcript ID",
+      "variant": "default",
+      "note": "捕获 MAX transcript ID；旧键 JOIN 标记已存 block，不加载全量 Python 集合；条件：opt search-index 或 search --rebuild",
+      "from": "index"
     },
     {
       "id": "m6",
-      "from": "db",
-      "to": "index",
-      "y": 390,
-      "label": "本页 segments",
-      "variant": "return"
+      "to": "db",
+      "y": 630,
+      "label": "(transcript_id,ordinal) ke…",
+      "variant": "default",
+      "note": "(transcript_id,ordinal) keyset；不超过固定 ID 上界；条件：opt search-index 或 search --rebuild / loop 每页最多 500 segments",
+      "from": "index"
     },
     {
       "id": "m7",
-      "from": "index",
-      "to": "db",
-      "y": 432,
-      "label": "FTS+cursor 同批提交",
-      "variant": "default"
+      "to": "index",
+      "y": 696,
+      "label": "关闭本页查询后返回有界行",
+      "variant": "return",
+      "note": "关闭本页查询后返回有界行；条件：opt search-index 或 search --rebuild / loop 每页最多 500 segments",
+      "from": "db"
     },
     {
       "id": "m8",
-      "from": "index",
       "to": "db",
-      "y": 474,
-      "label": "MD 排除表与 keyset",
-      "variant": "default"
+      "y": 762,
+      "label": "FTS 行与 cursor 同批提交",
+      "variant": "default",
+      "note": "FTS 行与 cursor 同批提交；只有最后 segment 才推进整份水位；条件：opt search-index 或 search --rebuild / loop 每页最多 500 segments",
+      "from": "index"
     },
     {
       "id": "m9",
-      "from": "index",
-      "to": "reader",
-      "y": 516,
-      "label": "读取未索引 MD",
-      "variant": "default"
+      "to": "db",
+      "y": 893,
+      "label": "连接临时主键表排除已 MD 索引",
+      "variant": "default",
+      "note": "连接临时主键表排除已 MD 索引；part ID/上界分页；条件：opt search-index 或 search --rebuild / opt part 没有已存 transcript",
+      "from": "index"
     },
     {
       "id": "m10",
-      "from": "reader",
-      "to": "index",
-      "y": 558,
-      "label": "按根回退正文",
-      "variant": "return"
+      "to": "reader",
+      "y": 959,
+      "label": "读取兼容发布 MD",
+      "variant": "default",
+      "note": "读取兼容发布 MD；条件：opt search-index 或 search --rebuild / opt part 没有已存 transcript",
+      "from": "index"
     },
     {
       "id": "m11",
-      "from": "index",
-      "to": "db",
-      "y": 600,
-      "label": "MD 有界批提交",
-      "variant": "default"
+      "to": "files",
+      "y": 1025,
+      "label": "按根读取 bundle MD",
+      "variant": "default",
+      "note": "按根读取 bundle MD；条件：opt search-index 或 search --rebuild / opt part 没有已存 transcript",
+      "from": "reader"
     },
     {
       "id": "m12",
-      "from": "index",
-      "to": "session",
-      "y": 642,
-      "label": "close 释放 lease",
-      "variant": "default"
+      "to": "db",
+      "y": 1091,
+      "label": "MD fallback 有界批提交",
+      "variant": "default",
+      "note": "MD fallback 有界批提交；条件：opt search-index 或 search --rebuild / opt part 没有已存 transcript",
+      "from": "index"
     },
     {
       "id": "m13",
-      "from": "index",
-      "to": "cli",
-      "y": 684,
-      "label": "构建统计",
-      "variant": "return"
+      "to": "session",
+      "y": 1222,
+      "label": "close",
+      "variant": "default",
+      "note": "close；释放连接访问；条件：opt search-index 或 search --rebuild",
+      "from": "index"
     },
     {
       "id": "m14",
-      "from": "cli",
-      "to": "query",
-      "y": 726,
-      "label": "scope/日期/总 limit",
-      "variant": "default"
+      "to": "cli",
+      "y": 1288,
+      "label": "构建统计",
+      "variant": "return",
+      "note": "构建统计；重建进度与 JSON hits 分开；条件：opt search-index 或 search --rebuild",
+      "from": "index"
     },
     {
       "id": "m15",
-      "from": "query",
-      "to": "reader",
-      "y": 768,
-      "label": "metadata 字面查询",
-      "variant": "default"
+      "to": "query",
+      "y": 1419,
+      "label": "transcripts 默认",
+      "variant": "default",
+      "note": "transcripts 默认；metadata/all；UTC 日区间 [from, to+1day)，共用 limit；条件：主流程",
+      "from": "cli"
     },
     {
       "id": "m16",
-      "from": "reader",
-      "to": "query",
-      "y": 810,
-      "label": "元数据命中优先",
-      "variant": "return"
+      "to": "reader",
+      "y": 1550,
+      "label": "当前标题、description 与原始 tags",
+      "variant": "default",
+      "note": "当前标题、description 与原始 tags；无需 FTS、产物根与文件；条件：opt metadata 或 all",
+      "from": "query"
     },
     {
       "id": "m17",
-      "from": "query",
-      "to": "index",
-      "y": 852,
-      "label": "转录源健康与搜索",
-      "variant": "default"
+      "to": "query",
+      "y": 1616,
+      "label": "先返回元数据命中",
+      "variant": "return",
+      "note": "先返回元数据命中；条件：opt metadata 或 all",
+      "from": "reader"
     },
     {
       "id": "m18",
-      "from": "index",
-      "to": "session",
-      "y": 894,
-      "label": "READ/NONE 无 DDL",
-      "variant": "default"
+      "to": "index",
+      "y": 1747,
+      "label": "search_blocks",
+      "variant": "default",
+      "note": "search_blocks；条件：opt transcripts 或 all",
+      "from": "query"
     },
     {
       "id": "m19",
-      "from": "index",
-      "to": "db",
-      "y": 936,
-      "label": "shape/FTS/title/snippet",
-      "variant": "default"
+      "to": "session",
+      "y": 1813,
+      "label": "READ/NONE",
+      "variant": "default",
+      "note": "READ/NONE；mode=ro/query_only，无 DDL；条件：opt transcripts 或 all",
+      "from": "index"
     },
     {
       "id": "m20",
-      "from": "index",
-      "to": "query",
-      "y": 978,
-      "label": "缺索引 backlog 诊断",
-      "variant": "return"
+      "to": "db",
+      "y": 1879,
+      "label": "校验 index shape",
+      "variant": "security",
+      "note": "校验 index shape；FTS 查询、日期、批量 title/snippet；条件：opt transcripts 或 all",
+      "from": "index"
     },
     {
       "id": "m21",
-      "from": "db",
-      "to": "index",
-      "y": 1020,
-      "label": "索引快照命中",
-      "variant": "return"
+      "to": "query",
+      "y": 2010,
+      "label": "missing index 正常",
+      "variant": "return",
+      "note": "missing index 正常；all 可保留 metadata 结果；损坏索引仍报错；条件：opt transcripts 或 all / alt 索引缺失或 all 无 FTS",
+      "from": "index"
     },
     {
       "id": "m22",
-      "from": "index",
-      "to": "session",
-      "y": 1062,
-      "label": "close 释放 lease",
-      "variant": "default"
+      "to": "index",
+      "y": 2141,
+      "label": "pubdate 是建索引时快照",
+      "variant": "return",
+      "note": "pubdate 是建索引时快照；补当前 title/snippet；无命中也验证源可读；条件：opt transcripts 或 all / else 索引正常",
+      "from": "db"
     },
     {
       "id": "m23",
-      "from": "index",
       "to": "query",
-      "y": 1104,
-      "label": "转录命中与诊断",
-      "variant": "return"
+      "y": 2207,
+      "label": "即使 metadata 填满 limit 仍验证转录…",
+      "variant": "return",
+      "note": "即使 metadata 填满 limit 仍验证转录源健康；条件：opt transcripts 或 all / else 索引正常",
+      "from": "index"
     },
     {
       "id": "m24",
-      "from": "query",
+      "to": "session",
+      "y": 2338,
+      "label": "finally close",
+      "variant": "default",
+      "note": "finally close；成功或异常均释放已打开的连接访问；条件：opt transcripts 或 all",
+      "from": "index"
+    },
+    {
+      "id": "m25",
       "to": "cli",
-      "y": 1146,
-      "label": "按总 limit 合并",
-      "variant": "return"
+      "y": 2469,
+      "label": "metadata 在前，transcript 顺序沿…",
+      "variant": "return",
+      "note": "metadata 在前，transcript 顺序沿用索引；diagnostics 与 hits 分开；条件：主流程",
+      "from": "query"
     }
   ],
   "segments": [
     {
-      "from": 168,
-      "to": 318,
-      "label": "B01 opt 显式构建"
+      "from": 207,
+      "to": 545,
+      "label": "B1 · opt search-index 或 search -"
     },
     {
-      "from": 336,
-      "to": 444,
-      "label": "B02 loop 每页 segments"
+      "from": 602,
+      "to": 808,
+      "label": "B2 · loop 每页最多 500 segments"
     },
     {
-      "from": 462,
-      "to": 612,
-      "label": "B03 opt 无 transcript 的 MD"
+      "from": 865,
+      "to": 1137,
+      "label": "B3 · opt part 没有已存 transcript"
     },
     {
-      "from": 630,
-      "to": 696,
-      "label": "B04 构建完成"
+      "from": 1194,
+      "to": 1334,
+      "label": "B4 · opt search-index 或 search -"
     },
     {
-      "from": 756,
-      "to": 822,
-      "label": "B05 opt metadata/all"
+      "from": 1391,
+      "to": 1465,
+      "label": "B5 · 主流程"
     },
     {
-      "from": 840,
-      "to": 948,
-      "label": "B06 opt transcripts/all"
+      "from": 1522,
+      "to": 1662,
+      "label": "B6 · opt metadata 或 all"
     },
     {
-      "from": 966,
-      "to": 990,
-      "label": "B07 alt 缺失索引"
+      "from": 1719,
+      "to": 1925,
+      "label": "B7 · opt transcripts 或 all"
     },
     {
-      "from": 1008,
-      "to": 1116,
-      "label": "B08 else 索引正常"
+      "from": 1982,
+      "to": 2056,
+      "label": "B8 · alt 索引缺失或 all 无 FTS"
+    },
+    {
+      "from": 2113,
+      "to": 2253,
+      "label": "B9 · else 索引正常"
+    },
+    {
+      "from": 2310,
+      "to": 2384,
+      "label": "B10 · opt transcripts 或 all"
+    },
+    {
+      "from": 2441,
+      "to": 2510,
+      "label": "B11 · 主流程"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "分页与恢复",
+      "title": "完整条件路径",
       "items": [
-        "构建先捕获 MAX transcript ID；(transcript_id,ordinal) keyset 每页最多 500，构建期间新采集留下一轮。",
-        "内部动作：单行前瞻判定最后 segment；脱敏/CJK bigram；FTS 与精确 cursor 同提交，最后 segment 才推进完整水位。",
-        "旧无 cursor 键保存在 SQLite 临时主键表，keyset 核对前缀、JOIN 标记既有 block；取消 O(index) Python 集合。",
-        "只读旧 stamp 一次 materialized CTE 后流式核对，无 DDL；失败恢复已提交 cursor，不重写已有 block。"
+        "B1 条件路径：opt search-index 或 search --rebuild",
+        "B2 条件路径：opt search-index 或 search --rebuild / loop 每页最多 500 segments",
+        "B3 条件路径：opt search-index 或 search --rebuild / opt part 没有已存 transcript",
+        "B4 条件路径：opt search-index 或 search --rebuild",
+        "B5 条件路径：主流程",
+        "B6 条件路径：opt metadata 或 all",
+        "B7 条件路径：opt transcripts 或 all",
+        "B8 条件路径：opt transcripts 或 all / alt 索引缺失或 all 无 FTS",
+        "B9 条件路径：opt transcripts 或 all / else 索引正常",
+        "B10 条件路径：opt transcripts 或 all",
+        "B11 条件路径：主流程"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "内部动作",
+      "items": [
+        "索引构建/读取：单行前瞻判定最后 segment；脱敏、CJK bigram（opt search-index 或 search --rebuild / loop 每页最多 500 segments）"
       ]
     },
     {
       "dot": "rose",
-      "title": "数据库与 MD 边界",
+      "title": "身份与阅读边界",
       "items": [
-        "已有库 WRITE/NONE 加原 store 检查，只新增 FTS；新空 archive BOOTSTRAP；查询 READ/NONE + 索引形状检查。",
-        "MD candidates 按 part ID/上界分页；连接临时主键表排除已有 MD，避免 Python 全集合与逐 part 扫描 FTS。",
-        "READ 使用 mode=ro/query_only、无 DDL；读写连接均持有维护 lease 到 close。"
-      ]
-    },
-    {
-      "dot": "slate",
-      "title": "组合查询",
-      "items": [
-        "metadata 使用当前 title/description/source tags，字面子串查询；不需 FTS、产物根或文件。",
-        "transcripts 默认；all 中 metadata 优先、总 limit 共享，填满也检查转录源健康；缺索引可 backlog，损坏失败。",
-        "UTC 日区间 [from,to+1day)；FTS pubdate 为构建快照，title/snippet 批量装饰；诊断与 JSON hits 分离。"
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]

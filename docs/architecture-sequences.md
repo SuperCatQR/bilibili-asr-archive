@@ -1,69 +1,44 @@
-# 完整时序图
+# 当前完整时序图
 
-本页原有 17 个图为原固定提交的执行快照；本分支新增来源、迁移、恢复与 GPU 会话的条件路径见 [Issues 实现与架构边界](issues-implementation.md) 和 [本轮新增流程](#本轮新增流程)。
+30 个流程与两张架构图统一绑定 `4f073318c944add37417416155845e55247f9bc1`；核对日期 2026-10-11（Asia/Hong_Kong）。从原 01–23 流程保留完整分支并更新源码引用，07 重写为当前 ASR 执行分派，19 加入 claim 前准备，08 对齐 v2/v3 与历史组，24–30 补齐最新存储、契约、批处理及编辑能力。
 
-源码基线：本次架构边界修复的固定代码提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`；核对日期：2026-10-09（Asia/Hong_Kong）。该提交是从 main 开始的本地修复身份，不表示远端 main 已包含修复；17 张时序图与两张架构图共同绑定该代码快照。
+Markdown 的 Mermaid 保留 alt/opt/loop/par 和内部动作；HTML 按条件路径展开跨参与者消息，B 编号与完整条件卡片对应。互斥分支不同时执行，纵向位置不表示墙钟耗时。每条 HTML 消息的注释保存完整操作，短标签用于默认阅读。
 
-以下 17 个流程覆盖该历史基线的 CLI、生产链路、持久提交、读取消费、恢复及保留库能力。每页包含可直接渲染的 Mermaid 时序图、条件分支、交互 HTML、JSON 规格和源码证据。
-
-HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整嵌套条件路径，区域标题注明 alt/opt/loop；互斥分支只在条件成立时执行。同参与者内部动作保留在补充卡片。Markdown 中的 Mermaid 保留完整自调用与嵌套分支结构。时间轴纵向排列表示顺序，不表示墙钟耗时。
-
-| 序号 | 时序文档 | 交互图 |
+| 编号 | 完整说明与 Mermaid | 交互图与规格 |
 | --- | --- | --- |
-| 01 | [CLI 启动、显式数据库访问与 session 生命周期](sequences/01-cli-bootstrap.md) | [HTML](sequences/01-cli-bootstrap.html) · [JSON](sequences/01-cli-bootstrap.json) |
-| 02 | [分页元数据采集、失败恢复与原始标签](sequences/02-metadata-tags.md) | [HTML](sequences/02-metadata-tags.html) · [JSON](sequences/02-metadata-tags.json) |
+| 01 | [CLI、显式数据库模式与 session 生命周期](sequences/01-cli-bootstrap.md) | [HTML](sequences/01-cli-bootstrap.html) · [JSON](sequences/01-cli-bootstrap.json) |
+| 02 | [分页元数据采集、来源身份与原始标签](sequences/02-metadata-tags.md) | [HTML](sequences/02-metadata-tags.html) · [JSON](sequences/02-metadata-tags.json) |
 | 03 | [全集选择验证、配置冻结与依赖规划](sequences/03-workflow-plan.md) | [HTML](sequences/03-workflow-plan.html) · [JSON](sequences/03-workflow-plan.json) |
-| 04 | [任务认领、心跳、取消、租约回收与重试](sequences/04-lease-cancel-retry.md) | [HTML](sequences/04-lease-cancel-retry.html) · [JSON](sequences/04-lease-cancel-retry.json) |
-| 05 | [字幕轨道选择、缺失证据与不可变转录](sequences/05-subtitle-ingest.md) | [HTML](sequences/05-subtitle-ingest.html) · [JSON](sequences/05-subtitle-ingest.json) |
-| 06 | [音频复用、隔离下载与受保护登记](sequences/06-audio-download.md) | [HTML](sequences/06-audio-download.html) · [JSON](sequences/06-audio-download.json) |
-| 07 | [ASR 配置重建、GPU 超时、分块与逐次证据](sequences/07-asr-runtime.md) | [HTML](sequences/07-asr-runtime.html) · [JSON](sequences/07-asr-runtime.json) |
+| 04 | [任务认领、共享提交保护、心跳与取消重试](sequences/04-lease-cancel-retry.md) | [HTML](sequences/04-lease-cancel-retry.html) · [JSON](sequences/04-lease-cancel-retry.json) |
+| 05 | [字幕来源端口、缺失证据与不可变转录](sequences/05-subtitle-ingest.md) | [HTML](sequences/05-subtitle-ingest.html) · [JSON](sequences/05-subtitle-ingest.json) |
+| 06 | [音频来源、流式摘要与受保护登记](sequences/06-audio-download.md) | [HTML](sequences/06-audio-download.html) · [JSON](sequences/06-audio-download.json) |
+| 07 | [ASR 执行分派、冻结输入与受保护结果](sequences/07-asr-runtime.md) | [HTML](sequences/07-asr-runtime.html) · [JSON](sequences/07-asr-runtime.json) |
 | 08 | [择优转录、五文件发布与完成标记](sequences/08-transcript-bundle.md) | [HTML](sequences/08-transcript-bundle.html) · [JSON](sequences/08-transcript-bundle.json) |
-| 09 | [AI 输入冻结、块恢复、调用审计与完整修订](sequences/09-ai-proofread.md) | [HTML](sequences/09-ai-proofread.html) · [JSON](sequences/09-ai-proofread.json) |
-| 10 | [确定性 AI 双稿渲染与历史模板验证](sequences/10-document-render.md) | [HTML](sequences/10-document-render.html) · [JSON](sequences/10-document-render.json) |
-| 11 | [完整 edition、准确审核、release 替换与撤回](sequences/11-publication-lifecycle.md) | [HTML](sequences/11-publication-lifecycle.html) · [JSON](sequences/11-publication-lifecycle.json) |
+| 09 | [冻结 AI 输入、共享提交保护与逐块续跑](sequences/09-ai-proofread.md) | [HTML](sequences/09-ai-proofread.html) · [JSON](sequences/09-ai-proofread.json) |
+| 10 | [确定性 AI 双稿、锁外暂存与保护登记](sequences/10-document-render.md) | [HTML](sequences/10-document-render.html) · [JSON](sequences/10-document-render.json) |
+| 11 | [完整版本、审核、发布与撤回](sequences/11-publication-lifecycle.md) | [HTML](sequences/11-publication-lifecycle.html) · [JSON](sequences/11-publication-lifecycle.json) |
 | 12 | [公开、未发布预览与私有审阅三种导出](sequences/12-reader-private-export.md) | [HTML](sequences/12-reader-private-export.html) · [JSON](sequences/12-reader-private-export.json) |
-| 13 | [偏好/发布身份、集合投影与真实完整性诊断](sequences/13-projection-verify.md) | [HTML](sequences/13-projection-verify.html) · [JSON](sequences/13-projection-verify.json) |
-| 14 | [有界 FTS keyset、失败恢复与组合检索](sequences/14-search-index.md) | [HTML](sequences/14-search-index.html) · [JSON](sequences/14-search-index.json) |
-| 15 | [归档 ZIP 保存、离线校验与跨设备恢复](sequences/15-archive-snapshot.md) | [HTML](sequences/15-archive-snapshot.html) · [JSON](sequences/15-archive-snapshot.json) |
-| 16 | [部署启动与保留库工具的显式调用边界](sequences/16-library-and-operations.md) | [HTML](sequences/16-library-and-operations.html) · [JSON](sequences/16-library-and-operations.json) |
-| 17 | [固定旧源迁移预检与完整历史校验](sequences/17-migration-preflight.md) | [HTML](sequences/17-migration-preflight.html) · [JSON](sequences/17-migration-preflight.json) |
-
-## 覆盖索引
-
-| 业务面 | 流程 |
-| --- | --- |
-| 启动、独立文件/数据库模式、READ/WRITE 无 DDL、bootstrap、session lease | 01 |
-| 用户分页、视频详情/分 P、标签与失败恢复 | 02 |
-| 批量选择、profile、任务去重与依赖、重新发布 | 03 |
-| claim、heartbeat、cancel、lease reclaim、retry、terminal | 04 |
-| 字幕、凭据证明、获取记录、不可变版本 | 05 |
-| 音频复用、下载、探测、哈希、对象登记 | 06 |
-| Qwen3、解码、分块、对齐、两遍、GPU watchdog、质量证据 | 07 |
-| 原始 bundle、五文件 marker、事务保护与失败清理 | 08 |
-| 显式和自动校对、冻结输入、块重用、调用审计 | 09 |
-| AI 双稿、固定模板、文件登记、历史版本验证 | 10 |
-| edition、tags sync、review、release、替换/撤回 | 11 |
-| 公开/预览/私有导出、输出恢复与消费边界 | 12 |
-| status/runs/coverage/verify/export/dedup、preferred/published 身份与批量投影 | 01、13 |
-| FTS keyset/固定上界/cursor 恢复、MD 分页与 metadata/transcripts/all search | 14 |
-| ZIP save/check/restore 与中断恢复 | 15 |
-| production、check-asr-env、保留工具能力 | 16 |
-| 固定旧源预检、全历史身份与字节校验、稳定指纹 | 17 |
-
-源码模块、SQL 表/视图和全部命令登记的清单见 [源码与覆盖清单](architecture-sources.md)。验收记录见 [图表验证记录](architecture-validation.md)。
+| 13 | [偏好/发布身份、批量投影与完整性诊断](sequences/13-projection-verify.md) | [HTML](sequences/13-projection-verify.html) · [JSON](sequences/13-projection-verify.json) |
+| 14 | [有界 FTS keyset、恢复与组合查询](sequences/14-search-index.md) | [HTML](sequences/14-search-index.html) · [JSON](sequences/14-search-index.json) |
+| 15 | [统一维护访问、公开清单与归档 ZIP 恢复](sequences/15-archive-snapshot.md) | [HTML](sequences/15-archive-snapshot.html) · [JSON](sequences/15-archive-snapshot.json) |
+| 16 | [运维查询、显式库工具与独立 worker 组合入口](sequences/16-library-and-operations.md) | [HTML](sequences/16-library-and-operations.html) · [JSON](sequences/16-library-and-operations.json) |
+| 17 | [固定旧源契约、公开清单与完整历史预检](sequences/17-migration-preflight.md) | [HTML](sequences/17-migration-preflight.html) · [JSON](sequences/17-migration-preflight.json) |
+| 18 | [旧归档显式迁移：保真、恢复审计与切换验证](sequences/18-universal-migration.md) | [HTML](sequences/18-universal-migration.html) · [JSON](sequences/18-universal-migration.json) |
+| 19 | [持久 GPU 会话：租约、热模型与故障回收](sequences/19-persistent-asr.md) | [HTML](sequences/19-persistent-asr.html) · [JSON](sequences/19-persistent-asr.json) |
+| 20 | [快照恢复：完整校验、暂存改写与安装审计](sequences/20-recovery-plan.md) | [HTML](sequences/20-recovery-plan.html) · [JSON](sequences/20-recovery-plan.json) |
+| 21 | [YouTube 单视频：统一任务、租约与归档消费链](sequences/21-youtube-workflow.md) | [HTML](sequences/21-youtube-workflow.html) · [JSON](sequences/21-youtube-workflow.json) |
+| 22 | [字幕候选、可信证据与独立 ASR](sequences/22-subtitle-candidates.md) | [HTML](sequences/22-subtitle-candidates.html) · [JSON](sequences/22-subtitle-candidates.json) |
+| 23 | [增量发现、字段刷新与失败重放](sequences/23-metadata-refresh.md) | [HTML](sequences/23-metadata-refresh.html) · [JSON](sequences/23-metadata-refresh.json) |
+| 24 | [产物副本、迁出、消费 pin 与精确恢复](sequences/24-artifact-storage.md) | [HTML](sequences/24-artifact-storage.html) · [JSON](sequences/24-artifact-storage.json) |
+| 25 | [冻结契约路径、保真转换与新目标安装](sequences/25-contract-upgrade.md) | [HTML](sequences/25-contract-upgrade.html) · [JSON](sequences/25-contract-upgrade.json) |
+| 26 | [单任务有界批处理、原始对齐与策略证据](sequences/26-asr-batching.md) | [HTML](sequences/26-asr-batching.html) · [JSON](sequences/26-asr-batching.json) |
+| 27 | [SSH 精确包与非自包含引用备份的执行交接](sequences/27-reference-backup.md) | [HTML](sequences/27-reference-backup.html) · [JSON](sequences/27-reference-backup.json) |
+| 28 | [保留旧正文、来源补充与重新审核](sequences/28-preserved-body.md) | [HTML](sequences/28-preserved-body.html) · [JSON](sequences/28-preserved-body.json) |
+| 29 | [编辑系列 CAS、导出绑定与静态消费](sequences/29-publication-series.md) | [HTML](sequences/29-publication-series.html) · [JSON](sequences/29-publication-series.json) |
+| 30 | [冻结失败诊断、显式修复与输入重用](sequences/30-editorial-repair.md) | [HTML](sequences/30-editorial-repair.html) · [JSON](sequences/30-editorial-repair.json) |
 
 ## 本轮新增流程
 
-以下七张时序图补齐七项 issues 的新增行为。固定源码身份、规格/HTML SHA、自动化门禁与感知审阅的实际范围见 [本轮图表凭据](issue-diagram-validation/README.md)；WSL 回归见 [本轮验证记录](issues-validation.md)。
+24：对象、完整组、迁出与消费 pin/精确恢复；25：登记契约路径与新目录保真升级；26：同任务有界 ASR/alignment 批处理；27：SSH 与非自包含引用备份；28：保留旧正文与独立来源补充；29：编辑系列和导出 CAS；30：失败校对的显式修复与冻结输入重用。
 
-| 流程 | 说明与完整 Mermaid | 交互图与冻结规格 |
-| --- | --- | --- |
-| 18 显式旧归档迁移 | [停写、typed 保真、完整历史产物、恢复审计与安装](sequences/18-universal-migration.md) | [HTML](sequences/18-universal-migration.html) · [JSON](sequences/18-universal-migration.json) |
-| 19 持久 ASR 与角色 supervisor | [固定 slot、请求身份、heartbeat、准备重叠、销毁与 drain](sequences/19-persistent-asr.md) | [HTML](sequences/19-persistent-asr.html) · [JSON](sequences/19-persistent-asr.json) |
-| 20 恢复计划与运行环境 | [完整快照、只读 plan/doctor、模型绑定与独立审计](sequences/20-recovery-plan.md) | [HTML](sequences/20-recovery-plan.html) · [JSON](sequences/20-recovery-plan.json) |
-| 21 YouTube 单视频闭环 | [typed 身份、访问/字幕证据、音频与共享工作流](sequences/21-youtube-workflow.md) | [HTML](sequences/21-youtube-workflow.html) · [JSON](sequences/21-youtube-workflow.json) |
-| 22 候选字幕与旧依赖修复 | [合法空结果、故障分类、预算与 plan/apply](sequences/22-subtitle-candidates.md) | [HTML](sequences/22-subtitle-candidates.html) · [JSON](sequences/22-subtitle-candidates.json) |
-| 23 元数据增量与刷新 | [head/resume、字段观察、失败补抓及页原子提交](sequences/23-metadata-refresh.md) | [HTML](sequences/23-metadata-refresh.html) · [JSON](sequences/23-metadata-refresh.json) |
-| 来源冻结、校对与发布 | [版本分派、完整 edition、准确审批及混合出口](issues-publication-sequence.md) | [HTML](issues-publication-sequence.html) · [JSON](issues-publication-sequence.json) |
-
-这些图记录本仓库可执行行为。真实生产切换、外部阅读站版本支持与 GPU 性能验收须使用相应设备和数据集另行执行；BW1000 部署测试 #289 按约定排除。
+固定源码、命令、全部模块和数据库契约见[源码清单](architecture-sources.md)，产物摘要与自动浏览器范围见[验证记录](architecture-validation.md)。此前 issue-diagram-validation 与 issues-validation 记录保留历史提交与验收范围，不作为本轮最新产物凭据。

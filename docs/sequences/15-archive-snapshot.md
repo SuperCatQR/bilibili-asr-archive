@@ -1,6 +1,6 @@
 # 统一维护访问、公开清单与归档 ZIP 恢复
 
-源码基线：架构修复提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](15-archive-snapshot.html) · [Archify 规格](15-archive-snapshot.json) · [全部时序图](../architecture-sequences.md)
 
@@ -52,19 +52,20 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/snapshot.py:29–47](../../src/bili_asr/cli/snapshot.py#L29)：`_cmd_snapshot`。
-- [src/bili_asr/cli/registry.py:1–65](../../src/bili_asr/cli/registry.py#L1)：`模块边界`。
-- [src/bili_asr/archive_session.py:95–104](../../src/bili_asr/archive_session.py#L95)：`ArchiveSession.access`。
-- [src/bili_asr/archive_maintenance.py:84–160](../../src/bili_asr/archive_maintenance.py#L84)：`archive_access`。
-- [src/bili_asr/services/archive_snapshot.py:157–221](../../src/bili_asr/services/archive_snapshot.py#L157)：`save_snapshot`。
-- [src/bili_asr/services/archive_snapshot.py:317–323](../../src/bili_asr/services/archive_snapshot.py#L317)：`check_snapshot`。
-- [src/bili_asr/services/archive_snapshot.py:335–360](../../src/bili_asr/services/archive_snapshot.py#L335)：`restore_snapshot`。
-- [src/bili_asr/storage/snapshots.py:182–206](../../src/bili_asr/storage/snapshots.py#L182)：`create_database_snapshot`。
-- [src/bili_asr/storage/snapshots.py:235–294](../../src/bili_asr/storage/snapshots.py#L235)：`required_artifacts`。
-- [src/bili_asr/storage/snapshots.py:297–343](../../src/bili_asr/storage/snapshots.py#L297)：`recover_interrupted_jobs`。
-- [src/bili_asr/artifact_inventory.py:89–119](../../src/bili_asr/artifact_inventory.py#L89)：`collect_artifacts`。
-- [src/bili_asr/artifact_inventory.py:122–130](../../src/bili_asr/artifact_inventory.py#L122)：`stream_hash`。
-- [src/bili_asr/services/archive_snapshot.py:291–314](../../src/bili_asr/services/archive_snapshot.py#L291)：`_validate_into`。
-- [src/bili_asr/storage/publication.py:303–311](../../src/bili_asr/storage/publication.py#L303)：`verify_release_identity`。
-- [src/bili_asr/publication_identity.py:12–41](../../src/bili_asr/publication_identity.py#L12)：`validate_release_identity`。
-- [src/bili_asr/artifacts.py:1–33](../../src/bili_asr/artifacts.py#L1)：`模块边界`。
+- [src/bili_asr/cli/snapshot.py:47](../../src/bili_asr/cli/snapshot.py#L47)：_cmd_snapshot。
+- [src/bili_asr/cli/registry.py:1](../../src/bili_asr/cli/registry.py#L1)：模块定义。
+- [src/bili_asr/archive_session.py:95](../../src/bili_asr/archive_session.py#L95)：ArchiveSession.access。
+- [src/bili_asr/archive_maintenance.py:84](../../src/bili_asr/archive_maintenance.py#L84)：archive_access。
+- [src/bili_asr/services/archive_snapshot.py:172](../../src/bili_asr/services/archive_snapshot.py#L172)：save_snapshot。
+- [src/bili_asr/services/archive_snapshot.py:370](../../src/bili_asr/services/archive_snapshot.py#L370)：check_snapshot。
+- [src/bili_asr/services/archive_snapshot.py:388](../../src/bili_asr/services/archive_snapshot.py#L388)：restore_snapshot。
+- [src/bili_asr/storage/snapshots.py:213](../../src/bili_asr/storage/snapshots.py#L213)：create_database_snapshot。
+- [src/bili_asr/storage/snapshots.py:266](../../src/bili_asr/storage/snapshots.py#L266)：required_artifacts。
+- [src/bili_asr/storage/snapshots.py:390](../../src/bili_asr/storage/snapshots.py#L390)：recover_interrupted_jobs。
+- [src/bili_asr/artifact_inventory.py:89](../../src/bili_asr/artifact_inventory.py#L89)：collect_artifacts。
+- [src/bili_asr/artifact_inventory.py:122](../../src/bili_asr/artifact_inventory.py#L122)：stream_hash。
+- [src/bili_asr/services/archive_snapshot.py:327](../../src/bili_asr/services/archive_snapshot.py#L327)：_validate_into。
+
+## 外置对象与压缩
+
+完整 snapshot 用 ArtifactAccess 从准确外部对象直接流式嵌入全部受支持文件和历史组，恢复后不依赖旧 target；ZIP 可显式 lossless deflate。完整快照与非自包含 reference 格式分开，见 [27](27-reference-backup.md)。

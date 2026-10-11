@@ -1,6 +1,6 @@
 # 确定性 AI 双稿、锁外暂存与保护登记
 
-源码基线：架构修复提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](10-document-render.html) · [Archify 规格](10-document-render.json) · [全部时序图](../architecture-sequences.md)
 
@@ -47,14 +47,14 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/storage/workflow.py:412–427](../../src/bili_asr/storage/workflow.py#L412)：`WorkflowRepository.request_document`。
-- [src/bili_asr/editorial_runtime.py:63–97](../../src/bili_asr/editorial_runtime.py#L63)：`EditorialWorkflowHandlers.render`。
-- [src/bili_asr/manuscript_templates.py:82–86](../../src/bili_asr/manuscript_templates.py#L82)：`renderer_for`。
-- [src/bili_asr/manuscript_templates.py:23–51](../../src/bili_asr/manuscript_templates.py#L23)：`render_ai_v1`。
-- [src/bili_asr/manuscript_files.py:110–126](../../src/bili_asr/manuscript_files.py#L110)：`stage_artifact`。
-- [src/bili_asr/manuscript_files.py:88–106](../../src/bili_asr/manuscript_files.py#L88)：`StagedArtifact.install`。
-- [src/bili_asr/publication.py:44–67](../../src/bili_asr/publication.py#L44)：`get_ai_artifacts`。
-- [src/bili_asr/storage/job_commit.py:58–62](../../src/bili_asr/storage/job_commit.py#L58)：`JobCommitGuard.owned_transaction`。
-- [src/bili_asr/storage/editorial.py:201–221](../../src/bili_asr/storage/editorial.py#L201)：`EditorialRepository.preflight_artifacts`。
-- [src/bili_asr/storage/editorial.py:223–231](../../src/bili_asr/storage/editorial.py#L223)：`EditorialRepository.record_artifacts`。
-- [src/bili_asr/storage/publication.py:239–282](../../src/bili_asr/storage/publication.py#L239)：`read_revision`。
+- [src/bili_asr/storage/workflow.py:517](../../src/bili_asr/storage/workflow.py#L517)：WorkflowRepository.request_document。
+- [src/bili_asr/editorial_runtime.py:74](../../src/bili_asr/editorial_runtime.py#L74)：EditorialWorkflowHandlers.render。
+- [src/bili_asr/manuscript_templates.py:84](../../src/bili_asr/manuscript_templates.py#L84)：renderer_for。
+- [src/bili_asr/manuscript_templates.py:23](../../src/bili_asr/manuscript_templates.py#L23)：render_ai_v1。
+- [src/bili_asr/manuscript_files.py:110](../../src/bili_asr/manuscript_files.py#L110)：stage_artifact。
+- [src/bili_asr/manuscript_files.py:88](../../src/bili_asr/manuscript_files.py#L88)：StagedArtifact.install。
+- [src/bili_asr/publication.py:1](../../src/bili_asr/publication.py#L1)：模块定义。
+- [src/bili_asr/storage/job_commit.py:58](../../src/bili_asr/storage/job_commit.py#L58)：JobCommitGuard.owned_transaction。
+- [src/bili_asr/storage/editorial.py:289](../../src/bili_asr/storage/editorial.py#L289)：EditorialRepository.preflight_artifacts。
+- [src/bili_asr/storage/editorial.py:312](../../src/bili_asr/storage/editorial.py#L312)：EditorialRepository.record_artifacts。
+- [src/bili_asr/storage/publication.py:246](../../src/bili_asr/storage/publication.py#L246)：read_revision。

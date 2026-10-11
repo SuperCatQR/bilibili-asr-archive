@@ -1,6 +1,6 @@
 # 择优转录、bundle v2/v3 发布与完成标记
 
-源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](08-transcript-bundle.html) · [Archify 规格](08-transcript-bundle.json) · [全部时序图](../architecture-sequences.md)
 
@@ -20,13 +20,16 @@ sequenceDiagram
     handler->>db: 读取当前全部版本
     handler->>projection: CC > AI 字幕 > ASR；语言 family/语言/version 排序；不盲用 requested ID
     projection-->>handler: 选定版本与 segments
+    opt artifact catalog 已显式安装
+    handler->>db: publication slot 与对象 fence；覆盖前保存可验证旧完整组
+    end
     handler->>writer: 传入来源、segments、来源快照与可用模型名称/revision；传入 publication_guard
     writer->>files: SRT/VTT/TXT/MD/raw JSON/source-metadata.json（v3）；计算 digest，写临时文件并 fsync
     writer->>db: BEGIN IMMEDIATE、精确 owner/attempt/expiry 检查；提交前再次复验；最终替换与登记在锁内
     writer->>files: 使旧 marker 失效
     writer->>files: v2 替换五个数据成员；v3 替换六个数据成员
     writer->>files: v2 marker 列出五个、v3 marker 列出六个相对路径及 SHA-256；完成标记最后安装
-    handler->>db: video_part_id + 实际 transcript_id + artifact_json
+    handler->>db: video_part_id + 实际 transcript_id + artifact_json；已装 catalog 时登记新完整组
     alt 替换或 DB commit 失败
     writer->>files: on_rollback 在释放写锁前清理；不清理新 owner 的有效 marker
     db-->>handler: 回滚并报错
@@ -45,14 +48,15 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/storage/workflow.py:536–553](../../src/bili_asr/storage/workflow.py#L536)：`WorkflowRepository.request_publication`。
-- [src/bili_asr/workflow_runtime.py:318–418](../../src/bili_asr/workflow_runtime.py#L318)：`ArchiveWorkflowHandlers.publish`。
-- [src/bili_asr/services/transcript_projection.py:106–147](../../src/bili_asr/services/transcript_projection.py#L106)：`ordered_candidates`。
-- [src/bili_asr/services/transcript_projection.py:150–179](../../src/bili_asr/services/transcript_projection.py#L150)：`writer_segments`。
-- [src/bili_asr/storage/workflow.py:675–734](../../src/bili_asr/storage/workflow.py#L675)：`WorkflowRepository._terminal`。
-- [src/bili_asr/archive.py:843–882](../../src/bili_asr/archive.py#L843)：`write_archive`。
-- [src/bili_asr/archive.py:366–503](../../src/bili_asr/archive.py#L366)：`_publish_bundle`。
-- [src/bili_asr/archive.py:225–307](../../src/bili_asr/archive.py#L225)：`archive_bundle_complete`。
+- [src/bili_asr/storage/workflow.py:651](../../src/bili_asr/storage/workflow.py#L651)：WorkflowRepository.request_publication。
+- [src/bili_asr/workflow_runtime.py:411](../../src/bili_asr/workflow_runtime.py#L411)：ArchiveWorkflowHandlers.publish。
+- [src/bili_asr/services/transcript_projection.py:106](../../src/bili_asr/services/transcript_projection.py#L106)：ordered_candidates。
+- [src/bili_asr/services/transcript_projection.py:151](../../src/bili_asr/services/transcript_projection.py#L151)：writer_segments。
+- [src/bili_asr/storage/workflow.py:814](../../src/bili_asr/storage/workflow.py#L814)：WorkflowRepository._terminal。
+- [src/bili_asr/archive.py:888](../../src/bili_asr/archive.py#L888)：write_archive。
+- [src/bili_asr/archive.py:405](../../src/bili_asr/archive.py#L405)：_publish_bundle。
+- [src/bili_asr/archive.py:253](../../src/bili_asr/archive.py#L253)：archive_bundle_complete。
+- [src/bili_asr/services/artifact_groups.py:1](../../src/bili_asr/services/artifact_groups.py#L1)：模块定义。
 
 ## 本次边界修复
 

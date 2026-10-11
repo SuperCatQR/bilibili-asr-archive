@@ -1,6 +1,6 @@
 # 读取投影、覆盖、完整性、普通导出与去重
 
-源码基线：本次架构边界修复的固定代码提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`；这是从 main 开始的本地修复身份，不表示远端 main 已包含修复。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](13-projection-verify.html) · [Archify 规格](13-projection-verify.json) · [全部时序图](../architecture-sequences.md)
 
@@ -68,18 +68,21 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/ops.py:135–163](../../src/bili_asr/cli/ops.py#L135)：`_cmd_verify`。
-- [src/bili_asr/export.py:396–451](../../src/bili_asr/export.py#L396)：`export_records`。
-- [src/bili_asr/cli/dedup.py:19–36](../../src/bili_asr/cli/dedup.py#L19)：`_cmd_dedup`。
-- [src/bili_asr/services/workflow_projection.py:117–224](../../src/bili_asr/services/workflow_projection.py#L117)：`workflow_records`。
-- [src/bili_asr/transcript_selection.py:40–43](../../src/bili_asr/transcript_selection.py#L40)：`choose_transcript`。
-- [src/bili_asr/archive_session.py:64–149](../../src/bili_asr/archive_session.py#L64)：`ArchiveSession`。
-- [src/bili_asr/services/workflow_projection.py:27–44](../../src/bili_asr/services/workflow_projection.py#L27)：`_part_batches`。
-- [src/bili_asr/services/workflow_projection.py:47–60](../../src/bili_asr/services/workflow_projection.py#L47)：`_preferred_transcripts`。
-- [src/bili_asr/services/workflow_projection.py:63–87](../../src/bili_asr/services/workflow_projection.py#L63)：`_latest_publications`。
-- [src/bili_asr/coverage_report.py:65–87](../../src/bili_asr/coverage_report.py#L65)：`CoverageReport`。
-- [src/bili_asr/integrity.py:52–86](../../src/bili_asr/integrity.py#L52)：`IntegrityVerifier`。
-- [src/bili_asr/services/bundle_verification.py:62–150](../../src/bili_asr/services/bundle_verification.py#L62)：`verify_bundle`。
-- [src/bili_asr/archive.py:225–307](../../src/bili_asr/archive.py#L225)：`archive_bundle_complete`。
-- [src/bili_asr/dedup.py:1–60](../../src/bili_asr/dedup.py#L1)：`模块入口`。
-- [src/bili_asr/transcript_selection.py:24–37](../../src/bili_asr/transcript_selection.py#L24)：`transcript_preference_key`。
+- [src/bili_asr/cli/ops.py:150](../../src/bili_asr/cli/ops.py#L150)：_cmd_verify。
+- [src/bili_asr/export.py:396](../../src/bili_asr/export.py#L396)：export_records。
+- [src/bili_asr/cli/dedup.py:19](../../src/bili_asr/cli/dedup.py#L19)：_cmd_dedup。
+- [src/bili_asr/services/workflow_projection.py:126](../../src/bili_asr/services/workflow_projection.py#L126)：workflow_records。
+- [src/bili_asr/transcript_selection.py:40](../../src/bili_asr/transcript_selection.py#L40)：choose_transcript。
+- [src/bili_asr/archive_session.py:64](../../src/bili_asr/archive_session.py#L64)：ArchiveSession。
+- [src/bili_asr/services/workflow_projection.py:30](../../src/bili_asr/services/workflow_projection.py#L30)：_part_batches。
+- [src/bili_asr/services/workflow_projection.py:56](../../src/bili_asr/services/workflow_projection.py#L56)：_preferred_transcripts。
+- [src/bili_asr/services/workflow_projection.py:72](../../src/bili_asr/services/workflow_projection.py#L72)：_latest_publications。
+- [src/bili_asr/coverage_report.py:71](../../src/bili_asr/coverage_report.py#L71)：CoverageReport。
+- [src/bili_asr/integrity.py:52](../../src/bili_asr/integrity.py#L52)：IntegrityVerifier。
+- [src/bili_asr/services/bundle_verification.py:62](../../src/bili_asr/services/bundle_verification.py#L62)：verify_bundle。
+- [src/bili_asr/archive.py:253](../../src/bili_asr/archive.py#L253)：archive_bundle_complete。
+- [src/bili_asr/dedup.py:1](../../src/bili_asr/dedup.py#L1)：模块定义。
+
+## 当前通用来源与驻留
+
+universal-v2 使用中立 source identity 与来源查询，legacy 索引仍按原形状读取。生产完成不因正常外置降为未完成；storage availability/readiness 单独报告，默认读取不探测外部目标或下载数据。

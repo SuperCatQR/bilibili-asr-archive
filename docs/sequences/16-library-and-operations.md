@@ -1,6 +1,6 @@
 # 运维查询、显式库工具与独立 worker 组合入口
 
-源码基线：架构修复提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`。
+源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](16-library-and-operations.html) · [Archify 规格](16-library-and-operations.json) · [全部时序图](../architecture-sequences.md)
 
@@ -50,20 +50,21 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/parser.py:11–115](../../src/bili_asr/cli/parser.py#L11)：`build_parser`。
-- [src/bili_asr/cli/main.py:41–102](../../src/bili_asr/cli/main.py#L41)：`_main`。
-- [scripts/production.py:1–55](../../scripts/production.py#L1)：`模块边界`。
-- [src/bili_asr/cli/registry.py:1–65](../../src/bili_asr/cli/registry.py#L1)：`模块边界`。
-- [src/bili_asr/archive_session.py:106–132](../../src/bili_asr/archive_session.py#L106)：`ArchiveSession.open`。
-- [src/bili_asr/cli/_shared.py:40–52](../../src/bili_asr/cli/_shared.py#L40)：`_open_read_repository`。
-- [src/bili_asr/services/audio_inventory.py:173–341](../../src/bili_asr/services/audio_inventory.py#L173)：`reconcile_audio_inventory`。
-- [src/bili_asr/storage/database.py:87–111](../../src/bili_asr/storage/database.py#L87)：`connect_database`。
-- [src/bili_asr/services/publication_supervisor.py:86–158](../../src/bili_asr/services/publication_supervisor.py#L86)：`supervise_publication`。
-- [src/bili_asr/publication_worker.py:13–26](../../src/bili_asr/publication_worker.py#L13)：`main`。
-- [src/bili_asr/services/bundle_verification.py:62–150](../../src/bili_asr/services/bundle_verification.py#L62)：`verify_bundle`。
-- [src/bili_asr/check_asr_env.py:1–65](../../src/bili_asr/check_asr_env.py#L1)：`模块边界`。
-- [src/bili_asr/path_policy.py:1–65](../../src/bili_asr/path_policy.py#L1)：`模块边界`。
-- [src/bili_asr/audio_reclaim.py:1–65](../../src/bili_asr/audio_reclaim.py#L1)：`模块边界`。
-- [src/bili_asr/process_environment.py:1–14](../../src/bili_asr/process_environment.py#L1)：`模块边界`。
-- [src/bili_asr/proofread.py:1–65](../../src/bili_asr/proofread.py#L1)：`模块边界`。
-- [src/bili_asr/audio_budget.py:1–65](../../src/bili_asr/audio_budget.py#L1)：`模块边界`。
+- [src/bili_asr/cli/parser.py:11](../../src/bili_asr/cli/parser.py#L11)：build_parser。
+- [src/bili_asr/cli/main.py:41](../../src/bili_asr/cli/main.py#L41)：_main。
+- [scripts/production.py:1](../../scripts/production.py#L1)：模块定义。
+- [src/bili_asr/cli/registry.py:1](../../src/bili_asr/cli/registry.py#L1)：模块定义。
+- [src/bili_asr/archive_session.py:106](../../src/bili_asr/archive_session.py#L106)：ArchiveSession.open。
+- [src/bili_asr/cli/_shared.py:40](../../src/bili_asr/cli/_shared.py#L40)：_open_read_repository。
+- [src/bili_asr/services/audio_inventory.py:173](../../src/bili_asr/services/audio_inventory.py#L173)：reconcile_audio_inventory。
+- [src/bili_asr/storage/database.py:87](../../src/bili_asr/storage/database.py#L87)：connect_database。
+- [src/bili_asr/services/publication_supervisor.py:86](../../src/bili_asr/services/publication_supervisor.py#L86)：supervise_publication。
+- [src/bili_asr/publication_worker.py:13](../../src/bili_asr/publication_worker.py#L13)：main。
+- [src/bili_asr/services/bundle_verification.py:62](../../src/bili_asr/services/bundle_verification.py#L62)：verify_bundle。
+- [src/bili_asr/check_asr_env.py:1](../../src/bili_asr/check_asr_env.py#L1)：模块定义。
+- [src/bili_asr/path_policy.py:1](../../src/bili_asr/path_policy.py#L1)：模块定义。
+- [src/bili_asr/audio_reclaim.py:1](../../src/bili_asr/audio_reclaim.py#L1)：模块定义。
+
+## 已接入能力
+
+workflow supervise/role/drain/持久会话已有真实 CLI 路径；新 worker 执行见 [19](19-persistent-asr.md)。独立 asr-performance、profile_asr 和部署 probe 为观察/验收入口，不代表所有旧保留工具被自动启用。

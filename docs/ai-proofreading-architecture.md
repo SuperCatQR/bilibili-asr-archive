@@ -1,13 +1,8 @@
-# AI 双稿、完整版本审核与发布架构
+# AI、完整版本与出版架构
 
-当前输入/内容/模板和导出协议的版本矩阵见 [契约治理](contract-governance.md#支持矩阵与历史身份)。导出入口使用安装包内 Schema 做结构检查，再验证内容身份与文件关系；七文件普通审阅包、十文件迁移正文审阅包以及两种 AI 模板分别有明确布局。以下图文是其注明的历史基线。
+当前核对源码 `4f073318c944add37417416155845e55247f9bc1`；2026-10-11（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[30 个时序](architecture-sequences.md)。
 
-
-日期：2026-10-09（Asia/Hong_Kong）。基线 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
-交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
-入口见 [使用说明](ai-proofreading.md)；当前模块边界与跨域关系见
-[架构文字说明](architecture.md)和已刷新到同一基线的[全景图](architecture.html)。
-完整条件、事务与恢复过程见[时序图总索引](architecture-sequences.md)，其中校对、渲染、出版、导出分别为 09–12。
+当前输入/content v1/v2 与模板按保存版本分派；导出先校验 wheel 内 Schema，再核验真实来源、revision、引用、文件集合与 hash。冻结输入重用和显式失败修复见 [30](sequences/30-editorial-repair.md)；保留旧正文、immutable origin 和来源补充见 [28](sequences/28-preserved-body.md)；编辑确认系列见 [29](sequences/29-publication-series.md)。artifact catalog 使准确历史双稿可保留/恢复，生产状态与驻留分开。
 
 ## 目标与主链路
 
@@ -20,7 +15,7 @@
 4. 纯输入准备模块按时间交集关联字幕，按上下文和输出预算尽量使用大块；邻块上下文只读。
 5. DeepSeek Flash 开启 high 思考，top_p=0.95，生成带连续来源 ID 的完整阅读段落和单独疑点。
 6. 校验来源恰好覆盖一次且顺序不变、引用有效、正文结构正确；取得任务所有权写锁后保存块检查点，全部成功后受保护地提交完整修订。
-7. 独立渲染任务生成纯正文 `ai-draft.md` 与原文对照 `review.md`，同 revision、同 `ai-draft-v1`。重渲染不调用模型。
+7. 独立渲染任务生成纯正文 `ai-draft.md` 与原文对照 `review.md`，同 revision、按固定版本选择 `ai-draft-v1` 或 `ai-draft-v2`。重渲染不调用模型。
 8. 明确创建完整 edition，冻结标题、正文、摘要、标签、来源、整理归属和编辑说明；任何读者可见变化产生新 edition。
 9. 审核指定 edition、完整 SHA-256、预期状态和操作者；批准仍不公开，显式 publish 才生成 release 并切换公开指针。
 10. 公开导出只读有效 release；未发布预览选择当前且从未产生任何 release 的 edition；私有导出明确选定 revision / edition，包含固定基线、完整版本、双差异和审核记录。
@@ -97,7 +92,7 @@ flowchart LR
 块结果立即保存，失败重试复用完成块。租约与尝试编号防止失效工作器提交。
 供应商收到请求但本地未保存时退出，重试可能再次计费，不承诺外部调用恰好一次。
 
-产物位于 documents/part-<ID>/<修订ID>/ai-draft-v1/。
+产物位于 documents/part-<ID>/<修订ID>/<固定模板版本>/。
 ai-draft.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
 review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链接、疑点、模型参数和版本，注明未经人工复核。
 每份文件原子安装，相同修订与模板重新渲染字节一致。文本生成、完整双稿身份预检、
@@ -106,13 +101,13 @@ review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链�
 
 `manuscript_templates.py` 固定 `AI_RENDERERS` 与 `PUBLISH_RENDERERS`。读取历史 artifact 按记录版本
 重渲染并验证，不拿后来的 active writer 算法解释旧文件；未知版本拒绝，排版变化需要新模板、路径与身份。
-当前已注册 `ai-draft-v1` / `publish-v1`，不据此宣称已有 v2 writer。
+当前已注册 v1/v2 AI 与 publication renderer；按保存版本验证历史字节。
 
 `publication create` 从当前原始 `video_tags` 冻结 edition 标签；后续抓取不修改既有版本。
 `publication sync-source-tags` 要求成功标签观察（包含成功空集合），以精确父版 CAS 创建新的 pending-review edition；
 原有效 release 保持。标签 unavailable 保留旧原始集合，但不能视为本次刷新成功。
 
-发布稿位于 `publications/part-<ID>/<releaseID>/publish-v1/publish.md`，渲染完整获批内容。
+发布稿位于 `publications/part-<ID>/<releaseID>/<固定模板版本>/publish.md`，渲染完整获批内容。
 A 发布后创建、请求修改、拒绝或批准 B 都保持 A；显式发布 B 才切换有效 release。
 撤回清空公开指针，再次公开导出时移除旧文章，内部历史保留。OS 独占锁、完整 staging、恢复日志和目录切换
 保证成功快照不混合版本；输出可能短暂不可用。输出与输入不重叠，链接、junction 和手工文件拒绝。
@@ -120,30 +115,8 @@ A 发布后创建、请求修改、拒绝或批准 B 都保持 A；显式发布 
 
 ## 当前代码证据与验证
 
-- [src/bili_asr/storage/editorial.py:39–45](../src/bili_asr/storage/editorial.py#L39)：`EditorialRepository.latest_sources`。
-- [src/bili_asr/storage/editorial.py:93–116](../src/bili_asr/storage/editorial.py#L93)：`EditorialRepository.freeze_job_input`。
-- [src/bili_asr/editorial.py:133–195](../src/bili_asr/editorial.py#L133)：`prepare_input`。
-- [src/bili_asr/storage/workflow.py:405–410](../src/bili_asr/storage/workflow.py#L405)：`WorkflowRepository._editorial_jobs`。
-- [src/bili_asr/storage/workflow.py:283–291](../src/bili_asr/storage/workflow.py#L283)：`WorkflowRepository.owned_transaction`。
-- [src/bili_asr/deepseek.py:38–58](../src/bili_asr/deepseek.py#L38)：`DeepSeekClient.complete`。
-- [src/bili_asr/editorial_runtime.py:36–61](../src/bili_asr/editorial_runtime.py#L36)：`EditorialWorkflowHandlers.proofread`。
-- [src/bili_asr/editorial.py:215–262](../src/bili_asr/editorial.py#L215)：`validate_revision`。
-- [src/bili_asr/storage/editorial.py:146–149](../src/bili_asr/storage/editorial.py#L146)：`EditorialRepository.save_chunk`。
-- [src/bili_asr/storage/editorial.py:151–167](../src/bili_asr/storage/editorial.py#L151)：`EditorialRepository.commit_revision`。
-- [src/bili_asr/manuscript_templates.py:82–86](../src/bili_asr/manuscript_templates.py#L82)：`renderer_for`。
-- [src/bili_asr/editorial_runtime.py:63–97](../src/bili_asr/editorial_runtime.py#L63)：`EditorialWorkflowHandlers.render`。
-- [src/bili_asr/publication.py:44–67](../src/bili_asr/publication.py#L44)：`get_ai_artifacts`。
-- [src/bili_asr/cli/publication.py:137–185](../src/bili_asr/cli/publication.py#L137)：`add_publication_parser`。
-- [src/bili_asr/publication.py:134–174](../src/bili_asr/publication.py#L134)：`publish_edition`。
-- [src/bili_asr/publication_tags.py:25–41](../src/bili_asr/publication_tags.py#L25)：`sync_source_tags`。
-- [src/bili_asr/storage/publication.py:22–233](../src/bili_asr/storage/publication.py#L22)：`PublicationRepository`。
-- [src/bili_asr/publication_export.py:61–105](../src/bili_asr/publication_export.py#L61)：`export_publications`。
-- [src/bili_asr/publication_export.py:108–181](../src/bili_asr/publication_export.py#L108)：`export_publication_drafts`。
-- [src/bili_asr/publication_export.py:193–271](../src/bili_asr/publication_export.py#L193)：`export_editorial`。
-- [src/bili_asr/export_snapshot.py:367–444](../src/bili_asr/export_snapshot.py#L367)：`replace_snapshot`。
+准确当前符号和行范围见本专题 JSON 的 sources，以及时序 09–12、28–30。完整图表验收见 [验证记录](architecture-validation.md)。
 
-完整业务、安装与图表验收见 [验证记录](architecture-validation.md)。
-
-## 本次边界修复
+## 提交边界
 
 CLI 经 WorkflowApplication 编排；显式校对的固定 input 与两个任务同一事务提交。自动校对先纯准备，再将 input 与 job binding 放入租约保护事务。双稿先在事务外编码、暂存、fsync，事务内仅安装、复验和登记。失败后已安装的不可变文件可作为未登记字节安全重试；数据库事务不能回滚文件。出版内容、来源身份、canonical JSON 使用独立纯契约模块，存储与快照不会反向调用出版用例。

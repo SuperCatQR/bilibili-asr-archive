@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
+      "revision": "4f073318c944add37417416155845e55247f9bc1",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,13 +23,13 @@
         {
           "path": "src/bili_asr/cli/meta.py",
           "line": 14,
-          "end_line": 81,
+          "end_line": 104,
           "label": "_cmd_fetch_meta"
         },
         {
           "path": "src/bili_asr/cli/meta.py",
-          "line": 84,
-          "end_line": 108,
+          "line": 152,
+          "end_line": 176,
           "label": "_cmd_fetch_tags"
         }
       ]
@@ -41,14 +41,14 @@
       "sources": [
         {
           "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 305,
-          "end_line": 537,
+          "line": 338,
+          "end_line": 625,
           "label": "MetadataIngestor._collect"
         },
         {
           "path": "src/bili_asr/services/video_tags.py",
-          "line": 20,
-          "end_line": 56,
+          "line": 32,
+          "end_line": 67,
           "label": "refresh_video_tags"
         }
       ]
@@ -60,8 +60,8 @@
       "sources": [
         {
           "path": "src/bili_asr/sources/bilibili_source.py",
-          "line": 36,
-          "end_line": 45,
+          "line": 37,
+          "end_line": 46,
           "label": "BilibiliMetadataSource.get_parts"
         },
         {
@@ -79,8 +79,8 @@
       "sources": [
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 707,
-          "end_line": 1259,
+          "line": 727,
+          "end_line": 1335,
           "label": "BilibiliApiGateway"
         }
       ]
@@ -92,20 +92,20 @@
       "sources": [
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 784,
-          "end_line": 861,
+          "line": 802,
+          "end_line": 879,
           "label": "BilibiliApiGateway.get_user_video_page"
         },
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 863,
-          "end_line": 875,
+          "line": 881,
+          "end_line": 893,
           "label": "BilibiliApiGateway.get_video_parts"
         },
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 897,
-          "end_line": 969,
+          "line": 950,
+          "end_line": 954,
           "label": "BilibiliApiGateway.get_video_tags"
         }
       ]
@@ -117,8 +117,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/metadata.py",
-          "line": 15,
-          "end_line": 649,
+          "line": 19,
+          "end_line": 876,
           "label": "MetadataRepository"
         }
       ]
@@ -127,349 +127,352 @@
   "messages": [
     {
       "id": "m1",
-      "from": "cli",
       "to": "ingest",
-      "y": 180,
-      "label": "采集参数与恢复策略",
+      "y": 235,
+      "label": "mid、显式起页/恢复、页数、page_retrie…",
       "variant": "default",
-      "note": "mid、显式起页/恢复、页数、page_retries、skip_failed_page"
+      "note": "mid、显式起页/恢复、页数、page_retries、skip_failed_page；条件：主流程",
+      "from": "cli"
     },
     {
       "id": "m2",
-      "from": "ingest",
       "to": "db",
-      "y": 212,
+      "y": 301,
       "label": "建立 user",
       "variant": "default",
-      "note": "建立 user；从持久游标或显式页号开始并记录 SDK 版本"
+      "note": "建立 user；从持久游标或显式页号开始并记录 SDK 版本；条件：主流程",
+      "from": "ingest"
     },
     {
       "id": "m3",
-      "from": "ingest",
       "to": "gateway",
-      "y": 284,
+      "y": 432,
       "label": "请求用户视频页",
       "variant": "default",
-      "note": "请求用户视频页"
+      "note": "请求用户视频页；条件：loop 每页直到空页、上限或失败",
+      "from": "ingest"
     },
     {
       "id": "m4",
-      "from": "gateway",
       "to": "remote",
-      "y": 316,
+      "y": 498,
       "label": "SDK 请求及 pacing",
       "variant": "default",
-      "note": "SDK 请求及 pacing"
+      "note": "SDK 请求及 pacing；条件：loop 每页直到空页、上限或失败",
+      "from": "gateway"
     },
     {
       "id": "m5",
-      "from": "remote",
       "to": "gateway",
-      "y": 348,
+      "y": 564,
       "label": "页面响应或有界上游失败",
       "variant": "return",
-      "note": "页面响应或有界上游失败"
+      "note": "页面响应或有界上游失败；条件：loop 每页直到空页、上限或失败",
+      "from": "remote"
     },
     {
       "id": "m6",
-      "from": "gateway",
       "to": "ingest",
-      "y": 380,
+      "y": 630,
       "label": "类型化 DTO 或 GatewayError",
       "variant": "return",
-      "note": "类型化 DTO 或 GatewayError"
+      "note": "类型化 DTO 或 GatewayError；条件：loop 每页直到空页、上限或失败",
+      "from": "gateway"
+    },
+    {
+      "id": "m7",
+      "to": "gateway",
+      "y": 761,
+      "label": "仅重试同一页列表",
+      "variant": "default",
+      "note": "仅重试同一页列表；不重放已成功的逐视频采集；条件：loop 每页直到空页、上限或失败 / opt 传输/限流错误且尚有页面重试次数",
+      "from": "ingest"
     },
     {
       "id": "m8",
-      "from": "ingest",
       "to": "gateway",
-      "y": 452,
-      "label": "仅重试同一页列表",
+      "y": 892,
+      "label": "页内按 BVID 去重",
       "variant": "default",
-      "note": "仅重试同一页列表；不重放已成功的逐视频采集"
+      "note": "页内按 BVID 去重；缺失 aid 的摘要由详情补充；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "ingest"
     },
     {
       "id": "m9",
-      "from": "ingest",
-      "to": "gateway",
-      "y": 524,
-      "label": "页内按 BVID 去重",
+      "to": "remote",
+      "y": 958,
+      "label": "缺失字段才读取详情",
       "variant": "default",
-      "note": "页内按 BVID 去重；缺失 aid 的摘要由详情补充"
+      "note": "缺失字段才读取详情；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "gateway"
     },
     {
       "id": "m10",
-      "from": "gateway",
-      "to": "remote",
-      "y": 556,
-      "label": "缺失字段才读取详情",
-      "variant": "default",
-      "note": "缺失字段才读取详情"
+      "to": "gateway",
+      "y": 1024,
+      "label": "完整 VideoSummary",
+      "variant": "return",
+      "note": "完整 VideoSummary；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "remote"
     },
     {
       "id": "m11",
-      "from": "remote",
-      "to": "gateway",
-      "y": 588,
-      "label": "完整 VideoSummary",
+      "to": "ingest",
+      "y": 1090,
+      "label": "保留实际上传者和协作者",
       "variant": "return",
-      "note": "完整 VideoSummary"
+      "note": "保留实际上传者和协作者；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "gateway"
     },
     {
       "id": "m12",
-      "from": "gateway",
-      "to": "ingest",
-      "y": 620,
-      "label": "保留实际上传者和协作者",
-      "variant": "return",
-      "note": "保留实际上传者和协作者"
+      "to": "source",
+      "y": 1156,
+      "label": "get_parts(summary.content_…",
+      "variant": "default",
+      "note": "get_parts(summary.content_ref, video_title_fallback)；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "ingest"
     },
     {
       "id": "m13",
-      "from": "ingest",
-      "to": "source",
-      "y": 652,
-      "label": "ContentRef 查询分 P",
-      "variant": "default",
-      "note": "get_parts(summary.content_ref, video_title_fallback)"
+      "to": "gateway",
+      "y": 1222,
+      "label": "校验平台后用真实 external_video_id…",
+      "variant": "security",
+      "note": "校验平台后用真实 external_video_id 取 pagelist；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "source"
     },
     {
       "id": "m14",
-      "from": "source",
-      "to": "gateway",
-      "y": 684,
-      "label": "Bilibili ID 查询",
-      "variant": "security",
-      "note": "校验平台后用真实 external_video_id 取 pagelist"
+      "to": "remote",
+      "y": 1288,
+      "label": "获取分 P 清单",
+      "variant": "default",
+      "note": "获取分 P 清单；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "gateway"
     },
     {
       "id": "m15",
-      "from": "gateway",
-      "to": "remote",
-      "y": 716,
-      "label": "获取分 P 清单",
-      "variant": "default",
-      "note": "获取分 P 清单"
+      "to": "gateway",
+      "y": 1354,
+      "label": "真实 cid、分 P 标题与时长",
+      "variant": "return",
+      "note": "真实 cid、分 P 标题与时长；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "remote"
     },
     {
       "id": "m16",
-      "from": "remote",
-      "to": "gateway",
-      "y": 748,
-      "label": "真实 cid、分 P 标题与时长",
+      "to": "source",
+      "y": 1420,
+      "label": "VideoPart DTO",
       "variant": "return",
-      "note": "真实 cid、分 P 标题与时长"
+      "note": "VideoPart DTO；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "gateway"
     },
     {
       "id": "m17",
-      "from": "gateway",
-      "to": "source",
-      "y": 780,
-      "label": "VideoPart DTO",
+      "to": "ingest",
+      "y": 1486,
+      "label": "拒绝其他视频的 parts",
       "variant": "return",
-      "note": "VideoPart DTO"
+      "note": "拒绝其他视频的 parts；保留真实 cid 与旧 DTO 字段；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "source"
     },
     {
       "id": "m18",
-      "from": "source",
-      "to": "ingest",
-      "y": 812,
-      "label": "拒绝其他视频的 parts",
-      "variant": "return",
-      "note": "拒绝其他视频的 parts；保留真实 cid 与旧 DTO 字段"
+      "to": "gateway",
+      "y": 1552,
+      "label": "每次 run 重新观察 tags",
+      "variant": "default",
+      "note": "每次 run 重新观察 tags；本次有界 LRU 避免重复请求；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "ingest"
     },
     {
       "id": "m19",
-      "from": "ingest",
-      "to": "gateway",
-      "y": 844,
-      "label": "每次 run 重新观察 tags",
+      "to": "remote",
+      "y": 1618,
+      "label": "读取原始标签",
       "variant": "default",
-      "note": "每次 run 重新观察 tags；本次有界 LRU 避免重复请求"
+      "note": "读取原始标签；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "gateway"
     },
     {
       "id": "m20",
-      "from": "gateway",
-      "to": "remote",
-      "y": 876,
-      "label": "读取原始标签",
-      "variant": "default",
-      "note": "读取原始标签"
+      "to": "gateway",
+      "y": 1684,
+      "label": "成功标签集合或不可用观察",
+      "variant": "return",
+      "note": "成功标签集合或不可用观察；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "remote"
     },
     {
       "id": "m21",
-      "from": "remote",
-      "to": "gateway",
-      "y": 908,
-      "label": "成功标签集合或不可用观察",
+      "to": "ingest",
+      "y": 1750,
+      "label": "unavailable 与成功空集合保持不同",
       "variant": "return",
-      "note": "成功标签集合或不可用观察"
+      "note": "unavailable 与成功空集合保持不同；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "gateway"
     },
     {
       "id": "m22",
-      "from": "gateway",
-      "to": "ingest",
-      "y": 940,
-      "label": "unavailable 与成功空集合保持不同",
-      "variant": "return",
-      "note": "unavailable 与成功空集合保持不同"
+      "to": "db",
+      "y": 1816,
+      "label": "users/videos/parts/details…",
+      "variant": "default",
+      "note": "users/videos/parts/details、标签观察、page/discoveries、cursor 同一页事务；条件：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+      "from": "ingest"
     },
     {
       "id": "m23",
-      "from": "ingest",
       "to": "db",
-      "y": 972,
-      "label": "整页元数据事务",
+      "y": 1947,
+      "label": "保存空页与 complete cursor",
       "variant": "default",
-      "note": "users/videos/parts/details、标签观察、page/discoveries、cursor 同一页事务"
+      "note": "保存空页与 complete cursor；终止循环；条件：loop 每页直到空页、上限或失败 / else 页面成功且为空",
+      "from": "ingest"
     },
     {
       "id": "m24",
-      "from": "ingest",
       "to": "db",
-      "y": 1044,
-      "label": "保存空页与 complete cursor",
+      "y": 2078,
+      "label": "failed/risk_interrupted ru…",
       "variant": "default",
-      "note": "保存空页与 complete cursor；终止循环"
+      "note": "failed/risk_interrupted run 与 page；保留可恢复位置；条件：loop 每页直到空页、上限或失败 / else 页请求最终失败",
+      "from": "ingest"
     },
     {
       "id": "m25",
-      "from": "ingest",
       "to": "db",
-      "y": 1116,
-      "label": "失败页与恢复证据",
+      "y": 2209,
+      "label": "只推进未来 run cursor",
       "variant": "default",
-      "note": "failed/risk_interrupted run 与 page；保留可恢复位置"
+      "note": "只推进未来 run cursor；本次仍失败；risk_interrupted 不跳过；条件：loop 每页直到空页、上限或失败 / else 页请求最终失败 / opt skip-failed-page 且 failed",
+      "from": "ingest"
     },
     {
       "id": "m26",
-      "from": "ingest",
       "to": "db",
-      "y": 1188,
-      "label": "只推进未来 run cursor",
+      "y": 2340,
+      "label": "complete/limited/risk_inte…",
       "variant": "default",
-      "note": "只推进未来 run cursor；本次仍失败；risk_interrupted 不跳过"
+      "note": "complete/limited/risk_interrupted 各自提交；failed 已由 page 事务终结；条件：主流程",
+      "from": "ingest"
     },
     {
       "id": "m27",
-      "from": "ingest",
-      "to": "db",
-      "y": 1260,
-      "label": "收尾 run 与游标",
-      "variant": "default",
-      "note": "complete/limited/risk_interrupted 各自提交；failed 已由 page 事务终结"
+      "to": "cli",
+      "y": 2406,
+      "label": "采集与标签统计",
+      "variant": "return",
+      "note": "采集与标签统计；条件：主流程",
+      "from": "ingest"
     },
     {
       "id": "m28",
-      "from": "ingest",
-      "to": "cli",
-      "y": 1292,
-      "label": "采集与标签统计",
-      "variant": "return",
-      "note": "采集与标签统计"
+      "to": "ingest",
+      "y": 2537,
+      "label": "验证所有已存 BVID",
+      "variant": "default",
+      "note": "验证所有已存 BVID；条件：opt 显式 fetch-tags",
+      "from": "cli"
     },
     {
       "id": "m29",
-      "from": "cli",
-      "to": "ingest",
-      "y": 1364,
-      "label": "验证所有已存 BVID",
-      "variant": "security",
-      "note": "验证所有已存 BVID"
+      "to": "gateway",
+      "y": 2603,
+      "label": "逐视频重新读取 tags",
+      "variant": "default",
+      "note": "逐视频重新读取 tags；条件：opt 显式 fetch-tags",
+      "from": "ingest"
     },
     {
       "id": "m30",
-      "from": "ingest",
-      "to": "gateway",
-      "y": 1396,
-      "label": "逐视频重新读取 tags",
-      "variant": "default",
-      "note": "逐视频重新读取 tags"
-    },
-    {
-      "id": "m31",
-      "from": "ingest",
       "to": "db",
-      "y": 1428,
+      "y": 2669,
       "label": "成功非空替换",
       "variant": "default",
-      "note": "成功非空替换；成功空清空；不可用保留旧标签并记录 unavailable"
+      "note": "成功非空替换；成功空清空；不可用保留旧标签并记录 unavailable；条件：opt 显式 fetch-tags",
+      "from": "ingest"
     }
   ],
   "segments": [
     {
-      "from": 272,
-      "to": 392,
-      "label": "B01 loop 每页直到空页、上限或失败"
+      "from": 207,
+      "to": 347,
+      "label": "B1 · 主流程"
     },
     {
-      "from": 440,
-      "to": 464,
-      "label": "B02 opt 传输/限流错误且尚有页面重试次数"
+      "from": 404,
+      "to": 676,
+      "label": "B2 · loop 每页直到空页、上限或失败"
     },
     {
-      "from": 512,
-      "to": 984,
-      "label": "B03 alt 页面成功且非空"
+      "from": 733,
+      "to": 807,
+      "label": "B3 · opt 传输/限流错误且尚有页面重试次数"
     },
     {
-      "from": 1032,
-      "to": 1056,
-      "label": "B04 else 页面成功且为空"
+      "from": 864,
+      "to": 1862,
+      "label": "B4 · alt 页面成功且非空"
     },
     {
-      "from": 1104,
-      "to": 1128,
-      "label": "B05 else 页请求最终失败"
+      "from": 1919,
+      "to": 1993,
+      "label": "B5 · else 页面成功且为空"
     },
     {
-      "from": 1176,
-      "to": 1200,
-      "label": "B06 opt skip-failed-page 且 failed"
+      "from": 2050,
+      "to": 2124,
+      "label": "B6 · else 页请求最终失败"
     },
     {
-      "from": 1352,
-      "to": 1440,
-      "label": "B07 opt 显式 fetch-tags"
+      "from": 2181,
+      "to": 2255,
+      "label": "B7 · opt skip-failed-page 且 fail"
+    },
+    {
+      "from": 2312,
+      "to": 2452,
+      "label": "B8 · 主流程"
+    },
+    {
+      "from": 2509,
+      "to": 2710,
+      "label": "B9 · opt 显式 fetch-tags"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "已固定源码基线",
+      "title": "完整条件路径",
       "items": [
-        "代码提交 5d7a57e201564a10dec7a360b2ef8f7874dc51a7；源码引用指向本地路径。文档更新与产物生成使用该提交的源码证据。"
+        "B1 条件路径：主流程",
+        "B2 条件路径：loop 每页直到空页、上限或失败",
+        "B3 条件路径：loop 每页直到空页、上限或失败 / opt 传输/限流错误且尚有页面重试次数",
+        "B4 条件路径：loop 每页直到空页、上限或失败 / alt 页面成功且非空",
+        "B5 条件路径：loop 每页直到空页、上限或失败 / else 页面成功且为空",
+        "B6 条件路径：loop 每页直到空页、上限或失败 / else 页请求最终失败",
+        "B7 条件路径：loop 每页直到空页、上限或失败 / else 页请求最终失败 / opt skip-failed-page 且 failed",
+        "B8 条件路径：主流程",
+        "B9 条件路径：opt 显式 fetch-tags"
       ]
     },
     {
       "dot": "emerald",
-      "title": "边界与恢复",
+      "title": "内部动作",
       "items": [
-        "SESSDATA 是否存在与凭据是否有效是不同事实；秘密和瞬时签名 URL 不作为长期归档内容。",
-        "VideoSummary.content_ref 是视频查找引用；BilibiliMetadataSource 返回每个真实分 P，保留 cid，ContentRef 不进入数据库或旧 JSON 字段。",
-        "创建者发现、页面恢复、摘要补充与原始标签仍属于 Bilibili gateway；通用 MetadataSource 端口当前只承担 parts 查询。",
-        "page_retries 的退避由采集服务拥有；标签失败是可选数据失败，不把成功页变成失败页。",
-        "原始标签只在 edition create 或显式 sync-source-tags 时冻结；抓取更新不改写既有 edition/release。"
+        "采集服务：30/60/120/240/300 秒退避；最多 page_retries 次重试，上限 5（loop 每页直到空页、上限或失败 / opt 传输/限流错误且尚有页面重试次数）"
       ]
     },
     {
-      "dot": "amber",
-      "title": "参与者内部动作",
+      "dot": "rose",
+      "title": "身份与阅读边界",
       "items": [
-        "步骤 7 · 采集服务：30/60/120/240/300 秒退避；最多 page_retries 次重试，上限 5"
-      ]
-    },
-    {
-      "dot": "violet",
-      "title": "完整条件路径",
-      "items": [
-        "B01：loop 每页直到空页、上限或失败",
-        "B02：loop 每页直到空页、上限或失败 → opt 传输/限流错误且尚有页面重试次数",
-        "B03：loop 每页直到空页、上限或失败 → alt 页面成功且非空",
-        "B04：loop 每页直到空页、上限或失败 → else 页面成功且为空",
-        "B05：loop 每页直到空页、上限或失败 → else 页请求最终失败",
-        "B06：loop 每页直到空页、上限或失败 → else 页请求最终失败 → opt skip-failed-page 且 failed",
-        "B07：opt 显式 fetch-tags"
+        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     }
   ]
