@@ -94,7 +94,7 @@ class WorkflowApplication:
         return {"input_id": prepared["input_id"], "chunks": len(prepared["chunks"]),
                 "job_id": proof_id, "render_job_id": render_id}
 
-    def render(self, revision_id: str, template_version: str) -> str:
+    def render(self, revision_id: str, template_version: str | None = None) -> str:
         prepared, _ = EditorialRepository(self.session.connection).revision(revision_id)
         job_id, _ = self.repository.request_document(
             video_part_id=prepared["snapshot"]["video_part_id"], revision_id=revision_id,

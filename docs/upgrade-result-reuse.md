@@ -21,6 +21,17 @@
 已经提交的 chunk_result 保持原记录，未提交的块才调用模型。网络请求已经
 发出但未持久化成功块的情况可能需要重算，这一边界没有被格式升级消除。
 
+自动 ASR → proofread → render 链在冻结输入前使用 `template_version=auto`
+作为尚未执行的渲染占位；不会根据当前库版本猜测输入版本。校对绑定实际
+输入时，在同一受租约保护的事务中解析冻结版本，将未执行的 queued 占位
+绑定为 `render:<proofread job ID>:ai-draft-v1` 或 `ai-draft-v2`。
+如果正确身份已经存在，保留其状态和历史并转接依赖，只移除从未执行的
+重复占位。已执行或终止的历史任务不会被改写，冻结前取消的占位也不会
+因重复计划复活。旧版本已失败的错误模板任务保留其错误证据；对已提交
+revision 执行 `workflow render --revision-id ...` 可单独修复渲染，无需重新推理。
+该命令省略 `--template-version` 时按真实冻结输入自动选择；显式指定不匹配
+的模板会在入队前失败，不产生必然失败的任务。
+
 离线回归 `tests/test_upgrade_result_reuse.py` 将固定历史 ZIP 经正式 upgrade
 转换后，执行真实 planner/executor：完成范围的下载/ASR/AI 均不得调用，
 原 profile 保持，取消依赖继续阻塞；另一个真实未完成 ASR 可以正常领取并

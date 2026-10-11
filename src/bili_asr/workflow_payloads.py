@@ -57,6 +57,8 @@ def validate_payload(kind: JobKind, payload: Mapping[str, Any], *,
     elif kind is JobKind.RENDER_DOCUMENT:
         _one_reference(payload, "revision_id", "proofread_job_id")
         _text(payload.get("template_version"), "template_version")
+        if payload["template_version"] == "auto" and "proofread_job_id" not in payload:
+            raise ValueError("workflow payload: automatic template requires proofreading dependency")
     return ValidatedPayload(kind, version, MappingProxyType(dict(payload)))
 
 
