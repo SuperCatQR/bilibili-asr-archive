@@ -20,7 +20,6 @@ from bili_asr.storage.job_commit import JobCommitGuard
 from bili_asr.transcript_selection import choose_transcript
 from bili_asr.workflow_planning import JobSpec, PlanningPart, editorial_specs, plan_producers
 from bili_asr.workflow_payloads import validate_payload
-from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, frozen_version
 
 
 from bili_asr.workflow_models import (
@@ -185,13 +184,40 @@ class WorkflowRepository:
         counts: dict[JobKind, int] = {}
         for spec in specs:
             payload, dedupe_key = spec.materialize(ids)
-            if spec.kind is JobKind.RENDER_DOCUMENT and runtime_contract(self.connection) == UNIVERSAL_V2:
+            if spec.kind is JobKind.RENDER_DOCUMENT:
+                from bili_asr.storage.editorial import input_for_proofread, template_for_input
+
                 proof_id = payload["proofread_job_id"]
-                proof = self.connection.execute("SELECT payload_json FROM workflow_jobs WHERE job_id=?", (proof_id,)).fetchone()
-                input_id = json.loads(proof[0]).get("input_id")
-                version = frozen_version(self.connection, "input", input_id) if input_id else 2
-                payload["template_version"] = "ai-draft-v2" if version == 2 else "ai-draft-v1"
+                pending = self.connection.execute("SELECT job_id,status FROM workflow_jobs WHERE dedupe_key=?",
+                                                   (f"render:{proof_id}:auto",)).fetchone()
+                if pending is not None and pending["status"] in {"succeeded", "failed", "cancelled"}:
+                    # Cancellation while proofreading was still in flight must
+                    # not become a fresh render just because its input is known.
+                    ids[spec.key] = pending["job_id"]
+                    continue
+                input_id = input_for_proofread(self.connection, proof_id)
+                if input_id is not None:
+                    self.bind_editorial_render(proof_id, input_id)
+                existing_render = self.connection.execute(
+                    "SELECT j.job_id,j.status,j.dedupe_key,j.attempt_count FROM workflow_jobs j "
+                    "JOIN workflow_job_dependencies d ON d.job_id=j.job_id "
+                    "WHERE d.prerequisite_job_id=? AND j.kind='render_document' "
+                    "AND json_extract(j.payload_json,'$.proofread_job_id')=? ORDER BY j.created_at,j.rowid LIMIT 1",
+                    (proof_id, proof_id)).fetchone()
+                # Acquisition has not frozen an input yet. This placeholder is
+                # bound transactionally before proofreading starts any AI work.
+                payload["template_version"] = template_for_input(self.connection, input_id) if input_id else "auto"
                 dedupe_key = f"render:{proof_id}:{payload['template_version']}"
+                canonical = self.connection.execute("SELECT job_id FROM workflow_jobs WHERE dedupe_key=?",
+                                                     (dedupe_key,)).fetchone()
+                if existing_render is not None and canonical is None and (
+                        input_id is None or existing_render["attempt_count"] > 0
+                        or existing_render["status"] in {"running", "succeeded", "failed", "cancelled"}):
+                    # Existing acquisition chains (including the old guessed
+                    # template) retain their scheduling and terminal identities.
+                    # An already-failed wrong template needs explicit rerender.
+                    ids[spec.key] = existing_render["job_id"]
+                    continue
             job_id, created = self._ensure_job(kind=spec.kind, video_part_id=spec.video_part_id,
                 profile_id=spec.profile_id, policy_key=spec.policy_key, payload=payload, dedupe_key=dedupe_key)
             ids[spec.key] = job_id
@@ -446,15 +472,63 @@ class WorkflowRepository:
         ids, created = self._enqueue_specs(specs, existing_ids={} if external is None else {external: prerequisite_job_id})
         return ids[specs[0].key], ids[specs[1].key], bool(created.get(JobKind.PROOFREAD)), bool(created.get(JobKind.RENDER_DOCUMENT))
 
-    def request_document(self, *, video_part_id: int, revision_id: str, template_version: str) -> tuple[str, bool]:
-        from bili_asr.editorial import TEMPLATE_VERSION
+    def bind_editorial_render(self, proof_id: str, input_id: str) -> None:
+        """Finalize unattempted placeholders without rewriting execution history."""
+        from bili_asr.storage.editorial import template_for_input
 
-        if template_version not in {TEMPLATE_VERSION, "ai-draft-v2"}:
+        if not self.connection.in_transaction:
+            raise RuntimeError("render binding requires a write transaction")
+        template = template_for_input(self.connection, input_id)
+        key = f"render:{proof_id}:{template}"
+        rows = self.connection.execute(
+            "SELECT j.* FROM workflow_jobs j JOIN workflow_job_dependencies d ON d.job_id=j.job_id "
+            "WHERE d.prerequisite_job_id=? AND j.kind='render_document'", (proof_id,)).fetchall()
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if payload.get("proofread_job_id") != proof_id or row["dedupe_key"] == key:
+                continue
+            # Completed, failed, cancelled and previously attempted rows are
+            # evidence. The original attempt's payload/identity stays intact.
+            if row["status"] != "queued" or row["attempt_count"] != 0:
+                continue
+            payload["template_version"] = template
+            existing = self.connection.execute("SELECT job_id FROM workflow_jobs WHERE dedupe_key=?", (key,)).fetchone()
+            if existing is None:
+                self.connection.execute("UPDATE workflow_jobs SET payload_json=?,dedupe_key=?,updated_at=? WHERE job_id=?",
+                                        (_json(payload), key, _now(), row["job_id"]))
+            else:
+                # Only the never-executed scheduling placeholder is discarded.
+                # Redirect graph edges to the existing canonical job, retaining
+                # its terminal state rather than resurrecting paid work.
+                canonical_id = existing["job_id"]
+                self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies SELECT ?,prerequisite_job_id "
+                                        "FROM workflow_job_dependencies WHERE job_id=?", (canonical_id, row["job_id"]))
+                self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies SELECT job_id,? "
+                                        "FROM workflow_job_dependencies WHERE prerequisite_job_id=?", (canonical_id, row["job_id"]))
+                self.connection.execute("DELETE FROM workflow_job_dependencies WHERE job_id=? OR prerequisite_job_id=?",
+                                        (row["job_id"], row["job_id"]))
+                if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='artifact_input_states'").fetchone():
+                    # Readiness is scoped to the discarded scheduling identity.
+                    # Preserve canonical observations; a fresh preparation will
+                    # establish its own state rather than inheriting stale hints.
+                    self.connection.execute("DELETE FROM artifact_input_states WHERE job_id=?", (row["job_id"],))
+                self.connection.execute("DELETE FROM workflow_jobs WHERE job_id=?", (row["job_id"],))
+
+    def request_document(self, *, video_part_id: int, revision_id: str,
+                         template_version: str | None = None) -> tuple[str, bool]:
+        from bili_asr.storage.editorial import EditorialRepository, template_for_input
+
+        if template_version is not None and template_version not in {"ai-draft-v1", "ai-draft-v2"}:
             raise ValueError("unsupported document template version")
-        if template_version == "ai-draft-v2" and runtime_contract(self.connection) != UNIVERSAL_V2:
-            raise ValueError("document template v2 requires universal-v2")
         self.require_cancellation_contract()
         self._require_editorial_contract()
+        prepared, _ = EditorialRepository(self.connection).revision(revision_id)
+        expected = template_for_input(self.connection, prepared["input_id"])
+        if template_version is not None and template_version != expected:
+            raise ValueError("unsupported document template version for frozen input")
+        if prepared["snapshot"]["video_part_id"] != video_part_id:
+            raise ValueError("revision belongs to a different part")
+        template_version = expected
         with self.connection:
             job_id, created = self._ensure_job(
                 kind=JobKind.RENDER_DOCUMENT, video_part_id=video_part_id, profile_id=None, policy_key=None,

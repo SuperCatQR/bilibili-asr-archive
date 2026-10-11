@@ -93,7 +93,8 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     render = actions.add_parser("render", help="Queue deterministic Markdown rendering without calling AI")
     render.add_argument("--archive-root", default=archive_root)
     render.add_argument("--revision-id", required=True)
-    render.add_argument("--template-version", choices=[TEMPLATE_VERSION, "ai-draft-v2"], default=TEMPLATE_VERSION)
+    render.add_argument("--template-version", choices=[TEMPLATE_VERSION, "ai-draft-v2"],
+                        help="Override the template resolved from the revision's frozen input")
     render.add_argument("--artifact-root", default=None, help="Product root used by subsequent workflow run invocations")
 
     run = actions.add_parser("run", help="Claim and execute ready SQLite jobs")

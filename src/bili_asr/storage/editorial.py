@@ -18,6 +18,21 @@ from bili_asr.transcript_selection import choose_transcript
 from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, frozen_version, register_frozen_version
 
 
+def template_for_input(connection: sqlite3.Connection, input_id: str) -> str:
+    """Resolve rendering from the persisted input contract, including migrated v1."""
+    return "ai-draft-v2" if frozen_version(connection, "input", input_id) == 2 else TEMPLATE_VERSION
+
+
+def input_for_proofread(connection: sqlite3.Connection, job_id: str) -> str | None:
+    row = connection.execute("SELECT input_id FROM editorial_job_inputs WHERE job_id=?", (job_id,)).fetchone()
+    if row is None:
+        row = connection.execute("SELECT input_id FROM editorial_revisions WHERE job_id=?", (job_id,)).fetchone()
+    if row is not None:
+        return str(row[0])
+    row = connection.execute("SELECT payload_json FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+    return None if row is None else json.loads(row[0]).get("input_id")
+
+
 class EditorialRepository:
     def __init__(self, connection: sqlite3.Connection, *, commit_guard: JobCommitGuard | None = None):
         require_editorial_schema(connection)
@@ -156,7 +171,10 @@ class EditorialRepository:
     def freeze_job_input(self, job: WorkflowJob) -> dict[str, Any]:
         row = self.connection.execute("SELECT input_id FROM editorial_job_inputs WHERE job_id = ?", (job.job_id,)).fetchone()
         if row:
-            return self.load_input(row["input_id"])
+            prepared = self.load_input(row["input_id"])
+            with self.owned_transaction(job):
+                self._bind_render_jobs(job, prepared["input_id"])
+            return prepared
         if "input_id" in job.payload:
             prepared = self.load_input(str(job.payload["input_id"]))
         else:
@@ -177,7 +195,13 @@ class EditorialRepository:
         with self.owned_transaction(job):
             self.store_input(prepared)
             self.connection.execute("INSERT OR IGNORE INTO editorial_job_inputs VALUES (?, ?)", (job.job_id, prepared["input_id"]))
+            self._bind_render_jobs(job, prepared["input_id"])
         return prepared
+
+    def _bind_render_jobs(self, job: WorkflowJob, input_id: str) -> None:
+        from bili_asr.storage.workflow import WorkflowRepository
+
+        WorkflowRepository(self.connection).bind_editorial_render(job.job_id, input_id)
 
     def begin_call(self, job: WorkflowJob, input_id: str, chunk_id: str, request: dict[str, Any]) -> str:
         now, call_id = int(time.time()), uuid4().hex
@@ -266,8 +290,7 @@ class EditorialRepository:
         """Check the complete fixed pair before a renderer writes any bytes."""
         require_editorial_schema(self.connection)
         prepared, _ = self.revision(revision_id)
-        version = frozen_version(self.connection, "input", prepared["input_id"])
-        expected_template = "ai-draft-v2" if version == 2 else TEMPLATE_VERSION
+        expected_template = template_for_input(self.connection, prepared["input_id"])
         if template != expected_template or set(artifacts) != set(ARTIFACT_ROLES):
             raise ValueError("unsupported document artifact contract")
         part_id = prepared["snapshot"]["video_part_id"]
