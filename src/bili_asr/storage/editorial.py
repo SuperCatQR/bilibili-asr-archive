@@ -120,6 +120,10 @@ class EditorialRepository:
             # comparison supplies the fixed compatibility defaults; neither the
             # historical JSON nor its identity is rewritten.
             comparison_config = dict(stored_config)
+            # ``thinking_mode`` was added after the first frozen editorial
+            # inputs were written.  The historical default is enabled, so
+            # comparing it here must not manufacture a new input identity.
+            comparison_config.setdefault("thinking_mode", "enabled")
             comparison_config.setdefault("max_chunk_segments", 256)
             comparison_config.setdefault("max_chunk_chars", 20_000)
             if comparison_config != config.to_dict():
