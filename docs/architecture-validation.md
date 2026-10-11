@@ -1,21 +1,25 @@
 # 架构与时序图验证记录
 
-核对日期：2026-10-11（Asia/Hong_Kong）。当前源码基线：`4f073318c944add37417416155845e55247f9bc1`。本轮针对最新 main 重新核对 parser/registry、提交源码文件树、契约资源、来源/产物/ASR/出版实现，并更新当前架构文本与 30 个时序流程。机器记录见 [architecture-validation.json](architecture-validation.json)，覆盖见 [architecture-coverage.json](architecture-coverage.json)。
+核对日期：2026-10-11（Asia/Hong_Kong）。当前源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`。本轮对齐已合并的 Issue #348，更新全景图、AI/出版专题图与 31 个时序流程，共 33 张交互图。机器记录见 [architecture-validation.json](architecture-validation.json)，覆盖见 [architecture-coverage.json](architecture-coverage.json)。
 
 ## Archify 交付
 
-Archify 3.0.1 对当前工作区存在的架构图和时序图执行 finalize；规格、HTML、deliver、strict check 和真实 Chrome browser-check 的摘要与 SHA-256 写入机器记录。全景图和 AI 专题图的 browser-check 均通过；时序图 01–30 的现有 HTML 均由对应规格生成并完成自动门禁。截图证据保留在忽略目录 `.archify/refresh-20261011/`，本页不声称人工逐屏视觉验收。
+Archify 3.0.1 对全部 33 份当前 JSON 执行 `finalize --repo-root . --quality showcase`，重新生成对应 HTML。每张图均通过 9/9 showcase 校验、0 errors、0 warnings，并完成 deliver、strict check 和真实 Chrome browser-check。机器记录保存规格与生成文件的 SHA-256，已核对收据摘要与磁盘上的实际字节一致。完整收据保留在忽略目录 `.archify/issue348-20261011-refresh/`，各候选修正的收据使用独立子目录。
 
-全景图的自动检查建议继续检查路由交叉/绕路（当前图保留语义完整性，未删除关系以降低诊断）；AI 专题图保留若干长路线建议。全景图实际查看了 1440×900 light 首屏，记录为 partial；其余图为 not_requested。没有逐屏检查完整长页，不声称完整目视验收。
+全景图仍有 22 处自动路由交叉及部分绕路建议。按照工具提示尝试了一次节点位置调整，交叉增加到 27，因此恢复原布局并重新通过完整门禁。AI 专题图保留部分弯折建议。自动检查通过不代表完整目视验收；本轮全部图的人工视觉检查记为 `not_requested`，没有复用旧版本首屏截图作新版本证据。
 
 ## 实现核对范围
 
-- CLI parser 与 registry：20 个顶层命令、86 条实际叶命令，含 `artifacts`、`remote`、`reference`、`source`、`workflow supervise/role`、契约升级和显式来源路径。
-- 来源：universal-v2 的中立 source identity、Bilibili/YouTube adapter、字段观察、字幕候选预算与失败证据。
-- 执行：claim 前 candidate/输入/pin/空间/GPU 准入，父进程租约 fence，persistent/legacy/oneshot 会话，单任务 ASR/alignment batching。
-- 产物：完整组、catalog/target/replica、transfer/release journal、online policy、consumer pin、外置对象精确恢复。
-- 契约与恢复：离线 Schema registry、upgrade path、新目标保真安装、完整 snapshot、非自包含 reference backup、旧正文导入与系列导出。
+- CLI parser 与 registry：20 个顶层命令、86 条实际叶命令；包含历史回填的 `--preserve-transcript` / `--dry-run`、文章补充的 `--field description` 和新导出 profile。
+- 提交源码：204 个 Python 模块、11 个 SQL 资源、50 项稳定契约、25 份 JSON Schema；源码节点引用按固定提交核对，变化的函数范围与模块末尾同步到当前行号。
+- 来源与转写包：六个平铺来源字段、同一只读快照批量查询、`source-metadata-v1` 发布时快照、新包 v3 与旧包 v2 兼容核验。
+- 历史包回填：原 publication/转录围栏、旧 marker 和成员验证、不可变完整组保留、原 raw/provenance/coverage/character timing、安装前复验与失败路径。
+- 文章补充：已保留旧正文的 v2 资格、逐字段成功观察、整批来源和双头事务校验、原文保留、待审子版、幂等回执与重新审核。
+- 协议与消费者：导出集合和 profile 对 catalog 版本的选择，`universal-origin-v2` 的 origins v2 / manifest v3，旧 profile 保持与新简介补充拒绝规则，当前 Reader 的升级边界。
+- 既有执行、产物、迁移与恢复路径：租约/取消、ASR 会话、在线副本、snapshot/reference backup、旧正文导入与系列出口继续保留，并重新核对源码链接。
+
+本轮检查 Markdown 本地链接、源码行号、31 个 Mermaid 时序分支的结构平衡，以及 `git diff --check`。各项实际检查数量写入机器记录。独立语义审查发现并修正了 catalog 版本条件和新流程源码链接问题。
 
 ## 验证边界
 
-文档检查不替代真实网络、GPU/CPU 性能、付费模型、完整快照生产往返、远程 SSH 可用性、阅读站部署或人工语义审核。历史测试记录仍保留原提交和运行日期；本轮没有把历史测试数字改写成当前执行结果。
+此次更新范围是文档与图，不替代真实网络、GPU/CPU 性能、付费模型、完整快照生产往返、远程 SSH 可用性、生产迁移或阅读站部署。外部 Reader 对新 profile 的支持仍需另行实现。历史测试与问题评估记录继续保留其原提交、运行日期与验收范围。

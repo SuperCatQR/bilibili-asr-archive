@@ -2,7 +2,7 @@
   "schema_version": 3,
   "checked_on": "2026-10-11",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "4f073318c944add37417416155845e55247f9bc1",
+  "repository_revision": "228e4655c644aa924572429fcfd6451df3e108d5",
   "top_level_commands": 20,
   "command_paths": [
     "workflow plan",
@@ -235,6 +235,7 @@
     "src/bili_asr/services/metadata_refresh.py",
     "src/bili_asr/services/migration_preflight.py",
     "src/bili_asr/services/preserved_body_import.py",
+    "src/bili_asr/services/publication_refresh.py",
     "src/bili_asr/services/publication_supervisor.py",
     "src/bili_asr/services/reference_backup.py",
     "src/bili_asr/services/remote_artifacts.py",
@@ -1574,10 +1575,10 @@
     "src/bili_asr/storage/schema-preserved-body-import.sql",
     "src/bili_asr/storage/schema-source-supplements.sql"
   ],
-  "stable_contracts": 47,
-  "json_schema_resources": 23,
-  "sequence_flows": 30,
-  "interactive_diagrams": 32,
+  "stable_contracts": 50,
+  "json_schema_resources": 25,
+  "sequence_flows": 31,
+  "interactive_diagrams": 33,
   "limitations": [
     "Base contracts and optional extensions are counted separately. Optional SQL resources are not automatically installed. FTS virtual/shadow objects are derived and excluded from base table counts."
   ]

@@ -1,6 +1,6 @@
 # 单任务有界批处理、原始对齐与策略证据
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互图](26-asr-batching.html) · [JSON 规格](26-asr-batching.json) · [时序索引](../architecture-sequences.md)
 

@@ -3,25 +3,25 @@
 [项目 README](../README.md) 提供安装和常用命令。以下文档以当前源码为依据，
 解释工作流、数据所有权、产物契约和运行限制；架构图是可审阅的源码快照。
 
-当前架构与 30 个时序流程统一核对 2026-10-11 的 main 源码 `4f073318c944add37417416155845e55247f9bc1`。图的真实验收范围见 [验证记录](architecture-validation.md)。
+当前架构与 31 个时序流程统一核对 2026-10-11 的 main 源码 `228e4655c644aa924572429fcfd6451df3e108d5`。图的真实验收范围见 [验证记录](architecture-validation.md)。
 
 ## 架构与数据
 
 | 文档 | 内容 |
 | --- | --- |
-| [契约治理与兼容边界](contract-governance.md) | 单一登记、23 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
+| [契约治理与兼容边界](contract-governance.md) | 单一登记、25 份离线 Schema、版本矩阵、冻结样本与变更门禁；[交互图](contract-governance.html)、[验证](contract-governance-validation.md) |
 | [当前架构](architecture.md) | 固定提交的执行模型，以及本分支新增职责与契约入口 |
 | [音频分层与手动迁出](artifact-storage.md) | 只读盘点、保真 catalog 升级、目标封包核验、条件释放和同 SHA 恢复；生产状态独立延续 |
 | [SSH 存储与引用型备份](remote-reference-backups.md) | 已核验远程包、明确的外部依赖、离线/在线检查、保真状态恢复与显式 worker 交接 |
 | [全景架构图](architecture.html) | 固定提交的可交互组件、关系与源码证据；[JSON](architecture.json) |
-| [完整时序图](architecture-sequences.md) | 30 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
-| [源码与覆盖清单](architecture-sources.md) | 20 个顶层命令、86 条命令路径、203 个模块与基础/可选契约；[机器清单](architecture-coverage.json) |
-| [图表验证记录](architecture-validation.md) | 32 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
+| [完整时序图](architecture-sequences.md) | 31 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
+| [源码与覆盖清单](architecture-sources.md) | 20 个顶层命令、86 条命令路径、204 个模块与基础/可选契约；[机器清单](architecture-coverage.json) |
+| [图表验证记录](architecture-validation.md) | 33 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
 | [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
 | [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
 | [来源元数据与历史回填](issue-348-source-metadata.md) | 简介与来源字段、JSON/CSV、锁定原转录的 bundle 回填 |
 | [历史文章简介补充](issue-348-description-supplement.md) | 保留旧正文的新待审版本、来源证据及阅读站契约升级范围 |
-| [AI 校对与出版架构](ai-proofreading-architecture.md) | 固定提交的输入冻结、历史模板、完整版本、标签、审核、release 与三类导出 |
+| [AI 校对与出版架构](ai-proofreading-architecture.md) | 固定提交的输入冻结、历史模板、完整版本、标签/简介证据、审核、release 与三类导出 |
 | [Issues 架构评估](issues-architecture-assessment.md) | 实施前对七项 issues 的代码依据、依赖、风险与验收要求 |
 | [Issues 实现与架构边界](issues-implementation.md) | 本分支七项实现、层间依赖、新旧契约、操作入口与验证限制 |
 
@@ -31,7 +31,7 @@
 | --- | --- |
 | [BVID 与分 P 选择](workflow-selection.md) | 批量 BVID、零基分 P、part ID、全集验证与幂等规划 |
 | [任务取消](workflow-cancellation.md) | queued/running 取消、协作检查点、提交保护、依赖阻塞与终态 |
-| [WebVTT 与 bundle](webvtt.md) | 五文件布局、cue 契约、完成标记及已有转录的重新发布 |
+| [WebVTT 与 bundle](webvtt.md) | 转录格式、cue 契约、完成标记及已有转录的重新发布；当前 v3 来源回填见来源元数据指南 |
 | [元数据搜索](metadata-search.md) | transcripts/metadata/all、字面匹配、排序、日期与 JSON 契约 |
 | [出版与审核](publication.md) | 不可变完整版本、准确哈希审核、release、撤回、公开正文与校验参照及完整私有审阅包 |
 | [保留旧正文的迁移导入](preserved-body-import.md) | 离线扩展安装、只读计划、字节保留、幂等回执、独立审核与来源导出协议 |

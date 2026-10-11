@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "4f073318c944add37417416155845e55247f9bc1",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -53,8 +53,8 @@
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 276,
-          "end_line": 365,
+          "line": 282,
+          "end_line": 371,
           "label": "export_editorial"
         }
       ]
@@ -98,8 +98,8 @@
       "sources": [
         {
           "path": "src/bili_asr/export_snapshot.py",
-          "line": 429,
-          "end_line": 510,
+          "line": 431,
+          "end_line": 513,
           "label": "replace_snapshot"
         }
       ]
@@ -112,7 +112,7 @@
         {
           "path": "src/bili_asr/publication_export.py",
           "line": 1,
-          "end_line": 365,
+          "end_line": 371,
           "label": "模块定义"
         }
       ]
@@ -123,9 +123,9 @@
       "id": "m1",
       "to": "exporter",
       "y": 235,
-      "label": "明确选择导出类型",
+      "label": "选择出口与来源 profile",
       "variant": "default",
-      "note": "明确选择导出类型；条件：主流程",
+      "note": "publication export / export-drafts 显式选择 contract-profile；简介补充版本必须 universal-origin-v2；条件：主流程",
       "from": "cli"
     },
     {
@@ -240,9 +240,9 @@
       "id": "m14",
       "to": "snapshot",
       "y": 1483,
-      "label": "阅读站实现不在本仓库",
+      "label": "按已支持的 profile 读取",
       "variant": "default",
-      "note": "阅读站实现不在本仓库；公开/预览契约分开；私有父目录不部署；条件：else 全部验证通过",
+      "note": "当前 Reader 仅支持 universal-origin-v1；简介补充的新 universal-origin-v2 等待消费者升级；公开/预览契约分开，私有父目录不部署；条件：else 全部验证通过",
       "from": "consumer"
     }
   ],
@@ -301,7 +301,7 @@
       "dot": "emerald",
       "title": "内部动作",
       "items": [
-        "稿件导出器：schemaVersion 2；articles/part-ID/publish.md + review.md；reviewFile/hash 独立（alt publication export）",
+        "稿件导出器：全部 content v1 且无 origin profile 为 catalog 2；含 content v2 或 origin profile 为 catalog 3，公开稿与原始 review.md 配对。",
         "稿件导出器：publication-draft；preview.md + 原始 review.md；审核状态与准确内容身份（else publication export-drafts）",
         "稿件导出器：edition.md/json、review.json、相对 AI 与父版的全内容 differences patches（else editorial export）",
         "受管理目录发布：校验旧受管快照；恢复已记录中断；完整 staging + manifest + snapshot digest（else 全部验证通过）",
@@ -312,9 +312,17 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "显式协议兼容",
+      "items": [
+        "简介补充使用 universal-origin-v2：origins schema 2、manifest 3；source-metadata-v1 保持冻结。",
+        "旧 universal-origin-v1 继续使用 origins 1 / manifest 2，并拒绝新简介补充；未升级消费者不得导入新 profile。"
       ]
     }
   ]

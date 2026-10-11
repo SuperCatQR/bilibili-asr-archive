@@ -1,6 +1,6 @@
 # 字幕来源端口、缺失证据与不可变转录
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [Archify 规格](05-subtitle-ingest.json) · [交互时序图](05-subtitle-ingest.html) · [全部时序图](../architecture-sequences.md)
 

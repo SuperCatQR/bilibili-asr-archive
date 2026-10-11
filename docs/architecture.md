@@ -1,6 +1,6 @@
 # 当前架构
 
-本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[30 个时序流程](architecture-sequences.md)统一核对远端 main 的固定源码 **`4f073318c944add37417416155845e55247f9bc1`**，日期为 2026-10-11（Asia/Hong_Kong）。本地原 checkout 为 `effd9df473fca382133067eb1b7e04143ccbb849`；本轮在最新 main 的独立工作树核对。当前源码身份不会随远端后续提交自动变化。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
+本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[31 个时序流程](architecture-sequences.md)统一核对远端 main 的固定源码 **`228e4655c644aa924572429fcfd6451df3e108d5`**，日期为 2026-10-11（Asia/Hong_Kong）。本轮在独立工作树核对已合并的 Issue #348 来源元数据与迁移能力。当前源码身份不会随远端后续提交自动变化。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
 
 ## 执行模型与责任
 
@@ -50,11 +50,15 @@ soundfile/ffmpeg RF64 解码为 mono 16 kHz float32，完整分块。HF 后端�
 
 ## 版本、bundle 与人工出版
 
-转录按 CC/AI/ASR、语言 family、精确语言、版本总排序择优；preferred 与实际 published 身份分开。原始 bundle 不等待 AI。v2 为五个数据成员，v3 加 source-metadata.json；raw JSON 保留转录证据，来源 sidecar 独立。预编码/暂存/fsync 在短锁外，准确租约围栏内完成最终文件/marker 和发布事实。已安装 catalog 时覆盖前保存可验证旧完整组，并登记新组。见 [08](sequences/08-transcript-bundle.md)。
+转录按 CC/AI/ASR、语言 family、精确语言、版本总排序择优；preferred 与实际 published 身份分开。原始 bundle 不等待 AI。当前普通发布和历史回填均生成 v3：SRT/VTT/TXT/MD/raw JSON 五个成员加 `source-metadata.json`，旧 v2 的五成员布局仍可读取和核验。`source-metadata-v1` sidecar 冻结发布时的来源信息；raw JSON 保留转录证据，来源 sidecar 独立。预编码/暂存/fsync 在短锁外，准确租约围栏内完成最终文件/marker 和发布事实。已安装 catalog 时覆盖前保存可验证旧完整组，并登记新组。见 [08](sequences/08-transcript-bundle.md)。
+
+普通 JSON/CSV 导出从当前数据库批量读取简介、UP 主 ID/名称、标签、标签观察状态和详情采集时间；六个平铺字段也写入 bundle Markdown frontmatter。它们与严格的 `source-metadata-v1` 冻结快照分别保存：`video_details_observed_at` 不代表 UP 主名称或保留标签的共同采集时间，未观察到的标签状态保持 null。普通导出会保留简介里的普通链接，同时过滤凭据和签名媒体 URL；不为了导出重新访问来源。见 [13](sequences/13-projection-verify.md)。
+
+旧 bundle 的简介回填先要求显式安装 artifact catalog；未安装时在独立新归档目录完成升级。`workflow publish --preserve-transcript --dry-run` 查看原 publication、transcript 与内容哈希，实际请求将这组身份入队。worker 核验旧 marker/成员字节并保存不可变完整组，复验 publication 围栏后用当前已存来源元数据生成 v3。转录、原 ASR provenance、coverage 和 character timing 保留，不下载音频或调用 ASR/AI；原 publication、发布时间、转录或有序 segments 的绑定身份改变时要求重新规划。见 [31](sequences/31-source-metadata-migration.md)。
 
 AI input/content v1/v2 与 ai-draft/publish 模板按保存版本读取；旧身份不因升级重算。合法冻结输入可重用，refresh-input 显式生成新输入。模型调用锁外执行，先审计真实响应，再做结构与 lease 校验；块检查点重试复用，完整 revision 之后独立渲染。重复性 ASR 输入 guard 在请求前失败，failed proofread 的显式修复保留原 attempt/input，见 [09](sequences/09-ai-proofread.md)、[10](sequences/10-document-render.md)、[30](sequences/30-editorial-repair.md)。
 
-edition 保存完整读者内容；准确 content SHA 审核，显式 publish 才切公开 release head。source tags 刷新不会改旧 edition。保留旧正文导入不调用 ASR/AI，固定旧 body/review 原字节，产生 pending-review 的 content v2 与 immutable origin；来源标题补充是独立证据/政策。公开、从未发布预览、私有审阅分别核验身份与布局，迁移稿使用 universal-origin-v1；系列是另行人工确认的编辑元数据，按文件 SHA CAS，不推断关联。见 [11](sequences/11-publication-lifecycle.md)、[12](sequences/12-reader-private-export.md)、[28](sequences/28-preserved-body.md)、[29](sequences/29-publication-series.md)。
+edition 保存完整读者内容；准确 content SHA 审核，显式 publish 才切公开 release head。source tags 刷新不会改旧 edition。保留旧正文导入不调用 ASR/AI，固定旧 body/review 原字节，产生 pending-review 的 content v2 与 immutable origin；来源标题和简介补充使用各自的证据/政策。`supplement-source plan --field description` 只为已保留旧正文的 v2 文章计划补充；apply 在同一事务复验正文身份、草稿头、发布头和采集证据，创建 pending-review 子版，原正文 UTF-8 字节及编辑摘要保留。已补标题的文章不支持再串接简介，原生 v2 跳过；真实空简介可以补入，未知 null 会阻止计划。简介采集时间仅来自匹配值的逐字段成功观察，缺失则为 null。公开、从未发布预览、私有审阅分别核验身份与布局，简介补充稿要求 `universal-origin-v2`（catalog v3/origins v2/manifest v3）；旧 `universal-origin-v1` 的冻结 schema 保留并拒绝新简介证据。当前阅读站仍只支持旧 profile，消费新稿需另行升级。系列是另行人工确认的编辑元数据，按文件 SHA CAS，不推断关联。见 [11](sequences/11-publication-lifecycle.md)、[12](sequences/12-reader-private-export.md)、[28](sequences/28-preserved-body.md)、[29](sequences/29-publication-series.md)。
 
 ## 产物身份、驻留和副本
 
@@ -64,7 +68,7 @@ edition 保存完整读者内容；准确 content SHA 审核，显式 publish �
 
 ## 契约、快照和恢复
 
-contracts 注册 47 项稳定边界，wheel 发布 23 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](sequences/25-contract-upgrade.md)。
+contracts 注册 50 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](sequences/25-contract-upgrade.md)。
 
 完整 archive-snapshot/v1 从本地或准确外部包流式收集全部受支持文件、数据库和历史组，可显式无损压缩；恢复后不依赖旧 target。archive-reference-backup/v1 始终 self_contained=false，离线检查只验证嵌入数据和引用，online 才核验外部依赖。引用恢复保留原状态与 holds，始终要求执行权交接。SSH 目录上传必须核验 host key/instance 并完整读回 SHA，当前远程路径保留本地源。见 [15](sequences/15-archive-snapshot.md)、[20](sequences/20-recovery-plan.md)、[27](sequences/27-reference-backup.md)。
 

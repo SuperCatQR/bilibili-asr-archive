@@ -2,14 +2,14 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "择优转录、五文件发布与完成标记",
+    "title": "转录选择、来源快照与 v3 完成标记",
     "locale": "zh-CN",
     "output": "docs/sequences/08-transcript-bundle.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "4f073318c944add37417416155845e55247f9bc1",
+      "revision": "228e4655c644aa924572429fcfd6451df3e108d5",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -30,14 +30,14 @@
     },
     {
       "id": "handler",
-      "label": "publish ha",
+      "label": "发布处理器",
       "type": "backend",
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 411,
-          "end_line": 417,
-          "label": "ArchiveWorkflowHandlers.publish"
+          "line": 419,
+          "end_line": 581,
+          "label": "_publish"
         }
       ],
       "sublabel": "publish handler"
@@ -68,21 +68,27 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 814,
-          "end_line": 873,
+          "line": 820,
+          "end_line": 881,
           "label": "WorkflowRepository._terminal"
+        },
+        {
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 175,
+          "end_line": 189,
+          "label": "read_source_metadata_export_many"
         }
       ]
     },
     {
       "id": "writer",
-      "label": "bundle wri",
+      "label": "归档写入器",
       "type": "backend",
       "sources": [
         {
           "path": "src/bili_asr/archive.py",
           "line": 888,
-          "end_line": 950,
+          "end_line": 954,
           "label": "write_archive"
         },
         {
@@ -96,7 +102,7 @@
     },
     {
       "id": "files",
-      "label": "bundle 数据成",
+      "label": "六成员与标记",
       "type": "database",
       "sources": [
         {
@@ -132,18 +138,18 @@
       "id": "m3",
       "to": "db",
       "y": 367,
-      "label": "读取当前全部版本",
+      "label": "读取版本及已存来源",
       "variant": "default",
-      "note": "读取当前全部版本；条件：主流程",
+      "note": "普通发布读取全部候选；preserve-transcript 只读取绑定的原转录。来源投影在一次只读快照内批量读取；条件：主流程",
       "from": "handler"
     },
     {
       "id": "m4",
       "to": "projection",
       "y": 433,
-      "label": "CC > AI 字幕 > ASR",
+      "label": "普通择优 / 回填锁原稿",
       "variant": "default",
-      "note": "CC > AI 字幕 > ASR；语言 family/语言/version 排序；不盲用 requested ID；条件：主流程",
+      "note": "普通发布：CC > AI 字幕 > ASR，继续按语言与版本排序；回填：只允许绑定 publication 对应的 transcript；条件：主流程",
       "from": "handler"
     },
     {
@@ -168,9 +174,9 @@
       "id": "m7",
       "to": "writer",
       "y": 761,
-      "label": "传入来源、segments、来源快照与可用模型名称/…",
+      "label": "segments 与来源快照",
       "variant": "default",
-      "note": "传入来源、segments、来源快照与可用模型名称/revision；传入 publication_guard；条件：主流程",
+      "note": "传入真实 segments、source-metadata-v1 快照、六个平铺导出字段、ASR provenance 和 publication_guard；回填沿用原 raw/character timing/coverage；条件：主流程",
       "from": "handler"
     },
     {
@@ -204,18 +210,18 @@
       "id": "m11",
       "to": "files",
       "y": 1025,
-      "label": "v2 替换五个数据成员",
+      "label": "安装六个 v3 数据成员",
       "variant": "default",
-      "note": "v2 替换五个数据成员；v3 替换六个数据成员；条件：主流程",
+      "note": "新 publish 均安装 SRT/VTT/TXT/MD/raw JSON/source-metadata.json 六个成员；旧 v2 五成员包继续可验证；条件：主流程",
       "from": "writer"
     },
     {
       "id": "m12",
       "to": "files",
       "y": 1091,
-      "label": "v2 marker 列出五个、v3 marker 列…",
+      "label": "最后安装 v3 marker",
       "variant": "security",
-      "note": "v2 marker 列出五个、v3 marker 列出六个相对路径及 SHA-256；完成标记最后安装；条件：主流程",
+      "note": "v3 marker 列出六个相对路径及 SHA-256；source-metadata.json 为权威 JSON 来源副本；条件：主流程",
       "from": "writer"
     },
     {
@@ -322,9 +328,18 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 4f073318c944add37417416155845e55247f9bc1；2026-10-11 核对。",
+        "全部源码固定于 228e4655c644aa924572429fcfd6451df3e108d5；2026-10-11 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "历史回填另见 31",
+      "items": [
+        "workflow publish --preserve-transcript --dry-run 先查看原 publication、时间和两个 hash。",
+        "实际回填必须有 artifact catalog；worker 在旧组保存与新组安装前复验围栏，陈旧计划拒绝。",
+        "仅 publish job，无来源补抓、音频下载、ASR 或 AI；旧 bundle 的不可变字节继续可恢复。"
       ]
     }
   ]

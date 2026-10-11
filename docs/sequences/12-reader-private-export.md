@@ -1,6 +1,6 @@
 # 公开、未发布预览与私有审阅三种导出
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](12-reader-private-export.html) · [Archify 规格](12-reader-private-export.json) · [全部时序图](../architecture-sequences.md)
 
@@ -21,7 +21,7 @@ sequenceDiagram
     alt publication export
     exporter->>db: 额外拒绝 published release 无匹配 head；坏关系不得被 JOIN 隐藏
     exporter->>artifacts: 精确 approved edition/review/hash、来源、模板、事件、path 与字节；对应 revision 的原始 review.md
-    exporter->>exporter: schemaVersion 2；articles/part-ID/publish.md + review.md；reviewFile/hash 独立
+    exporter->>exporter: 全部 content v1 且无 profile 为 catalog v2；否则 v3；publish.md 与 review.md 配对
     else publication export-drafts
     exporter->>db: 验证每个 head；仅当前 edition 且从未产生任何状态的 release
     exporter->>artifacts: 验证 AI 双稿与基线
@@ -31,6 +31,14 @@ sequenceDiagram
     exporter->>artifacts: 读取固定 AI 双稿
     exporter->>exporter: edition.md/json、review.json、相对 AI 与父版的全内容 differences patches
     end
+    opt 公开或预览的迁移 origin profile
+    exporter->>exporter: 逐文章核验 origin、正文关系、补充值/hash/逐字段 metadataEvidence
+    alt universal-origin-v2
+    exporter->>exporter: catalog v3 + origins v2 + manifest v3；允许简介补充与旧 origin
+    else universal-origin-v1
+    exporter->>exporter: origins v1 + manifest v2；遇简介补充明确拒绝
+    end
+    end
     exporter->>db: 结束读事务
     alt 任一内容或关系损坏
     exporter->>cli: 不生成部分 catalog；先前输出保留到新快照发布阶段
@@ -39,7 +47,7 @@ sequenceDiagram
     snapshot->>snapshot: 校验旧受管快照；恢复已记录中断；完整 staging + manifest + snapshot digest
     snapshot->>snapshot: old→backup、stage→output、日志恢复；输出可短暂不可用
     snapshot-->>cli: 返回快照身份
-    consumer->>snapshot: 阅读站实现不在本仓库；公开/预览契约分开；私有父目录不部署
+    consumer->>snapshot: 当前阅读站仅支持旧 profile；消费新简介证据需实现 v2；公开/预览分开、私有父目录不部署
     end
 ```
 
@@ -55,12 +63,15 @@ sequenceDiagram
 - [src/bili_asr/cli/editorial.py:14](../../src/bili_asr/cli/editorial.py#L14)：_cmd_editorial。
 - [src/bili_asr/publication_export.py:91](../../src/bili_asr/publication_export.py#L91)：export_publications。
 - [src/bili_asr/publication_export.py:148](../../src/bili_asr/publication_export.py#L148)：export_publication_drafts。
-- [src/bili_asr/publication_export.py:276](../../src/bili_asr/publication_export.py#L276)：export_editorial。
+- [src/bili_asr/publication_export.py:282](../../src/bili_asr/publication_export.py#L282)：export_editorial。
 - [src/bili_asr/publication_export.py:37](../../src/bili_asr/publication_export.py#L37)：_read_snapshot。
 - [src/bili_asr/publication.py:109](../../src/bili_asr/publication.py#L109)：verify_release。
 - [src/bili_asr/publication.py:1](../../src/bili_asr/publication.py#L1)：模块定义。
-- [src/bili_asr/export_snapshot.py:429](../../src/bili_asr/export_snapshot.py#L429)：replace_snapshot。
+- [src/bili_asr/export_snapshot.py:431](../../src/bili_asr/export_snapshot.py#L431)：replace_snapshot。
 - [src/bili_asr/publication_export.py:1](../../src/bili_asr/publication_export.py#L1)：模块定义。
+
+- [src/bili_asr/publication_export.py:234](../../src/bili_asr/publication_export.py#L234)：_collect_origin，简介补充版本要求 universal-origin-v2。
+- [src/bili_asr/publication_export.py:248](../../src/bili_asr/publication_export.py#L248)：_add_origins 按 profile 分派 schema。
 
 ## 本次边界修复
 
@@ -68,4 +79,4 @@ CLI 使用 ArchiveSession 的 READ/WRITE 与 MANUSCRIPT 契约管理连接及维
 
 ## 当前版本与消费
 
-content v1/v2、publish/ai 模板按保存身份分派，导出先做 wheel 内离线 Schema 再核验真实引用/文件/hash。普通公开/预览与迁移 origin profile 分开；保留旧正文和来源补充见 [28](28-preserved-body.md)，可选编辑系列见 [29](29-publication-series.md)。启用 catalog 后准确历史组可以显式恢复，不能用当前文件槽位代替旧版本。
+content v1/v2、publish/ai 模板按保存身份分派，导出先做 wheel 内离线 Schema 再核验真实引用/文件/hash。普通公开/预览与迁移 origin profile 分开；`--contract-profile universal-origin-v2` 支持新的简介补充证据，catalog v3/origins v2/manifest v3；旧 profile 仍按原严格 schema 验证，拒绝简介补充。新版来源信息不重写编辑摘要或正文，公开前仍需准确哈希审核和显式 publish；当前阅读站的 profile 升级另行实施。保留旧正文和来源补充见 [28](28-preserved-body.md)、[31](31-source-metadata-migration.md)，可选编辑系列见 [29](29-publication-series.md)。启用 catalog 后准确历史组可以显式恢复，不能用当前文件槽位代替旧版本。

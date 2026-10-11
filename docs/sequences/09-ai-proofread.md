@@ -1,6 +1,6 @@
 # 冻结 AI 输入、共享提交保护与逐块续跑
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](09-ai-proofread.html) · [Archify 规格](09-ai-proofread.json) · [全部时序图](../architecture-sequences.md)
 
@@ -57,8 +57,8 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/services/workflow_application.py:74](../../src/bili_asr/services/workflow_application.py#L74)：WorkflowApplication.proofread。
-- [src/bili_asr/workflow_payloads.py:77](../../src/bili_asr/workflow_payloads.py#L77)：decode_job_payload。
+- [src/bili_asr/services/workflow_application.py:108](../../src/bili_asr/services/workflow_application.py#L108)：WorkflowApplication.proofread。
+- [src/bili_asr/workflow_payloads.py:92](../../src/bili_asr/workflow_payloads.py#L92)：decode_job_payload。
 - [src/bili_asr/editorial_runtime.py:40](../../src/bili_asr/editorial_runtime.py#L40)：EditorialWorkflowHandlers.proofread。
 - [src/bili_asr/storage/editorial.py:171](../../src/bili_asr/storage/editorial.py#L171)：EditorialRepository.freeze_job_input。
 - [src/bili_asr/storage/editorial.py:206](../../src/bili_asr/storage/editorial.py#L206)：EditorialRepository.begin_call。

@@ -1,6 +1,6 @@
 # 任务认领、共享提交保护、心跳与取消重试
 
-源码基线：`4f073318c944add37417416155845e55247f9bc1`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`228e4655c644aa924572429fcfd6451df3e108d5`；核对日期：2026-10-11（Asia/Hong_Kong）。
 
 [交互时序图](04-lease-cancel-retry.html) · [Archify 规格](04-lease-cancel-retry.json) · [全部时序图](../architecture-sequences.md)
 
@@ -59,11 +59,11 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:241](../../src/bili_asr/cli/workflow.py#L241)：_execute_workflow。
+- [src/bili_asr/cli/workflow.py:245](../../src/bili_asr/cli/workflow.py#L245)：_execute_workflow。
 - [src/bili_asr/archive_session.py:106](../../src/bili_asr/archive_session.py#L106)：ArchiveSession.open。
 - [src/bili_asr/archive_maintenance.py:84](../../src/bili_asr/archive_maintenance.py#L84)：archive_access。
 - [src/bili_asr/workflow.py:128](../../src/bili_asr/workflow.py#L128)：WorkflowExecutor.run。
-- [src/bili_asr/services/workflow_application.py:103](../../src/bili_asr/services/workflow_application.py#L103)：WorkflowApplication.run。
+- [src/bili_asr/services/workflow_application.py:137](../../src/bili_asr/services/workflow_application.py#L137)：WorkflowApplication.run。
 - [src/bili_asr/workflow.py:285](../../src/bili_asr/workflow.py#L285)：_LeaseHeartbeat._run。
 - [src/bili_asr/storage/workflow.py:54](../../src/bili_asr/storage/workflow.py#L54)：WorkflowRepository.open_lease_repository。
 - [src/bili_asr/workflow_runtime.py:411](../../src/bili_asr/workflow_runtime.py#L411)：ArchiveWorkflowHandlers.publish。
@@ -71,7 +71,7 @@ sequenceDiagram
 - [src/bili_asr/storage/job_commit.py:13](../../src/bili_asr/storage/job_commit.py#L13)：JobCommitGuard。
 - [src/bili_asr/storage/workflow.py:262](../../src/bili_asr/storage/workflow.py#L262)：WorkflowRepository.claim。
 - [src/bili_asr/storage/workflow.py:364](../../src/bili_asr/storage/workflow.py#L364)：WorkflowRepository.cancel。
-- [src/bili_asr/storage/workflow.py:814](../../src/bili_asr/storage/workflow.py#L814)：WorkflowRepository._terminal。
+- [src/bili_asr/storage/workflow.py:820](../../src/bili_asr/storage/workflow.py#L820)：WorkflowRepository._terminal。
 
 ## 提交期限补充
 
