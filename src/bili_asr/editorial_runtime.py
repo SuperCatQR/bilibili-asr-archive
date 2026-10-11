@@ -11,7 +11,7 @@ from bili_asr.editorial_quality import check_source_quality
 from bili_asr.workflow_errors import JobExecutionError
 
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
-from bili_asr.editorial import EditorialConfig, validate_revision
+from bili_asr.editorial import EditorialConfig, local_revision, validate_revision
 from bili_asr.manuscript_files import stage_artifact
 from bili_asr.storage.editorial import EditorialRepository, template_for_input
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
@@ -54,7 +54,26 @@ class EditorialWorkflowHandlers:
             envelope = None
             try:
                 attempt_checkpoint(job)
-                envelope = self.client.complete(request, config)
+                local_blocks = local_revision(chunk)
+                if local_blocks is not None:
+                    # Mechanical formatting-only chunks need no provider call,
+                    # but retain an auditable call row and the same checkpoint
+                    # contract as model-produced blocks.
+                    envelope = {"id": "local-precheck", "model": "local-precheck",
+                                "choices": [], "usage": {"prompt_tokens": 0,
+                                "completion_tokens": 0}}
+                    self.repository.finish_call(call_id, envelope)
+                    self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, local_blocks)
+                    continue
+                fingerprint = self.repository.request_fingerprint(
+                    prepared["input_id"], chunk["chunk_id"], request)
+                # A worker can die after the provider response is durably
+                # recorded but before the validated chunk checkpoint commits.
+                # Reuse that response and run the normal parser/validator so a
+                # recovery never trusts an unvalidated provider payload.
+                envelope = self.repository.completed_call_for_request(fingerprint)
+                if envelope is None:
+                    envelope = self.client.complete(request, config)
                 # Persist the actual envelope (including usage/model identifiers)
                 # before accepting content or raising a validation error.
                 self.repository.finish_call(call_id, envelope)

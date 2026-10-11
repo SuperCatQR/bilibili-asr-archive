@@ -93,10 +93,15 @@ bili-asr workflow run --archive-root /srv/bili-archive
 | `--max-output-tokens` | 262,144 | 修订输出预留；不可超过 393,216 |
 | `--context-segments` | 2 | 每块前后各保留的只读基础片段数 |
 | `--api-timeout` | 1,800 秒 | HTTP 读取超时；每次请求前续租任务 |
+| `--thinking-mode` | `enabled` | `enabled` / `disabled`；关闭时不发送 reasoning effort |
 
 另预留 16,384 token 的安全空间。当前没有依赖供应商 tokenizer，使用 UTF-8 字节数作为保守
 输入估算，同时预留思考、完整段落、来源 ID 和疑点输出长度。它通常会高估文本 token 数，不代表实际计费用量。
 实际供应商用量来自响应的 `usage`，保存在调用记录中。
+每个冻结块还记录系统提示词、可编辑正文、参考字幕、只读上下文和输出预算的估算值，
+并在发送前做本地格式预检；空白和重复标点只生成安全候选，填充词和重复短语只标记，
+不由本地规则直接删除语义内容。整块只有安全格式候选时直接生成逐段机械修订，不调用模型；
+含有语义疑点或未变化段落的块仍完整走模型校对。
 
 每块尽量包含最多的完整原始片段。可容纳的整篇转录会保持为单块；输出预算不足时仍需分块，
 因为 1M 输入上下文不能保证全文修订输出也能装下。参考字幕按片段时间交集匹配；
@@ -110,7 +115,8 @@ bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101 \
 
 服务返回 `finish_reason=length`、空内容、无效 JSON、重复 JSON 字段、未知片段、漏段、乱序、
 正文混入标题或时间戳、非相邻来源或未知引用时，任务失败并保留调用证据，不提交完整修订或阅读稿。
-请求采用 JSON object 模式，默认 `thinking={"type":"enabled","reasoning_effort":"high"}`，
+请求采用 JSON object 模式，默认 `thinking={"type":"enabled","reasoning_effort":"high"}`；
+可用 `--thinking-mode disabled` 关闭思考，启用思考时 `high` 仍是默认 effort。
 `top_p=0.95`，不发送 temperature，无隐式 HTTP 自动重试。
 官方接口在 high 思考模式下将小于 0.95 的 top_p 按 0.95 处理；本地配置直接拒绝无效范围。
 
@@ -189,6 +195,8 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 `workflow retry` 可复用已保存块，只重新请求尚未通过校验的块。
 全部块完成并提交完整修订后，校对 job 还须成功结束，渲染依赖才能就绪。
 如果请求已到达供应商，但本地尚未保存结果时进程退出，重试可能重复计费；不承诺外部调用 exactly-once。
+调用快照包含由输入、块和完整请求计算的稳定指纹。恢复时会先查找同一指纹下已保存且未标记错误的响应，
+再执行正常 JSON、来源和结构校验，从而覆盖“响应已落库但检查点尚未提交”的常见崩溃窗口。
 租约续期和尝试编号校验阻止过期工作器提交新块或覆盖新的任务尝试。
 `workflow retry` 只重排 `failed`，不会恢复 `cancelled`；重复相同输入的校对请求也不会复活已取消任务。
 
