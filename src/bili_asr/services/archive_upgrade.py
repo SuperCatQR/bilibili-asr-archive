@@ -163,7 +163,7 @@ def plan_upgrade(source_root: Path, target_root: Path, *, target_contracts: tupl
                         "preserve_shadowed": alternate_files,
                         "new_representations": 0, "expensive_recomputation": [],
                         "review_and_heads": "preserve-exactly", "workflow_recovery": "separate-explicit-operation"},
-            "required_free_bytes": file_bytes + inventory["database"]["size"] * 4 + 32 * 1024 * 1024}
+            "required_free_bytes": (file_bytes + inventory["database"]["size"] * 4) * (len(path) + 2) + 32 * 1024 * 1024}
     # JSON roundtrip gives one wire representation to both CLI and Python callers.
     plan = json.loads(canonical(plan))
     plan["plan_id"] = digest(plan)
@@ -172,17 +172,34 @@ def plan_upgrade(source_root: Path, target_root: Path, *, target_contracts: tupl
 
 def _copy_file(original: Path, destination: Path, expected: dict) -> None:
     require_regular_file(original)
+    require_no_links(destination)
+    if destination.exists():
+        require_regular_file(destination)
+        if destination.stat().st_nlink != 1:
+            raise ValueError("upgrade copy destination is hard-linked")
+        if _hash_file(destination)[:2] != (expected["size"], expected["sha256"]):
+            raise ValueError("completed upgrade copy changed")
+        return
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with original.open("rb") as reader, destination.open("xb") as writer:
+    temporary = destination.with_name(destination.name + ".upgrade-partial")
+    require_no_links(temporary)
+    if temporary.exists():
+        require_regular_file(temporary)
+        if temporary.stat().st_nlink != 1:
+            raise ValueError("upgrade partial file is hard-linked")
+        temporary.unlink()
+    with original.open("rb") as reader, temporary.open("xb") as writer:
         size, sha256 = stream_hash(reader, writer)
         writer.flush()
         os.fsync(writer.fileno())
     if (size, sha256) != (expected["size"], expected["sha256"]):
         raise ValueError("source file changed during upgrade")
+    temporary.replace(destination)
+    _sync_directory(destination.parent)
 
 
 def _copy_source(inventory: dict, stage: Path) -> None:
-    stage.mkdir()
+    stage.mkdir(exist_ok=True)
     _copy_file(Path(inventory["archive_root"]) / "archive.db", stage / "archive.db", inventory["database"])
     for item in inventory["files"]:
         parts = portable_artifact_parts(item["path"])
@@ -271,27 +288,40 @@ def apply_upgrade(plan: dict) -> dict:
         if shutil.disk_usage(target.parent).free < plan["required_free_bytes"]:
             raise ValueError("insufficient space for upgrade staging and verification")
         started = time.monotonic()
-        with tempfile.TemporaryDirectory(prefix=f".{target.name}.upgrade-stage-", dir=target.parent) as temporary:
-            stage = Path(temporary) / "archive"
-            edges = upgrade_path(tuple(plan["source"]["contracts"]), tuple(plan["target_contracts"]),
-                                 selected=tuple(item["identity"] for item in plan["path"]))
-            if edges[0].converter == "legacy-migrate":
-                migrate_archive(source, stage, artifact_root=Path(plan["source"]["artifact_root"]))
-                remaining = edges[1:]
+        from bili_asr.services.upgrade_checkpoint import UpgradeCheckpoint
+        checkpoint = UpgradeCheckpoint(target, plan["plan_id"])
+        edges = upgrade_path(tuple(plan["source"]["contracts"]), tuple(plan["target_contracts"]),
+                             selected=tuple(item["identity"] for item in plan["path"]))
+        legacy = edges[0].converter == "legacy-migrate"
+        remaining = edges[1:] if legacy else edges
+        if not checkpoint.value["phases"]:
+            pending = checkpoint.pending(0, rebuild=legacy)
+            if legacy:
+                migrate_archive(source, pending, artifact_root=Path(plan["source"]["artifact_root"]))
             else:
-                _copy_source(plan["source"], stage)
-                remaining = edges
+                _copy_source(plan["source"], pending)
             for item in _alternate_files(plan["source"]):
                 _copy_file(Path(item["base"]).joinpath(*portable_artifact_parts(item["source_path"])),
-                           stage.joinpath(*portable_artifact_parts(item["path"])), item)
-            verify_preserved_tables(stage / "archive.db", plan["source"]["tables"])
-            for edge in remaining:
-                if source_evidence(stage / "archive.db")["contracts"] != list(edge.source):
-                    raise ValueError("intermediate source contract does not match registered edge")
-                _convert(edge, stage)
-                if source_evidence(stage / "archive.db")["contracts"] != list(edge.target):
-                    raise ValueError("intermediate target contract does not match registered edge")
-                verify_preserved_tables(stage / "archive.db", plan["source"]["tables"])
+                           pending.joinpath(*portable_artifact_parts(item["path"])), item)
+            verify_preserved_tables(pending / "archive.db", plan["source"]["tables"])
+            checkpoint.seal(0, pending, "legacy-migrate" if legacy else "source-copy")
+        for index, edge in enumerate(remaining, start=1):
+            if index < len(checkpoint.value["phases"]):
+                if checkpoint.value["phases"][index]["label"] != edge.identity:
+                    raise ValueError("upgrade checkpoint conversion path changed")
+                continue
+            pending = checkpoint.pending(index, rebuild=True)
+            checkpoint.copy_completed(checkpoint.phase(index - 1), pending)
+            if source_evidence(pending / "archive.db")["contracts"] != list(edge.source):
+                raise ValueError("intermediate source contract does not match registered edge")
+            _convert(edge, pending)
+            if source_evidence(pending / "archive.db")["contracts"] != list(edge.target):
+                raise ValueError("intermediate target contract does not match registered edge")
+            verify_preserved_tables(pending / "archive.db", plan["source"]["tables"])
+            checkpoint.seal(index, pending, edge.identity)
+        with tempfile.TemporaryDirectory(prefix=".install-", dir=checkpoint.root) as temporary:
+            stage = Path(temporary) / "archive"
+            checkpoint.copy_completed(checkpoint.phase(len(remaining)), stage)
             installed = _inventory(stage, stage)
             _verify_file_inventory(installed["files"], plan["source"]["files"])
             _verify_file_inventory(installed["files"], _alternate_files(plan["source"]))
@@ -328,7 +358,8 @@ def apply_upgrade(plan: dict) -> dict:
                 warnings.append("target_parent_directory_sync_failed")
             return {"operation": "archive-upgrade", "valid": True, "plan_id": plan["plan_id"],
                     "target_root": str(target), "reused": False, "receipt_id": receipt["receipt_id"],
-                    "control_state": plan["control_state"], "warnings": warnings}
+                    "control_state": plan["control_state"], "warnings": warnings,
+                    "resumed_phases": checkpoint.reused_phases, "checkpoint_root": str(checkpoint.root)}
 
 
 def check_upgrade(target_root: Path, *, expected_plan_id: str) -> dict:
@@ -367,3 +398,57 @@ def check_upgrade(target_root: Path, *, expected_plan_id: str) -> dict:
         return {"operation": "archive-upgrade-check", "valid": True, "plan_id": expected_plan_id,
                 "receipt_id": receipt["receipt_id"], "target_contracts": plan["target_contracts"],
                 "control_state": plan["control_state"], "installation_baseline_matches": True}
+
+
+def audit_upgrade(target_root: Path, *, expected_plan_id: str) -> dict:
+    """Describe drift without granting permission to reuse a changed baseline."""
+    target = _absolute(target_root)
+    if (len(expected_plan_id) != 64 or any(c not in "0123456789abcdef" for c in expected_plan_id)):
+        raise ValueError("invalid expected upgrade plan identity")
+    with ArchiveSession(target, mode=ArchiveAccessMode.MAINTENANCE).access():
+        path = target / "documents" / "upgrades" / expected_plan_id / "receipt.json"
+        require_regular_file(path)
+        receipt = json.loads(path.read_bytes())
+        if receipt.get("receipt_id") != digest({k: v for k, v in receipt.items() if k != "receipt_id"}):
+            raise ValueError("upgrade receipt digest mismatch")
+        plan = receipt["plan"]
+        _validate_plan(plan)
+        if plan["plan_id"] != expected_plan_id:
+            raise ValueError("completed target belongs to another upgrade plan")
+        before = _database_state(target / "archive.db")
+        validate_snapshot_database(target / "archive.db")
+        mutable = {"workflow_jobs", "video_parts", "videos", "video_details", "video_tags",
+                   "source_videos", "source_creators", "publication_requests"}
+        historical, facts = [], []
+        for table in plan["source"]["tables"]:
+            try:
+                verify_preserved_tables(target / "archive.db", [table])
+                changed = False
+            except ValueError:
+                changed = True
+            (facts if table["name"] in mutable else historical).append({"table": table["name"], "changed": changed})
+        files = []
+        expected = {item["path"]: item for item in receipt["files"]}
+        for relative, item in expected.items():
+            current = target.joinpath(*portable_artifact_parts(relative))
+            changed = not current.exists() or _hash_file(current)[:2] != (item["size"], item["sha256"])
+            files.append({"path": relative, "changed": changed})
+        actual_paths = set(collect_artifacts((target,)))
+        added = sorted(actual_paths - set(expected) - {path.relative_to(target).as_posix()})
+        controls = []
+        for item in plan["control_state"]["records"]:
+            current = _absolute(Path(item["path"]))
+            changed = not current.exists() or _hash_file(current)[:2] != (item["size"], item["sha256"])
+            controls.append({"path": item["path"], "changed": changed})
+        if _database_state(target / "archive.db") != before:
+            raise ValueError("target changed during upgrade audit")
+        size, sha256, _ = _hash_file(target / "archive.db")
+        baseline = {"size": size, "sha256": sha256} == receipt["target_database"]
+        control_changed = any(item["changed"] for item in controls)
+        reusable = baseline and not added and not any(item["changed"] for item in files) and not control_changed
+        return {"operation": "archive-upgrade-audit", "plan_id": expected_plan_id,
+                "receipt_id": receipt["receipt_id"], "installation_database_matches": baseline,
+                "immutable_history": historical, "current_facts": facts, "artifacts": files,
+                "added_artifacts": added, "external_control_state": controls,
+                "baseline_reuse_allowed": reusable,
+                "next_action": "run upgrade-check before reuse" if reusable else "preserve new work and create a new snapshot"}
