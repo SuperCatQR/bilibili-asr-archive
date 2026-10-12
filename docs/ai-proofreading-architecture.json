@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -52,14 +52,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 171,
-          "end_line": 199,
+          "line": 175,
+          "end_line": 203,
           "label": "EditorialRepository.freeze_job_input"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 140,
-          "end_line": 204,
+          "line": 270,
+          "end_line": 349,
           "label": "prepare_input"
         }
       ]
@@ -86,7 +86,7 @@
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 342,
+          "line": 341,
           "end_line": 350,
           "label": "WorkflowRepository.owned_transaction"
         }
@@ -108,8 +108,8 @@
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 42,
-          "end_line": 72,
+          "line": 95,
+          "end_line": 131,
           "label": "DeepSeekClient.complete"
         }
       ]
@@ -131,13 +131,13 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 40,
-          "end_line": 72,
+          "end_line": 93,
           "label": "EditorialWorkflowHandlers.proofread"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 224,
-          "end_line": 278,
+          "line": 381,
+          "end_line": 445,
           "label": "validate_revision"
         }
       ]
@@ -158,14 +158,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 234,
-          "end_line": 237,
+          "line": 292,
+          "end_line": 295,
           "label": "EditorialRepository.save_chunk"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 239,
-          "end_line": 255,
+          "line": 297,
+          "end_line": 313,
           "label": "EditorialRepository.commit_revision"
         }
       ]
@@ -208,8 +208,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 74,
-          "end_line": 109,
+          "line": 95,
+          "end_line": 130,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -562,6 +562,15 @@
         "简介不替换编辑摘要；正文 UTF-8 字节与固定 AI 双稿保留，旧正式发布继续有效。",
         "universal-origin-v2：catalog 3、origins 2、manifest 3、source-metadata 1；旧 profile 保持并拒绝新简介补充。",
         "当前 Reader 只支持 universal-origin-v1；新 profile 消费者升级属于后续工作。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "安全诊断与修复",
+      "items": [
+        "供应商请求、响应解析、结构校验保存稳定错误码和有界位置/计数；状态不输出正文。",
+        "普通 retry 使用原冻结输入；repair 新建输入与任务链，旧失败与 hold 保留。",
+        "库外控制须显式读取；余额、配置、源质量和契约错误阻止自动重试。"
       ]
     }
   ]

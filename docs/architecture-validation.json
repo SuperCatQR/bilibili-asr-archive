@@ -1,32 +1,36 @@
 {
   "schema_version": 3,
-  "checked_on": "2026-10-11",
+  "checked_on": "2026-10-12",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+  "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
   "archify_version": "3.0.1",
   "coverage": {
-    "sequence_flows": 31,
-    "interactive_diagrams": 34
+    "sequence_flows": 32,
+    "interactive_diagrams": 35,
+    "regenerated_this_run": 20,
+    "retained_previous_receipts": 15
   },
   "content_checks": {
     "command_registry_and_parser": "pass",
     "source_module_inventory": "pass",
     "contract_resources": "pass",
     "mermaid_branch_balance": "pass",
-    "git_diff_check": "pass",
     "artifact_receipt_hashes": "pass",
-    "pinned_source_ranges_checked": 402,
-    "local_markdown_links_checked": 992,
-    "local_source_line_links_checked": 274,
-    "mermaid_flows_checked": 31
+    "pinned_source_ranges_checked": 420,
+    "local_markdown_links_checked": 1044,
+    "local_source_line_links_checked": 273,
+    "mermaid_flows_checked": 32,
+    "git_diff_check": "pass"
   },
   "artifacts": [
     {
       "type": "architecture",
       "specification": "docs/architecture.json",
       "output": "docs/architecture.html",
-      "specification_sha256": "fc10bddf785668987fdc7c4d68c9f6094cd9634f46ce5d4d13e6c8bb40e31e99",
-      "artifact_sha256": "bbbca8260658b7b1d22f627e089a2ea5fc8d9fa13607aec4abd803e8fa817faf",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "0c5ee6e57f9d9b32a39dc0cd71de2a88a9953640eda385f3e8d1f7b5ca44a1de",
+      "artifact_sha256": "f5fd52f63cc42b0e43b760c5d0cdf6ef39aa034e2a5c1b8adf5d7ecd57955692",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -55,8 +59,10 @@
       "type": "architecture",
       "specification": "docs/ai-proofreading-architecture.json",
       "output": "docs/ai-proofreading-architecture.html",
-      "specification_sha256": "d37d851fa862e9e623d12480cdf4ba89fbd98aa748e49698e29a7c41da1e2989",
-      "artifact_sha256": "528962ea58eb9e295bc7c8d1d5066604902239b8642d3fe862abaadd15aeb64e",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "9d019d3080c81d6368443fd1d34401cf6b4e7fc9558b0a54153e1ecce9c3d0d0",
+      "artifact_sha256": "02548643c47b570b863faf36046015c0c4f6051e1c8038357e23ee6ae21d56aa",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -83,8 +89,10 @@
       "type": "architecture",
       "specification": "docs/contract-governance.json",
       "output": "docs/contract-governance.html",
-      "specification_sha256": "7e2370b8d458e859638968690554475ed1adc32c9b026ad235effdc14af7bb8d",
-      "artifact_sha256": "edca0b8cfa3c5be07b9345617bdf697800bde86a03ddd4c9c0fbd118114a113b",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "e5a1c391049ce192ffdf21faf70606939c9f6a92e66392707eecd9435af440e7",
+      "artifact_sha256": "8686b2145f9c755d0e18faac29230e7f925eaa2d1393947ab924c141ae8785dd",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -108,8 +116,10 @@
       "type": "sequence",
       "specification": "docs/01-cli-bootstrap.json",
       "output": "docs/01-cli-bootstrap.html",
-      "specification_sha256": "d917c4cc21ce025188991dd8aee9a104dd288e7e1f338bd567cd9cbbd131573d",
-      "artifact_sha256": "0867dc3fea134a66c38a351d8d10df8617770d4c691c77265441d3d0a6d96efa",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "66c77bff725e3d6f06343ff4f3b83ec038549805a1043015453be57589045fa5",
+      "artifact_sha256": "f4a215abc93937ac3f412f9b43658e47fb01d6b804a9b052daf22250a92ed6a2",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -152,14 +162,19 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
       "specification": "docs/03-workflow-plan.json",
       "output": "docs/03-workflow-plan.html",
-      "specification_sha256": "0f5ef889fc800ca2270e3172ca692bb80cb3a4398f51b96122df0fc3b5a7da7f",
-      "artifact_sha256": "4329d044285fbece56baa8a4f5b381bd2b57bba054c3892a12c68f11eefe17a8",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "f260c8090e95ba2b2477d2907a8acc1aacab1a17c27a8eea3ec426097b372588",
+      "artifact_sha256": "08738528b8642be84a883bf737f2dbaf1394fcaa2291f0cf89bce92965876c52",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -183,8 +198,10 @@
       "type": "sequence",
       "specification": "docs/04-lease-cancel-retry.json",
       "output": "docs/04-lease-cancel-retry.html",
-      "specification_sha256": "e890da471e38380ec7509b5b4c942f672b1ae1709353ac8055edfbe418964a1a",
-      "artifact_sha256": "04070e652bcc645d2601626a4e785959cae0d2be80b309dbca91db448fb5da38",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "e3c3318c77054249f17ad99a498bd006b9640c89dd6cba1eca945bd36355ff22",
+      "artifact_sha256": "bbd5684e55c409440816b82692459f42bec99b9c45386fb9c15049c2a6e03847",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -202,14 +219,16 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 3
     },
     {
       "type": "sequence",
       "specification": "docs/05-subtitle-ingest.json",
       "output": "docs/05-subtitle-ingest.html",
-      "specification_sha256": "cc0ba64bbeeefbbb01e229054482dc0b31c29dd73bf7bd55435f4a2f6346ebd8",
-      "artifact_sha256": "f05bbb3cdfd294153741ea5ce53291097f12b4553fe3f005dc5c903e8f709463",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "43352e8cd0c6c6b71eb899f66be1015764f386c1f75afac2b8ef5f5412141bd4",
+      "artifact_sha256": "f3c166c534605f3d7567b26ff2c3be98328b43617ef5a2f88b8707ceb459e475",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -233,8 +252,10 @@
       "type": "sequence",
       "specification": "docs/06-audio-download.json",
       "output": "docs/06-audio-download.html",
-      "specification_sha256": "8624d73fde5074033f0a16ca4c1d026c6a904bfbea25161b1eecf13410fbd0d8",
-      "artifact_sha256": "aec33d5f487e1f490f51ebe7df506d7c2f59632913510f874541f454c1873568",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "d4aeeb32da43ea79fc1ed15b2e1df2ecc5329dd6f5516c92cd8601ef37a5d7cf",
+      "artifact_sha256": "d101465b9ccc2e8f985caa78d375c0102de6f3631a21d60eee04bce7d1a44924",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -258,8 +279,10 @@
       "type": "sequence",
       "specification": "docs/07-asr-runtime.json",
       "output": "docs/07-asr-runtime.html",
-      "specification_sha256": "0f1f62f487671354a1259ce930b1cd11febe90058b4bcdf24141939656866395",
-      "artifact_sha256": "485bde7cde8c36b7115c16b68d2b627dceefd151da736246e00f8be8bcc2d686",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "f061f23fcb640b96437a4f96c60fea905e77db484aeeb4614e03e2a560a6757f",
+      "artifact_sha256": "be312e90945f2e79abed13e321868785e151533c9db84354d6ccad392340af78",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -283,8 +306,10 @@
       "type": "sequence",
       "specification": "docs/08-transcript-bundle.json",
       "output": "docs/08-transcript-bundle.html",
-      "specification_sha256": "bd91c805750feeb439562579b6634671eca5f544929af31834655e613ea886e1",
-      "artifact_sha256": "7459a7da654fb5257ddb56e02ef916def0b28cf0b75859265498cad49c97b69d",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "c4f6481b91a0facfaedbaeacd33b416e53f7efd288c0c1b4b4720df6f2454ec6",
+      "artifact_sha256": "6328e63ddb339e6c06880ad7549cf9d7c72220b7e438324fbd674317c82c1f19",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -308,8 +333,10 @@
       "type": "sequence",
       "specification": "docs/09-ai-proofread.json",
       "output": "docs/09-ai-proofread.html",
-      "specification_sha256": "20ef1deb3b9214e6a70051fb73b61d2ed03622fc67251c457d45a0f8644eda06",
-      "artifact_sha256": "d99a085467433cac5b0fa2da4c70f4871642f12c6c4e65ba08fdc4854a969a0d",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "8b1d149025f1878398105d02250e5501fabaa0bc55fbb97a9335a961552d7094",
+      "artifact_sha256": "863e825d0385d23f569ab61125828b4c9333889128a8fa46d782897d78d85bf4",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -333,8 +360,10 @@
       "type": "sequence",
       "specification": "docs/10-document-render.json",
       "output": "docs/10-document-render.html",
-      "specification_sha256": "fc3ec5ce46555fd5aa28990222df831a6b2ac2edc168328c9828b7f0f9349244",
-      "artifact_sha256": "6ec3f1518108e381c0be8af9740be6e5323e902d423428c6961d6b6cd58cce5e",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "e3463f2d7477a21befdf320669af406dadfbde78d1f848477d715276b3c319c5",
+      "artifact_sha256": "3348897e8d942569368b6585cb39f48a24c2a44a6c4e4b5df031aba33101818a",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -377,7 +406,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -402,7 +434,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -427,7 +462,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -452,7 +490,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -477,14 +518,19 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
       "specification": "docs/16-library-and-operations.json",
       "output": "docs/16-library-and-operations.html",
-      "specification_sha256": "e2458ea037dfed6fbbaa670cb04c01d9c6642aeb4d2d5a6f0715ab337f349cb1",
-      "artifact_sha256": "e91c93f1ca858b06d68fc3146553980eee3ec9edf81aa4b607c6318ed1d53505",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "5fb4c790dd36bd0ef552e375cbfc5699fde7e6b9f0d9bf15bb74e93f04bbd6f4",
+      "artifact_sha256": "dbeaee31918b29b1db814af12f529b78584b38d38ae70b4e7b815d9061237036",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -527,7 +573,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -552,14 +601,19 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
       "specification": "docs/19-persistent-asr.json",
       "output": "docs/19-persistent-asr.html",
-      "specification_sha256": "6ddf19329d3fd26037147277b7065c824a133d121ad6fa0618067ddfa0ce4103",
-      "artifact_sha256": "f57601ed75acdd554dbb6dcb5417c84ea823cd74d724a828cb7a2163ce6b2187",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "3593aec6010722baf39689066fa5fe8d4356bd33da35069db94658620eccc44b",
+      "artifact_sha256": "62afd38707272b64cbf969071efcaecc33841aa71607cb76bb4771b9074034cc",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -602,14 +656,19 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
       "specification": "docs/21-youtube-workflow.json",
       "output": "docs/21-youtube-workflow.html",
-      "specification_sha256": "5af1568c31025c81bc267006d6f3e95c7162f2f71c90b165b20fd1461e2205c4",
-      "artifact_sha256": "d8929e935cba98042d48399d1206f296f32f482f233f256d9ded66d7c8462e0b",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "dc7e0a1aa918411cc8efa737fb549e47cd0981e87a844517c56b8deb230560e8",
+      "artifact_sha256": "a322b9d5f8f231bd03011995ddec82d36dd87183ea10c8fecab7db975a536008",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -633,8 +692,10 @@
       "type": "sequence",
       "specification": "docs/22-subtitle-candidates.json",
       "output": "docs/22-subtitle-candidates.html",
-      "specification_sha256": "1e95ccecde717b97276aa95e33ebf99bfa9f7664a80becddffcc1ac840b3a6d7",
-      "artifact_sha256": "a92629742dda3ce2e4c13bd2c05ec146b8a841664066c50809e9ec1d0176d8b0",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "39f7795b64098a1a84ad5914fa280c44aaea926b3c70547398d0777276193100",
+      "artifact_sha256": "ecc5ec49ab339418455ae607ae711a0d06efdb8d4097b6d30c7830ecace6d7ed",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -677,7 +738,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -702,14 +766,19 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
       "specification": "docs/25-contract-upgrade.json",
       "output": "docs/25-contract-upgrade.html",
-      "specification_sha256": "a9320af59c89d6564ec7cbb71d60ffca3e51dc9d00312912b2bae9f71a75e5e0",
-      "artifact_sha256": "14d3078b20318b3c47247f3a477d0e2fb2467131a7d8401976b99a7e9590ce5a",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "3471d7626c115e8d75007c1f6e707645a311cd811f78f38694d10f8c501398bc",
+      "artifact_sha256": "19209c812c2ff22f852765d548a9700ecdac7b0ac86ef3cd89368e552e90486f",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -752,7 +821,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -777,7 +849,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -802,7 +877,10 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
@@ -827,14 +905,19 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "checked_on": "2026-10-11",
+      "receipt_origin": "retained-previous-run"
     },
     {
       "type": "sequence",
       "specification": "docs/30-editorial-repair.json",
       "output": "docs/30-editorial-repair.html",
-      "specification_sha256": "f33f51b3077e3d47bd56c4f12d1f5a7e4a4b970c563ff5446e8979cbed08f7b1",
-      "artifact_sha256": "623ced41108d83be64237e78f98f2bd93776726f893e24ad58454b4f08404dc7",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "09caf95effaf85dde4fc74c70a3a0899948bd8c318ec958c50854ce5e3c042fb",
+      "artifact_sha256": "7dda4cf412d30bfaa19af1930f83ab4c11c7b7d7aaca720ba253ac36facd3179",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -858,8 +941,10 @@
       "type": "sequence",
       "specification": "docs/31-source-metadata-migration.json",
       "output": "docs/31-source-metadata-migration.html",
-      "specification_sha256": "7df73665bbe61290ba7f9d23c059f80457e898991f63f665344206397d03907e",
-      "artifact_sha256": "b3e7840a45c10d6baaa5ea0fd9f93c3b0381a3d6090db093cee7a414c731fb1a",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "08051a8cb5ac3f928b2145e74dafb7568d00ab7d0ec8e0fb041410e3eaecaad5",
+      "artifact_sha256": "7337785c99874941a79b0982ef35839956b48b35ecfa0e4e2db9516bd5ba8a06",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -878,19 +963,79 @@
       "browser_evidence": "passed",
       "visual_review": "not_requested",
       "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/32-workflow-failure-recovery.json",
+      "output": "docs/32-workflow-failure-recovery.html",
+      "repository_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "checked_on": "2026-10-12",
+      "specification_sha256": "b936f7a82ff5c392f54a0e63141fe3ad4c503c8e7e9ce1144c68ee67d69576ad",
+      "artifact_sha256": "8eb40f328873170687eda4f85eff8b791e9b54c230ec8b55f42d4f5bbaac79eb",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "correction_rounds": 1
     }
   ],
   "placement_review": {
     "diagram": "docs/architecture.json",
+    "checked_on": "2026-10-12",
     "attempts": 1,
     "original_crossovers": 22,
     "trial_crossovers": 27,
     "result": "restored-original-placement"
   },
   "limitations": [
-    "No live Bilibili/YouTube network, production GPU inference, paid AI request or external reader deployment was performed.",
-    "All 34 diagrams passed artifact-bound browser checks; no complete manual visual review was requested or claimed.",
-    "Architecture overview retains route crossing and detour advisories after one placement trial was reverted; AI topic retains bend advisories.",
-    "Historical behavior-validation records in docs/evidence remain separate from current artifact receipts; the new universal-origin-v2 reader profile remains external follow-up work."
-  ]
+    "20 diagrams regenerated and browser-checked against the new source commit; 15 unchanged diagrams retain original source commits and 2026-10-11 receipts.",
+    "No live network, production inference, paid AI calls, deployment or external controller migration was performed.",
+    "All visual reviews remain not_requested. Overview retains 22 crossing advisories after one placement trial was reverted; AI topic retains six bend advisories.",
+    "SQLite and the external control file are not atomically committed together; controller ownership must serialize control updates and retry calls."
+  ],
+  "implementation_validation": {
+    "source_revision": "813982215dab490ca462f991a5b440bd2ef19621",
+    "focused_final": {
+      "passed": 240,
+      "skipped": 1,
+      "seconds": 51.42
+    },
+    "full_original": {
+      "passed": 3132,
+      "failed": 19,
+      "errors": 12,
+      "skipped": 82,
+      "warnings": 2,
+      "seconds": 1084.77,
+      "frozen_source_entire_run": false
+    },
+    "full_original_review": "One legacy retry test updated and passed; one upgrade source-change refusal passed after source was frozen. Remaining failures concern Windows platform or test staging environment. Full suite is not claimed passing.",
+    "race_observation": "Existing cancellation/heartbeat audit may record LeaseLostError rather than JobCancelledError; focused retry and final expanded run passed; race not claimed fixed.",
+    "contract_mirror": {
+      "contracts": 53,
+      "schemas": 25,
+      "status": "pass"
+    },
+    "syntax_lint_compile_lock": "pass",
+    "changed_source_lint": "pass",
+    "new_test_lint": "pass",
+    "wheel_backend_build": "pass",
+    "uv_build": "blocked-cache-file-permission",
+    "wheel_new_modules": 5,
+    "wheel_schema_resources": 25,
+    "evidence": "docs/evidence/workflow-failure-recovery-2026-10-12.md"
+  }
 }

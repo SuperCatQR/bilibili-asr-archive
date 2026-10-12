@@ -1,6 +1,6 @@
 # 任务认领、共享提交保护、心跳与取消重试
 
-源码基线：`378f415ac5bf2a47de9137ee593f201e86827d43`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](04-lease-cancel-retry.html) · [Archify 规格](04-lease-cancel-retry.json) · [全部时序图](architecture-sequences.md)
 
@@ -15,6 +15,7 @@ sequenceDiagram
     participant heartbeat as 心跳线程
     participant handler as 业务 handler
     participant guard as JobCommitGuard
+    participant retry as 失败政策与重试用例
     participant db as 任务与 attempt
     cli->>access: WRITE 打开既有 archive.db；只读检查 schema；共享维护访问持有到关闭
     access->>executor: WorkflowApplication 组合一次性 handler 与 WorkflowControl 端口
@@ -44,7 +45,15 @@ sequenceDiagram
     end
     end
     opt workflow retry
-    cli->>db: 按 part/job/kind 仅重排 failed；保留 attempt；succeeded/cancelled 不恢复
+    cli->>retry: 明确手动/自动模式与控制文件；dry-run 只读检查
+    retry->>db: 批量读取 failed job 与准确最新 attempt、替代任务
+    retry->>retry: 检查错误政策、hold、预算、退避；缺失控制状态拒绝
+    alt 决策允许且实际重排
+    retry->>guard: BEGIN IMMEDIATE；复验 job/attempt 与控制摘要
+    guard->>db: 仅将准确 failed job 排队；保留 attempts 与冻结输入
+    else 只读检查或拒绝
+    retry-->>cli: 逐项决定与原因；不解除 holds
+    end
     end
     executor-->>cli: summary 含 succeeded/failed/cancelled/idle；failed 非零使 CLI 退出 1
     cli->>access: 关闭主 Session；所有引用关闭后释放共享维护锁
@@ -59,19 +68,19 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:248](../src/bili_asr/cli/workflow.py#L248)：_execute_workflow。
+- [src/bili_asr/cli/workflow.py:280](../src/bili_asr/cli/workflow.py#L280)：_execute_workflow。
 - [src/bili_asr/archive_session.py:106](../src/bili_asr/archive_session.py#L106)：ArchiveSession.open。
-- [src/bili_asr/archive_maintenance.py:84](../src/bili_asr/archive_maintenance.py#L84)：archive_access。
+- [src/bili_asr/archive_maintenance.py:83](../src/bili_asr/archive_maintenance.py#L83)：archive_access。
 - [src/bili_asr/workflow.py:128](../src/bili_asr/workflow.py#L128)：WorkflowExecutor.run。
 - [src/bili_asr/services/workflow_application.py:137](../src/bili_asr/services/workflow_application.py#L137)：WorkflowApplication.run。
 - [src/bili_asr/workflow.py:285](../src/bili_asr/workflow.py#L285)：_LeaseHeartbeat._run。
 - [src/bili_asr/storage/workflow.py:54](../src/bili_asr/storage/workflow.py#L54)：WorkflowRepository.open_lease_repository。
 - [src/bili_asr/workflow_runtime.py:411](../src/bili_asr/workflow_runtime.py#L411)：ArchiveWorkflowHandlers.publish。
-- [src/bili_asr/editorial_runtime.py:74](../src/bili_asr/editorial_runtime.py#L74)：EditorialWorkflowHandlers.render。
+- [src/bili_asr/editorial_runtime.py:95](../src/bili_asr/editorial_runtime.py#L95)：EditorialWorkflowHandlers.render。
 - [src/bili_asr/storage/job_commit.py:13](../src/bili_asr/storage/job_commit.py#L13)：JobCommitGuard。
 - [src/bili_asr/storage/workflow.py:262](../src/bili_asr/storage/workflow.py#L262)：WorkflowRepository.claim。
 - [src/bili_asr/storage/workflow.py:364](../src/bili_asr/storage/workflow.py#L364)：WorkflowRepository.cancel。
-- [src/bili_asr/storage/workflow.py:820](../src/bili_asr/storage/workflow.py#L820)：WorkflowRepository._terminal。
+- [src/bili_asr/storage/workflow.py:827](../src/bili_asr/storage/workflow.py#L827)：WorkflowRepository._terminal。
 
 ## 提交期限补充
 

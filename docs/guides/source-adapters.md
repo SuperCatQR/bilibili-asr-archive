@@ -193,5 +193,5 @@ bili-asr workflow repair-dependencies --archive-root ARCHIVE --part-id 123 --app
 
 只修复选定 part 上 queued/failed audio、ASR 的旧 subtitle 依赖，ASR 的 audio 依赖保留或补齐。
 运行中任务拒绝修复，成功/取消任务的边和历史 attempts 保留；--retry-failed 只重排失败的
-audio/ASR。失败字幕可用 workflow retry --job-id 精确重试。事务中重新计算计划身份，
+audio/ASR。失败字幕可用 workflow retry --job-id 配合显式控制状态检查；源质量错误先修复原因，不能盲目自动重试，见 [失败恢复](../operations/workflow-failures.md)。事务中重新计算计划身份，
 陈旧计划不应用，保留失败证据和库外 retry holds；不可用字幕不等于确认静音音频。

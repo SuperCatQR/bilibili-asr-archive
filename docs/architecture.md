@@ -1,6 +1,6 @@
 # 当前架构
 
-本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[31 个时序流程](architecture-sequences.md)统一核对远端 main 的固定源码 **`378f415ac5bf2a47de9137ee593f201e86827d43`**，日期为 2026-10-11（Asia/Hong_Kong）。本轮在独立工作树核对已合并的 Issue #348 来源元数据与迁移能力。当前源码身份不会随远端后续提交自动变化。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
+本页、[全景图](architecture.html)与[AI/出版专题图](ai-proofreading-architecture.html)核对独立修复分支的固定源码 **`813982215dab490ca462f991a5b440bd2ef19621`**，日期为 2026-10-12（Asia/Hong_Kong）。本轮修复 Issue #365–367 的失败观测、重试政策与安全诊断；[32 个时序流程](architecture-sequences.md)中受影响图绑定该提交，未受影响图保留原源码与验收身份。源码身份不会随分支后续提交自动变化。图的 JSON、HTML、SHA-256 与逐项检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
 
 ## 执行模型与责任
 
@@ -58,6 +58,22 @@ soundfile/ffmpeg RF64 解码为 mono 16 kHz float32，完整分块。HF 后端�
 
 AI input/content v1/v2 与 ai-draft/publish 模板按保存版本读取；旧身份不因升级重算。合法冻结输入可重用，refresh-input 显式生成新输入。模型调用锁外执行，先审计真实响应，再做结构与 lease 校验；块检查点重试复用，完整 revision 之后独立渲染。重复性 ASR 输入 guard 在请求前失败，failed proofread 的显式修复保留原 attempt/input，见 [09](09-ai-proofread.md)、[10](10-document-render.md)、[30](30-editorial-repair.md)。
 
+## 失败政策、状态与恢复
+
+`workflow_failure_policy.py` 是纯错误政策，storage 查询和受保护写入归属 repository 层，
+`services/workflow_status.py` / `workflow_retry.py` 组合安全诊断、控制证据和操作决定，CLI 负责参数与渲染。
+`workflow status` 的 failed 继续表示当前 jobs；历史失败 attempts、按 finished_at 的窗口、
+按 kind/error 分组和活动替代任务独立显示，文本与 JSON 共用同一报告。
+模型响应解析/结构校验保存 stage、reason、位置、计数和安全摘要，原响应只保留在调用证据。
+
+holds 和 retry ledger 仍为显式提供的库外控制状态；缺失时不猜为空，完整自动资格显示未知。
+自动重试只允许登记的 transient 错误，按数据库 attempts 下限检查预算、退避、holds 和替代任务。
+worker 不新增内存重试循环；控制器调用统一 guarded_retry_failed 用例。
+实际重排在 JobCommitGuard 的短写事务中复验 job、attempt 与控制摘要，hold/ledger 所有者仍须串行化文件更新。
+精准人工 override 要求一个 job 与理由，不解除 hold。旧库级手动 requeue 能力保留，
+部署控制脚本须显式迁移到新用例。源质量、余额/配置、模型契约和出版数据错误分别指向修复或人工检查。
+三个新政策/投影契约不改基础 SQL、历史错误或冻结输入，见 [操作手册](operations/workflow-failures.md) 与 [32](32-workflow-failure-recovery.md)。
+
 edition 保存完整读者内容；准确 content SHA 审核，显式 publish 才切公开 release head。source tags 刷新不会改旧 edition。保留旧正文导入不调用 ASR/AI，固定旧 body/review 原字节，产生 pending-review 的 content v2 与 immutable origin；来源标题和简介补充使用各自的证据/政策。`supplement-source plan --field description` 只为已保留旧正文的 v2 文章计划补充；apply 在同一事务复验正文身份、草稿头、发布头和采集证据，创建 pending-review 子版，原正文 UTF-8 字节及编辑摘要保留。已补标题的文章不支持再串接简介，原生 v2 跳过；真实空简介可以补入，未知 null 会阻止计划。简介采集时间仅来自匹配值的逐字段成功观察，缺失则为 null。公开、从未发布预览、私有审阅分别核验身份与布局，简介补充稿要求 `universal-origin-v2`（catalog v3/origins v2/manifest v3）；旧 `universal-origin-v1` 的冻结 schema 保留并拒绝新简介证据。当前阅读站仍只支持旧 profile，消费新稿需另行升级。系列是另行人工确认的编辑元数据，按文件 SHA CAS，不推断关联。见 [11](11-publication-lifecycle.md)、[12](12-reader-private-export.md)、[28](28-preserved-body.md)、[29](29-publication-series.md)。
 
 ## 产物身份、驻留和副本
@@ -68,7 +84,7 @@ edition 保存完整读者内容；准确 content SHA 审核，显式 publish �
 
 ## 契约、快照和恢复
 
-contracts 注册 50 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](25-contract-upgrade.md)。
+contracts 注册 53 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](25-contract-upgrade.md)。
 
 完整 archive-snapshot/v1 从本地或准确外部包流式收集全部受支持文件、数据库和历史组，可显式无损压缩；恢复后不依赖旧 target。archive-reference-backup/v1 始终 self_contained=false，离线检查只验证嵌入数据和引用，online 才核验外部依赖。引用恢复保留原状态与 holds，始终要求执行权交接。SSH 目录上传必须核验 host key/instance 并完整读回 SHA，当前远程路径保留本地源。见 [15](15-archive-snapshot.md)、[20](20-recovery-plan.md)、[27](27-reference-backup.md)。
 

@@ -1,6 +1,6 @@
 # 冻结 AI 输入、共享提交保护与逐块续跑
 
-源码基线：`378f415ac5bf2a47de9137ee593f201e86827d43`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](09-ai-proofread.html) · [Archify 规格](09-ai-proofread.json) · [全部时序图](architecture-sequences.md)
 
@@ -39,7 +39,7 @@ sequenceDiagram
     handler->>guard: save_chunk；事务进入与退出均检查准确 owner、attempt 和 lease
     guard->>db: 保存有效 chunk_results；取消或过期 lease 则拒绝并回滚
     opt 请求或结构校验失败
-    handler->>repo: 已完成块保留；executor fail；显式 retry 从未完成块继续
+    handler->>repo: 原响应保留；保存稳定错误码、stage/reason 与位置计数；executor fail
     end
     end
     end
@@ -60,16 +60,20 @@ sequenceDiagram
 - [src/bili_asr/services/workflow_application.py:108](../src/bili_asr/services/workflow_application.py#L108)：WorkflowApplication.proofread。
 - [src/bili_asr/workflow_payloads.py:92](../src/bili_asr/workflow_payloads.py#L92)：decode_job_payload。
 - [src/bili_asr/editorial_runtime.py:40](../src/bili_asr/editorial_runtime.py#L40)：EditorialWorkflowHandlers.proofread。
-- [src/bili_asr/storage/editorial.py:171](../src/bili_asr/storage/editorial.py#L171)：EditorialRepository.freeze_job_input。
-- [src/bili_asr/storage/editorial.py:206](../src/bili_asr/storage/editorial.py#L206)：EditorialRepository.begin_call。
-- [src/bili_asr/storage/editorial.py:219](../src/bili_asr/storage/editorial.py#L219)：EditorialRepository.finish_call。
+- [src/bili_asr/storage/editorial.py:175](../src/bili_asr/storage/editorial.py#L175)：EditorialRepository.freeze_job_input。
+- [src/bili_asr/storage/editorial.py:210](../src/bili_asr/storage/editorial.py#L210)：EditorialRepository.begin_call。
+- [src/bili_asr/storage/editorial.py:234](../src/bili_asr/storage/editorial.py#L234)：EditorialRepository.finish_call。
 - [src/bili_asr/storage/job_commit.py:13](../src/bili_asr/storage/job_commit.py#L13)：JobCommitGuard。
-- [src/bili_asr/storage/editorial.py:135](../src/bili_asr/storage/editorial.py#L135)：EditorialRepository.store_input。
-- [src/bili_asr/storage/editorial.py:234](../src/bili_asr/storage/editorial.py#L234)：EditorialRepository.save_chunk。
-- [src/bili_asr/storage/editorial.py:239](../src/bili_asr/storage/editorial.py#L239)：EditorialRepository.commit_revision。
-- [src/bili_asr/deepseek.py:42](../src/bili_asr/deepseek.py#L42)：DeepSeekClient.complete。
-- [src/bili_asr/deepseek.py:75](../src/bili_asr/deepseek.py#L75)：parse_response。
+- [src/bili_asr/storage/editorial.py:139](../src/bili_asr/storage/editorial.py#L139)：EditorialRepository.store_input。
+- [src/bili_asr/storage/editorial.py:292](../src/bili_asr/storage/editorial.py#L292)：EditorialRepository.save_chunk。
+- [src/bili_asr/storage/editorial.py:297](../src/bili_asr/storage/editorial.py#L297)：EditorialRepository.commit_revision。
+- [src/bili_asr/deepseek.py:95](../src/bili_asr/deepseek.py#L95)：DeepSeekClient.complete。
+- [src/bili_asr/deepseek.py:134](../src/bili_asr/deepseek.py#L134)：parse_response。
 
 ## 当前冻结与失败恢复
 
 v1/v2 输入按持久版本分派，普通 proofread 优先复用可验证冻结输入；refresh-input 显式建立新快照。结构性重复 ASR 输入在模型请求前失败；failed proofread 的新配置修复保留旧证据，见 [30](30-editorial-repair.md)。
+
+每一种响应校验失败都有有界诊断。HTTP、网络、配置、解析与来源覆盖错误分别分类；
+状态默认不输出模型正文。普通 retry 仍复用原冻结输入，需通过统一政策与显式控制检查；
+改变配置走 repair，见 [失败恢复操作](operations/workflow-failures.md)。

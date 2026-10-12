@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -39,7 +39,7 @@
     {
       "id": "workflow",
       "label": "Workflow 控制",
-      "sublabel": "规划、依赖、attempt 与租约",
+      "sublabel": "依赖、lease、失败政策与恢复",
       "type": "backend",
       "pos": [
         470,
@@ -55,6 +55,18 @@
           "line": 37,
           "end_line": 222,
           "label": "WorkflowApplication"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 86,
+          "end_line": 137,
+          "label": "workflow_status_report"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_retry.py",
+          "line": 141,
+          "end_line": 201,
+          "label": "guarded_retry_failed"
         }
       ]
     },
@@ -185,7 +197,7 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 419,
-          "end_line": 581,
+          "end_line": 604,
           "label": "_publish"
         },
         {
@@ -219,7 +231,7 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 1,
-          "end_line": 109,
+          "end_line": 130,
           "label": "模块定义"
         }
       ]
@@ -530,6 +542,15 @@
         "旧包显式 preserve-transcript：绑定原 publication 与转录哈希，核验旧 marker 并保留完整 artifact group，再写 v3。",
         "旧文章 description 补充创建 pending-review 子版，保留原正文与旧 release；需重新审核和显式发布。",
         "简介补充使用 universal-origin-v2；当前 Reader 仍只支持旧 profile，需消费者升级后导入。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失败政策与外部控制",
+      "items": [
+        "jobs、attempts、失败窗口、holds 与替代任务分别统计；状态和 dry-run 只读。",
+        "自动恢复仅允许明确 transient；控制未知、hold、预算、退避和替代链阻止重排。",
+        "错误码与安全 stage/reason 在生产边界保存；旧输入、attempt 和原响应证据保留。"
       ]
     }
   ]

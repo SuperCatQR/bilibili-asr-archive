@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43"
+      "revision": "813982215dab490ca462f991a5b440bd2ef19621"
     }
   },
   "components": [
@@ -132,8 +132,8 @@
         },
         {
           "path": "src/bili_asr/contracts/registry.py",
-          "line": 152,
-          "end_line": 159
+          "line": 161,
+          "end_line": 168
         }
       ]
     },
@@ -360,7 +360,7 @@
       "dot": "cyan",
       "title": "统一登记与结构",
       "items": [
-        "50 项登记记录主要稳定边界的责任、权威定义和消费者",
+        "53 项登记记录主要稳定边界的责任、权威定义和消费者",
         "全部 Schema 引用从安装包离线解析；未知版本拒绝",
         "旧 wire 契约保留；新 profile 按登记版本分派"
       ]
@@ -381,6 +381,15 @@
         "固定指纹阻止当前 SQL 悄悄重定义已有快照身份",
         "历史 fixture 只展开已提交 ZIP / JSON，不调用当前 writer",
         "镜像按字节校验；wheel 安装测试校验真实入包资源"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "失败与恢复契约",
+      "items": [
+        "workflow-failure-policy/v1：纯分类与有限重试政策。",
+        "workflow-failure-status/v1：安全只读投影；workflow-retry-control/v1：显式库外证据。",
+        "三个 Python 权威契约不增加 SQL 表或 JSON Schema；总计 53 契约 / 25 Schema。"
       ]
     }
   ]

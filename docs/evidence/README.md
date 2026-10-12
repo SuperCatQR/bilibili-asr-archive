@@ -9,6 +9,12 @@
 | [真实生产副本升级 · 2026-10-11](production-upgrade-validation-2026-10-11.md) | [JSON](production-upgrade-validation-2026-10-11.json) | 全量保真、来源标题、Reader、快照恢复与成本 |
 | [在线产物存储 · 2026-10-11](artifact-online-validation-2026-10-11.md) | [JSON](artifact-online-validation-2026-10-11.json) | 多进程、崩溃、soak 与 Windows 验收范围 |
 
+## 工作流实现回归
+
+| 报告 | 范围 |
+| --- | --- |
+| [失败恢复修复 · 2026-10-12](workflow-failure-recovery-2026-10-12.md) | #365–367、状态/政策/诊断、相关回归与完整 Windows 运行的实际失败 |
+
 ## ASR 质量与性能
 
 | 报告 | 原始记录 | 范围 |

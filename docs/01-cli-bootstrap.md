@@ -1,6 +1,6 @@
 # CLI 启动、路径策略与数据库契约
 
-源码基线：`378f415ac5bf2a47de9137ee593f201e86827d43`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](01-cli-bootstrap.html) · [Archify 规格](01-cli-bootstrap.json) · [全部时序图](architecture-sequences.md)
 
@@ -60,11 +60,11 @@ sequenceDiagram
 
 - [src/bili_asr/cli/parser.py:11](../src/bili_asr/cli/parser.py#L11)：build_parser。
 - [src/bili_asr/cli/main.py:41](../src/bili_asr/cli/main.py#L41)：_main。
-- [src/bili_asr/cli/registry.py:20](../src/bili_asr/cli/registry.py#L20)：CommandSpec。
-- [src/bili_asr/cli/workflow.py:248](../src/bili_asr/cli/workflow.py#L248)：_execute_workflow。
+- [src/bili_asr/cli/registry.py:19](../src/bili_asr/cli/registry.py#L19)：CommandSpec。
+- [src/bili_asr/cli/workflow.py:280](../src/bili_asr/cli/workflow.py#L280)：_execute_workflow。
 - [src/bili_asr/cli/publication.py:63](../src/bili_asr/cli/publication.py#L63)：_cmd_publication。
 - [src/bili_asr/archive_session.py:64](../src/bili_asr/archive_session.py#L64)：ArchiveSession。
-- [src/bili_asr/archive_maintenance.py:84](../src/bili_asr/archive_maintenance.py#L84)：archive_access。
+- [src/bili_asr/archive_maintenance.py:83](../src/bili_asr/archive_maintenance.py#L83)：archive_access。
 - [src/bili_asr/storage/database.py:87](../src/bili_asr/storage/database.py#L87)：connect_database。
 - [src/bili_asr/storage/database.py:530](../src/bili_asr/storage/database.py#L530)：initialize_schema。
 - [src/bili_asr/storage/database.py:553](../src/bili_asr/storage/database.py#L553)：require_archive_schema。

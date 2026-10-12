@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,7 +23,7 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 1,
-          "end_line": 429,
+          "end_line": 477,
           "label": "模块定义"
         },
         {
@@ -80,7 +80,7 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 419,
-          "end_line": 581,
+          "end_line": 604,
           "label": "_publish"
         },
         {
@@ -356,7 +356,7 @@
       "dot": "amber",
       "title": "源码与协议",
       "items": [
-        "源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "源码固定于 813982215dab490ca462f991a5b440bd2ef19621；2026-10-12 核对。",
         "当前 Reader 新 profile 支持是后续工作；本图不代表生产迁移或外部消费者已升级。"
       ]
     }

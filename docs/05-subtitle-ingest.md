@@ -1,6 +1,6 @@
 # 字幕来源端口、缺失证据与不可变转录
 
-源码基线：`378f415ac5bf2a47de9137ee593f201e86827d43`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [Archify 规格](05-subtitle-ingest.json) · [交互时序图](05-subtitle-ingest.html) · [全部时序图](architecture-sequences.md)
 
@@ -81,7 +81,7 @@ sequenceDiagram
 - [src/bili_asr/services/subtitle_ingest.py:316](../src/bili_asr/services/subtitle_ingest.py#L316)：SubtitleIngestor._source_for。
 - [src/bili_asr/sources/bilibili_source.py:49](../src/bili_asr/sources/bilibili_source.py#L49)：BilibiliSubtitleSource。
 - [src/bili_asr/sources/protocols.py:62](../src/bili_asr/sources/protocols.py#L62)：SubtitleSource。
-- [src/bili_asr/sources/protocols.py:32](../src/bili_asr/sources/protocols.py#L32)：SourceAccessObservation。
+- [src/bili_asr/sources/protocols.py:31](../src/bili_asr/sources/protocols.py#L31)：SourceAccessObservation。
 - [src/bili_asr/sources/bilibili_api_gateway.py:1028](../src/bili_asr/sources/bilibili_api_gateway.py#L1028)：BilibiliApiGateway.get_subtitle_tracks。
 - [src/bili_asr/sources/bilibili_api_gateway.py:1047](../src/bili_asr/sources/bilibili_api_gateway.py#L1047)：BilibiliApiGateway.validate_subtitle_credentials。
 - [src/bili_asr/sources/bilibili_api_gateway.py:1071](../src/bili_asr/sources/bilibili_api_gateway.py#L1071)：BilibiliApiGateway.fetch_subtitle_segments。

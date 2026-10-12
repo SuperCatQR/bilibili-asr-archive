@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -338,9 +338,17 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "全部源码固定于 813982215dab490ca462f991a5b440bd2ef19621；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "安全失败状态",
+      "items": [
+        "workflow status/explain：一致快照；jobs、attempts、窗口与 holds 分开；安全诊断与恢复模板。",
+        "workflow retry --dry-run 为 READ；实际恢复须外部控制证据和统一政策复验，详见流程 32。"
       ]
     }
   ]

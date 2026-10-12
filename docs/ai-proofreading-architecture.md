@@ -1,6 +1,6 @@
 # AI、完整版本与出版架构
 
-当前核对源码 `378f415ac5bf2a47de9137ee593f201e86827d43`；2026-10-11（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[31 个时序](architecture-sequences.md)。
+当前核对源码 `813982215dab490ca462f991a5b440bd2ef19621`；2026-10-12（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[32 个时序](architecture-sequences.md)。
 
 当前输入/content v1/v2 与模板按保存版本分派；导出先校验 wheel 内 Schema，再核验真实来源、revision、引用、文件集合与 hash。冻结输入重用和显式失败修复见 [30](30-editorial-repair.md)；保留旧正文、immutable origin 和来源补充见 [28](28-preserved-body.md)；bundle 回填与文章简介补充的两条操作链见 [31](31-source-metadata-migration.md)；编辑确认系列见 [29](29-publication-series.md)。artifact catalog 使准确历史双稿可保留/恢复，生产状态与驻留分开。
 
@@ -25,6 +25,7 @@
 | 模块 | 输入 | 输出与责任 |
 | --- | --- | --- |
 | 工作流控制 | 范围、策略、配置、持久化结果 | 计划、依赖、认领、租约、尝试与重试 |
+| 失败政策与安全状态 | 原错误码、最新 attempt、库外控制证据 | 纯分类、统一重试决定、分页诊断与恢复指引；历史 jobs/attempts 保留 |
 | 字幕 / 音频 / ASR handler | 视频部分 ID、配置 | 独立来源的音频或转录；不调用校对 handler |
 | 固定输入与分块 | 数据库转录版本、可选字幕、配置 | 不可变快照、稳定块 ID、参考引用、只读上下文；不依赖原始归档文件 |
 | 兼容 Chat Completions 适配器 | 块、冻结提示词和参数 | JSON 段落候选；不写文档或调度任务 |
@@ -33,6 +34,11 @@
 
 无状态指业务进度、输入选择和结果不依赖进程内存。客户端实例可以短期存在，重启后仍从 SQLite 恢复。
 控制、原始转录、派生结果是同一数据库的逻辑分区，不是独立部署服务。
+
+编辑失败的响应解析与结构校验保存有界 stage/reason、位置和计数；状态不读取原响应正文。
+配置、余额、源质量和模型输出错误不自动重试。重试仍用原冻结输入，修复创建新输入与
+任务链；旧失败和 hold 保留，成功替代任务在报告中关联。明确外部控制、预算和事务复验
+见 [失败恢复时序](32-workflow-failure-recovery.md) 和 [操作说明](operations/workflow-failures.md)。
 
 ## 输入与修订契约
 
