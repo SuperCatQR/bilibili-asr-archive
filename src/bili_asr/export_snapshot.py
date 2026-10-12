@@ -349,7 +349,7 @@ def _remove_private(directory: Path) -> None:
 
 
 @contextmanager
-def _exclusive_lock(output: Path) -> Iterator[None]:
+def _exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
     path = output.parent / f".{output.name}.export.lock"
     checked_path(path)
     flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
@@ -386,11 +386,13 @@ def _exclusive_lock(output: Path) -> Iterator[None]:
                 import msvcrt
 
                 os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+                msvcrt.locking(descriptor, mode, 1)
             else:
                 import fcntl
 
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+                fcntl.flock(descriptor, flags)
         except OSError as exc:
             raise ExportSnapshotError("another export holds the output lock") from exc
         yield

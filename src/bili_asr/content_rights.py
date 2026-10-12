@@ -29,6 +29,7 @@ PERMISSION_FIELDS = frozenset({
 })
 _SCHEMA = resources.files('bili_asr.storage').joinpath('schema-rights.sql')
 PUBLICATION_ENABLED_ENV_VAR = 'BILI_PUBLICATION_ENABLED'
+_HELD_DISTRIBUTION_LOCKS: set[Path] = set()
 
 
 class ContentRightsError(ValueError):
@@ -45,15 +46,26 @@ def require_publication_enabled() -> None:
 
 
 @contextmanager
-def distribution_lock(connection):
+def distribution_lock(connection, *, blocking: bool = False):
     """Serialize authorization changes with the complete export installation."""
     from bili_asr.export_snapshot import _exclusive_lock
     database = next((r[2] for r in connection.execute('PRAGMA database_list') if r[1] == 'main'), '')
     # Keep the marker beside the root so a read-only archive can still export.
     archive = Path(database).parent if database else None
-    lock = _exclusive_lock(archive.with_name(archive.name + '.content-distribution')) if archive else nullcontext()
-    with lock:
-        yield
+    lock_path = archive.with_name(archive.name + '.content-distribution') if archive else None
+    if lock_path is None:
+        with nullcontext():
+            yield
+        return
+    # A nested mutation in this process must fail fast, while independent
+    # processes may wait for the transaction that currently owns the lock.
+    nested = lock_path in _HELD_DISTRIBUTION_LOCKS
+    with _exclusive_lock(lock_path, blocking=blocking and not nested):
+        _HELD_DISTRIBUTION_LOCKS.add(lock_path)
+        try:
+            yield
+        finally:
+            _HELD_DISTRIBUTION_LOCKS.discard(lock_path)
 
 
 def serialized_distribution(function):

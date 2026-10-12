@@ -32,7 +32,7 @@ class PublicationRepository:
             raise ValueError("publication-transaction: caller transaction must be completed")
         # Head changes and withdrawals must not race the export directory swap.
         from bili_asr.content_rights import distribution_lock
-        with distribution_lock(self.connection):
+        with distribution_lock(self.connection, blocking=True):
             self.connection.execute("BEGIN IMMEDIATE")
             try:
                 yield

@@ -33,6 +33,7 @@ from bili_asr.services.source_supplement import (
 from bili_asr.storage.publication import PublicationConflictError, PublicationRepository
 from bili_asr.storage.source_supplements import edition_supplement
 from tests.fixtures.frozen_migration_archive import frozen_archive
+from tests.support.content_permissions import grant_test_permission
 from tests.test_publication import approve
 
 
@@ -51,6 +52,8 @@ def preserved(tmp_path):
         plan = plan_preserved_body_import(connection, selectors=selection, artifact_roots=(root,))
         imported = apply_preserved_body_import(connection, plan=plan, artifact_roots=(root,), write_root=root, actor="importer")
         editions = [get_edition(connection, item["editionId"]) for item in imported["editions"]]
+        for edition in editions:
+            grant_test_permission(connection, edition, (root,))
         # Known collected titles; generic updated_at values must not become
         # title observation timestamps. These are synthetic archive facts.
         with connection:
@@ -193,6 +196,7 @@ def test_export_pair_and_snapshot_restore_keep_title_evidence(preserved, tmp_pat
     plan = plan_for(connection, root, editions)
     result = apply(connection, root, plan)
     current = [get_edition(connection, item["editionId"]) for item in result["editions"]]
+    grant_test_permission(connection, current[1], (root,))
     assert all(check_source_supplement(connection, edition_id=item["edition_id"], artifact_roots=(root,))["bodyPreserved"] for item in current)
     approve(connection, current[0])
     publish_edition(connection, edition_id=current[0]["edition_id"], artifact_roots=(root,), write_root=root,
