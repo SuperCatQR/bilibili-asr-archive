@@ -85,7 +85,9 @@ def add_maintenance_package_parser(subparsers: argparse._SubParsersAction) -> No
     configure.add_argument("--keep-days", type=int, default=30)
     configure.add_argument("--alert-after", type=int, default=3)
     configure.add_argument("--mode", choices=("full", "incremental", "differential"), default="incremental")
-    configure.add_argument("--profile", choices=("private-history", "workflow-transcripts", "database-only", "database-subtitles", "publication"), default="private-history")
+    configure.add_argument("--profile", choices=("private-history", "workflow-transcripts", "database-only", "database-subtitles", "publication", "task-state"), default="private-history")
+    configure.add_argument("--external-components", type=Path, help="JSON object with a components list of typed state declarations")
+    configure.add_argument("--no-external-control-state", action="store_true", help="Explicitly declare this archive has no external retry state")
     configure.add_argument("--dataset", action="append")
     configure.add_argument("--artifact-type", action="append")
     configure.add_argument("--directory", action="append")
@@ -183,9 +185,20 @@ def _cmd_maintenance_package(args: argparse.Namespace) -> int:
             report = checkpoint_archive(args.source_root)
         elif action == "backup-policy":
             from bili_asr.services.maintenance_backup import policy
+            from bili_asr.services.maintenance_package_core import _json
+            task_state = args.profile == "task-state"
+            components = {"components": []} if args.external_components is None else _json(args.external_components)
+            if set(components) != {"components"} or not isinstance(components["components"], list):
+                raise ValueError("external components file must contain only a components list")
+            if task_state and any((args.dataset, args.artifact_type, args.directory, args.since is not None,
+                                   args.until is not None, args.status, args.part_id, args.bvid)):
+                raise ValueError("task-state backs up complete task history without row selectors")
             report = policy(args.source_root, args.repository, interval_seconds=args.interval_seconds,
                             keep_count=args.keep_count, keep_days=args.keep_days, alert_after=args.alert_after,
-                            artifact_root=args.artifact_root, selection=_scope(args), mode=args.mode, compression=args.compression)
+                            artifact_root=args.artifact_root, selection=None if task_state else _scope(args),
+                            mode=args.mode, compression=args.compression, profile="task-state" if task_state else "archive",
+                            external_components=components["components"],
+                            no_external_control_state=args.no_external_control_state)
             _write_new(report, args.output)
         elif action == "backup-run":
             from bili_asr.services.maintenance_backup import run_backup

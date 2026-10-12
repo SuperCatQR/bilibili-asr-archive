@@ -44,6 +44,7 @@ class CommandSpec:
 
 
 COMMANDS = MappingProxyType({
+    "task-state": CommandSpec("_cmd_task_state", 'bili_asr.cli.task_state', ArtifactPolicy.NONE, None),
     "maintenance": CommandSpec("_cmd_maintenance_package", 'bili_asr.cli.maintenance_package', ArtifactPolicy.NONE, None),
     "retry-maintenance": CommandSpec("_cmd_retry_maintenance", 'bili_asr.cli.maintenance', ArtifactPolicy.NONE, None),
     "workflow": CommandSpec("_cmd_workflow", 'bili_asr.cli.workflow', ArtifactPolicy.NONE, ArchiveAccessMode.WRITE, write_flags=("apply",)),

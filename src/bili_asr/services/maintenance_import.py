@@ -18,7 +18,7 @@ from bili_asr.artifact_inventory import (
     portable_artifact_parts,
     stream_hash,
 )
-from bili_asr.services import maintenance_package as package
+from bili_asr.services import maintenance_package_core as package
 from bili_asr.storage.maintenance_merge import merge_database
 from bili_asr.storage.maintenance_selection import table_ledger
 

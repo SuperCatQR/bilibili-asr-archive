@@ -20,7 +20,7 @@ from bili_asr.artifact_inventory import (
     portable_artifact_parts,
     stream_hash,
 )
-from bili_asr.services import maintenance_package as package
+from bili_asr.services import maintenance_package_core as package
 from bili_asr.storage.maintenance_selection import table_ledger
 
 NAME = "differential.json"
@@ -111,7 +111,7 @@ def materialize(path: Path, stage: Path, *, seen: tuple[Path, ...] = ()) -> tupl
         if maintenance:
             manifest = package._extract(path, stage)
         else:
-            from bili_asr.services.archive_snapshot import _validate_into
+            from bili_asr.services.snapshot_protocol import _validate_into
             _validate_into(path, stage)
             # Preserve original DB and artifact bytes while giving historical
             # full snapshots the same typed logical inventory as a v1 package.
@@ -279,7 +279,7 @@ def retention_plan(repository: Path, *, keep_count: int = 5, keep_days: int = 30
                     )
                     manifest = verify_public_backup(path)["manifest"]
                 else:
-                    from bili_asr.services.archive_snapshot import _read_manifest
+                    from bili_asr.services.snapshot_protocol import _read_manifest
                     manifest = _read_manifest(bundle)
         else:
             manifest = delta

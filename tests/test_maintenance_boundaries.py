@@ -213,6 +213,7 @@ def test_public_container_rejects_invalid_identity_private_paths_and_payload_dri
     for index, (change, payload, extra, message) in enumerate([
         (lambda x: x.update(profile="private"), b"{}", None, "identity"),
         (lambda x: x.update(source_fingerprint="invalid"), b"{}", None, "source identity"),
+        (lambda x: x.update(container={"compression": "stored", "encryption": "aes"}), b"{}", None, "encryption"),
         (None, b"tampered", None, "payload changed"),
         (None, b"{}", "extra.json", "inventory mismatch"),
         (lambda x: x["files"][0].update(path="archive.db"), b"{}", None, "projection path"),
@@ -381,3 +382,76 @@ def test_selection_refuses_absent_parts_and_unknown_payload_identity(tmp_path):
         connection.execute("UPDATE workflow_jobs SET payload_json=? WHERE job_id=?", (json.dumps(payload), key))
     with pytest.raises(ValueError, match="payload identity"):
         select_database(database, tmp_path / "payload.db", part_ids=[1], bvids=[])
+
+
+def test_registered_schemas_cannot_merge_and_untyped_provider_lists_are_not_guessed(tmp_path):
+    from bili_asr.storage.archive_contracts import bootstrap_contract
+    from bili_asr.storage.maintenance_merge import merge_database
+    source, target = tmp_path / "source", tmp_path / "target"
+    frozen_archive(source)
+    target.mkdir()
+    with sqlite3.connect(target / "archive.db") as connection:
+        bootstrap_contract(connection)
+    with pytest.raises(ValueError, match="identical registered database schemas"):
+        merge_database(source / "archive.db", target / "archive.db")
+    other = tmp_path / "other"
+    frozen_archive(other)
+    with sqlite3.connect(source / "archive.db") as connection:
+        connection.execute("UPDATE workflow_attempts SET result_json='[]' WHERE result_json IS NOT NULL")
+    before = (other / "archive.db").read_bytes()
+    with pytest.raises(ValueError, match="identity conflict"):
+        merge_database(source / "archive.db", other / "archive.db")
+    assert (other / "archive.db").read_bytes() == before
+
+
+def test_merge_preserves_nested_publication_identity_envelopes(tmp_path):
+    from bili_asr.storage.maintenance_merge import merge_database
+    source, target = tmp_path / "source", tmp_path / "target"
+    frozen_archive(source)
+    frozen_archive(target)
+    for root in (source, target):
+        with sqlite3.connect(root / "archive.db") as connection:
+            identity = connection.execute("SELECT publication_id FROM workflow_publications LIMIT 1").fetchone()[0]
+            key, raw = connection.execute("SELECT job_id,payload_json FROM workflow_jobs LIMIT 1").fetchone()
+            value = json.loads(raw)
+            value["preserve_publication"] = {"publication_id": identity}
+            connection.execute("UPDATE workflow_jobs SET payload_json=? WHERE job_id=?", (json.dumps(value), key))
+    result = merge_database(source / "archive.db", target / "archive.db")
+    assert result["id_mappings"] == {}
+    with sqlite3.connect(target / "archive.db") as connection:
+        actual = json.loads(connection.execute("SELECT payload_json FROM workflow_jobs WHERE job_id=?", (key,)).fetchone()[0])
+    assert actual["preserve_publication"] == {"publication_id": identity}
+
+
+def test_export_scope_contract_rejects_public_private_confusion_and_overlap(tmp_path):
+    source = tmp_path / "source"
+    frozen_archive(source)
+    with pytest.raises(ValueError, match="disjoint"):
+        package.export_package(source, tmp_path / "overlap.zip", artifact_root=source / "audio")
+    with pytest.raises(ValueError, match="not a recoverable"):
+        package.export_package(source, tmp_path / "public.zip", scope=scopes.scope(profile="publication"))
+    document_path = tmp_path / "not-object.json"
+    document_path.write_bytes(b"[]")
+    with pytest.raises(ValueError, match="must be an object"):
+        package._json(document_path)
+    scoped = tmp_path / "metadata.zip"
+    package.export_package(source, scoped, scope=scopes.scope(datasets=["metadata"], profile="database-only"))
+    manifest = package.inspect_package(scoped)["manifest"]
+    for mutate in (lambda d: d["selection"].update(unregistered=True),
+                   lambda d: d["selection"].update(explicit_row_counts={"videos": -1})):
+        value = copy.deepcopy(manifest)
+        mutate(value)
+        value["content_id"] = package.digest({k: v for k, v in value.items() if k not in {"content_id", "created_at", "producer_version"}})
+        with pytest.raises(ValueError):
+            package._validate_manifest(value)
+
+
+def test_snapshot_check_dispatches_valid_differential_chain(tmp_path):
+    from bili_asr.services.archive_snapshot import check_snapshot
+    source = tmp_path / "source"
+    frozen_archive(source)
+    base, delta = tmp_path / "base.zip", tmp_path / "delta.zip"
+    package.export_package(source, base)
+    chain.save_delta(source, delta, base)
+    report = check_snapshot(delta)
+    assert report["valid"] and len(report["chain"]) == 2

@@ -2,10 +2,31 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "archive-task-state-backup/v1",
+      "owner": "archive",
+      "authority": [
+        "src/bili_asr/services/maintenance_task_state.py"
+      ],
+      "consumers": [
+        "services.maintenance_state_reader",
+        "services.maintenance_backup"
+      ],
+      "capabilities": [
+        "validate",
+        "save",
+        "read"
+      ],
+      "dependencies": [
+        "bilibili-v1",
+        "universal-v2"
+      ],
+      "schema": "archive-task-state-backup-v1.schema.json"
+    },
+    {
       "identity": "archive-maintenance-package/v2",
       "owner": "archive",
       "authority": [
-        "src/bili_asr/services/maintenance_package.py",
+        "src/bili_asr/services/maintenance_package_core.py",
         "src/bili_asr/storage/maintenance_scope.py"
       ],
       "consumers": [
@@ -30,7 +51,7 @@
       "identity": "archive-maintenance-package/v1",
       "owner": "archive",
       "authority": [
-        "src/bili_asr/services/maintenance_package.py",
+        "src/bili_asr/services/maintenance_package_core.py",
         "src/bili_asr/storage/maintenance_selection.py"
       ],
       "consumers": [
@@ -722,6 +743,7 @@
       "identity": "archive-snapshot/v1",
       "owner": "archive",
       "authority": [
+        "src/bili_asr/services/snapshot_protocol.py",
         "src/bili_asr/services/archive_snapshot.py"
       ],
       "consumers": [

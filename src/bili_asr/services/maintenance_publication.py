@@ -9,8 +9,8 @@ from pathlib import Path
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
 from bili_asr.publication_export import export_publications
-from bili_asr.services import maintenance_package as package
-from bili_asr.services.maintenance_package import absolute
+from bili_asr.services import maintenance_package_core as package
+from bili_asr.services.maintenance_package_core import absolute
 
 NAME = "public-backup.json"
 
@@ -75,6 +75,8 @@ def verify_public_backup(snapshot: Path) -> dict:
             raise ValueError("invalid public backup identity")
         if not isinstance(manifest["source_fingerprint"], str) or not package._HASH.fullmatch(manifest["source_fingerprint"]):
             raise ValueError("invalid public backup source identity")
+        if manifest["container"] != {"compression": "stored", "encryption": None}:
+            raise ValueError("unsupported public backup container compression or encryption")
         files = manifest["files"]
         names = []
         for item in bundle.infolist():

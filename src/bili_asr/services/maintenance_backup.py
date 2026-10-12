@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
-from bili_asr.services import maintenance_package as package
+from bili_asr.services import maintenance_package_core as package
 from bili_asr.services.maintenance_chain import (
     apply_retention,
     retention_plan,
@@ -57,7 +57,9 @@ def checkpoint_archive(source_root: Path, *, timeout_ms: int = 1000) -> dict:
 
 def policy(source_root: Path, repository: Path, *, interval_seconds: int = 3600, keep_count: int = 5,
            keep_days: int = 30, alert_after: int = 3, artifact_root: Path | None = None,
-           selection: dict | None = None, mode: str = "incremental", compression: str = "stored") -> dict:
+           selection: dict | None = None, mode: str = "incremental", compression: str = "stored",
+           profile: str = "archive", external_components: tuple | list = (),
+           no_external_control_state: bool = False) -> dict:
     source, destination = package.absolute(source_root), package.absolute(repository)
     if source == destination or destination.is_relative_to(source) or source.is_relative_to(destination):
         raise ValueError("backup repository and source must be disjoint")
@@ -76,10 +78,35 @@ def policy(source_root: Path, repository: Path, *, interval_seconds: int = 3600,
         raise ValueError("full maintenance backups use stored containers; deflate is supported only for differential/incremental payloads")
     if selection is not None and selection["profile"] == "publication" and mode != "full":
         raise ValueError("public publication backup requires full mode; its projection has no database dependency chain")
+    if profile not in {"archive", "task-state"} or type(no_external_control_state) is not bool:
+        raise ValueError("invalid backup state profile or control declaration")
+    if profile == "archive" and (external_components or no_external_control_state):
+        raise ValueError("external state components require task-state profile")
+    if profile == "task-state":
+        if mode != "full" or compression != "stored" or selection is not None:
+            raise ValueError("task-state backups require full stored containers without row selectors")
+        if not isinstance(external_components, (tuple, list)):
+            raise ValueError("state components must be a typed list")
+        if bool(external_components) == no_external_control_state:
+            raise ValueError("declare typed external control state or explicitly declare none")
+        for component in external_components:
+            if (not isinstance(component, dict) or set(component) != {"kind", "path", "lock_path"}
+                    or component["kind"] not in {"retry-control/v1", "backup-job-state/v1"}
+                    or not isinstance(component["path"], str)
+                    or not isinstance(component["lock_path"], str)
+                    or str(package.absolute(Path(component["path"]))) != component["path"]
+                    or str(package.absolute(Path(component["lock_path"]))) != component["lock_path"]
+                    or component["path"] == component["lock_path"]):
+                raise ValueError("invalid typed external component declaration")
+        if len({component["path"] for component in external_components}) != len(external_components):
+            raise ValueError("duplicate external state component paths")
     value = {"format": "maintenance-backup-policy/v1", "source_root": str(source), "repository": str(destination),
              "artifact_root": None if artifact_root is None else str(package.absolute(artifact_root)),
              "interval_seconds": interval_seconds, "keep_count": keep_count, "keep_days": keep_days,
              "alert_after": alert_after, "scope": selection, "mode": mode, "compression": compression}
+    if profile == "task-state":
+        value.update({"profile": profile, "external_components": list(external_components),
+                      "no_external_control_state": no_external_control_state})
     return {**value, "policy_id": package.digest(value)}
 
 
@@ -91,7 +118,9 @@ def _validate(document: dict) -> None:
                      interval_seconds=document["interval_seconds"], keep_count=document["keep_count"],
                      keep_days=document["keep_days"], alert_after=document["alert_after"],
                      artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]),
-                     selection=document["scope"], mode=document["mode"], compression=document["compression"])
+                     selection=document["scope"], mode=document["mode"], compression=document["compression"],
+                     profile=document.get("profile", "archive"), external_components=document.get("external_components", ()),
+                     no_external_control_state=document.get("no_external_control_state", False))
     if rebuilt != document:
         raise ValueError("backup policy contains unsupported fields or paths")
 
@@ -135,7 +164,7 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
                     existing["receipt_id"] != package.digest({k: v for k, v in existing.items() if k != "receipt_id"}))):
                 raise ValueError("backup run receipt identity changed")
             if existing.get("status") == "success":
-                verified = verify_chain(repository / existing["snapshot"])
+                verified = _verify_backup(repository / existing["snapshot"], document)
                 _verify_profile(document, verified)
                 return {**existing, "reused": True}
         output = repository / (datetime.fromtimestamp(timestamp, UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + identity[:16] + ".zip")
@@ -144,50 +173,11 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
                  "started_at": timestamp, "snapshot": output.name, "status": "running", "policy": document}
         _save(receipt_path, start)
         try:
-            with ArchiveSession(source, mode=ArchiveAccessMode.MAINTENANCE).access():
-                checkpoint = checkpoint_archive(source)
-                inventory, _ = package._inventory(source, source if document["artifact_root"] is None else Path(document["artifact_root"]))
-                package._free_space(output, sum(item["size"] for item in inventory["files"]) * 3 + 64 * 1024**2)
-                baseline = state["baseline"] if document["mode"] == "differential" else state["latest"]
+            if document.get("profile") == "task-state":
+                checkpoint, verification, cleaned = _run_task_state(document, start, state, state_root, output, timestamp)
                 rollover = False
-                if baseline is not None and document["mode"] == "incremental":
-                    from bili_asr.services.maintenance_chain import MAX_CHAIN_POINTS
-                    rollover = len(verify_chain(repository / baseline)["chain"]) >= MAX_CHAIN_POINTS
-                if output.exists():
-                    # An interrupted run may already have atomically published
-                    # its exact content. Verify it, never overwrite it.
-                    verification = verify_chain(output)
-                    _verify_profile(document, verification)
-                    if verification.get("source_fingerprint") is not None and verification["source_fingerprint"] != inventory["fingerprint"]:
-                        raise ValueError("existing backup source fingerprint differs from the current frozen source")
-                else:
-                    if document["mode"] == "full" or baseline is None or rollover:
-                        if document["scope"] is not None and document["scope"]["profile"] == "publication":
-                            from bili_asr.services.maintenance_publication import (
-                                save_public_backup,
-                            )
-                            save_public_backup(source, output, artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]))
-                        else:
-                            package.export_package(source, output, artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]), scope=document["scope"])
-                        state["baseline"] = output.name
-                    else:
-                        save_delta(source, output, repository / baseline,
-                                   artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]),
-                                   scope=document["scope"], compression=document["compression"])
-                    verification = verify_chain(output)
-                    _verify_profile(document, verification)
-            retention = retention_plan(repository, keep_count=document["keep_count"], keep_days=document["keep_days"])
-            # Protect the differential baseline even when a full future point
-            # is selected by retention; subsequent scheduled runs depend on it.
-            if state["baseline"]:
-                for item in retention["delete"]:
-                    if item["path"] == state["baseline"]:
-                        retention["delete"].remove(item)
-                        retention["protected_dependencies"].append(item["path"])
-                        retention["selected_restore_points"].append(item["path"])
-                        retention["plan_id"] = package.digest({k: v for k, v in retention.items() if k != "plan_id"})
-                        break
-            cleaned = apply_retention(retention)
+            else:
+                checkpoint, verification, cleaned, rollover = _run_archive(document, source, repository, state, output)
             state.update({"last_success": timestamp, "failures": 0, "latest": output.name})
             if event_id is not None:
                 state["events"] = [*state["events"], event_id][-10000:]
@@ -196,6 +186,12 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
                       "verification": verification, "restoration_verified": True,
                       "verification_kind": "detached-chain-materialization-database-contract-fk-typed-rows-file-hashes",
                       "notification": "backup_success", "retention": cleaned}
+            if document.get("profile") == "task-state":
+                result.update({"restoration_verified": False, "state_evidence_complete": True,
+                               "media_self_contained": False, "worker_started": False,
+                               "verification": {"valid": True, "manifest_id": package.digest(verification["manifest"]),
+                                                "profile": "task-state", "state_evidence_complete": True},
+                               "verification_kind": "sqlite-consistent-readonly-state-and-observed-component-evidence"})
             if document["scope"] is not None and document["scope"]["profile"] == "publication":
                 result.update({"restoration_verified": False, "database_recoverable": False,
                                "verification_kind": "public-projection-rights-gated-export-and-file-hashes"})
@@ -208,10 +204,109 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
             _save(state_path, state)
         result["receipt_id"] = package.digest(result)
         _save(receipt_path, result)
+        if document.get("profile") == "task-state" and result["status"] == "success":
+            # Publish the completed receipt and last-success pointer before
+            # pruning. A crash can leave excess backups, never a deleted last
+            # successful point paired with a failed current invocation.
+            from bili_asr.services.maintenance_state_retention import retain_state_packages
+            try:
+                completed = backup_status(repository, document["policy_id"])["runs"]
+                result["retention"] = retain_state_packages(repository, document, completed, now=timestamp)
+            except (ValueError, OSError, sqlite3.Error, KeyError, zipfile.BadZipFile) as exc:
+                result["retention"] = {"valid": False, "error": str(exc), "business_rows_changed": False}
+                result["notification"] = "backup_retention_failure"
+            result["receipt_id"] = package.digest({key: value for key, value in result.items() if key != "receipt_id"})
+            _save(receipt_path, result)
     return result
 
 
+def _run_archive(document, source, repository, state, output):
+    with ArchiveSession(source, mode=ArchiveAccessMode.MAINTENANCE).access():
+        checkpoint = checkpoint_archive(source)
+        inventory, _ = package._inventory(source, source if document["artifact_root"] is None else Path(document["artifact_root"]))
+        package._free_space(output, sum(item["size"] for item in inventory["files"]) * 3 + 64 * 1024**2)
+        baseline = state["baseline"] if document["mode"] == "differential" else state["latest"]
+        rollover = False
+        if baseline is not None and document["mode"] == "incremental":
+            from bili_asr.services.maintenance_chain import MAX_CHAIN_POINTS
+            rollover = len(verify_chain(repository / baseline)["chain"]) >= MAX_CHAIN_POINTS
+        if output.exists():
+            # An interrupted run may already have atomically published
+            # its exact content. Verify it, never overwrite it.
+            verification = verify_chain(output)
+            _verify_profile(document, verification)
+            if verification.get("source_fingerprint") is not None and verification["source_fingerprint"] != inventory["fingerprint"]:
+                raise ValueError("existing backup source fingerprint differs from the current frozen source")
+        else:
+            if document["mode"] == "full" or baseline is None or rollover:
+                if document["scope"] is not None and document["scope"]["profile"] == "publication":
+                    from bili_asr.services.maintenance_publication import (
+                        save_public_backup,
+                    )
+                    save_public_backup(source, output, artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]))
+                else:
+                    package.export_package(source, output, artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]), scope=document["scope"])
+                state["baseline"] = output.name
+            else:
+                save_delta(source, output, repository / baseline,
+                           artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]),
+                           scope=document["scope"], compression=document["compression"])
+            verification = verify_chain(output)
+            _verify_profile(document, verification)
+    retention = retention_plan(repository, keep_count=document["keep_count"], keep_days=document["keep_days"])
+    # Protect the differential baseline even when a full future point
+    # is selected by retention; subsequent scheduled runs depend on it.
+    if state["baseline"]:
+        for item in retention["delete"]:
+            if item["path"] == state["baseline"]:
+                retention["delete"].remove(item)
+                retention["protected_dependencies"].append(item["path"])
+                retention["selected_restore_points"].append(item["path"])
+                retention["plan_id"] = package.digest({k: v for k, v in retention.items() if k != "plan_id"})
+                break
+    cleaned = apply_retention(retention)
+    return checkpoint, verification, cleaned, rollover
+
+def _verify_backup(path: Path, document: dict) -> dict:
+    if document.get("profile") == "task-state":
+        from bili_asr.services.maintenance_task_state import verify_task_state
+        return verify_task_state(path)
+    return verify_chain(path)
+
+
+def _run_task_state(document, start, state, state_root, output, timestamp):
+    from bili_asr.services.maintenance_task_state import save_task_state
+    prior = []
+    for path in sorted(state_root.glob("*.json")):
+        if path.name == "state.json" or path.stem == start["run_id"]:
+            continue
+        value = package._json(path)
+        _verify_run_receipt(value, document, path.stem)
+        prior.append(value)
+    job_state = {"format": "backup-job-state/v1", "policy": document, "current_run": start,
+                 "prior_runs": prior, "state": dict(state)}
+    if not output.exists():
+        save_task_state(Path(document["source_root"]), output,
+                        artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]),
+                        external_components=document["external_components"],
+                        no_external_control_state=document["no_external_control_state"], backup_job_state=job_state)
+    verification = _verify_backup(output, document)
+    _verify_profile(document, verification)
+    if verification["manifest"]["backup_job_state"]["current_run"] != start:
+        raise ValueError("published task-state backup belongs to a different invocation")
+    cleaned = {"operation": "task-state-retention", "valid": True, "status": "pending_completed_receipt"}
+    return {"operation": "task-state-consistent-observation", "valid": True,
+            "wal_truncated": False, "business_rows_changed": False}, verification, cleaned
+
+
 def _verify_profile(document: dict, verified: dict) -> None:
+    if document.get("profile") == "task-state":
+        manifest = verified["manifest"]
+        if (manifest.get("profile") != "task-state"
+                or not isinstance(manifest.get("backup_job_state"), dict)
+                or manifest["backup_job_state"].get("policy") != document):
+            raise ValueError("task-state package does not match its policy")
+        return
     public = document["scope"] is not None and document["scope"]["profile"] == "publication"
     if public != (verified.get("database_recoverable") is False):
         raise ValueError("backup container profile does not match its public/private policy")
