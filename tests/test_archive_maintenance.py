@@ -75,10 +75,10 @@ def test_cross_process_lock_refuses_cli_writer_before_database_creation(tmp_path
 
 
 def test_cli_shared_access_does_not_block_another_worker(tmp_path, monkeypatch):
-    from bili_asr import cli
+    from bili_asr.cli import workflow
 
     entered = []
-    monkeypatch.setattr(cli, "_cmd_workflow", lambda args: entered.append(args) or 0)
+    monkeypatch.setattr(workflow, "_cmd_workflow", lambda args: entered.append(args) or 0)
     with archive_access(tmp_path):
         assert main(["workflow", "status", "--archive-root", str(tmp_path)]) == 0
     assert len(entered) == 1

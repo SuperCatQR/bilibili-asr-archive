@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from bili_asr.archive_session import ArchiveAccessMode
+from bili_asr.archive_modes import ArchiveAccessMode
 from bili_asr.artifact_inventory import require_no_links
 from bili_asr.artifact_root import ArtifactRoots, roots_for
 from bili_asr.diagnostics import write_stderr

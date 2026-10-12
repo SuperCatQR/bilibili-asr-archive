@@ -1,5 +1,5 @@
 """Explicit permission evidence and part-wide takedown holds."""
-from bili_asr.archive_session import ArchiveAccessMode
+from bili_asr.archive_modes import ArchiveAccessMode
 from bili_asr.cli.registry import ArtifactPolicy
 
 
@@ -22,7 +22,7 @@ def rights_command(connection, args):
         return rights_status(connection, get_edition(connection, args.edition_id))
     permission = None
     if action == 'grant':
-        from bili_asr.cli.publication import _json_object
+        from bili_asr.cli.json_input import _json_object
         permission = _json_object(args.permission_file)
     return record_rights(connection, action=action, actor=args.actor, note=args.note,
                          edition_id=getattr(args, 'edition_id', None),

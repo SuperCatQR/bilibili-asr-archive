@@ -135,7 +135,7 @@ def _session_worker(config, commands, responses, generation, runner_factory, pre
                         evidence["cache"] = cache_evidence
                     responses.put({**envelope, "ok": True, "preparation": evidence})
                     continue
-                from bili_asr.services.artifact_child import child_artifact_access
+                from bili_asr.artifact_child import child_artifact_access
                 with child_artifact_access(command.get("artifact_context"), command["audio_path"]):
                     segments = two_pass_transcribe(runner, command["audio_path"],
                                                   paired_subtitle_text=command["paired_subtitle_text"])

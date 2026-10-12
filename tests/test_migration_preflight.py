@@ -24,9 +24,9 @@ def test_inventory_preserves_two_root_precedence_and_records_exclusions(tmp_path
     (root / "audio").mkdir()
     (root / "audio/BVtest.m4a").write_bytes(b"shadowed legacy audio")
     (root / "audio/fallback.m4a").write_bytes(b"fallback")
-    (root / ".env").write_text("secret-cookie-do-not-read")
+    (root / ".env").write_text("secret-cookie-do-not-read", encoding="utf-8")
     (root / "logs").mkdir()
-    (root / "logs/private.log").write_text("not part of archive facts")
+    (root / "logs/private.log").write_text("not part of archive facts", encoding="utf-8")
     source_before = (root / "archive.db").read_bytes()
     real_open = Path.open
 
@@ -98,7 +98,7 @@ def test_workflow_bundle_requires_complete_marker_and_matching_bytes(tmp_path, d
     if damage == "missing_marker":
         marker.unlink()
     elif damage == "bad_hash":
-        (marker.parent / "bundle.raw.json").write_text("changed")
+        (marker.parent / "bundle.raw.json").write_text("changed", encoding="utf-8")
     else:
         with sqlite3.connect(root / "archive.db") as connection:
             raw = connection.execute("SELECT artifact_json FROM workflow_publications").fetchone()[0]

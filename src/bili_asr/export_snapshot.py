@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -10,24 +9,20 @@ from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import stat
-from typing import Iterator, Mapping
+from typing import Mapping
 import uuid
 
+from bili_asr.file_ops import (
+    FileOperationError as ExportSnapshotError, checked_path, json_bytes,
+    exclusive_lock as _exclusive_lock, fsync_directory as _fsync_directory,
+    write_new_file as _write_file,
+)
 from bili_asr.contracts.json_schema import validate_json
 from bili_asr.contracts.registry import catalog_contract, manifest_contract
-
-
-class ExportSnapshotError(ValueError):
-    """The output is unsafe, unmanaged, or inconsistent with its manifest."""
-
 
 _REVIEW_STATUSES = frozenset({"pending-review", "in-review", "changes-requested", "approved", "rejected"})
 _REVIEW_FILES = frozenset({"ai-draft.md", "review.md", "edition.md", "edition.json", "review.json", "differences/ai.patch", "differences/parent.patch"})
 _IMPORT_REVIEW_FILES = frozenset({"import-origin.json", "preserved-body.md", "differences/preserved.patch"})
-
-
-def json_bytes(value: object) -> bytes:
-    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
 
 
 def _unique_object(items: list[tuple[str, object]]) -> dict[str, object]:
@@ -44,19 +39,6 @@ def read_json(path: Path) -> object:
         return json.loads(path.read_bytes().decode("utf-8"), object_pairs_hook=_unique_object)
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ExportSnapshotError(f"invalid export JSON: {path.name}") from exc
-
-
-def checked_path(path: Path) -> Path:
-    """Check lexical ancestors before resolution, including Windows junctions."""
-    absolute = Path(os.path.abspath(path))
-    for current in (*reversed(absolute.parents), absolute):
-        try:
-            info = current.lstat()
-        except FileNotFoundError:
-            continue
-        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
-            raise ExportSnapshotError(f"export path contains a link or reparse point: {current}")
-    return absolute
 
 
 def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: tuple[Path, ...]) -> Path:
@@ -288,7 +270,7 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
             except (KeyError, TypeError, ValueError):
                 raise ExportSnapshotError("invalid rights notice")
         if profile is not None:
-            from bili_asr.publication_origins import validate_origins
+            from bili_asr.publication_origin_contract import validate_origins
             if catalog["schemaVersion"] != 3 or "origins.json" not in expected_files:
                 raise ExportSnapshotError("origin profile requires catalog v3 and origins.json")
             origins = read_json(directory / "origins.json")
@@ -312,30 +294,6 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
     return str(manifest["snapshotId"])
 
 
-def _fsync_directory(path: Path) -> None:
-    if os.name == "posix":
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-
-
-def _write_file(path: Path, content: bytes) -> None:
-    checked_path(path)
-    stream = path.open("xb")
-    try:
-        with stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except BaseException:
-        # The exclusive create succeeded, so this partial file belongs to us.
-        # Close it before unlinking to support Windows file sharing rules.
-        path.unlink(missing_ok=True)
-        raise
-
-
 def _remove_private(directory: Path) -> None:
     """Only used for privately generated directories after an ownership check."""
     if not directory.exists():
@@ -346,72 +304,6 @@ def _remove_private(directory: Path) -> None:
     for name in sorted(directories, key=lambda value: value.count("/"), reverse=True):
         (directory / name).rmdir()
     directory.rmdir()
-
-
-@contextmanager
-def _exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
-    path = output.parent / f".{output.name}.export.lock"
-    checked_path(path)
-    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
-    marker = b"bili-asr-export-lock-v1\n"
-    descriptor = None
-    created = initialized = False
-    try:
-        try:
-            descriptor = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o600)
-            created = True
-        except FileExistsError:
-            descriptor = os.open(path, flags)
-        if created:
-            written = 0
-            while written < len(marker):
-                count = os.write(descriptor, marker[written:])
-                if count <= 0:
-                    raise OSError("cannot initialize export lock")
-                written += count
-            os.fsync(descriptor)
-        initialized = True
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise ExportSnapshotError("export lock is not a regular file")
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        try:
-            actual_marker = os.read(descriptor, len(marker) + 1)
-        except PermissionError as exc:
-            # Windows byte-range locks reject even reading the locked marker.
-            raise ExportSnapshotError("another export holds the output lock") from exc
-        if actual_marker != marker:
-            raise ExportSnapshotError("export lock file is unmanaged or damaged")
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                os.lseek(descriptor, 0, os.SEEK_SET)
-                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
-                msvcrt.locking(descriptor, mode, 1)
-            else:
-                import fcntl
-
-                flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
-                fcntl.flock(descriptor, flags)
-        except OSError as exc:
-            raise ExportSnapshotError("another export holds the output lock") from exc
-        yield
-    finally:
-        if descriptor is not None:
-            # Initialization can fail before lock acquisition. Close even then,
-            # and remove only the incomplete file created by this attempt.
-            try:
-                incomplete = os.fstat(descriptor) if created and not initialized else None
-            finally:
-                os.close(descriptor)
-            if incomplete is not None:
-                try:
-                    current = path.lstat()
-                except FileNotFoundError:
-                    pass
-                else:
-                    if (current.st_dev, current.st_ino) == (incomplete.st_dev, incomplete.st_ino):
-                        path.unlink()
 
 
 def _journal_path(output: Path) -> Path:

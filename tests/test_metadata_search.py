@@ -166,10 +166,10 @@ def test_metadata_date_bounds_are_inclusive_utc_days(tmp_path: Path, capsys) -> 
 
 
 def test_metadata_does_not_resolve_artifacts_or_touch_transcript_search(tmp_path: Path, monkeypatch, capsys) -> None:
-    import bili_asr.cli.main as command_module
+    import bili_asr.artifact_root as artifact_root
 
     _video(tmp_path, "BVonly", title="needle")
-    monkeypatch.setattr(command_module, "roots_for", lambda *a, **k: pytest.fail("metadata resolves artifacts"))
+    monkeypatch.setattr(artifact_root, "roots_for", lambda *a, **k: pytest.fail("metadata resolves artifacts"))
     monkeypatch.setattr(TranscriptSearchIndex, "search_blocks", lambda *a, **k: pytest.fail("metadata queries FTS"))
     assert main(_argv(tmp_path, extra=("--format", "json", "--artifact-root", str(tmp_path / "not-an-artifact-root")))) == 0
     assert len(json.loads(capsys.readouterr().out)) == 1

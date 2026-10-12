@@ -167,6 +167,7 @@ def _run(
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=dict(env) if env is not None else None,
         cwd=cwd or PACKAGE_ROOT,
     )
@@ -201,6 +202,7 @@ def _offline_tool_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     }
     env = {k: v for k, v in os.environ.items() if k not in drop}
     env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     env["UV_OFFLINE"] = "1"
     env["UV_LINK_MODE"] = "copy"
     env["UV_NO_PROGRESS"] = "1"
@@ -224,6 +226,7 @@ def clean_cli_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     }
     env = {k: v for k, v in os.environ.items() if k not in drop}
     env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     env["BILI_SESSDATA"] = SENTINEL_COOKIE
     if extra:
         env.update(extra)
@@ -465,6 +468,7 @@ def run_installed(
         [cli.executable, *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=env,
         cwd=cli.venv_dir,
     )
@@ -477,6 +481,7 @@ def run_module(args: list[str]) -> subprocess.CompletedProcess[str]:
         [sys.executable, "-m", "bili_asr", *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=env,
         cwd=PACKAGE_ROOT,
     )

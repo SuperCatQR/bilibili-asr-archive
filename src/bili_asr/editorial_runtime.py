@@ -41,7 +41,8 @@ class EditorialWorkflowHandlers:
     def proofread(self, job: WorkflowJob) -> dict[str, Any]:
         decode_job_payload(job)
         self.workflow.assert_lease(job)
-        prepared = self.repository.freeze_job_input(job)
+        from bili_asr.services.editorial_application import freeze_job_input
+        prepared = freeze_job_input(self.repository, self.workflow, job)
         check_source_quality(prepared)
         config = EditorialConfig.from_snapshot(prepared["snapshot"]["config"])
         for chunk in prepared["chunks"]:

@@ -209,8 +209,8 @@ def test_tag_commands_acquire_archive_access_before_dispatch(tmp_path, monkeypat
         return 0
 
     monkeypatch.setattr(ArchiveSession, "access", access)
-    monkeypatch.setattr(cli, "_cmd_fetch_tags", handler)
-    monkeypatch.setattr(cli, "_cmd_publication", handler)
+    monkeypatch.setattr("bili_asr.cli.meta._cmd_fetch_tags", handler)
+    monkeypatch.setattr("bili_asr.cli.publication._cmd_publication", handler)
     assert cli.main(["fetch-tags", "--archive-root", str(tmp_path)]) == 0
     assert cli.main(["publication", "sync-source-tags", "--archive-root", str(tmp_path),
                      "--edition-id", "expected", "--actor", "operator", "--note", "source"]) == 0

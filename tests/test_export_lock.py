@@ -41,7 +41,8 @@ def test_lock_initialization_failure_closes_descriptor_and_allows_retry(tmp_path
         os.fstat(opened[0])
     assert not lock.exists()
     with export_snapshot._exclusive_lock(output):
-        assert lock.read_bytes() == b"bili-asr-export-lock-v1\n"
+        pass
+    assert lock.read_bytes() == b"bili-asr-export-lock-v1\n"
 
 
 def test_short_lock_writes_complete_the_marker_and_allow_reuse(tmp_path, monkeypatch):
@@ -53,4 +54,5 @@ def test_short_lock_writes_complete_the_marker_and_allow_reuse(tmp_path, monkeyp
         with export_snapshot._exclusive_lock(output):
             pass
     with export_snapshot._exclusive_lock(output):
-        assert (tmp_path / ".public.export.lock").read_bytes() == b"bili-asr-export-lock-v1\n"
+        pass
+    assert (tmp_path / ".public.export.lock").read_bytes() == b"bili-asr-export-lock-v1\n"

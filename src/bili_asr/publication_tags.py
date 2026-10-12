@@ -6,7 +6,7 @@ import sqlite3
 
 from bili_asr.storage.publication import PublicationRepository, read_edition
 from bili_asr.publication_content import normalize_actor, normalize_text, normalize_content
-from bili_asr.publication_content_v2 import normalize_content_v2
+from bili_asr.publication_models_v2 import normalize_content_v2
 
 
 def source_tags(connection: sqlite3.Connection, bvid: str) -> list[str]:

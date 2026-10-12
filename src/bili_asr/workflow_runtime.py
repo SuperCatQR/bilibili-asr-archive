@@ -243,34 +243,13 @@ class ArchiveWorkflowHandlers:
         with self.repository.owned_transaction(job):
             if final != target:
                 os.replace(final, target)
-            self.connection.execute(
-                """INSERT INTO audio_objects(sha256, byte_size, format, duration_ms, storage_key, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(sha256) DO UPDATE SET duration_ms = excluded.duration_ms""",
-                (digest, byte_size, media_format, duration_ms, storage_key, now),
-            )
-            audio_id = self.connection.execute(
-                "SELECT audio_id FROM audio_objects WHERE sha256 = ?", (digest,)
-            ).fetchone()["audio_id"]
-            self.connection.execute(
-                """INSERT OR IGNORE INTO part_audio_objects(video_part_id, audio_id, acquired_at, acquisition_source)
-                   VALUES (?, ?, ?, 'workflow')""",
-                (int(part["video_part_id"]), audio_id, now),
-            )
-            from bili_asr.storage.artifact_catalog import (
-                ArtifactCatalog,
-                require_artifact_catalog,
-            )
-            if require_artifact_catalog(self.connection):
-                catalog = ArtifactCatalog(self.connection)
-                object_id = catalog.register_object(digest, byte_size)
-                catalog.bind_audio(audio_id, object_id)
-                base = next(base for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
-                target_id = "local-artifacts" if self.artifact_roots.configured and base == self.artifact_roots.artifact_root else "local"
-                catalog.register_target(target_id, kind="local")
-                previous = self.connection.execute("SELECT MAX(generation) FROM artifact_replicas WHERE target_id=? AND relative_key=? AND member_key=''", (target_id, storage_key)).fetchone()[0]
-                catalog.record_verified_replica(object_id, target_id, storage_key, sha256=digest, byte_size=byte_size,
-                                                generation=int(previous or 0) + 1)
+            from bili_asr.storage.workflow_outputs import record_audio
+            base = next(base for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
+            target_id = "local-artifacts" if self.artifact_roots.configured and base == self.artifact_roots.artifact_root else "local"
+            record_audio(self.connection, part_id=int(part["video_part_id"]), sha256=digest,
+                         byte_size=byte_size, media_format=media_format, duration_ms=duration_ms,
+                         storage_key=storage_key, target_id=target_id, acquired_at=now)
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
         result = {"storage_key": storage_key, "sha256": digest, "duration_ms": duration_ms}
         if require_artifact_catalog(self.connection):
             result["object_id"] = digest
@@ -531,25 +510,12 @@ class ArchiveWorkflowHandlers:
                 # A part owns one mutable bundle slot. Same-second republishing
                 # an earlier transcript must still become the newest committed
                 # publication fact, independently of its original row id.
-                previous = self.connection.execute(
-                    "SELECT MAX(published_at) FROM workflow_publications WHERE video_part_id = ?",
-                    (int(part["video_part_id"]),),
-                ).fetchone()[0]
-                published_at = max(int(time.time()), 0 if previous is None else int(previous) + 1)
-                self.connection.execute(
-                    """INSERT INTO workflow_publications(
-                           video_part_id, transcript_id, published_at, artifact_json
-                       ) VALUES (?, ?, ?, ?)
-                       ON CONFLICT(video_part_id, transcript_id) DO UPDATE SET
-                           published_at = excluded.published_at, artifact_json = excluded.artifact_json""",
-                    (int(part["video_part_id"]), transcript_id, published_at,
-                     json.dumps(paths, ensure_ascii=False, separators=(",", ":"))),
-                )
+                from bili_asr.storage.workflow_outputs import record_bundle_publication
+                publication_id = record_bundle_publication(self.connection, part_id=int(part["video_part_id"]),
+                                                           transcript_id=transcript_id, paths=paths)
                 from bili_asr.storage.artifact_catalog import require_artifact_catalog
                 if require_artifact_catalog(self.connection):
                     from bili_asr.services.artifact_groups import preserve_transcript_bundle
-                    publication_id = self.connection.execute("SELECT publication_id FROM workflow_publications WHERE video_part_id=? AND transcript_id=?",
-                                                             (int(part["video_part_id"]), transcript_id)).fetchone()[0]
                     preserve_transcript_bundle(self.connection, self.artifact_roots, publication_id, paths)
 
         from bili_asr.storage.artifact_catalog import require_artifact_catalog

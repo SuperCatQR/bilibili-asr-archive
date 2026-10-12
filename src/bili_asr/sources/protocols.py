@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from collections.abc import Callable
+from typing import Any, Literal, Protocol
 
 from bili_asr.platform_identity import ContentRef
 from bili_asr.sources.models import SubtitleBodyRead, SubtitleSegment, SubtitleTrack
+from bili_asr.source_video import SourceVideoMetadata
 
 
 class ContentPart(Protocol):
@@ -91,7 +93,34 @@ class AudioSource(Protocol):
     ) -> Path: ...
 
 
+class CaptionCandidate(Protocol):
+    """Provider-owned caption facts used by the application selection policy."""
+
+    @property
+    def track(self) -> SubtitleTrack: ...
+    @property
+    def language(self) -> str: ...
+    @property
+    def original_language(self) -> str | None: ...
+    @property
+    def translated(self) -> bool | None: ...
+
+    def provenance(self) -> dict[str, Any]: ...
+
+
+class AcquisitionSource(SubtitleSource, AudioSource, Protocol):
+    """The complete single-video source capability consumed by its use cases."""
+
+    def metadata(self, ref: ContentRef) -> SourceVideoMetadata: ...
+    def captions(self, ref: ContentRef) -> tuple[CaptionCandidate, ...]: ...
+
+
+class SourceFactory(Protocol):
+    def __call__(self, *, checkpoint: Callable[[], None] | None = None,
+                 cookie_file: Path | None = None) -> AcquisitionSource: ...
+
+
 __all__ = [
     "AudioSource", "ContentPart", "MetadataSource", "SourceAccessObservation",
-    "SubtitleSource",
+    "SubtitleSource", "AcquisitionSource", "CaptionCandidate", "SourceFactory",
 ]
