@@ -5,7 +5,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
-from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession, _checked_path
 from bili_asr.services.retry_maintenance_io import (
     MaintenanceBusyError,
     maintenance_lock,
@@ -99,30 +99,57 @@ def _editorial_eligible(connection, candidate):
     return bool(status["eligible"])
 
 
+def retry_skip_reason(connection, policy: RetryPolicy, state: dict, candidate: dict, now: int) -> str | None:
+    """The shared preview/dispatch guard; evaluating it never reserves a retry."""
+    job_id, code = candidate["job_id"], candidate["last_error_code"]
+    entry = state["retry_ledger"].get(job_id, {"retries": 0, "last_retry_at": 0})
+    if job_id in state["retry_holds"]:
+        return "held"
+    if code not in policy.retryable_errors[candidate["kind"]]:
+        return "error_not_allowlisted"
+    if (candidate["outcome"] != "failed" or candidate["error_code"] != code
+            or type(candidate["finished_at"]) is not int):
+        return "attempt_mismatch"
+    if entry["retries"] >= policy.max_retries:
+        return "budget_exhausted"
+    if (policy.delays_seconds[entry["retries"]] > 0
+            and now < (candidate["finished_at"] if entry["retries"] == 0
+                       else entry["last_retry_at"]) + policy.delays_seconds[entry["retries"]]):
+        return "backoff"
+    if not _editorial_eligible(connection, candidate):
+        return "editorial_budget_or_policy"
+    if entry.get("reserved_attempt_id") == candidate["attempt_id"]:
+        return "reservation_requires_review"
+    return None
+
+
+def validate_maintenance_paths(archive_root, *, policy_path: Path, state_path: Path,
+                               lock_path: Path, health_path: Path) -> None:
+    """Refuse aliases before opening locks or replacing any operational file."""
+    archive = Path(archive_root)
+    database = (archive if archive.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
+                and not archive.is_dir() else archive / "archive.db")
+    archive_directory = database.parent.resolve()
+    archive_lock = archive_directory.parent / f".{archive_directory.name}.archive-maintenance.lock"
+    targets = [policy_path, state_path, lock_path, health_path,
+               health_path.with_suffix(health_path.suffix + ".lock"), database, archive_lock]
+    for index, target in enumerate(targets):
+        _checked_path(target.absolute())
+        if target.is_dir():
+            raise ValueError("maintenance files cannot be directories")
+        for other in targets[:index]:
+            if (str(target.resolve()).casefold() == str(other.resolve()).casefold()
+                    or (target.exists() and other.exists() and target.samefile(other))):
+                raise ValueError("maintenance files and archive database must differ")
+
+
 def maintain_failed_jobs(connection, policy: RetryPolicy, state: dict, *, state_path: Path, now: int) -> list[dict]:
     validate_state(state)
     events = []
     for candidate in failed_candidates(connection, job_ids=policy.job_ids, part_ids=policy.part_ids, kinds=policy.kinds):
         job_id, code = candidate["job_id"], candidate["last_error_code"]
-        reason = None
+        reason = retry_skip_reason(connection, policy, state, candidate, now)
         entry = state["retry_ledger"].get(job_id, {"retries": 0, "last_retry_at": 0})
-        if job_id in state["retry_holds"]:
-            reason = "held"
-        elif code not in policy.retryable_errors[candidate["kind"]]:
-            reason = "error_not_allowlisted"
-        elif (candidate["outcome"] != "failed" or candidate["error_code"] != code
-              or type(candidate["finished_at"]) is not int):
-            reason = "attempt_mismatch"
-        elif entry["retries"] >= policy.max_retries:
-            reason = "budget_exhausted"
-        elif (policy.delays_seconds[entry["retries"]] > 0
-              and now < (candidate["finished_at"] if entry["retries"] == 0
-                         else entry["last_retry_at"]) + policy.delays_seconds[entry["retries"]]):
-            reason = "backoff"
-        elif not _editorial_eligible(connection, candidate):
-            reason = "editorial_budget_or_policy"
-        elif entry.get("reserved_attempt_id") == candidate["attempt_id"]:
-            reason = "reservation_requires_review"
         if reason is not None:
             events.append({"job_id": job_id, "action": "skipped", "reason": reason})
             continue
@@ -144,15 +171,8 @@ def maintain_failed_jobs(connection, policy: RetryPolicy, state: dict, *, state_
 
 def tick(*, archive_root, policy_path: Path, state_path: Path, lock_path: Path,
          health_path: Path, clock=time.time) -> dict:
-    paths = [policy_path, state_path, lock_path, health_path,
-             health_path.with_suffix(health_path.suffix + ".lock")]
-    if len({str(path.resolve()).casefold() for path in paths}) != len(paths):
-        raise ValueError("maintenance policy, state, lock and health paths must differ")
-    archive_path = Path(archive_root)
-    database_path = (archive_path if archive_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
-                     and not archive_path.is_dir() else archive_path / "archive.db")
-    if str(database_path.resolve()).casefold() in {str(path.resolve()).casefold() for path in paths}:
-        raise ValueError("maintenance files cannot replace the archive database")
+    validate_maintenance_paths(archive_root, policy_path=policy_path, state_path=state_path,
+                               lock_path=lock_path, health_path=health_path)
     now = int(clock())
     with ExitStack() as locks:
         try:
