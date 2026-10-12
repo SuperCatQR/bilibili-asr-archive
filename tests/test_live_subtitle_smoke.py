@@ -355,7 +355,8 @@ def _record_risk_control_refusal(
 
 
 def _probe_one_part(
-    gateway: BilibiliGateway, bvid: str, cid: int, part_source: str
+    gateway: BilibiliGateway, bvid: str, cid: int, part_source: str,
+    *, require_body: bool = False,
 ) -> None:
     """Run the probe's two boundary calls for one part and record the evidence.
 
@@ -403,6 +404,8 @@ def _probe_one_part(
             "live subtitle probe evidence: no usable track was visible for"
             " this part under the credential in effect"
         )
+        if require_body:
+            pytest.skip("release validation requires subtitle body evidence; no usable track was visible")
         return
 
     track = tracks[0]
@@ -460,7 +463,8 @@ def test_live_subtitle_probe_reports_one_real_part_inventory(opt_in_gate):
         f"live subtitle probe part: source={part_source} bvid={bvid} cid={cid}"
     )
 
-    _probe_one_part(gateway, bvid, cid, part_source)
+    _probe_one_part(gateway, bvid, cid, part_source,
+                    require_body=os.environ.get("BILI_RELEASE_VALIDATION") == "1")
 
 
 # ------------------------------------------------------------- rehearsals
@@ -809,6 +813,13 @@ def test_probe_records_an_empty_listing_and_stops_before_the_body(capsys):
     evidence = capsys.readouterr().out
     assert "stage=track-listing track_count=0 tracks=none" in evidence
     assert "no usable track was visible" in evidence
+    assert gateway.calls == ["get_subtitle_tracks"]
+
+
+def test_release_validation_cannot_pass_without_subtitle_body_evidence():
+    gateway = _ScriptedGateway()
+    with pytest.raises(pytest.skip.Exception, match="requires subtitle body evidence"):
+        _probe_one_part(gateway, SAMPLE_BVID, SAMPLE_CID, "fixed-sample", require_body=True)
     assert gateway.calls == ["get_subtitle_tracks"]
 
 

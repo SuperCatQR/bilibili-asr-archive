@@ -56,13 +56,16 @@ jobs:
           uv lock --check
           RUFF_VERSION=$(python -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "ruff"))')
           uv tool install "ruff==$RUFF_VERSION"
+          MYPY_VERSION=$(python -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "mypy"))')
+          uv tool install "mypy==$MYPY_VERSION"
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
-      # The repository is being migrated toward full Ruff coverage. E9 is the
-      # zero-noise, blocking subset that catches syntax failures today without
-      # turning legacy style debt into a false regression signal.
+      # Expand semantic checks without introducing historical style debt.
       - name: Run blocking Ruff checks
-        run: ruff check src scripts tests --select E9
+        run: ruff check src scripts tests --select E9,F821,F822,F823
+
+      - name: Check types in filesystem and schema boundaries
+        run: mypy
 
       - name: Compile source and test trees
         run: python -m compileall -q src tests scripts
@@ -279,11 +282,53 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+  windows:
+    name: tests / Windows locks and recovery
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: windows
+      - name: Install test dependencies
+        run: uv sync --locked --extra dev
+      - name: Exercise real Windows locks and isolated archive recovery
+        run: |
+          uv run --no-sync python -m coverage run -m pytest -q -ra `
+            tests/test_file_ops.py tests/test_export_lock.py tests/test_source_supplement.py `
+            tests/test_archive_fixture_isolation.py tests/test_reference_backup.py `
+            --basetemp "$env:RUNNER_TEMP/pytest-windows" --junitxml=test-results/windows.xml
+      - name: Upload Windows evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          retention-days: 14
+      - name: Upload Windows coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-data-${{ github.run_id }}-${{ github.run_attempt }}-windows
+          path: .coverage.*
+          include-hidden-files: true
+          retention-days: 14
+
   coverage:
     name: tests / coverage report
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    needs: python
+    needs: [python, windows]
     if: ${{ !cancelled() && (needs.python.result == 'success' || needs.python.result == 'failure') }}
     steps:
       - uses: actions/checkout@v7
@@ -329,7 +374,19 @@ jobs:
 
       - name: Enforce product coverage floors
         if: ${{ !cancelled() && steps.combine.outcome == 'success' }}
-        run: python scripts/check_test_coverage.py coverage.json --line-min 75 --branch-min 63
+        run: python scripts/check_test_coverage.py coverage.json --line-min 80 --branch-min 70
+
+      - name: Inventory uncovered critical behavior
+        if: ${{ !cancelled() && steps.combine.outcome == 'success' }}
+        run: python scripts/report_coverage_risks.py coverage.json
+
+      - name: Enforce coverage of changed product code
+        if: ${{ !cancelled() && steps.combine.outcome == 'success' && github.event_name == 'pull_request' }}
+        env:
+          COVERAGE_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$COVERAGE_BASE"
+          python scripts/check_changed_coverage.py coverage.json --base "$COVERAGE_BASE" --line-min 90
 
       - name: Download pytest diagnostics
         if: ${{ !cancelled() }}
@@ -390,6 +447,9 @@ jobs:
           path: |
             coverage.xml
             coverage.json
+            changed-coverage.json
+            coverage-risks.json
+            coverage-risks.md
             pytest-shard-durations.json
           if-no-files-found: error
           retention-days: 14

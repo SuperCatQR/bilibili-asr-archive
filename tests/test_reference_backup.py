@@ -180,3 +180,30 @@ def test_recorded_running_attempts_remain_exact_without_automatic_recovery(tmp_p
     service.restore_reference_backup(output, destination)
     with connect_database(destination / "archive.db", readonly=True) as connection:
         assert authority_fingerprints(connection) == original
+
+
+def test_restore_refuses_low_disk_before_creating_target_and_preserves_source(tmp_path, monkeypatch):
+    roots, _target, *_ = _setup(tmp_path)
+    backup = tmp_path / "reference.zip"
+    service.save_reference_backup(roots, backup)
+    original = backup.read_bytes()
+    destination = tmp_path / "not-created" / "restored"
+    monkeypatch.setattr(service.shutil, "disk_usage", lambda _path: SimpleNamespace(free=0))
+    with pytest.raises(service.ReferenceBackupError, match="insufficient restore space"):
+        service.restore_reference_backup(backup, destination)
+    assert not destination.parent.exists()
+    assert backup.read_bytes() == original
+
+
+def test_restore_never_overwrites_nonempty_destination(tmp_path):
+    roots, _target, *_ = _setup(tmp_path)
+    backup = tmp_path / "reference.zip"
+    service.save_reference_backup(roots, backup)
+    destination = tmp_path / "existing"
+    destination.mkdir()
+    sentinel = destination / "important.txt"
+    sentinel.write_bytes(b"original archive must survive")
+    with pytest.raises((ValueError, OSError)):
+        service.restore_reference_backup(backup, destination)
+    assert sentinel.read_bytes() == b"original archive must survive"
+    assert list(destination.iterdir()) == [sentinel]
