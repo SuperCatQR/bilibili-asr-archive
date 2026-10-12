@@ -19,6 +19,10 @@ from bili_asr.publication import (
 )
 from bili_asr.publication_export import export_editorial, export_publication_drafts, export_publications
 from tests.test_publication import approve, seeded_publication
+from tests.support.content_permissions import grant_test_permission
+
+
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
 
 
 @pytest.fixture
@@ -26,6 +30,7 @@ def draft_archive(tmp_path):
     root = tmp_path / "archive"
     connection, revision, roots = seeded_publication(root)
     edition = create_edition(connection, revision_id=revision, artifact_roots=roots, actor="private-test-editor")
+    grant_test_permission(connection, edition)
     try:
         yield connection, root, revision, edition
     finally:
@@ -58,6 +63,7 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
                            metadata={"title": "草稿标题", "summary": "读者摘要", "tags": ["草稿"],
                                      "attribution": "整理声明", "editorNote": "编辑说明"},
                            actor="private-test-editor", note="private editorial note")
+    grant_test_permission(connection, edition)
     change_review(connection, edition, status)
     output = tmp_path / "drafts"
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 1
@@ -83,7 +89,7 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
             rule = schema["$defs"][rule["$ref"].rsplit("/", 1)[1]]
         if "pattern" in rule:
             assert re.fullmatch(rule["pattern"], entry[key]), key
-    assert set(tree_bytes(output)) == {"catalog.json", entry["file"], entry["reviewFile"], "publication-draft-export-manifest.json"}
+    assert set(tree_bytes(output)) == {"catalog.json", "content-rights.json", entry["file"], entry["reviewFile"], "publication-draft-export-manifest.json"}
     manifest = json.loads((output / "publication-draft-export-manifest.json").read_text())
     manifest_schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-export-manifest.schema.json").read_text())
     assert set(manifest) == set(manifest_schema["required"])
@@ -109,6 +115,7 @@ def test_only_current_never_released_editions_are_exported_and_old_files_are_rem
     assert not (output / old_file).exists()
     assert not (output / old_review_file).exists()
     b = edit_edition(connection, edition_id=a["edition_id"], markdown_text="下一稿", actor="editor", note="next draft")
+    grant_test_permission(connection, b)
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 1
     assert catalog(output)["articles"][0]["editionId"] == b["edition_id"]
     public = tmp_path / "public"
@@ -243,6 +250,7 @@ def test_draft_snapshot_install_failure_rolls_back_and_retry_removes_stale_files
     export_publication_drafts(connection, artifact_roots=(root,), output=output)
     before = tree_bytes(output)
     updated = edit_edition(connection, edition_id=edition["edition_id"], markdown_text="更新正文", actor="editor", note="update")
+    grant_test_permission(connection, updated)
     original_replace = export_snapshot.os.replace
 
     def fail_install(source, destination):

@@ -143,10 +143,11 @@ def _schema(connection: sqlite3.Connection) -> dict[str, Any]:
 
 @lru_cache(maxsize=32)
 def _current_contract(kind: str = "bilibili-v1", imports: bool = False, supplements: bool = False,
-                      artifacts: bool = False, online: bool = False) -> tuple[dict[str, Any], str]:
+                      artifacts: bool = False, online: bool = False,
+                      rights: bool = False) -> tuple[dict[str, Any], str]:
     from bili_asr.contracts.fingerprints import database_fingerprint
-    registered = database_fingerprint(kind, imports, supplements, artifacts, online)
-    from bili_asr.storage.archive_contracts import BILIBILI_V1, bootstrap_contract
+    registered = database_fingerprint(kind, imports, supplements, artifacts, online, rights)
+    from bili_asr.storage.archive_contracts import BILIBILI_V1, bootstrap_contract, _resource
     with closing(sqlite3.connect(":memory:")) as connection:
         if kind == BILIBILI_V1:
             initialize_schema(connection)
@@ -162,6 +163,8 @@ def _current_contract(kind: str = "bilibili-v1", imports: bool = False, suppleme
             connection.executescript(_resource("schema-artifact-storage.sql"))
         if online:
             connection.executescript(_resource("schema-artifact-online.sql"))
+        if rights:
+            connection.executescript(_resource("schema-rights.sql"))
         required = _schema(connection)
     canonical = json.dumps(required, sort_keys=True, separators=(",", ":"))
     computed = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -183,9 +186,24 @@ def validate_snapshot_database(database_path: Path, expected_contract: str | Non
             from bili_asr.storage.source_supplements import require_supplement_extension
             from bili_asr.storage.artifact_catalog import require_artifact_catalog
             from bili_asr.storage.artifact_online import require_artifact_online
+            rights_objects = {
+                "content_rights_events", "idx_content_rights_edition", "idx_content_rights_part",
+                "immutable_content_rights_update", "immutable_content_rights_delete",
+            }
+            existing_rights_objects = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE sql IS NOT NULL"
+                ).fetchall() if row[0] in rights_objects
+            }
+            if existing_rights_objects and existing_rights_objects != rights_objects:
+                missing = sorted(rights_objects - existing_rights_objects)
+                raise SnapshotDatabaseError(
+                    "content-rights-v1 extension is incomplete: missing " + ", ".join(missing)
+                )
+            rights = bool(existing_rights_objects)
             required, contract = _current_contract(runtime_contract(connection), require_import_extension(connection),
                                                    require_supplement_extension(connection), require_artifact_catalog(connection),
-                                                   require_artifact_online(connection))
+                                                   require_artifact_online(connection), rights)
             if expected_contract is not None and expected_contract != contract:
                 raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             integrity = connection.execute("PRAGMA integrity_check").fetchall()

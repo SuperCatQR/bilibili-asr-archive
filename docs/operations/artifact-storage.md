@@ -271,4 +271,3 @@ bili-asr snapshot restore --file F:/backup/full.zip --archive-root D:/archives/r
 CLI 闭环与复制/核验/登记/隔离/删除故障注入检查没有外部有效副本时不释放，以及恢复同一字节后可继续新 profile。
 在线多进程、进程崩溃和 12 周期 soak 已在 WSL/POSIX 验证。Windows 11 / NTFS 原生 216 项相关回归通过，覆盖真实 LockFileEx、拒绝覆盖的 rename、迁出/恢复、升级和快照；另有 1 项因账户无法创建 symlink 跳过。实际数字、范围及复现脚本见 [2026-10-11 验证记录](../evidence/artifact-online-validation-2026-10-11.md)。多周期 RSS/限速 soak 只在 POSIX 运行，网络文件系统与 Windows symlink 场景未因此获得通过结论。模型和下载使用离线替身，不触发生产任务。
 独立审查覆盖正确性、可读性、架构、安全与 I/O；SHA 校验 mutation 证明坏成员和坏输入测试会在保护被移除时失败。
-

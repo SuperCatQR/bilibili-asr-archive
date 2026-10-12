@@ -15,6 +15,9 @@ from bili_asr.storage.workflow import WorkflowRepository
 from tests.fixtures.migration_archive import build_migration_archive, capture_table_rows
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.mark.parametrize("separate_artifacts", [False, True])
 def test_legacy_fixture_preserves_history_and_both_heads(tmp_path, separate_artifacts):
     fixture = build_migration_archive(tmp_path / "source", tmp_path / "media" if separate_artifacts else None)
@@ -48,13 +51,14 @@ def test_legacy_fixture_preserves_history_and_both_heads(tmp_path, separate_arti
         bundle = json.loads(connection.execute("SELECT artifact_json FROM workflow_publications").fetchone()[0])
         assert archive.archive_bundle_complete(fixture.artifact_roots[0], bundle, require_readable=True)
         assert fixture.frozen_json and fixture.not_covered
-        # Normal exports continue to select the live release and current drafts.
-        assert export_publications(connection, artifact_roots=fixture.artifact_roots, output=tmp_path / "public") == 1
-        assert export_publication_drafts(connection, artifact_roots=fixture.artifact_roots, output=tmp_path / "drafts") == 2
+        # Existing legacy releases remain intact but have no public permission.
+        assert export_publications(connection, artifact_roots=fixture.artifact_roots, output=tmp_path / "public") == 0
+        assert export_publication_drafts(connection, artifact_roots=fixture.artifact_roots, output=tmp_path / "drafts") == 0
         public = json.loads((tmp_path / "public/catalog.json").read_text(encoding="utf-8"))
-        assert public["articles"][0]["editionId"] == ids["edition_published"]
+        assert public["articles"] == []
         drafts = json.loads((tmp_path / "drafts/catalog.json").read_text(encoding="utf-8"))
-        assert {item["editionId"] for item in drafts["articles"]} == {ids["edition_current"], ids["edition_unpublished"]}
+        assert drafts["articles"] == []
+        assert capture_table_rows(connection) == fixture.table_rows
     finally:
         connection.close()
 

@@ -50,7 +50,7 @@ def test_real_multi_part_export_keeps_description_and_collection_semantics(tmp_p
             assert row['sourceMetadata']['description'] == DESCRIPTION
             assert row['sourceMetadata']['metadataObservedAt'] == 888
     assert [row['title'] for row in rows] == ['p0', '第二 P']
-    csv_rows = list(csv.DictReader(io.StringIO(export_records(tmp_path, "csv", with_text=True))))
+    csv_rows = list(csv.DictReader(io.StringIO(export_records(tmp_path, "csv", with_text=True, private=True))))
     assert csv_rows[0]['video_description'] == DESCRIPTION
     assert json.loads(csv_rows[0]['video_tags']) == ['中文', '重复']
     assert csv_rows[0]['transcript_text'] == ''

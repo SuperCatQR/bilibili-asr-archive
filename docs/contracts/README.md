@@ -190,3 +190,9 @@ The `examples/` directory contains one valid public catalog and deliberately
 invalid legacy and private catalogs for consumer contract tests. They are
 illustrative metadata fixtures; their Markdown byte hashes are not a deployable
 export.
+
+Content-rights registration and public reader exports are disabled unless the
+deployment explicitly sets `BILI_PUBLICATION_ENABLED=1`. Even when enabled,
+each edition must carry an independent permission record before its article or
+review bytes enter a public snapshot; software licensing does not grant rights
+to source media or transcripts.

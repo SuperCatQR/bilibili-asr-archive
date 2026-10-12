@@ -17,6 +17,7 @@ from bili_asr.services.archive_snapshot import save_snapshot, check_snapshot, re
 from bili_asr.storage.archive_contracts import frozen_version
 from bili_asr.storage.sources import SourceRepository, SourceVideoMetadata
 from tests.test_ai_editorial import FakeClient, insert_record, record, runtime
+from tests.support.content_permissions import grant_test_permission
 from tests.test_publication import approve
 from tests.test_workflow_control_plane import _seed_part
 
@@ -61,6 +62,7 @@ def test_universal_chain_keeps_frozen_source_and_exports_explicit_version(tmp_pa
         else:
             with pytest.raises(ValueError, match="verified tag observation"):
                 sync_source_tags(connection, edition_id=edited["edition_id"], actor="editor", note="refresh tags")
+        grant_test_permission(connection, edited, (root,))
         assert export_publication_drafts(connection, artifact_roots=(root,), output=tmp_path / "drafts") == 1
         draft_catalog = json.loads((tmp_path / "drafts" / "catalog.json").read_text())
         assert draft_catalog["schemaVersion"] == 3
@@ -103,6 +105,8 @@ def test_mixed_historical_and_new_release_catalog_preserves_old_bytes(tmp_path):
     migrate_archive(source, target)
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
         connection = session.connection
+        for row in connection.execute("SELECT edition_id FROM publication_editions"):
+            grant_test_permission(connection, get_edition(connection, row[0]), (target,))
         historical = [dict(row) for row in connection.execute("SELECT * FROM publication_releases WHERE status='published'")]
         before = {row["release_id"]: verify_release(connection, row["release_id"], (target,))[2] for row in historical}
         with connection:

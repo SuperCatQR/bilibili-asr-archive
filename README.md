@@ -42,6 +42,10 @@ flowchart LR
 
 **转录归档包发布与阅读稿发布是两项操作。** `workflow publish` 生成转录文件；`publication publish` 发布已审核的稿件版本。AI 工作流只生成阅读稿与对照记录。
 
+内容权限台账、`publication publish` 和读者公开快照默认关闭。只有完成平台访问和内容处理审查后，显式设置
+`BILI_PUBLICATION_ENABLED=1` 才能启用这些入口；启用开关本身不授予任何视频、音频、字幕或稿件的版权，
+公开导出仍要求逐 edition 的授权证据。私有归档、内部审核和私有 review 导出不依赖该开关。
+
 ## 快速开始
 
 以下命令在项目根目录执行。示例默认使用 `archive/`；换用其他归档时，为每个命令传入同一个 `--archive-root`。

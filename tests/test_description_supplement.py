@@ -15,6 +15,7 @@ from bili_asr.services.source_supplement import (
 from bili_asr.services.archive_snapshot import check_snapshot, restore_snapshot, save_snapshot
 from bili_asr.archive_session import ArchiveSession, ArchiveAccessMode
 from tests.test_source_supplement import preserved, table_rows
+from tests.support.content_permissions import grant_test_permission
 from tests.test_publication import approve
 
 DESCRIPTION = '中文简介\r\n引用: "哲学" \\ archive\nhttps://example.org/reference'
@@ -79,6 +80,8 @@ def test_description_evidence_requires_new_profile_and_is_bound_to_catalog(prese
     plan = plan_for(connection,root,editions)
     result = apply_source_supplement(connection,plan=plan,artifact_roots=(root,),actor='operator')
     ids = [item['editionId'] for item in result['editions']]
+    for edition_id in ids:
+        grant_test_permission(connection, get_edition(connection, edition_id), (root,))
     with pytest.raises(ExportSnapshotError,match='require universal-origin-v2'):
         export_publication_drafts(connection,artifact_roots=(root,),output=tmp_path/'old-profile',
             contract_profile='universal-origin-v1',edition_ids=ids)
@@ -174,9 +177,11 @@ def test_new_profile_exports_old_title_and_new_description_origins_together(pres
     title_plan = plan_source_supplement(connection, edition_ids=[editions[0]['edition_id']],
                                         artifact_roots=(root,))
     title_result = apply_source_supplement(connection, plan=title_plan, artifact_roots=(root,), actor='operator')
+    grant_test_permission(connection, get_edition(connection, title_result['editions'][0]['editionId']), (root,))
     describe(connection, [editions[1]])
     description_plan = plan_for(connection, root, [editions[1]])
     description_result = apply_source_supplement(connection, plan=description_plan, artifact_roots=(root,), actor='operator')
+    grant_test_permission(connection, get_edition(connection, description_result['editions'][0]['editionId']), (root,))
     ids = [title_result['editions'][0]['editionId'], description_result['editions'][0]['editionId']]
     output = tmp_path / 'mixed-profiles'
     export_publication_drafts(connection, artifact_roots=(root,), output=output,

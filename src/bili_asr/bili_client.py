@@ -177,6 +177,8 @@ class RequestsTransport:
         self._session.headers.update(BASE_HEADERS)
 
     def get_json(self, url, params=None, headers=None, cookies=None, timeout=20.0):
+        from bili_asr.platform_access import require_platform_access
+        require_platform_access()
         resp = self._session.get(
             url,
             params=dict(params or {}),
@@ -192,6 +194,8 @@ class RequestsTransport:
         return resp.status_code, body
 
     def get_stream(self, url, headers=None, cookies=None, timeout=60.0):
+        from bili_asr.platform_access import require_platform_access
+        require_platform_access()
         resp = self._session.get(
             url,
             headers=dict(headers or {}),
@@ -293,6 +297,9 @@ class BiliClient:
 
     def _request(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
         """GET with risk backoff; returns the JSON body on RISK_OK."""
+        if isinstance(self.transport, RequestsTransport):
+            from bili_asr.platform_access import require_platform_access
+            require_platform_access()
         cookies = self._ensure_buvid()
         refreshed = False  # buvid refreshed once per request budget
         last_code: int | str = 0

@@ -77,9 +77,9 @@ def _allowed_file(name: str, kind: str, profile: str | None = None) -> bool:
     if name == "origins.json":
         return profile in {"universal-origin-v1", "universal-origin-v2"} and kind in {"publication-export", "publication-draft-export"}
     if kind == "publication-export":
-        return name in {"catalog.json", "series.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
+        return name in {"catalog.json", "content-rights.json", "series.json"} or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
     if kind == "publication-draft-export":
-        return name in {"catalog.json", "series.json"} or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
+        return name in {"catalog.json", "content-rights.json", "series.json"} or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
     return name in _REVIEW_FILES | _IMPORT_REVIEW_FILES
 
 
@@ -248,6 +248,45 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
                 record = next((record for record in records if record["path"] == article[file_field]), None)
                 if record is None or record["sha256"] != article[hash_field]:
                     raise ExportSnapshotError("public article and manifest hashes differ")
+        if "content-rights.json" in expected_files:
+            rights_document = read_json(directory / "content-rights.json")
+            try:
+                _contract_json("content-rights/v1", rights_document)
+            except ExportSnapshotError as exc:
+                raise ExportSnapshotError("invalid rights notice") from exc
+            required_notice_fields = {
+                "editionId", "videoPartId", "contentSha256", "license", "licenseUrl",
+                "rightsHolder", "sourceCreator", "attribution", "sourceUrl", "scope", "expiresAt",
+            }
+            try:
+                from bili_asr.content_rights import LICENSE_URLS
+                notices = rights_document["notices"]
+                if (rights_document["schemaVersion"] != 1
+                        or set(rights_document) != {"schemaVersion", "notices"}
+                        or not isinstance(notices, list)
+                        or len(notices) != len(catalog["articles"])):
+                    raise ValueError
+                articles_by_edition = {article["editionId"]: article for article in catalog["articles"]}
+                if len(articles_by_edition) != len(catalog["articles"]):
+                    raise ValueError
+                for notice in notices:
+                    if set(notice) != required_notice_fields:
+                        raise ValueError
+                    article = articles_by_edition[notice["editionId"]]
+                    if (type(notice["videoPartId"]) is not int
+                            or notice["videoPartId"] != article["videoPartId"]
+                            or notice["contentSha256"] != article["contentSha256"]
+                            or notice["license"] not in LICENSE_URLS
+                            or notice["licenseUrl"] != LICENSE_URLS[notice["license"]]
+                            or not all(isinstance(notice[field], str) and notice[field].strip()
+                                       for field in ("rightsHolder", "sourceCreator", "attribution", "sourceUrl"))
+                            or notice["sourceUrl"] != article["sourceUrl"]
+                            or notice["scope"] != ["reader-document", "full-source-transcript"]
+                            or (notice["expiresAt"] is not None
+                                and (type(notice["expiresAt"]) is not int or notice["expiresAt"] <= 0))):
+                        raise ValueError
+            except (KeyError, TypeError, ValueError):
+                raise ExportSnapshotError("invalid rights notice")
         if profile is not None:
             from bili_asr.publication_origins import validate_origins
             if catalog["schemaVersion"] != 3 or "origins.json" not in expected_files:
@@ -257,7 +296,7 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
             if origins["contractProfile"] != profile:
                 raise ExportSnapshotError("origins and manifest profiles differ")
             validate_origins(origins, catalog["articles"], manuscript_type)
-        if article_files != expected_files - {manifest_name, "catalog.json", "series.json", "origins.json"}:
+        if article_files != expected_files - {manifest_name, "catalog.json", "content-rights.json", "series.json", "origins.json"}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
         if "series.json" in expected_files:
             from bili_asr.publication_series import validate_public_series
@@ -310,7 +349,7 @@ def _remove_private(directory: Path) -> None:
 
 
 @contextmanager
-def _exclusive_lock(output: Path) -> Iterator[None]:
+def _exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
     path = output.parent / f".{output.name}.export.lock"
     checked_path(path)
     flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
@@ -347,11 +386,13 @@ def _exclusive_lock(output: Path) -> Iterator[None]:
                 import msvcrt
 
                 os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+                msvcrt.locking(descriptor, mode, 1)
             else:
                 import fcntl
 
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+                fcntl.flock(descriptor, flags)
         except OSError as exc:
             raise ExportSnapshotError("another export holds the output lock") from exc
         yield
@@ -428,7 +469,8 @@ def _recover(output: Path, kind: str) -> None:
     _fsync_directory(output.parent)
 
 
-def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes], profile: str | None = None) -> str:
+def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes],
+                     profile: str | None = None, before_install=None) -> str:
     """Install one exact snapshot, or restore the previous directory on failure.
 
     Recovery artifacts are siblings of the public directory. OS advisory locks
@@ -467,6 +509,8 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes], pro
                 _write_file(target, content)
             _write_file(stage / f"{kind}-manifest.json", json_bytes(manifest))
             _validate_snapshot(stage, kind)
+            if before_install is not None:
+                before_install()
             for current, _, _ in os.walk(stage, topdown=False):
                 _fsync_directory(Path(current))
             journal = {"schemaVersion": 1, "manuscriptType": kind, "token": token, "snapshotId": snapshot_id, "previousSnapshotId": previous_id, "hadOutput": had_output}

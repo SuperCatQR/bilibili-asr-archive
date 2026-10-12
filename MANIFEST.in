@@ -1,0 +1,4 @@
+include LICENSE CONTENT-LICENSE.md CONTRIBUTING.md THIRD_PARTY_NOTICES.md
+include docs/content-compliance.md docs/licensing-assessment.md docs/dependency-license-inventory.json
+recursive-include tests *.py *.json *.md
+recursive-include src/bili_asr/storage *.sql *.json

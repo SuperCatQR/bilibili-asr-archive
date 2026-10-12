@@ -124,11 +124,14 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
                     artifact_roots: Iterable[Path], write_root: Path, actor: str,
                     expected_release_id: str | None = None) -> dict:
     actor = _actor(actor)
+    from bili_asr.content_rights import require_publication_enabled, require_public_rights
+    require_publication_enabled()
     roots = _roots(artifact_roots)
     repository = PublicationRepository(connection)
     existing = repository.release_for_edition(edition_id)
     if existing:
-        release, _, _ = verify_release(connection, existing["release_id"], roots)
+        release, edition, _ = verify_release(connection, existing["release_id"], roots)
+        require_public_rights(connection, edition, get_ai_artifacts(connection, edition['revision_id'], roots)['review.md'])
         return {**release, "idempotent": True}
     edition = get_edition(connection, edition_id)
     from bili_asr.storage.import_origins import import_origin
@@ -137,6 +140,7 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
         check_preserved_body_import(connection, edition_id=edition_id, artifact_roots=roots)
     if edition["review_status"] != "approved":
         raise ValueError("publication-approval: edition has not been approved")
+    require_public_rights(connection, edition, get_ai_artifacts(connection, edition['revision_id'], roots)['review.md'])
     if edition["current_release_id"] != expected_release_id:
         raise PublicationConflictError("publication-conflict: effective release differs from expected release")
     if expected_release_id:
@@ -150,9 +154,11 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
     with repository.transaction():
         existing = repository.release_for_edition(edition_id)
         if existing:
-            release, _, _ = verify_release(connection, existing["release_id"], roots)
+            release, current, _ = verify_release(connection, existing["release_id"], roots)
+            require_public_rights(connection, current, get_ai_artifacts(connection, current['revision_id'], roots)['review.md'])
             return {**release, "idempotent": True}
         current = get_edition(connection, edition_id)
+        require_public_rights(connection, current, get_ai_artifacts(connection, current['revision_id'], roots)['review.md'])
         if current["content_sha256"] != edition["content_sha256"] or current["review_status"] != "approved":
             raise ValueError("publication-approval: approval or content changed before publication")
         # Verify installed bytes immediately before registering the database head.

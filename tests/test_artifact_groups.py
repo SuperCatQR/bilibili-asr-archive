@@ -246,5 +246,3 @@ def test_source_evidence_pair_is_preserved_and_restored_together(archive):
     restore_artifact_group(archive.roots, group, storage_targets={"cold": archive.target})
     assert (archive.root / body).read_bytes() == b"body"
     assert (archive.root / review).read_bytes() == b"review"
-
-
