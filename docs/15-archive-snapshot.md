@@ -1,6 +1,6 @@
 # 统一维护访问、公开清单与归档 ZIP 恢复
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](15-archive-snapshot.html) · [Archify 规格](15-archive-snapshot.json) · [全部时序图](architecture-sequences.md)
 
@@ -59,9 +59,9 @@ sequenceDiagram
 - [src/bili_asr/services/archive_snapshot.py:172](../src/bili_asr/services/archive_snapshot.py#L172)：save_snapshot。
 - [src/bili_asr/services/archive_snapshot.py:370](../src/bili_asr/services/archive_snapshot.py#L370)：check_snapshot。
 - [src/bili_asr/services/archive_snapshot.py:388](../src/bili_asr/services/archive_snapshot.py#L388)：restore_snapshot。
-- [src/bili_asr/storage/snapshots.py:213](../src/bili_asr/storage/snapshots.py#L213)：create_database_snapshot。
-- [src/bili_asr/storage/snapshots.py:266](../src/bili_asr/storage/snapshots.py#L266)：required_artifacts。
-- [src/bili_asr/storage/snapshots.py:390](../src/bili_asr/storage/snapshots.py#L390)：recover_interrupted_jobs。
+- [src/bili_asr/storage/snapshots.py:231](../src/bili_asr/storage/snapshots.py#L231)：create_database_snapshot。
+- [src/bili_asr/storage/snapshots.py:284](../src/bili_asr/storage/snapshots.py#L284)：required_artifacts。
+- [src/bili_asr/storage/snapshots.py:408](../src/bili_asr/storage/snapshots.py#L408)：recover_interrupted_jobs。
 - [src/bili_asr/artifact_inventory.py:89](../src/bili_asr/artifact_inventory.py#L89)：collect_artifacts。
 - [src/bili_asr/artifact_inventory.py:122](../src/bili_asr/artifact_inventory.py#L122)：stream_hash。
 - [src/bili_asr/services/archive_snapshot.py:327](../src/bili_asr/services/archive_snapshot.py#L327)：_validate_into。

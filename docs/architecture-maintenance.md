@@ -1,6 +1,6 @@
 # 架构文档与时序图维护
 
-本套文档以已提交的固定源码为基线，本轮来自 codex/issue-reliability-metadata 分支。文字入口是 [architecture.md](architecture.md)，三张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)、[契约治理](contract-governance.html)，32 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
+本套文档以已提交的固定源码为基线，本轮来自 codex/workflow-failure-recovery 合并分支。文字入口是 [architecture.md](architecture.md)，三张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)、[契约治理](contract-governance.html)，33 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
 
 JSON 是图的可编辑规格，HTML 是 Archify 生成的独立查看器，不手工修改 HTML。目录级 `.gitattributes` 对图表规格与生成 HTML 设置 `-text`，防止 Git 换行转换改变验收哈希；`.gitattributes` 仅对生成 HTML 关闭行尾空白检查，保留模板字节及 artifact SHA-256，其他空白检查继续执行。时序 Markdown 保留完整 Mermaid 的嵌套 alt/opt/loop；HTML 展开跨参与者消息，内部调用在补充卡片中说明。修改流程时同时核对 Markdown、JSON 和代码，不能只改其中一份。
 
@@ -91,8 +91,6 @@ JSON Schema 的权威源在 `src/bili_asr/contracts/schemas/`；运行
 
 ## 2026-10-12 当前身份
 
-本轮统一绑定 3ed823c961736378d8408bba5f0535b03e0046e0；35 张图的现行凭据在 architecture-validation.json。历史行为验收归入 evidence/，保留原提交与运行日期；过时图表及重复收据已删除。本轮候选与 browser evidence 留在独立的 .archify/issue-reliability-20261012/ 子目录；每张图的实际结果以当前验证记录为准。
+当前产品源码固定 `0c62a0f511880e9d07bbf9505771ec15657995e7`，覆盖清单来自该提交实际 parser、registry 和文件树。36 张图采用逐图来源：31 张受影响图重新绑定该产品源码并执行完整 finalize；14/17/24/26/27 保留 `3ed823c961736378d8408bba5f0535b03e0046e0` 的原规范、HTML 和已验证收据。两组哈希均重新与磁盘核对，不能将旧收据冒充新提交验收。
 
-## 失败恢复分支合并与验收交接
-
-保留主分支流程32（周期 retry-maintenance）、持久模型预算/缓存再生成以及默认关闭的合规流程；失败恢复分支的新流程改为33。04/09/30 和三张专题架构图叠加安全失败政策、状态诊断与恢复准入。合并时原 HTML 与回执只表示各自历史源码，不能把冲突处理当作新源码验收；合并源码提交后，受影响规范按准确 AST 范围重新绑定并完整 finalize，逐份更新 validation。
+本次保留主分支流程 32（周期 retry-maintenance）、有界块再生成与持久 physical budget；失败恢复流程使用 33。状态、解释、CLI retry 与 maintenance 共享 failure_policy、decide_retry 和 editorial_retry_facts。AST 符号范围、Markdown 本地链接、Mermaid 分支、规格/HTML 哈希及真实浏览器结果见 architecture-validation.json。新的候选与 gate 收据保留在忽略目录 `.archify/failure-recovery-merge-20261012/`，原历史行为验证保留在 evidence/ 下。

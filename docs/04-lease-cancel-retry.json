@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -22,14 +22,14 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 280,
-          "end_line": 477,
+          "line": 285,
+          "end_line": 482,
           "label": "_execute_workflow"
         },
         {
           "path": "src/bili_asr/workflow_failure_policy.py",
-          "line": 108,
-          "end_line": 125,
+          "line": 118,
+          "end_line": 135,
           "label": "failure_policy"
         }
       ]
@@ -73,8 +73,8 @@
         },
         {
           "path": "src/bili_asr/services/workflow_retry.py",
-          "line": 141,
-          "end_line": 201,
+          "line": 144,
+          "end_line": 205,
           "label": "guarded_retry_failed"
         }
       ]
@@ -111,8 +111,8 @@
         },
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 95,
-          "end_line": 130,
+          "line": 111,
+          "end_line": 146,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -466,7 +466,7 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 813982215dab490ca462f991a5b440bd2ef19621；2026-10-12 核对。",
+        "全部源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

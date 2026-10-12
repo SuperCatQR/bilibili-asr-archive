@@ -1,9 +1,11 @@
 # 工作流失败、状态口径与恢复
 
-`workflow status`、`workflow explain` 和 `workflow retry` 使用同一套错误政策与重试决定。
+`workflow status`、`workflow explain`、`workflow retry` 和周期 `retry-maintenance` 使用同一套错误政策与重试决定。
 它们读取已有 jobs、attempts 和安全诊断，不修改历史错误码、冻结输入或模型调用证据。
 失败分类契约为 `workflow-failure-policy/v1`，状态投影为 `workflow-failure-status/v1`，
 库外控制证据读取契约为 `workflow-retry-control/v1`。这三项不安装新数据库表。
+维护 allowlist 只能收窄共享政策；数据库 attempts 为累计重试消耗下限，冻结物理预算、
+holds、退避与已活动/成功替代任务继续限制重排。状态只读取标量预算事实，保留模型正文。
 
 ## 状态与统计口径
 

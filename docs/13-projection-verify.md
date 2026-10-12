@@ -1,6 +1,6 @@
 # 读取投影、覆盖、完整性、普通导出与去重
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](13-projection-verify.html) · [Archify 规格](13-projection-verify.json) · [全部时序图](architecture-sequences.md)
 
@@ -73,7 +73,7 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/ops.py:150](../src/bili_asr/cli/ops.py#L150)：_cmd_verify。
+- [src/bili_asr/cli/ops.py:154](../src/bili_asr/cli/ops.py#L154)：_cmd_verify。
 - [src/bili_asr/export.py:453](../src/bili_asr/export.py#L453)：export_records。
 - [src/bili_asr/cli/dedup.py:19](../src/bili_asr/cli/dedup.py#L19)：_cmd_dedup。
 - [src/bili_asr/services/workflow_projection.py:126](../src/bili_asr/services/workflow_projection.py#L126)：workflow_records。

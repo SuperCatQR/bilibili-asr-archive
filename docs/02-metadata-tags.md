@@ -1,6 +1,6 @@
 # 分页元数据采集、来源身份与原始标签
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [Archify 规格](02-metadata-tags.json) · [交互时序图](02-metadata-tags.html) · [全部时序图](architecture-sequences.md)
 

@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0"
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7"
     }
   },
   "components": [
@@ -29,7 +29,7 @@
         {
           "path": "src/bili_asr/export_snapshot.py",
           "line": 188,
-          "end_line": 273,
+          "end_line": 312,
           "label": "_validate_snapshot"
         }
       ]
@@ -50,7 +50,7 @@
       "sources": [
         {
           "path": "src/bili_asr/contracts/json_schema.py",
-          "line": 27,
+          "line": 26,
           "end_line": 37,
           "label": "schema_registry"
         },
@@ -66,7 +66,7 @@
       "id": "schemas",
       "type": "database",
       "label": "入包 Schema",
-      "sublabel": "25 份版本明确的结构定义",
+      "sublabel": "26 份版本明确的结构定义",
       "pos": [
         770,
         150
@@ -83,8 +83,8 @@
         },
         {
           "path": "pyproject.toml",
-          "line": 94,
-          "end_line": 98
+          "line": 90,
+          "end_line": 92
         }
       ]
     },
@@ -111,7 +111,7 @@
         {
           "path": "src/bili_asr/export_snapshot.py",
           "line": 188,
-          "end_line": 273,
+          "end_line": 312,
           "label": "_validate_snapshot"
         }
       ]
@@ -137,8 +137,8 @@
         },
         {
           "path": "src/bili_asr/contracts/registry.py",
-          "line": 152,
-          "end_line": 159
+          "line": 162,
+          "end_line": 169
         }
       ]
     },
@@ -187,12 +187,12 @@
         {
           "path": "src/bili_asr/storage/snapshots.py",
           "line": 144,
-          "end_line": 170
+          "end_line": 173
         },
         {
           "path": "src/bili_asr/storage/snapshots.py",
           "line": 144,
-          "end_line": 170
+          "end_line": 173
         }
       ]
     },
@@ -213,13 +213,13 @@
         {
           "path": "src/bili_asr/contracts/fingerprints.py",
           "line": 6,
-          "end_line": 22,
+          "end_line": 25,
           "label": "database_fingerprint"
         },
         {
           "path": "src/bili_asr/contracts/database-fingerprints.json",
           "line": 1,
-          "end_line": 22
+          "end_line": 43
         }
       ]
     },
@@ -249,8 +249,8 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "line": 125,
-          "end_line": 152
+          "line": 1,
+          "end_line": 386
         }
       ]
     },
@@ -369,7 +369,7 @@
       "dot": "cyan",
       "title": "统一登记与结构",
       "items": [
-        "50 项登记记录主要稳定边界的责任、权威定义和消费者",
+        "54 项登记记录主要稳定边界的责任、权威定义和消费者",
         "全部 Schema 引用从安装包离线解析；未知版本拒绝",
         "旧 wire 契约保留；新 profile 按登记版本分派"
       ]
@@ -398,7 +398,7 @@
       "items": [
         "workflow-failure-policy/v1：纯分类与有限重试政策。",
         "workflow-failure-status/v1：安全只读投影；workflow-retry-control/v1：显式库外证据。",
-        "三个 Python 权威契约不增加 SQL 表或 JSON Schema；总计 53 契约 / 25 Schema。"
+        "三个 Python 权威契约不增加 SQL 表或 JSON Schema；总计 54 契约 / 26 Schema。"
       ]
     }
   ]

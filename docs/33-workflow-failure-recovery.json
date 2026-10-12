@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -21,8 +21,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 280,
-          "end_line": 477,
+          "line": 285,
+          "end_line": 482,
           "label": "_execute_workflow"
         }
       ],
@@ -35,20 +35,20 @@
       "sources": [
         {
           "path": "src/bili_asr/services/workflow_status.py",
-          "line": 86,
-          "end_line": 137,
+          "line": 89,
+          "end_line": 145,
           "label": "workflow_status_report"
         },
         {
           "path": "src/bili_asr/services/workflow_status.py",
-          "line": 25,
-          "end_line": 56,
+          "line": 26,
+          "end_line": 59,
           "label": "_project"
         },
         {
           "path": "src/bili_asr/services/workflow_status.py",
-          "line": 59,
-          "end_line": 83,
+          "line": 62,
+          "end_line": 86,
           "label": "_recovery"
         }
       ],
@@ -61,14 +61,14 @@
       "sources": [
         {
           "path": "src/bili_asr/services/workflow_retry.py",
-          "line": 91,
-          "end_line": 138,
+          "line": 92,
+          "end_line": 141,
           "label": "decide_retry"
         },
         {
           "path": "src/bili_asr/services/workflow_retry.py",
-          "line": 141,
-          "end_line": 201,
+          "line": 144,
+          "end_line": 205,
           "label": "guarded_retry_failed"
         }
       ],
@@ -81,14 +81,14 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_failure_policy.py",
-          "line": 12,
+          "line": 11,
           "end_line": 21,
           "label": "FailurePolicy"
         },
         {
           "path": "src/bili_asr/workflow_failure_policy.py",
-          "line": 108,
-          "end_line": 125,
+          "line": 118,
+          "end_line": 135,
           "label": "failure_policy"
         }
       ],
@@ -127,8 +127,8 @@
       "sources": [
         {
           "path": "src/bili_asr/services/workflow_retry.py",
-          "line": 47,
-          "end_line": 88,
+          "line": 48,
+          "end_line": 89,
           "label": "load_control_state"
         }
       ],

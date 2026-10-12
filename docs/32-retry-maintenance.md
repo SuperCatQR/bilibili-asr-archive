@@ -1,6 +1,6 @@
 # 失败重试维护：周期接管、持久预算与独立健康
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。本页描述该固定分支提交中的机制，部署交接另行执行。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。本页描述该固定分支提交中的机制，部署交接另行执行。
 
 [交互时序图](32-retry-maintenance.html) · [Archify 规格](32-retry-maintenance.json) · [运维交接手册](operations/retry-maintenance.md) · [全部时序图](architecture-sequences.md)
 
@@ -32,9 +32,9 @@ sequenceDiagram
             loop 每个候选
                 maintenance->>maintenance: hold、错误 allowlist、累计次数与退避优先
                 opt proofread
-                    maintenance->>repository: recovery_status_for_job(job_id)
+                    maintenance->>repository: editorial_retry_facts + decide_retry
                     repository->>db: 冻结配置、成功块与所有物理调用预留
-                    repository-->>maintenance: 新输入预算/旧精确跨段失败/免费响应重放
+                    repository-->>maintenance: 冻结物理预算/完整响应可重放；共享自动政策仍优先
                 end
                 alt 被 hold/错误/预算/退避阻止
                     maintenance->>maintenance: 输出 skipped 原因，不重排
@@ -65,22 +65,27 @@ sequenceDiagram
 - 首次重试退避从最新失败 attempt.finished_at 起算；后续按累计 ledger.last_retry_at 起算。缺失 ledger 条目不能将首次延迟误算成自 Unix epoch 起已满足。
 - state.json 必须已经存在且含 reviewed retry_holds/retry_ledger；缺失、未知字段结构、无效预算或重复 JSON 键都会拒绝执行。已有 holds、累计 retry 数和其他运维字段原样保留，不创建一个空 state 替代历史证据。
 - 来源观察中的 advisory 错误类别不代表静音。subtitle_body_unavailable、发布时间戳/质量契约失败、cancelled、未知错误和费用失败都不在自动 allowlist。
-- DeepSeekTransportError 只来自 requests.RequestException；HTTP 402、解析错误和历史泛化 DeepSeekError 需要诊断。proofread 无论何种允许错误，都复验持久物理预算；unfinished 调用也计数。
-- 旧 proofread 冻结输入不被升级：严格校验保存响应证明精确跨段引用错误时，可在既有 job ledger 下重发原请求；再生成只属于新输入冻结策略。合法已保存响应可免费重放。预算耗尽不能由重排 job 重置。
+- 稳定 deepseek_transport_failed 及历史 DeepSeekTransportError 只代表 transport 边界；HTTP 402、解析错误和历史泛化 DeepSeekError 需要诊断。proofread 无论何种允许错误，都复验持久物理预算；unfinished 调用也计数。
+- 旧 proofread 冻结输入和请求策略不被升级。统一自动政策仍拒绝校验错误；调查后通过显式 repair 或人工 retry 处理。完整已保存响应可在共同准入允许时免费重放；新输入的请求内再生成继续受冻结策略和累计物理预算限制，重排 job 不能重置预算。
 - 外部 state 文件与 SQLite 不构成一个事务。先 durable charge，再 latest-attempt CAS；崩溃最多损失一次 allowance，不能获得免费 retry。若旧 attempt 仍 failed，reserved_attempt_id 相同会报告 reservation_requires_review。人工复验保留证据后决定下一步，不自动退款。
 - CAS 在短事务内复验状态、attempt_count、错误、最新 attempt_id/outcome/finished_at；中间有其他任务尝试或取消时返回 stale。attempt 历史保持原样，worker 自己按正常依赖规则领取。
 - health 区分开始、成功、失败和锁竞争跳过，记录下一期时间。worker-health 只是独立快照，worker alive 不会让维护 healthy。health 命令在 stale/failed/never_succeeded 时非零退出；锁跳过不刷新 last_succeeded_at。
 - policy/state/lock/health 文件不能互相别名或指向 archive.db；状态与健康写入使用临时文件、fsync 和原子 replace，不在 runtime 安装业务表或契约。
 
+维护 allowlist 只能收窄统一 failure_policy；RevisionValidationError 和 lease_expired 不允许自动重排。decide_retry 共用数据库 attempts 下限、holds、ledger、backoff、活动/成功替代任务和 editorial_retry_facts 的冻结物理预算。
+
 ## 源码证据
 
 - [scripts/deployment/bili-asr-retry-maintenance.timer](../scripts/deployment/bili-asr-retry-maintenance.timer)：可选一分钟周期服务。
 - [src/bili_asr/cli/maintenance.py:11](../src/bili_asr/cli/maintenance.py#L11)：add_maintenance_parser/_cmd_retry_maintenance，健康先于数据库前置检查。
-- [src/bili_asr/services/retry_maintenance.py:37](../src/bili_asr/services/retry_maintenance.py#L37)：RetryPolicy.load，严格范围与允许错误。
-- [src/bili_asr/services/retry_maintenance.py:102](../src/bili_asr/services/retry_maintenance.py#L102)：maintain_failed_jobs，holds/预算/退避与 charge-before-CAS。
-- [src/bili_asr/services/retry_maintenance.py:145](../src/bili_asr/services/retry_maintenance.py#L145)：tick，锁、开始/失败/成功健康、独立 ArchiveSession。
-- [src/bili_asr/services/retry_maintenance.py:184](../src/bili_asr/services/retry_maintenance.py#L184)：health，worker 与维护独立判定。
+- [src/bili_asr/services/retry_maintenance.py:38](../src/bili_asr/services/retry_maintenance.py#L38)：RetryPolicy.load，严格范围与允许错误。
+- [src/bili_asr/services/retry_maintenance.py:116](../src/bili_asr/services/retry_maintenance.py#L116)：maintain_failed_jobs，holds/预算/退避与 charge-before-CAS。
+- [src/bili_asr/services/retry_maintenance.py:164](../src/bili_asr/services/retry_maintenance.py#L164)：tick，锁、开始/失败/成功健康、独立 ArchiveSession。
+- [src/bili_asr/services/retry_maintenance.py:203](../src/bili_asr/services/retry_maintenance.py#L203)：health，worker 与维护独立判定。
 - [src/bili_asr/services/retry_maintenance_io.py:16](../src/bili_asr/services/retry_maintenance_io.py#L16)：maintenance_lock 与生产 flock 兼容；write_json/update_health 为文件持久化边界。
 - [src/bili_asr/storage/retry_maintenance.py:19](../src/bili_asr/storage/retry_maintenance.py#L19)：requeue_exact_failure，最新失败 attempt CAS，不删除尝试。
-- [src/bili_asr/storage/editorial.py:270](../src/bili_asr/storage/editorial.py#L270)：recovery_status_for_job，冻配置与物理调用预算。
+- [src/bili_asr/storage/workflow_retry.py:51](../src/bili_asr/storage/workflow_retry.py#L51)：editorial_retry_facts，仅读取标量冻结物理预算和完整响应事实。
 - [tests/test_retry_maintenance.py](../tests/test_retry_maintenance.py)：重启/锁竞争/精确尝试、历史跨段、新预算耗尽及真实 requests transport 与支付失败的离线集成验收。
+
+- [共享 retry 决定](../src/bili_asr/services/workflow_retry.py#L92)：CLI 与 maintenance 的共同准入。
+- [标量物理预算投影](../src/bili_asr/storage/workflow_retry.py#L54)：status/explain/retry/maintenance 共用，不输出模型正文。

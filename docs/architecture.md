@@ -1,6 +1,6 @@
 # 当前架构
 
-本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[32 个时序流程](architecture-sequences.md)核对独立分支 `codex/issue-reliability-metadata` 的固定源码 **`3ed823c961736378d8408bba5f0535b03e0046e0`**，日期为 2026-10-12（Asia/Hong_Kong）。本轮实现 Issue #349/#350/#361，并配合阅读站独立分支完成 #348 消费者支持；该身份表示分支实现，不能推断远端 main 已合并或生产已部署。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
+本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[33 个时序流程](architecture-sequences.md)核对合并分支 `codex/workflow-failure-recovery` 的固定源码 **`0c62a0f511880e9d07bbf9505771ec15657995e7`**，日期为 2026-10-12（Asia/Hong_Kong）。本轮保留 Issue #349/#350/#361 实现并合并 #365/#366/#367 的失败恢复边界，并配合阅读站独立分支完成 #348 消费者支持；该身份表示分支实现，不能推断远端 main 已合并或生产已部署。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
 
 ## 执行模型与责任
 
@@ -8,7 +8,7 @@
 
 | 所有者 | 入口 | 责任 |
 | --- | --- | --- |
-| CLI 与访问生命周期 | cli/registry.py、parser.py、archive_session.py | 21 个顶层命令、88 条实际叶命令；文件/数据库模式与维护锁 |
+| CLI 与访问生命周期 | cli/registry.py、parser.py、archive_session.py | 21 个顶层命令、94 条实际叶命令；文件/数据库模式与维护锁 |
 | 来源适配 | sources/、source_registry.py、services/source_workflow.py | ContentRef、Bilibili 与 YouTube；访问、字幕候选、下载与观察证据 |
 | 用例与控制 | services/workflow_application.py、workflow.py、storage/workflow.py | 纯依赖规划、冻结 profile、claim、heartbeat、attempt、cancel/retry、角色 worker |
 | 推理执行 | workflow_runtime.py、asr/session.py、runner.py、backend.py | 父进程准确输入与提交；子进程模型和 HF 推理；准备、分块、真实对齐 |
@@ -87,7 +87,7 @@ edition 保存完整读者内容；准确 content SHA 审核，显式 publish �
 
 ## 契约、快照和恢复
 
-contracts 注册 50 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](25-contract-upgrade.md)。
+contracts 注册 54 项稳定边界，wheel 发布 26 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](25-contract-upgrade.md)。
 
 完整 archive-snapshot/v1 从本地或准确外部包流式收集全部受支持文件、数据库和历史组，可显式无损压缩；恢复后不依赖旧 target。archive-reference-backup/v1 始终 self_contained=false，离线检查只验证嵌入数据和引用，online 才核验外部依赖。引用恢复保留原状态与 holds，始终要求执行权交接。SSH 目录上传必须核验 host key/instance 并完整读回 SHA，当前远程路径保留本地源。见 [15](15-archive-snapshot.md)、[20](20-recovery-plan.md)、[27](27-reference-backup.md)。
 
@@ -106,3 +106,7 @@ SQLite 与文件系统没有跨介质原子事务；marker、不可变 hash、jo
 ## 内容合规开关
 
 合规流程默认关闭；普通访问、导出和发布继续执行已有审核、质量、哈希、并发与路径检查。仅显式设置 BILI_COMPLIANCE_ENABLED=1 后执行权限台账/访问限制；合规模式公开入口还需 BILI_PUBLICATION_ENABLED=1。开关不产生授权，也不改写旧权限事实，见[内容权限与公开发布](content-compliance.md)。
+
+## 统一失败恢复准入
+
+状态、解释、CLI retry 与周期 maintenance 共享 failure_policy、decide_retry 和 editorial_retry_facts。维护 allowlist 只收窄共享自动政策；数据库 attempts 是累计预算下限，外部 ledger、holds、替代任务和冻结物理调用预算可以继续阻止重排。失败诊断只输出安全字段，旧 attempt、原响应与冻结输入保留。完整路径见 [流程 33](33-workflow-failure-recovery.md)与 [流程 32](32-retry-maintenance.md)。

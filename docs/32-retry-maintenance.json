@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -50,8 +50,10 @@
           "label": "tick"
         },
         {
-          "path": "src/bili_asr/services/retry_maintenance.py",
-          "label": "maintain_failed_jobs"
+          "path": "src/bili_asr/services/workflow_retry.py",
+          "line": 92,
+          "end_line": 141,
+          "label": "decide_retry"
         }
       ]
     },
@@ -86,8 +88,10 @@
           "label": "failed_candidates"
         },
         {
-          "path": "src/bili_asr/storage/editorial.py",
-          "label": "EditorialRepository.recovery_status_for_job"
+          "path": "src/bili_asr/storage/workflow_retry.py",
+          "label": "editorial_retry_facts",
+          "line": 51,
+          "end_line": 104
         }
       ]
     },
@@ -220,7 +224,7 @@
       "from": "maintenance",
       "to": "repository",
       "y": 540,
-      "label": "proofread：冻结输入与预算 gate",
+      "label": "共享 decide_retry + 标量预算 gate",
       "variant": "security"
     },
     {
@@ -236,7 +240,7 @@
       "from": "repository",
       "to": "maintenance",
       "y": 625,
-      "label": "耗尽阻止；旧精确错误或免费重放",
+      "label": "剩余额度/完整响应；共享政策仍优先",
       "variant": "return"
     },
     {
@@ -343,6 +347,14 @@
       "items": [
         "timer 需要显式启用，不推进生产 scope",
         "常规 worker 保活、维护成功和锁竞争分别观测"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "统一恢复准入",
+      "items": [
+        "status / explain / workflow retry / maintenance 共用 failure_policy、decide_retry 与 editorial_retry_facts。",
+        "维护策略只进一步收紧 scope、allowlist、ledger 和 backoff；holds、活动替代与冻结物理预算仍优先。"
       ]
     }
   ]

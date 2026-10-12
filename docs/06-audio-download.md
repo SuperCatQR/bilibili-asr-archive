@@ -1,6 +1,6 @@
 # 音频来源、流式摘要与受保护登记
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [Archify 规格](06-audio-download.json) · [交互时序图](06-audio-download.html) · [全部时序图](architecture-sequences.md)
 
@@ -65,8 +65,8 @@ sequenceDiagram
 - [src/bili_asr/sources/bilibili_source.py:103](../src/bili_asr/sources/bilibili_source.py#L103)：BilibiliAudioSource。
 - [src/bili_asr/sources/protocols.py:81](../src/bili_asr/sources/protocols.py#L81)：AudioSource。
 - [src/bili_asr/audio.py:222](../src/bili_asr/audio.py#L222)：download_audio。
-- [src/bili_asr/bili_client.py:602](../src/bili_asr/bili_client.py#L602)：BiliClient.fetch_playurl_audio。
-- [src/bili_asr/bili_client.py:632](../src/bili_asr/bili_client.py#L632)：BiliClient.download_audio_stream。
+- [src/bili_asr/bili_client.py:609](../src/bili_asr/bili_client.py#L609)：BiliClient.fetch_playurl_audio。
+- [src/bili_asr/bili_client.py:639](../src/bili_asr/bili_client.py#L639)：BiliClient.download_audio_stream。
 - [src/bili_asr/storage/workflow.py:342](../src/bili_asr/storage/workflow.py#L342)：WorkflowRepository.owned_transaction。
 
 ## 平台与准确输入

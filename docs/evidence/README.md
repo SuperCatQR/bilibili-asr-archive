@@ -13,6 +13,7 @@
 
 | 报告 | 范围 |
 | --- | --- |
+| [主线图表历史验收 JSON](architecture-main-validation-2026-10-12.json) | 35 张图绑定 3ed823c；原始验收与实现测试口径，供保留图复核 |
 | [失败恢复修复 · 2026-10-12](workflow-failure-recovery-2026-10-12.md) | #365–367、状态/政策/诊断、相关回归与完整 Windows 运行的实际失败 |
 
 ## ASR 质量与性能

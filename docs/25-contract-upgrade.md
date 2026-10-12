@@ -1,6 +1,6 @@
 # 冻结契约路径、保真转换与新目标安装
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互图](25-contract-upgrade.html) · [JSON 规格](25-contract-upgrade.json) · [时序索引](architecture-sequences.md)
 
@@ -49,7 +49,7 @@ op->>upgrade: 停写、checkpoint 后 upgrade-plan；源/产物/目标互不包�
 - [src/bili_asr/cli/archive.py:1](../src/bili_asr/cli/archive.py#L1)：模块定义。
 - [src/bili_asr/services/archive_upgrade.py:140](../src/bili_asr/services/archive_upgrade.py#L140)：plan_upgrade。
 - [src/bili_asr/services/archive_upgrade.py:255](../src/bili_asr/services/archive_upgrade.py#L255)：apply_upgrade。
-- [src/bili_asr/contracts/registry.py:326](../src/bili_asr/contracts/registry.py#L326)：upgrade_path。
+- [src/bili_asr/contracts/registry.py:336](../src/bili_asr/contracts/registry.py#L336)：upgrade_path。
 - [src/bili_asr/services/archive_upgrade.py:73](../src/bili_asr/services/archive_upgrade.py#L73)：_inventory。
 - [src/bili_asr/services/archive_upgrade.py:217](../src/bili_asr/services/archive_upgrade.py#L217)：_convert。
 - [src/bili_asr/services/archive_upgrade.py:334](../src/bili_asr/services/archive_upgrade.py#L334)：check_upgrade。

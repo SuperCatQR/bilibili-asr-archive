@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -58,14 +58,14 @@
         },
         {
           "path": "src/bili_asr/services/workflow_status.py",
-          "line": 86,
-          "end_line": 137,
+          "line": 89,
+          "end_line": 145,
           "label": "workflow_status_report"
         },
         {
           "path": "src/bili_asr/services/workflow_retry.py",
-          "line": 141,
-          "end_line": 201,
+          "line": 144,
+          "end_line": 205,
           "label": "guarded_retry_failed"
         }
       ]
@@ -197,7 +197,7 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 419,
-          "end_line": 581,
+          "end_line": 604,
           "label": "ArchiveWorkflowHandlers._publish"
         },
         {
@@ -231,7 +231,7 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 1,
-          "end_line": 141,
+          "end_line": 146,
           "label": "模块定义"
         }
       ]
@@ -275,7 +275,7 @@
         {
           "path": "src/bili_asr/publication_export.py",
           "line": 1,
-          "end_line": 371,
+          "end_line": 480,
           "label": "模块定义"
         },
         {
@@ -352,9 +352,9 @@
         },
         {
           "path": "src/bili_asr/services/retry_maintenance.py",
-          "line": 145,
+          "line": 164,
           "label": "tick",
-          "end_line": 181
+          "end_line": 200
         },
         {
           "path": "src/bili_asr/storage/retry_maintenance.py",

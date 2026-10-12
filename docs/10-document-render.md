@@ -1,6 +1,6 @@
 # 确定性 AI 双稿、锁外暂存与保护登记
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](10-document-render.html) · [Archify 规格](10-document-render.json) · [全部时序图](architecture-sequences.md)
 
@@ -48,7 +48,7 @@ sequenceDiagram
 ## 源码证据
 
 - [src/bili_asr/storage/workflow.py:517](../src/bili_asr/storage/workflow.py#L517)：WorkflowRepository.request_document。
-- [src/bili_asr/editorial_runtime.py:106](../src/bili_asr/editorial_runtime.py#L106)：EditorialWorkflowHandlers.render。
+- [src/bili_asr/editorial_runtime.py:111](../src/bili_asr/editorial_runtime.py#L111)：EditorialWorkflowHandlers.render。
 - [src/bili_asr/manuscript_templates.py:84](../src/bili_asr/manuscript_templates.py#L84)：renderer_for。
 - [src/bili_asr/manuscript_templates.py:23](../src/bili_asr/manuscript_templates.py#L23)：render_ai_v1。
 - [src/bili_asr/manuscript_files.py:110](../src/bili_asr/manuscript_files.py#L110)：stage_artifact。
@@ -57,7 +57,7 @@ sequenceDiagram
 - [src/bili_asr/storage/job_commit.py:58](../src/bili_asr/storage/job_commit.py#L58)：JobCommitGuard.owned_transaction。
 - [src/bili_asr/storage/editorial.py:473](../src/bili_asr/storage/editorial.py#L473)：EditorialRepository.preflight_artifacts。
 - [src/bili_asr/storage/editorial.py:496](../src/bili_asr/storage/editorial.py#L496)：EditorialRepository.record_artifacts。
-- [src/bili_asr/storage/publication.py:246](../src/bili_asr/storage/publication.py#L246)：read_revision。
+- [src/bili_asr/storage/publication.py:249](../src/bili_asr/storage/publication.py#L249)：read_revision。
 
 - [src/bili_asr/publication_content_v2.py:170](../src/bili_asr/publication_content_v2.py#L170)：render_ai_v2。
 - [src/bili_asr/storage/editorial.py:21](../src/bili_asr/storage/editorial.py#L21)：template_for_input。

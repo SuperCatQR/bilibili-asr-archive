@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -35,7 +35,7 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 1,
-          "end_line": 619,
+          "end_line": 642,
           "label": "模块定义"
         }
       ]
@@ -104,14 +104,14 @@
       "sources": [
         {
           "path": "src/bili_asr/bili_client.py",
-          "line": 602,
-          "end_line": 630,
+          "line": 609,
+          "end_line": 637,
           "label": "BiliClient.fetch_playurl_audio"
         },
         {
           "path": "src/bili_asr/bili_client.py",
-          "line": 632,
-          "end_line": 657,
+          "line": 639,
+          "end_line": 664,
           "label": "BiliClient.download_audio_stream"
         }
       ]
@@ -123,14 +123,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 342,
+          "line": 341,
           "end_line": 350,
           "label": "WorkflowRepository.owned_transaction"
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 1,
-          "end_line": 619,
+          "end_line": 642,
           "label": "模块定义"
         }
       ]
@@ -365,7 +365,7 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "全部源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

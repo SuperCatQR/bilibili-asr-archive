@@ -1,31 +1,29 @@
 # 架构与时序图验证记录
 
-核对日期：2026-10-12（Asia/Hong_Kong）。固定源码 `3ed823c961736378d8408bba5f0535b03e0046e0` 来自独立分支 `codex/issue-reliability-metadata`，包含 #349/#350/#361 实现；不表示远端 main 或生产已更新。3 张架构图和 32 个时序流程，共 35 张图统一绑定该源码。机器记录见 [architecture-validation.json](architecture-validation.json)，覆盖见 [architecture-coverage.json](architecture-coverage.json)。
+核对日期：2026-10-12（Asia/Hong_Kong）。当前产品源码固定为 `0c62a0f511880e9d07bbf9505771ec15657995e7`，来自 `codex/workflow-failure-recovery` 合并分支，包含 #365/#366/#367 与主线 #349/#350/#361。共有 3 张架构图、33 个时序流程，即 36 张交互图；主线维护流程 32 保留，失败恢复为流程 33。机器清单见 [architecture-validation.json](architecture-validation.json)，源码覆盖见 [architecture-coverage.json](architecture-coverage.json)。
 
-## 生成与源码检查
+## 当前图件验收
 
-Archify 3.0.1 对全部 35 份最终 JSON 执行 `finalize --repo-root . --quality showcase`，每份均完成 validate、deliver、strict check 和真实 Chrome browser-check。逐份记录规格/HTML SHA-256 并核对最终收据与磁盘字节；浏览器尺寸和主题来自每张图自己的新回执。生成记录保留在忽略的 `.archify/issue-reliability-20261012/release/` 与 `release-sequences/`。JSON 保持原有 LF 字节约定，生成 HTML 未手工编辑。
+31 张受源码或政策变化影响的图已重定位源码符号和行范围，使用 Archify 3.0.1 完整执行 `finalize --repo-root . --quality showcase --json`。每张都有 9/9 showcase 检查、0 errors、0 warnings，并通过 validate、deliver、strict check、真实 Chrome browser-check 四道门禁。规格、HTML 和浏览器收据 SHA-256 与磁盘字节一致；每张记录自身的 1440×900、1600×1000、1920×1080、2048×1320 浏览器尺寸及主题检查。HTML 全部由工具生成。
 
-全景图保留 22 处路由交叉及绕路建议。按建议尝试了一次位置调整，但候选未通过布局检查，已恢复原布局并重新通过完整门禁；没有删除关系或缩短操作语义。AI 专题图保留 6 处绕路建议。自动浏览器检查与目视验收分别记录，本轮全部图的 perceptual visual review 为 `not_requested`。
+5 张源码引用未变的图保留原始 JSON/HTML 和主线历史收据：14 搜索索引、17 迁移预检、24 产物存储、26 ASR 批处理、27 引用备份。其源码身份仍为 `3ed823c961736378d8408bba5f0535b03e0046e0`，本次仅重新核对字节哈希和固定源码范围，没有将历史浏览器运行记作新运行。原始 35 图主线验收保存在 [历史机器记录](evidence/architecture-main-validation-2026-10-12.json)。当前清单逐图标明新收据或历史复用身份。
 
-从实际 parser/registry 核对 21 个顶层命令、88 条叶命令；从固定提交文件树核对 209 个 Python 模块。数据库资源与稳定契约未变：11 份 SQL 资源、50 项稳定契约、25 份 JSON Schema。新增维护器复用现有工作流与 editorial 审计表，不在运行中安装 DDL。所有图中源码范围逐项按固定 Git blob 核验，受影响符号按 AST 重定位；Markdown 本地链接、源码行号和完整 Mermaid 分支平衡检查数量记录在机器清单。
+本轮实际执行一次全景位置调整，仅交换 SQLite 与 GPU 节点所在行，保留所有节点、关系、方向、标签和来源。候选四门通过，但路由交叉由 22 增至 27，因此恢复原规格并重新完成四门验收，最终仍为 22 处交叉。AI 专题图的绕路建议保留。自动门禁不等于目视验收，本轮 perceptual visual review 均为 `not_requested`。原始收据位于忽略的 `.archify/failure-recovery-merge-20261012/`，当前清单记录每张的确切目录。Archify 已安装与可用版本均为 3.0.1，无更新提醒。
 
-## 实现与回归验证
+## 内容与来源核对
 
-- 归档主要相关回归：238 passed、3 skipped，覆盖请求、恢复、历史输入、来源元数据、出版回填、会话与架构边界。维护最终独立回归 23 passed；契约发布 gate 26 passed。
-- workflow 与升级结果复用补充检查的 45 个用例通过、1 skipped。两项 Windows 默认 GBK 解码失败使用与 CI 相同的 `PYTHONUTF8=1` 重查通过。退休模块测试由既有 collect_ignore 排除，不计入本轮已收集验证范围。
-- Ruff 阻塞 E9 全源/脚本/测试通过；compileall 使用外部 `PYTHONPYCACHEPREFIX` 通过，避免 Windows 受管工作树缓存目录权限问题。契约镜像核对通过：50 contracts、25 schemas。测试使用工作区外 TEMP、禁用 pytest cacheprovider，未绕过业务断言或强制退出测试进程。
-- 持久预算 fence、maintenance holds、Reader observedAt 绑定分别做过条件变异：回归测试发现错误，随后恢复原逻辑并跑绿。
-- Reader 配套提交 `4a5933c743a05d067ce719b63c04cb9dfbc5ab6c` 的 184 个测试通过；真实生产者生成的 v2 fixture 构建和 320/390/1440 Chromium 简介展示检查通过。归档导出政策及旧 v1 格式保持，阅读站新增准确 v1/v2 tuple 和字段证据验证。
+实际 parser/registry 为 21 个顶层命令、94 条叶命令；固定提交树为 218 个 Python 模块、12 份 SQL 资源。稳定契约 54 项、JSON Schema 26 份。新增 rights SQL 是显式初始化且默认关闭的可选扩展，不并入基础表契约；maintenance 复用现有工作流和 editorial 表，不在运行中安装 DDL。
 
-本轮五轴审查发现并修正了旧请求策略升级、缓存坏响应重放、调用完成时间被覆盖、耗尽块优先级、泛化 HTTP 错误误重试、首次退避 anchor、状态文件别名与维护健康前置检查等边界。成功块与旧 attempt 保留；物理调用和重排预算分别持久累计，未知发送不能获得免费预算。
+全部 36 图核对 441 项固定源码引用，其中 430 项显式行范围；本地 Markdown 链接、源码行号和 33 个完整 Mermaid 分支均逐项检查，最终数量记录在机器清单。来源符号按固定 Git blob 的 AST 重定位，未变图保持原来源身份。status、explain、CLI retry 与 maintenance 的文档和图件均使用共享 failure_policy、decide_retry 与 editorial_retry_facts；维护 allowlist 只收窄政策，校验错误和 lease recovery 不成为自动重排特例。
+
+## 合并实现验证
+
+父代理提供的集成源码验证对应 `08a56ecfe79cebf16b1eda7680233acd6d454bf2`：本地 focused 回归 315 passed、2 skipped，补充回归 63 passed，Ruff E9、compileall 和契约镜像检查通过；相关政策与物理预算条件变异被测试捕获，原逻辑恢复后跑绿。
+
+[Linux 集成 CI run 38230792994](https://github.com/SuperCatQR/bilibili-asr-archive/actions/runs/38230792994) 的 8 项检查全部通过：四个测试分片、quality、security、package、coverage。合计 3357 passed、11 skipped、0 failed/errors；一个分片有 1 条 warning。产品行覆盖率为 84.89%（22413/26401），分支覆盖率为 74.50%（7089/9516），超过 75%/63% 门槛。此证据绑定该集成代码提交；最终文档提交的 CI 由交付流程另行记录，不冒充已经运行。
+
+主线历史测试、Reader 配套检查与生产/硬件边界保留原身份，见 [历史图表机器记录](evidence/architecture-main-validation-2026-10-12.json) 和 [实测索引](evidence/README.md)。部署政策模板单独修正为允许 deepseek_transport_failed/历史 DeepSeekTransportError、两次重试与 [0,600] 退避，空 selector 仍须操作员填写；它没有改变产品源码身份。
 
 ## 交付边界
 
-当前是两个本地独立分支的实现与文档交付。未执行生产 timer 启用、生产重排、历史简介批量回填、真实付费 API、OpenCode Go 参数生效测试或 FP8 GPU 验收。维护上线须按 [交接手册](operations/retry-maintenance.md)保留旧 holds/累计 ledger 并停用旧 retry writer。#302 FP8、原生 v2 与单篇多字段简介补齐继续按明确范围延期。
-
-历史验收仍见 [evidence/README.md](evidence/README.md)，保留各自原提交、日期和运行边界。新的浏览器回执不替代人工语义审核、完整生产往返、GPU 性能、远程 SSH 或外部部署验证。
-
-## 本次合并尚待重新验收
-
-上面的35张图与源码身份是主分支历史验收。合并保留主分支流程32，新失败恢复流程改为33；04/09/30和三张架构图规范已叠加失败政策语义，其现有 HTML/旧回执不作为新规范通过的证据。完整合并源码提交固定后须重新绑定受影响源码范围、生成并核对规格与 HTML 哈希，逐项完成 finalize 四道 gate，再替换当前验收清单。
+文档描述合并分支中的实现与已完成验收，不表示生产 timer 已启用或生产任务已重排。本轮没有执行历史批量回填、付费 API、OpenCode Go 参数实网生效或 FP8 GPU 验收。维护上线按 [交接手册](operations/retry-maintenance.md)保留旧 holds/累计 ledger，停用旧 retry writer，并使用同一个现有锁。浏览器收据不能替代生产往返、GPU 性能、远程 SSH 或外部部署验证。

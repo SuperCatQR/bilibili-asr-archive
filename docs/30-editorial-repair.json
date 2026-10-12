@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,7 +23,7 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 1,
-          "end_line": 477,
+          "end_line": 482,
           "label": "模块定义"
         }
       ]
@@ -35,14 +35,14 @@
       "sources": [
         {
           "path": "src/bili_asr/services/workflow_status.py",
-          "line": 86,
-          "end_line": 137,
+          "line": 89,
+          "end_line": 145,
           "label": "workflow_status_report"
         },
         {
           "path": "src/bili_asr/services/workflow_status.py",
-          "line": 140,
-          "end_line": 149,
+          "line": 148,
+          "end_line": 158,
           "label": "explain_workflow_job"
         }
       ],
@@ -69,7 +69,7 @@
         {
           "path": "src/bili_asr/storage/editorial.py",
           "line": 36,
-          "end_line": 378,
+          "end_line": 504,
           "label": "EditorialRepository"
         },
         {
@@ -88,7 +88,7 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 1,
-          "end_line": 130,
+          "end_line": 146,
           "label": "模块定义"
         }
       ],
@@ -102,7 +102,7 @@
         {
           "path": "src/bili_asr/deepseek.py",
           "line": 1,
-          "end_line": 178,
+          "end_line": 193,
           "label": "模块定义"
         }
       ],
@@ -275,7 +275,7 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 813982215dab490ca462f991a5b440bd2ef19621；2026-10-12 核对。",
+        "全部源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

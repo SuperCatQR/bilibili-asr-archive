@@ -1,99 +1,105 @@
 # 当前源码、命令与契约覆盖
 
-固定源码 `3ed823c961736378d8408bba5f0535b03e0046e0`；2026-10-12（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 21 个顶层命令、88 条实际叶命令、209 个 Python 模块、11 份 SQL 资源、50 项稳定契约和 25 份 JSON Schema。
+固定源码 `0c62a0f511880e9d07bbf9505771ec15657995e7`；2026-10-12（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 21 个顶层命令、94 条实际叶命令、218 个 Python 模块、12 份 SQL 资源、54 项稳定契约和 26 份 JSON Schema。
 
 ## 全部实际命令路径
 
 | 命令 | 登记入口 |
 | --- | --- |
-| `workflow plan` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow proofread` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow repair-proofread` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow render` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow run` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow supervise` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow status` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow cancel` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow publish` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow explain` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow asr-evidence` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow asr-performance` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow retry` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow repair-dependencies` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `retry-maintenance tick` | _cmd_retry_maintenance；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `retry-maintenance health` | _cmd_retry_maintenance；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `publication create` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication edit` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication sync-source-tags` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication review` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication publish` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication withdraw` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication show` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication export` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication export-drafts` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved install` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved plan` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved apply` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved check` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source install` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source plan` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source apply` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source check` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication series validate` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication series show` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication series edit` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `editorial export` | _cmd_editorial；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `snapshot save` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot check` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot inspect` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot plan` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot doctor` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot restore` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive migration-preflight` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive init` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive migrate` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive migration-check` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-paths` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive derive-vtt` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-plan` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-apply` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-check` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `artifacts inventory` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts plan` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts upgrade` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts capture-groups` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts restore-group` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts status` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts policy-show` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts policy-set` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts policy-run` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts bind-target` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts transfer` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts restore` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts reconcile` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts check` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `remote prepare` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `remote probe` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `remote push` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `remote restore` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference save` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference inspect` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference check` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference plan` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference restore` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `source doctor` | _cmd_source；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `source import` | _cmd_source；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `dedup report` | _cmd_dedup；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `fetch-meta` | _cmd_fetch_meta；registry 的默认数据库模式为 bootstrap，子命令/flag 可覆盖 |
-| `fetch-tags` | _cmd_fetch_tags；registry 的默认数据库模式为 bootstrap，子命令/flag 可覆盖 |
-| `status` | _cmd_status；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `runs` | _cmd_runs；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `search` | _cmd_search；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `search-index` | _cmd_search_index；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `coverage` | _cmd_coverage；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `verify` | _cmd_verify；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `export` | _cmd_export；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `check-asr-env` | _cmd_check_asr_env；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
+| `workflow plan` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow proofread` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow repair-proofread` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow render` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow run` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow supervise` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow status` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow cancel` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow publish` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow explain` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow asr-evidence` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow asr-performance` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow retry` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow repair-dependencies` | _cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `retry-maintenance tick` | _cmd_retry_maintenance；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `retry-maintenance health` | _cmd_retry_maintenance；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `publication rights init` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights show` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights grant` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights revoke` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights hold` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights clear` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication create` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication edit` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication sync-source-tags` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication review` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication publish` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication withdraw` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication show` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication export` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication export-drafts` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved install` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved plan` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved apply` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved check` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source install` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source plan` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source apply` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source check` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication series validate` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication series show` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication series edit` | _cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `editorial export` | _cmd_editorial；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `snapshot save` | _cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot check` | _cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot inspect` | _cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot plan` | _cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot doctor` | _cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot restore` | _cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive migration-preflight` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive init` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive migrate` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive migration-check` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-paths` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive derive-vtt` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-plan` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-apply` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-check` | _cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `artifacts inventory` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts plan` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts upgrade` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts capture-groups` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts restore-group` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts status` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts policy-show` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts policy-set` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts policy-run` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts bind-target` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts transfer` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts restore` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts reconcile` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts check` | _cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `remote prepare` | _cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `remote probe` | _cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `remote push` | _cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `remote restore` | _cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference save` | _cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference inspect` | _cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference check` | _cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference plan` | _cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference restore` | _cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `source doctor` | _cmd_source；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `source import` | _cmd_source；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `dedup report` | _cmd_dedup；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `fetch-meta` | _cmd_fetch_meta；registry 默认数据库模式为 ArchiveAccessMode.BOOTSTRAP，子命令/flag 可覆盖 |
+| `fetch-tags` | _cmd_fetch_tags；registry 默认数据库模式为 ArchiveAccessMode.BOOTSTRAP，子命令/flag 可覆盖 |
+| `status` | _cmd_status；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `runs` | _cmd_runs；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `search` | _cmd_search；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `search-index` | _cmd_search_index；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `coverage` | _cmd_coverage；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `verify` | _cmd_verify；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `export` | _cmd_export；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `check-asr-env` | _cmd_check_asr_env；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
 
 ## 完整 Python 模块
 
@@ -149,13 +155,16 @@
 | [src/bili_asr/cli/publication.py](../src/bili_asr/cli/publication.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/registry.py](../src/bili_asr/cli/registry.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/remote_storage.py](../src/bili_asr/cli/remote_storage.py) | src/bili_asr/cli |
+| [src/bili_asr/cli/rights.py](../src/bili_asr/cli/rights.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/search.py](../src/bili_asr/cli/search.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/snapshot.py](../src/bili_asr/cli/snapshot.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/source.py](../src/bili_asr/cli/source.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/status_cmd.py](../src/bili_asr/cli/status_cmd.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/workflow.py](../src/bili_asr/cli/workflow.py) | src/bili_asr/cli |
+| [src/bili_asr/compliance.py](../src/bili_asr/compliance.py) | src/bili_asr |
 | [src/bili_asr/concurrency_gate.py](../src/bili_asr/concurrency_gate.py) | src/bili_asr |
 | [src/bili_asr/config.py](../src/bili_asr/config.py) | src/bili_asr |
+| [src/bili_asr/content_rights.py](../src/bili_asr/content_rights.py) | src/bili_asr |
 | [src/bili_asr/contracts/__init__.py](../src/bili_asr/contracts/__init__.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/__main__.py](../src/bili_asr/contracts/__main__.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/content_policies.py](../src/bili_asr/contracts/content_policies.py) | src/bili_asr/contracts |
@@ -188,6 +197,7 @@
 | [src/bili_asr/page_identity.py](../src/bili_asr/page_identity.py) | src/bili_asr |
 | [src/bili_asr/path_policy.py](../src/bili_asr/path_policy.py) | src/bili_asr |
 | [src/bili_asr/persistence.py](../src/bili_asr/persistence.py) | src/bili_asr |
+| [src/bili_asr/platform_access.py](../src/bili_asr/platform_access.py) | src/bili_asr |
 | [src/bili_asr/platform_identity.py](../src/bili_asr/platform_identity.py) | src/bili_asr |
 | [src/bili_asr/process_environment.py](../src/bili_asr/process_environment.py) | src/bili_asr |
 | [src/bili_asr/proofread.py](../src/bili_asr/proofread.py) | src/bili_asr |
@@ -259,6 +269,8 @@
 | [src/bili_asr/services/workflow_application.py](../src/bili_asr/services/workflow_application.py) | src/bili_asr/services |
 | [src/bili_asr/services/workflow_audio_access.py](../src/bili_asr/services/workflow_audio_access.py) | src/bili_asr/services |
 | [src/bili_asr/services/workflow_projection.py](../src/bili_asr/services/workflow_projection.py) | src/bili_asr/services |
+| [src/bili_asr/services/workflow_retry.py](../src/bili_asr/services/workflow_retry.py) | src/bili_asr/services |
+| [src/bili_asr/services/workflow_status.py](../src/bili_asr/services/workflow_status.py) | src/bili_asr/services |
 | [src/bili_asr/source_identity.py](../src/bili_asr/source_identity.py) | src/bili_asr |
 | [src/bili_asr/source_metadata.py](../src/bili_asr/source_metadata.py) | src/bili_asr |
 | [src/bili_asr/source_supplements.py](../src/bili_asr/source_supplements.py) | src/bili_asr |
@@ -295,12 +307,15 @@
 | [src/bili_asr/storage/upgrade_evidence.py](../src/bili_asr/storage/upgrade_evidence.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow.py](../src/bili_asr/storage/workflow.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow_dependency_repair.py](../src/bili_asr/storage/workflow_dependency_repair.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/workflow_retry.py](../src/bili_asr/storage/workflow_retry.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow_selection.py](../src/bili_asr/storage/workflow_selection.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/workflow_status.py](../src/bili_asr/storage/workflow_status.py) | src/bili_asr/storage |
 | [src/bili_asr/storage_targets.py](../src/bili_asr/storage_targets.py) | src/bili_asr |
 | [src/bili_asr/subtitle_policy.py](../src/bili_asr/subtitle_policy.py) | src/bili_asr |
 | [src/bili_asr/transcript_selection.py](../src/bili_asr/transcript_selection.py) | src/bili_asr |
 | [src/bili_asr/workflow.py](../src/bili_asr/workflow.py) | src/bili_asr |
 | [src/bili_asr/workflow_errors.py](../src/bili_asr/workflow_errors.py) | src/bili_asr |
+| [src/bili_asr/workflow_failure_policy.py](../src/bili_asr/workflow_failure_policy.py) | src/bili_asr |
 | [src/bili_asr/workflow_models.py](../src/bili_asr/workflow_models.py) | src/bili_asr |
 | [src/bili_asr/workflow_payloads.py](../src/bili_asr/workflow_payloads.py) | src/bili_asr |
 | [src/bili_asr/workflow_planning.py](../src/bili_asr/workflow_planning.py) | src/bili_asr |
@@ -438,6 +453,9 @@
 - [src/bili_asr/storage/schema-source-sync.sql](../src/bili_asr/storage/schema-source-sync.sql)
 - [src/bili_asr/storage/schema-transcripts.sql](../src/bili_asr/storage/schema-transcripts.sql)
 - [src/bili_asr/storage/schema-workflow.sql](../src/bili_asr/storage/schema-workflow.sql)
+- [src/bili_asr/storage/schema-rights.sql](../src/bili_asr/storage/schema-rights.sql)
 - [src/bili_asr/storage/schema.sql](../src/bili_asr/storage/schema.sql)
 
-可选 preserved-body、来源补充、artifact-storage 和 artifact-online 必须按已登记精确组合显式安装；不代表所有归档都有全部表。动态 FTS transcript_fts 与 metadata 表是可重建消费对象。完整 PK/FK/CHECK、版本指纹及升级边以安装包 contracts 与 storage/archive_contracts 为准。
+可选 preserved-body、来源补充、artifact-storage、artifact-online 和 rights 必须按已登记精确组合显式安装；不代表所有归档都有全部表。动态 FTS transcript_fts 与 metadata 表是可重建消费对象。完整 PK/FK/CHECK、版本指纹及升级边以安装包 contracts 与 storage/archive_contracts 为准。
+
+rights 扩展保存 content_rights_events 的 append-only grant/revoke/hold/clear 证据，明确安装后才能使用；默认关闭的策略不会因合并自动启用。其版本和消费者见 [契约登记](contracts/registry.json)。

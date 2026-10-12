@@ -1,13 +1,13 @@
 # 契约治理与兼容边界
 
-当前源码核对基线为 `3ed823c961736378d8408bba5f0535b03e0046e0`。
+当前源码核对基线为 `0c62a0f511880e9d07bbf9505771ec15657995e7`。
 [交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述契约登记、校验、
 历史保真与文档发布边界；现行图表检查见[架构验证记录](architecture-validation.md)。
 
 ## 权威来源与责任
 
-`src/bili_asr/contracts/registry.py` 登记 50 项契约的稳定身份、owner、authority、consumers、
-capabilities 和 dependencies，其中 25 项有可执行 JSON Schema。
+`src/bili_asr/contracts/registry.py` 登记 54 项契约的稳定身份、owner、authority、consumers、
+capabilities 和 dependencies，其中 26 项有可执行 JSON Schema。
 登记记录是检索入口：数据库表结构仍由所属 SQL 和专用检查器定义，稿件内容身份仍由所属纯函数定义。
 它不负责执行数据库初始化、来源采集、迁移或调度。
 

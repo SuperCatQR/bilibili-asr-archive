@@ -11,14 +11,24 @@ The policy is versioned JSON. It names exact job or part IDs and explicit job
 kinds, one allowlist of transient error codes per kind, a retry count, one
 delay per retry, and a maintenance interval. The first delay starts at the
 latest failed attempt's completion time; later delays start at the ledger's
-last reserved retry time. Source quality failures,
+last reserved retry time. The stricter delay from the shared policy and the reviewed maintenance
+schedule applies. Source quality failures,
 publication timestamp contract failures, cancellation, payment responses, and
 unknown errors are not retryable. The advisory error category on a source
 workflow attempt is evidence for investigation, never proof of silent audio.
-Proofread jobs additionally require the editorial repository's recovery gate.
-New inputs honor the persisted physical call budget; historical inputs permit
-only proven cross-paragraph failures to retry their original request under the
-job ledger, or free replay of a complete response. The maintenance pass never
+Status, explain, CLI retry and maintenance share `failure_policy`,
+`decide_retry` and the scalar `editorial_retry_facts` projection. Maintenance
+allowlists can only narrow the shared automatic policy; validation failures,
+lease recovery and unknown codes cannot be enabled by adding them to a policy.
+Database attempts remain a lower bound on spent job retries. The external
+ledger, holds, backoff, active or successful replacement jobs and the frozen
+physical call budget can further deny dispatch. Proofread jobs additionally
+require the scalar editorial physical-budget gate.
+New inputs honor the persisted physical call budget. Historical frozen inputs
+and their original request policy remain unchanged; the shared automatic
+policy still denies validation errors. Investigate them through explicit repair
+or a reviewed manual retry. A complete saved response can be replayed without
+a new provider call, subject to the same job-level admission decision. The maintenance pass never
 rewrites a historical input or enables a new regeneration policy. A hold always
 wins over an allowlist.
 
@@ -93,3 +103,11 @@ the same attempt remains failed, maintenance reports
 `reservation_requires_review`; reconcile SQLite and the retained evidence
 before an explicit operational decision. Neither process restart nor changing
 job attempt IDs resets cumulative retry counts.
+
+The checked deployment policy example allows `deepseek_transport_failed` and
+the historical `DeepSeekTransportError` only, with two retries and delays
+`[0,600]`, within the shared three-attempt cap. Fill its empty selectors with
+reviewed exact jobs or parts before enabling it. `RevisionValidationError`,
+`lease_expired`, HTTP 402 and generic `DeepSeekError` remain denied. The template
+correction is an independent deployment change; it does not rewrite product
+source, retained attempts or production state.

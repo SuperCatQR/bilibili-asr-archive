@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -58,8 +58,8 @@
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 291,
-          "end_line": 370,
+          "line": 292,
+          "end_line": 371,
           "label": "prepare_input"
         }
       ]
@@ -86,7 +86,7 @@
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 342,
+          "line": 341,
           "end_line": 350,
           "label": "WorkflowRepository.owned_transaction"
         },
@@ -113,8 +113,8 @@
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 98,
-          "end_line": 128,
+          "line": 110,
+          "end_line": 146,
           "label": "DeepSeekClient.complete"
         }
       ]
@@ -135,14 +135,14 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 41,
-          "end_line": 54,
+          "line": 46,
+          "end_line": 59,
           "label": "EditorialWorkflowHandlers.proofread"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 390,
-          "end_line": 453,
+          "line": 403,
+          "end_line": 473,
           "label": "validate_revision"
         },
         {
@@ -219,8 +219,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 106,
-          "end_line": 141,
+          "line": 111,
+          "end_line": 146,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -242,7 +242,7 @@
         {
           "path": "src/bili_asr/publication.py",
           "line": 1,
-          "end_line": 182,
+          "end_line": 188,
           "label": "模块定义"
         }
       ]
@@ -263,8 +263,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 237,
-          "end_line": 340,
+          "line": 240,
+          "end_line": 348,
           "label": "add_publication_parser"
         }
       ]
@@ -286,7 +286,7 @@
         {
           "path": "src/bili_asr/publication.py",
           "line": 123,
-          "end_line": 168,
+          "end_line": 174,
           "label": "publish_edition"
         },
         {
@@ -320,7 +320,7 @@
         {
           "path": "src/bili_asr/storage/publication.py",
           "line": 23,
-          "end_line": 240,
+          "end_line": 243,
           "label": "PublicationRepository"
         }
       ]
@@ -342,7 +342,7 @@
         {
           "path": "src/bili_asr/publication.py",
           "line": 123,
-          "end_line": 168,
+          "end_line": 174,
           "label": "publish_edition"
         }
       ]
@@ -363,20 +363,20 @@
       "sources": [
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 91,
-          "end_line": 145,
+          "line": 160,
+          "end_line": 238,
           "label": "export_publications"
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 148,
-          "end_line": 231,
+          "line": 241,
+          "end_line": 340,
           "label": "export_publication_drafts"
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 282,
-          "end_line": 371,
+          "line": 391,
+          "end_line": 480,
           "label": "export_editorial"
         }
       ]
@@ -397,8 +397,8 @@
       "sources": [
         {
           "path": "src/bili_asr/export_snapshot.py",
-          "line": 431,
-          "end_line": 513,
+          "line": 472,
+          "end_line": 557,
           "label": "replace_snapshot"
         }
       ]

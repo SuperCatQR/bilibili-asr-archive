@@ -1,6 +1,6 @@
 # AI、完整版本与出版架构
 
-当前核对源码 `3ed823c961736378d8408bba5f0535b03e0046e0`；2026-10-12（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[32 个时序](architecture-sequences.md)。
+当前核对源码 `0c62a0f511880e9d07bbf9505771ec15657995e7`；2026-10-12（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[33 个时序](architecture-sequences.md)。
 
 当前输入/content v1/v2 与模板按保存版本分派；导出先校验 wheel 内 Schema，再核验真实来源、revision、引用、文件集合与 hash。冻结输入重用和显式失败修复见 [30](30-editorial-repair.md)；保留旧正文、immutable origin 和来源补充见 [28](28-preserved-body.md)；bundle 回填与文章简介补充的两条操作链见 [31](31-source-metadata-migration.md)；编辑确认系列见 [29](29-publication-series.md)。artifact catalog 使准确历史双稿可保留/恢复，生产状态与驻留分开。
 
@@ -142,4 +142,4 @@ CLI 经 WorkflowApplication 编排；显式校对的固定 input 与两个任务
 编辑失败的响应解析与结构校验保存有界 stage/reason、位置和计数；状态不读取原响应正文。
 配置、余额、源质量和模型输出错误不自动重试。重试仍用原冻结输入，修复创建新输入与
 任务链；旧失败和 hold 保留，成功替代任务在报告中关联。明确外部控制、预算和事务复验
-见 [失败恢复时序](32-workflow-failure-recovery.md) 和 [操作说明](operations/workflow-failures.md)。
+见 [失败恢复时序](33-workflow-failure-recovery.md) 和 [操作说明](operations/workflow-failures.md)。

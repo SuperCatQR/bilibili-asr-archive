@@ -1,6 +1,6 @@
 # 冻结失败诊断、显式修复与输入重用
 
-源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互图](30-editorial-repair.html) · [JSON 规格](30-editorial-repair.json) · [时序索引](architecture-sequences.md)
 

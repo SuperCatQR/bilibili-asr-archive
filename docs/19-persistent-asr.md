@@ -1,6 +1,6 @@
 # 持久 GPU 会话：租约、热模型与故障回收
 
-源码固定于提交 `3ed823c961736378d8408bba5f0535b03e0046e0`。Mermaid 保留条件、循环与内部动作；HTML 展开跨参与者消息，完整说明见卡片。
+源码固定于提交 `0c62a0f511880e9d07bbf9505771ec15657995e7`。Mermaid 保留条件、循环与内部动作；HTML 展开跨参与者消息，完整说明见卡片。
 
 Worker 父进程在 claim 前完成准确候选的输入准入与模型准备，再领取任务、续约并提交权威状态，ASR Handler 读取冻结 profile、音频依赖与配对字幕，解析可验证的运行时模型绑定后构造本次推理身份。GPU 子进程只持有模型和任务输入，不连接 SQLite。每次请求同时绑定 `protocol=1`、会话 `generation`、随机 `request_id`、`job_id`、`owner`、`attempt_count`、`profile_digest` 与 `runtime_binding`，父端逐项比较响应并在响应前后执行 checkpoint；数据库写入又独立检查当前 owner、attempt、running 状态与未过期租约。推理响应通过不等于任务已经完成，转录保存、发布排队及尝试终态仍必须分别通过围栏。
 
@@ -109,7 +109,7 @@ drain 文件或停止信号先停止领取新任务，活动推理在宽限期�
 - [src/bili_asr/workflow_supervisor.py:1](../src/bili_asr/workflow_supervisor.py#L1)：模块定义。
 - [src/bili_asr/storage/job_commit.py:23](../src/bili_asr/storage/job_commit.py#L23)：JobCommitGuard.assert_lease。
 - [src/bili_asr/storage/workflow.py:262](../src/bili_asr/storage/workflow.py#L262)：WorkflowRepository.claim。
-- [src/bili_asr/storage/workflow.py:820](../src/bili_asr/storage/workflow.py#L820)：WorkflowRepository._terminal。
+- [src/bili_asr/storage/workflow.py:827](../src/bili_asr/storage/workflow.py#L827)：WorkflowRepository._terminal。
 - [src/bili_asr/workflow_runtime.py:118](../src/bili_asr/workflow_runtime.py#L118)：ArchiveWorkflowHandlers._inference_checkpoint。
 - [src/bili_asr/workflow_runtime.py:279](../src/bili_asr/workflow_runtime.py#L279)：ArchiveWorkflowHandlers.local_asr。
 - [src/bili_asr/runtime_bindings.py:95](../src/bili_asr/runtime_bindings.py#L95)：ModelBindings._checkpoint。
