@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "96c5502119829119abce42a59804b79431895a98",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -31,7 +31,7 @@
         {
           "path": "src/bili_asr/cli/registry.py",
           "line": 1,
-          "end_line": 77,
+          "end_line": 80,
           "label": "模块定义"
         }
       ]
@@ -39,7 +39,7 @@
     {
       "id": "workflow",
       "label": "Workflow 控制",
-      "sublabel": "规划、依赖、attempt 与租约",
+      "sublabel": "调度 / lease / 失败观测与恢复",
       "type": "backend",
       "pos": [
         470,
@@ -52,9 +52,21 @@
       "sources": [
         {
           "path": "src/bili_asr/services/workflow_application.py",
-          "line": 37,
-          "end_line": 222,
+          "line": 30,
+          "end_line": 219,
           "label": "WorkflowApplication"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 89,
+          "end_line": 145,
+          "label": "workflow_status_report"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_retry.py",
+          "line": 144,
+          "end_line": 205,
+          "label": "guarded_retry_failed"
         }
       ]
     },
@@ -73,9 +85,21 @@
       ],
       "sources": [
         {
-          "path": "src/bili_asr/storage/archive_contracts.py",
+          "path": "src/bili_asr/storage/archive_validation.py",
           "line": 1,
-          "end_line": 138,
+          "end_line": 11,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/storage/schema_contract.py",
+          "line": 1,
+          "end_line": 155,
+          "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/storage/extension_contracts.py",
+          "line": 1,
+          "end_line": 219,
           "label": "模块定义"
         }
       ]
@@ -96,8 +120,8 @@
       "sources": [
         {
           "path": "src/bili_asr/services/source_workflow.py",
-          "line": 20,
-          "end_line": 172,
+          "line": 45,
+          "end_line": 198,
           "label": "SourceWorkflowHandlers"
         }
       ]
@@ -118,9 +142,15 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 279,
-          "end_line": 287,
+          "line": 258,
+          "end_line": 266,
           "label": "ArchiveWorkflowHandlers.local_asr"
+        },
+        {
+          "path": "src/bili_asr/artifact_child.py",
+          "line": 1,
+          "end_line": 31,
+          "label": "模块定义"
         }
       ]
     },
@@ -184,8 +214,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 419,
-          "end_line": 581,
+          "line": 398,
+          "end_line": 570,
           "label": "ArchiveWorkflowHandlers._publish"
         },
         {
@@ -219,8 +249,14 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 1,
-          "end_line": 141,
+          "end_line": 147,
           "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/services/editorial_application.py",
+          "line": 9,
+          "end_line": 37,
+          "label": "freeze_job_input"
         }
       ]
     },
@@ -243,6 +279,12 @@
           "line": 1,
           "end_line": 77,
           "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/storage/artifact_policies.py",
+          "line": 1,
+          "end_line": 25,
+          "label": "模块定义"
         }
       ]
     },
@@ -263,7 +305,7 @@
         {
           "path": "src/bili_asr/publication_export.py",
           "line": 1,
-          "end_line": 371,
+          "end_line": 481,
           "label": "模块定义"
         },
         {
@@ -340,9 +382,9 @@
         },
         {
           "path": "src/bili_asr/services/retry_maintenance.py",
-          "line": 145,
+          "line": 164,
           "label": "tick",
-          "end_line": 181
+          "end_line": 200
         },
         {
           "path": "src/bili_asr/storage/retry_maintenance.py",
@@ -551,6 +593,25 @@
         "retry-maintenance 是显式周期服务；worker 存活、维护成功与锁竞争分别观测。",
         "沿用已有 holds/累计 ledger；范围、allowlist、backoff 和准确 attempt CAS 限制重排，先扣额后派发。",
         "模型逐块 physical budget 在 HTTP 前持久预留，成功块/有效响应重用，耗尽停止；legacy 请求保持。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失败政策与外部控制",
+      "items": [
+        "jobs、attempts、失败窗口、holds 与替代任务分别统计；状态和 dry-run 只读。",
+        "自动恢复仅允许明确 transient；控制未知、hold、预算、退避和替代链阻止重排。",
+        "错误码与安全 stage/reason 在生产边界保存；旧输入、attempt 和原响应证据保留。"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "模块责任与事务所有权",
+      "items": [
+        "CLI registry 直接声明 handler_module，facade 延迟加载；help 先解析后打开持久能力。",
+        "schema_contract / archive_validation / extension_contracts 分离基础与可选验证；workflow_outputs、artifact_policies/releases 负责写入。",
+        "editorial_application 冻结输入、关联任务和 render binding 共用 owned transaction；file_ops 统一锁/fsync/原子替换。",
+        "来源 ports 与 CaptionPolicy 独立；artifact_child/fences 隔离子进程，profile_codec 固定历史 profile 身份。"
       ]
     }
   ]

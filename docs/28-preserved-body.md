@@ -1,6 +1,6 @@
 # 保留旧正文、来源补充与重新审核
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互图](28-preserved-body.html) · [JSON 规格](28-preserved-body.json) · [时序索引](architecture-sequences.md)
 
@@ -51,12 +51,12 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/publication.py:1](../src/bili_asr/cli/publication.py#L1)：模块定义。
-- [src/bili_asr/services/preserved_body_import.py:132](../src/bili_asr/services/preserved_body_import.py#L132)：plan_preserved_body_import。
-- [src/bili_asr/services/preserved_body_import.py:237](../src/bili_asr/services/preserved_body_import.py#L237)：apply_preserved_body_import。
-- [src/bili_asr/services/import_staging.py:1](../src/bili_asr/services/import_staging.py#L1)：模块定义。
-- [src/bili_asr/storage/import_origins.py:1](../src/bili_asr/storage/import_origins.py#L1)：模块定义。
-- [src/bili_asr/services/source_supplement.py:53](../src/bili_asr/services/source_supplement.py#L53)：plan_source_supplement。
-- [src/bili_asr/services/source_supplement.py:169](../src/bili_asr/services/source_supplement.py#L169)：apply_source_supplement，整批复验及 pending-review 子版。
-- [src/bili_asr/services/source_supplement.py:39](../src/bili_asr/services/source_supplement.py#L39)：check_source_supplement。
-- [src/bili_asr/storage/source_supplements.py:70](../src/bili_asr/storage/source_supplements.py#L70)：capture_description，真实已存值与逐字段采集时间。
+- [src/bili_asr/cli/publication.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/publication.py#L1)：模块定义。
+- [src/bili_asr/services/preserved_body_import.py:132](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/preserved_body_import.py#L132)：plan_preserved_body_import。
+- [src/bili_asr/services/preserved_body_import.py:237](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/preserved_body_import.py#L237)：apply_preserved_body_import。
+- [src/bili_asr/services/import_staging.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/import_staging.py#L1)：模块定义。
+- [src/bili_asr/storage/import_origins.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/import_origins.py#L1)：模块定义。
+- [src/bili_asr/services/source_supplement.py:53](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/source_supplement.py#L53)：plan_source_supplement。
+- [src/bili_asr/services/source_supplement.py:169](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/source_supplement.py#L169)：apply_source_supplement，整批复验及 pending-review 子版。
+- [src/bili_asr/services/source_supplement.py:39](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/source_supplement.py#L39)：check_source_supplement。
+- [src/bili_asr/storage/source_supplements.py:70](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/source_supplements.py#L70)：capture_description，真实已存值与逐字段采集时间。

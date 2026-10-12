@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import re
+from collections import Counter
 
 from bili_asr.workflow_errors import JobExecutionError
 
@@ -26,8 +26,11 @@ def check_source_quality(prepared: dict) -> None:
         repeats = max(counts.values(), default=0)
         if repeats >= 24:
             raise JobExecutionError("editorial_source_repetition", {
+                "stage": "source_quality", "reason_code": "dense_repeated_segment",
                 "transcript_id": prepared["snapshot"]["base"]["transcript_id"],
                 "segment_ordinal": ordinal, "start_ms": segment["start_ms"],
                 "end_ms": segment["end_ms"], "characters": len(text),
                 "repeated_fourgram_count": repeats,
+                "minimum_characters": 1000, "density_limit_chars_per_second": 100,
+                "minimum_repeated_fourgrams": 24,
             })

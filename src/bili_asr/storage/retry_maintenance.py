@@ -10,7 +10,7 @@ def failed_candidates(connection, *, job_ids, part_ids, kinds):
             where.append(column + " IN (" + ",".join("?" for _ in selector) + ")")
             values.extend(selector)
     return [dict(row) for row in connection.execute(
-        "SELECT j.job_id,j.kind,j.video_part_id,j.attempt_count,j.last_error_code,"
+        "SELECT j.job_id,j.kind,j.video_part_id,j.attempt_count,j.last_error_code,j.available_at,"
         "a.attempt_id,a.outcome,a.error_code,a.finished_at FROM workflow_jobs j "
         "JOIN workflow_attempts a ON a.rowid = (SELECT MAX(rowid) FROM workflow_attempts WHERE job_id=j.job_id) "
         "WHERE " + " AND ".join(where) + " ORDER BY j.job_id", values)]

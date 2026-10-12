@@ -1,6 +1,6 @@
 # ASR 执行分派、冻结输入与受保护结果
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互图](07-asr-runtime.html) · [JSON 规格](07-asr-runtime.json) · [时序索引](architecture-sequences.md)
 
@@ -61,9 +61,9 @@ handler->>db: 读取精确 audio prerequisite result、冻结 profile 与参考�
 
 ## 源码证据
 
-- [src/bili_asr/workflow_runtime.py:279](../src/bili_asr/workflow_runtime.py#L279)：ArchiveWorkflowHandlers.local_asr。
-- [src/bili_asr/storage/transcripts.py:331](../src/bili_asr/storage/transcripts.py#L331)：TranscriptRepository.record_local_transcript。
-- [src/bili_asr/services/workflow_audio_access.py:1](../src/bili_asr/services/workflow_audio_access.py#L1)：模块定义。
-- [src/bili_asr/asr/session.py:154](../src/bili_asr/asr/session.py#L154)：AsrInferenceSession。
-- [src/bili_asr/asr/runner.py:214](../src/bili_asr/asr/runner.py#L214)：ASRRunner。
-- [src/bili_asr/asr/backend.py:1](../src/bili_asr/asr/backend.py#L1)：模块定义。
+- [src/bili_asr/workflow_runtime.py:279](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime.py#L279)：ArchiveWorkflowHandlers.local_asr。
+- [src/bili_asr/storage/transcripts.py:331](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/transcripts.py#L331)：TranscriptRepository.record_local_transcript。
+- [src/bili_asr/services/workflow_audio_access.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_audio_access.py#L1)：模块定义。
+- [src/bili_asr/asr/session.py:154](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/asr/session.py#L154)：AsrInferenceSession。
+- [src/bili_asr/asr/runner.py:214](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/asr/runner.py#L214)：ASRRunner。
+- [src/bili_asr/asr/backend.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/asr/backend.py#L1)：模块定义。

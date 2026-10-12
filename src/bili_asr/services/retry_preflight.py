@@ -21,7 +21,8 @@ def _preview(connection, policy: RetryPolicy, state: dict, candidate: dict, now:
     reason = retry_skip_reason(connection, policy, state, candidate, now)
     return {"job_id": job_id, "attempt_id": candidate["attempt_id"],
             "action": "skipped" if reason else "would_requeue",
-            **({"reason": reason} if reason else {}), "retries_used": entry["retries"]}
+            **({"reason": reason} if reason else {}),
+            "retries_used": max(entry["retries"], candidate["attempt_count"] - 1)}
 
 
 def preflight(*, archive_root, policy_path: Path, state_path: Path, lock_path: Path,

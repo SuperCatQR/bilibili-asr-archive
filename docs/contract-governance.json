@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0"
+      "revision": "96c5502119829119abce42a59804b79431895a98"
     }
   },
   "components": [
@@ -28,8 +28,8 @@
       "sources": [
         {
           "path": "src/bili_asr/export_snapshot.py",
-          "line": 188,
-          "end_line": 273,
+          "line": 170,
+          "end_line": 294,
           "label": "_validate_snapshot"
         }
       ]
@@ -50,7 +50,7 @@
       "sources": [
         {
           "path": "src/bili_asr/contracts/json_schema.py",
-          "line": 27,
+          "line": 26,
           "end_line": 37,
           "label": "schema_registry"
         },
@@ -66,7 +66,7 @@
       "id": "schemas",
       "type": "database",
       "label": "入包 Schema",
-      "sublabel": "25 份版本明确的结构定义",
+      "sublabel": "26 份版本明确的结构定义",
       "pos": [
         770,
         150
@@ -83,8 +83,8 @@
         },
         {
           "path": "pyproject.toml",
-          "line": 94,
-          "end_line": 98
+          "line": 90,
+          "end_line": 92
         }
       ]
     },
@@ -104,14 +104,14 @@
       "sources": [
         {
           "path": "src/bili_asr/export_snapshot.py",
-          "line": 101,
-          "end_line": 151,
+          "line": 83,
+          "end_line": 133,
           "label": "_validate_article_semantics"
         },
         {
           "path": "src/bili_asr/export_snapshot.py",
-          "line": 188,
-          "end_line": 273,
+          "line": 170,
+          "end_line": 294,
           "label": "_validate_snapshot"
         }
       ]
@@ -132,13 +132,13 @@
       "sources": [
         {
           "path": "src/bili_asr/contracts/registry.py",
-          "line": 27,
-          "end_line": 34
+          "line": 29,
+          "end_line": 36
         },
         {
           "path": "src/bili_asr/contracts/registry.py",
-          "line": 152,
-          "end_line": 159
+          "line": 164,
+          "end_line": 171
         }
       ]
     },
@@ -187,12 +187,12 @@
         {
           "path": "src/bili_asr/storage/snapshots.py",
           "line": 144,
-          "end_line": 170
+          "end_line": 173
         },
         {
           "path": "src/bili_asr/storage/snapshots.py",
           "line": 144,
-          "end_line": 170
+          "end_line": 173
         }
       ]
     },
@@ -213,13 +213,13 @@
         {
           "path": "src/bili_asr/contracts/fingerprints.py",
           "line": 6,
-          "end_line": 22,
+          "end_line": 25,
           "label": "database_fingerprint"
         },
         {
           "path": "src/bili_asr/contracts/database-fingerprints.json",
           "line": 1,
-          "end_line": 22
+          "end_line": 43
         }
       ]
     },
@@ -249,8 +249,8 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "line": 125,
-          "end_line": 152
+          "line": 1,
+          "end_line": 399
         }
       ]
     },
@@ -369,7 +369,7 @@
       "dot": "cyan",
       "title": "统一登记与结构",
       "items": [
-        "50 项登记记录主要稳定边界的责任、权威定义和消费者",
+        "54 项登记记录主要稳定边界的责任、权威定义和消费者",
         "全部 Schema 引用从安装包离线解析；未知版本拒绝",
         "旧 wire 契约保留；新 profile 按登记版本分派"
       ]
@@ -390,6 +390,23 @@
         "固定指纹阻止当前 SQL 悄悄重定义已有快照身份",
         "历史 fixture 只展开已提交 ZIP / JSON，不调用当前 writer",
         "镜像按字节校验；wheel 安装测试校验真实入包资源"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "失败与恢复契约",
+      "items": [
+        "workflow-failure-policy/v1：纯分类与有限重试政策。",
+        "workflow-failure-status/v1：安全只读投影；workflow-retry-control/v1：显式库外证据。",
+        "三个 Python 权威契约不增加 SQL 表或 JSON Schema；总计 54 契约 / 26 Schema。"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "schema 与身份责任",
+      "items": [
+        "schema_contract 提供 schema 原语；archive_validation 组合基础与 extension_contracts，读取不安装 DDL。",
+        "contracts/identities 与 profile_codec 固定历史身份；版本化 renderer 保留出版字节，owner 调整不改变存储契约。"
       ]
     }
   ]

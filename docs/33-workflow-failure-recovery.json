@@ -1,0 +1,353 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "失败观测、政策决定与受保护恢复",
+    "locale": "zh-CN",
+    "output": "docs/33-workflow-failure-recovery.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "96c5502119829119abce42a59804b79431895a98",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "operator",
+      "label": "操作入口",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 286,
+          "end_line": 488,
+          "label": "_execute_workflow"
+        }
+      ],
+      "sublabel": "操作员 / 控制器"
+    },
+    {
+      "id": "status",
+      "label": "状态与恢复",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 89,
+          "end_line": 145,
+          "label": "workflow_status_report"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 26,
+          "end_line": 59,
+          "label": "_project"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 62,
+          "end_line": 86,
+          "label": "_recovery"
+        }
+      ],
+      "sublabel": "只读投影"
+    },
+    {
+      "id": "retry",
+      "label": "受保护重试",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_retry.py",
+          "line": 92,
+          "end_line": 141,
+          "label": "decide_retry"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_retry.py",
+          "line": 144,
+          "end_line": 205,
+          "label": "guarded_retry_failed"
+        }
+      ],
+      "sublabel": "决策与复验"
+    },
+    {
+      "id": "policy",
+      "label": "错误政策",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_failure_policy.py",
+          "line": 11,
+          "end_line": 21,
+          "label": "FailurePolicy"
+        },
+        {
+          "path": "src/bili_asr/workflow_failure_policy.py",
+          "line": 118,
+          "end_line": 135,
+          "label": "failure_policy"
+        }
+      ],
+      "sublabel": "纯函数 / 有限预算"
+    },
+    {
+      "id": "database",
+      "label": "SQLite",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow_status.py",
+          "line": 62,
+          "end_line": 74,
+          "label": "counts"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow_retry.py",
+          "line": 6,
+          "end_line": 24,
+          "label": "retry_candidates"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow_retry.py",
+          "line": 40,
+          "end_line": 48,
+          "label": "requeue_decided_job"
+        }
+      ],
+      "sublabel": "jobs / attempts"
+    },
+    {
+      "id": "controls",
+      "label": "显式控制文件",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_retry.py",
+          "line": 48,
+          "end_line": 89,
+          "label": "load_control_state"
+        }
+      ],
+      "sublabel": "holds / ledger"
+    }
+  ],
+  "messages": [
+    {
+      "id": "inspect",
+      "from": "operator",
+      "to": "status",
+      "y": 190,
+      "label": "status / explain",
+      "variant": "emphasis",
+      "note": "窗口、分页和失败筛选；文本与JSON共享一份报告。"
+    },
+    {
+      "id": "status-controls",
+      "from": "status",
+      "to": "controls",
+      "y": 236,
+      "label": "有界读取控制文件",
+      "variant": "security",
+      "note": "未提供或缺少holds/ledger保持not_provided；不假定为空。"
+    },
+    {
+      "id": "status-facts",
+      "from": "status",
+      "to": "database",
+      "y": 282,
+      "label": "一致只读快照",
+      "variant": "default",
+      "note": "当前失败jobs、历史failed attempts独立聚合；按finished_at使用[since,until)窗口；分页诊断有界且再次脱敏。"
+    },
+    {
+      "id": "status-decision",
+      "from": "status",
+      "to": "retry",
+      "y": 328,
+      "label": "投影只读重试决定",
+      "variant": "default",
+      "note": "结合控制状态、attempt_count下限、外部ledger、退避和替代任务；不执行重排。"
+    },
+    {
+      "id": "status-policy",
+      "from": "retry",
+      "to": "policy",
+      "y": 374,
+      "label": "按原错误码分类",
+      "variant": "security",
+      "note": "动态未知异常与旧泛化DeepSeekError不自动重试；历史错误码不改写。"
+    },
+    {
+      "id": "status-policy-return",
+      "from": "policy",
+      "to": "retry",
+      "y": 420,
+      "label": "政策与默认预算",
+      "variant": "return"
+    },
+    {
+      "id": "status-decision-return",
+      "from": "retry",
+      "to": "status",
+      "y": 466,
+      "label": "资格 / 拒绝原因",
+      "variant": "return",
+      "note": "未提供完整控制状态时，自动可重试总量和holds数量显示未知。"
+    },
+    {
+      "id": "status-return",
+      "from": "status",
+      "to": "operator",
+      "y": 512,
+      "label": "安全诊断与恢复模板",
+      "variant": "return",
+      "note": "不输出原模型响应、转录正文、密钥或外部hold原因；可跟踪保留失败任务的替代链。"
+    },
+    {
+      "id": "retry-request",
+      "from": "operator",
+      "to": "retry",
+      "y": 558,
+      "label": "明确模式与选择器",
+      "variant": "emphasis",
+      "note": "自动/手动重试；manual override要求准确一个job-id及有界非空理由；hold与活跃替代任务不可绕过。"
+    },
+    {
+      "id": "retry-controls",
+      "from": "retry",
+      "to": "controls",
+      "y": 604,
+      "label": "读取摘要与控制证据",
+      "variant": "security",
+      "note": "控制文件只读；仅明确没有外部控制时可使用no-control-state。"
+    },
+    {
+      "id": "retry-snapshot",
+      "from": "retry",
+      "to": "database",
+      "y": 650,
+      "label": "检查任务与最新attempt",
+      "variant": "default",
+      "note": "冻结已检查job快照；查询repair_of_job_id关系；新出现的失败任务不得加入已检查批次。"
+    },
+    {
+      "id": "retry-policy",
+      "from": "retry",
+      "to": "policy",
+      "y": 696,
+      "label": "取得政策与预算",
+      "variant": "security"
+    },
+    {
+      "id": "retry-policy-return",
+      "from": "policy",
+      "to": "retry",
+      "y": 742,
+      "label": "分类与恢复动作",
+      "variant": "return"
+    },
+    {
+      "id": "dry-run-return",
+      "from": "retry",
+      "to": "operator",
+      "y": 788,
+      "label": "dry-run：返回逐项决定",
+      "variant": "return",
+      "note": "条件：dry-run；allowed/reason为当前证据决定，不写数据库或控制文件。"
+    },
+    {
+      "id": "writer-fence",
+      "from": "retry",
+      "to": "database",
+      "y": 834,
+      "label": "实际恢复：获取写锁",
+      "variant": "emphasis",
+      "note": "条件：非dry-run；JobCommitGuard BEGIN IMMEDIATE内复查当前job/attempt与替代关系。"
+    },
+    {
+      "id": "recheck-controls",
+      "from": "retry",
+      "to": "controls",
+      "y": 880,
+      "label": "再次检查控制摘要",
+      "variant": "security",
+      "note": "不完整控制、hold、未知/禁止政策、耗尽预算、退避、活跃替代任务或job改变拒绝对应重排；控制变化拒绝并回滚批次。"
+    },
+    {
+      "id": "requeue-exact",
+      "from": "retry",
+      "to": "database",
+      "y": 926,
+      "label": "仅允许的failed任务排队",
+      "variant": "emphasis",
+      "note": "条件：复验后allowed；更新准确job status=queued/available_at，清lease及当前错误；保留所有attempts、冻结输入、模型调用和原失败证据。"
+    },
+    {
+      "id": "commit-controls",
+      "from": "retry",
+      "to": "controls",
+      "y": 972,
+      "label": "提交前再核对摘要",
+      "variant": "security",
+      "note": "外部文件写入者仍须串行协调；摘要复验不提供跨文件与SQLite的原子事务。"
+    },
+    {
+      "id": "retry-return",
+      "from": "retry",
+      "to": "operator",
+      "y": 1018,
+      "label": "数量 / 每项拒绝或重排",
+      "variant": "return",
+      "note": "政策拒绝或条件不满足的任务保持原状态；没有执行中的重试循环；后续worker独立claim新attempt。"
+    }
+  ],
+  "segments": [
+    {
+      "from": 170,
+      "to": 535,
+      "label": "观测：独立统计与只读决定"
+    },
+    {
+      "from": 545,
+      "to": 835,
+      "label": "恢复：先检查，dry-run不写入"
+    },
+    {
+      "from": 845,
+      "to": 1045,
+      "label": "实际恢复：写锁内复验与保留证据"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "失败维度不可相加",
+      "items": [
+        "当前failed jobs和历史failed attempts分别计数，成功重试不抹去历史。",
+        "窗口按finished_at使用半开范围；缺少完整外部控制时重试资格与hold数量为未知。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "自动重试与修复边界",
+      "items": [
+        "仅已知短暂网络、408/429和5xx进入有限预算与退避。",
+        "402/认证、来源重复、校对契约与出版契约失败默认停止自动重试；来源修复保留原失败。",
+        "手动override需要准确单job与理由；不得清除hold或绕过活跃替代任务。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "提交与外部控制",
+      "items": [
+        "实际重排在SQLite写锁内复验已检查任务；控制摘要在检查后与提交前再核对。",
+        "外部控制始终只读；文件写入者需串行协调，摘要检查不是跨介质原子事务。",
+        "后续worker另行claim；重排保留全部attempts和冻结输入，不改写时间轴或模型证据。"
+      ]
+    }
+  ]
+}

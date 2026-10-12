@@ -1,6 +1,6 @@
 # 快照恢复：完整校验、暂存改写与安装审计
 
-源码固定于 `3ed823c961736378d8408bba5f0535b03e0046e0`。[打开交互时序图](20-recovery-plan.html)、[查看最终图规格](20-recovery-plan.json)、[查看交付验证收据](architecture-validation.md)。以下 Mermaid 保留最终 JSON 的全部 24 条消息及顺序；条件块说明仅 `plan` 或指定 `--report` 时发生的步骤。
+源码固定于 `0c62a0f511880e9d07bbf9505771ec15657995e7`。[打开交互时序图](20-recovery-plan.html)、[查看最终图规格](20-recovery-plan.json)、[查看交付验证收据](architecture-validation.md)。以下 Mermaid 保留最终 JSON 的全部 24 条消息及顺序；条件块说明仅 `plan` 或指定 `--report` 时发生的步骤。
 
 ```mermaid
 sequenceDiagram
@@ -100,19 +100,19 @@ CLI 遇到异常、`data_complete=false` 或 `target_ready=false` 返回失败�
 
 ## 源码依据
 
-以下全部链接固定到完整提交 SHA `3ed823c961736378d8408bba5f0535b03e0046e0`，覆盖六个参与者及上述条件边界。[验证记录](architecture-validation.md)记录最终 JSON / HTML 摘要、四项交付门禁和自动浏览器证据；这些证据对应交互图，不声称完成了人工视觉评审。
+以下全部链接固定到完整提交 SHA `0c62a0f511880e9d07bbf9505771ec15657995e7`，覆盖六个参与者及上述条件边界。[验证记录](architecture-validation.md)记录最终 JSON / HTML 摘要、四项交付门禁和自动浏览器证据；这些证据对应交互图，不声称完成了人工视觉评审。
 
 | 依据 | 固定源码与行号 |
 | --- | --- |
-| CLI 命令、参数和退出码 | [cli/snapshot.py:13–87](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/snapshot.py#L13-L87) |
-| 本机工具、包、设备、凭据名和模型可用性 | [services/archive_recovery.py:38–123](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/archive_recovery.py#L38-L123) |
-| 批量任务事实、状态优先级及就绪度 | [services/archive_recovery.py:126–220](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/archive_recovery.py#L126-L220) |
-| 恢复预览及只读计划、稳定快照与空间检查 | [services/archive_recovery.py:227–278](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/archive_recovery.py#L227-L278) |
-| 已安装归档的只读 doctor | [services/archive_recovery.py:280–316](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/archive_recovery.py#L280-L316) |
-| manifest、ZIP 成员及 bundle 完整标记验证 | [services/archive_snapshot.py:260–358](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/archive_snapshot.py#L260-L358) |
-| 全字节校验与临时 DB 只读提取生命周期 | [services/archive_snapshot.py:327–368](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/archive_snapshot.py#L327-L368) |
-| 维护锁、暂存恢复、报告独占创建、安装及安装后警告 | [services/archive_snapshot.py:388–453](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/archive_snapshot.py#L388-L453) |
-| DB 契约及引用完整性入口 | [storage/snapshots.py:173–211](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/snapshots.py#L173-L211) |
-| 逐实体恢复预览、单事务改写与历史保留 | [storage/snapshots.py:379–440](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/snapshots.py#L379-L440) |
-| 运行时绑定的冻结身份、文件库存及摘要验证 | [runtime_bindings.py:79–178](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/runtime_bindings.py#L79-L178) |
-| 可选绑定文件加载与错误边界 | [runtime_bindings.py:181–188](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/runtime_bindings.py#L181-L188) |
+| CLI 命令、参数和退出码 | [cli/snapshot.py:13–87](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/snapshot.py#L13-L87) |
+| 本机工具、包、设备、凭据名和模型可用性 | [services/archive_recovery.py:38–123](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_recovery.py#L38-L123) |
+| 批量任务事实、状态优先级及就绪度 | [services/archive_recovery.py:126–220](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_recovery.py#L126-L220) |
+| 恢复预览及只读计划、稳定快照与空间检查 | [services/archive_recovery.py:227–278](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_recovery.py#L227-L278) |
+| 已安装归档的只读 doctor | [services/archive_recovery.py:280–316](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_recovery.py#L280-L316) |
+| manifest、ZIP 成员及 bundle 完整标记验证 | [services/archive_snapshot.py:260–358](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_snapshot.py#L260-L358) |
+| 全字节校验与临时 DB 只读提取生命周期 | [services/archive_snapshot.py:327–368](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_snapshot.py#L327-L368) |
+| 维护锁、暂存恢复、报告独占创建、安装及安装后警告 | [services/archive_snapshot.py:388–453](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_snapshot.py#L388-L453) |
+| DB 契约及引用完整性入口 | [storage/snapshots.py:173–211](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/snapshots.py#L173-L211) |
+| 逐实体恢复预览、单事务改写与历史保留 | [storage/snapshots.py:379–440](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/snapshots.py#L379-L440) |
+| 运行时绑定的冻结身份、文件库存及摘要验证 | [runtime_bindings.py:79–178](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/runtime_bindings.py#L79-L178) |
+| 可选绑定文件加载与错误边界 | [runtime_bindings.py:181–188](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/runtime_bindings.py#L181-L188) |

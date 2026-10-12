@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -41,8 +41,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 41,
-          "end_line": 54,
+          "line": 46,
+          "end_line": 59,
           "label": "EditorialWorkflowHandlers.proofread"
         },
         {
@@ -124,20 +124,20 @@
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 98,
-          "end_line": 128,
+          "line": 110,
+          "end_line": 146,
           "label": "DeepSeekClient.complete"
         },
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 131,
-          "end_line": 167,
+          "line": 149,
+          "end_line": 193,
           "label": "parse_response"
         },
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 23,
-          "end_line": 44,
+          "line": 35,
+          "end_line": 56,
           "label": "request_body"
         }
       ],
@@ -268,7 +268,7 @@
       "y": 1418,
       "label": "保存响应与校验诊断",
       "variant": "default",
-      "note": "finish_call 保留真实 envelope、usage 或有界错误与诊断；坏缓存校验失败后标为失败，不无限重放；取消后审计仍可落库；条件：loop 每个冻结块 / else 未完成块",
+      "note": "finish_call 保留真实 envelope、usage 或有界错误与诊断；坏缓存校验失败后标为失败，不无限重放；取消后审计仍可落库；条件：loop 每个冻结块 / else 未完成块；保存稳定 error_code、stage/reason、位置计数，不回显原模型正文",
       "from": "handler"
     },
     {
@@ -295,7 +295,7 @@
       "y": 1681,
       "label": "有界再生成或保留失败",
       "variant": "default",
-      "note": "deepseek-v2 对 cross_paragraph_reference 加持久诊断再生整个块，全部严格 validator 保持；其他失败或预算耗尽则 executor fail；已完成块与失败调用保留，重启/job retry 不重置额度；条件：loop 每个冻结块 / else 未完成块 / opt 请求或结构校验失败",
+      "note": "deepseek-v2 对 cross_paragraph_reference 加持久诊断再生整个块，全部严格 validator 保持；其他失败或预算耗尽则 executor fail；已完成块与失败调用保留，重启/job retry 不重置额度；条件：loop 每个冻结块 / else 未完成块 / opt 请求或结构校验失败；job 重排按统一 policy、hold、预算和退避准入，不能重置 input/chunk 物理额度",
       "from": "handler"
     },
     {
@@ -404,7 +404,16 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "全部源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 813982215dab490ca462f991a5b440bd2ef19621；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

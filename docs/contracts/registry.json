@@ -387,6 +387,68 @@
       "schema": null
     },
     {
+      "identity": "workflow-failure-policy/v1",
+      "owner": "workflow",
+      "authority": [
+        "src/bili_asr/workflow_failure_policy.py"
+      ],
+      "consumers": [
+        "services.workflow_retry",
+        "services.workflow_status",
+        "cli.workflow"
+      ],
+      "capabilities": [
+        "classify",
+        "retry-decision",
+        "historical-read"
+      ],
+      "dependencies": [
+        "workflow-payload/v1"
+      ],
+      "schema": null
+    },
+    {
+      "identity": "workflow-failure-status/v1",
+      "owner": "workflow",
+      "authority": [
+        "src/bili_asr/services/workflow_status.py",
+        "src/bili_asr/storage/workflow_status.py"
+      ],
+      "consumers": [
+        "cli.workflow",
+        "operator-tools"
+      ],
+      "capabilities": [
+        "read",
+        "report",
+        "diagnostic"
+      ],
+      "dependencies": [
+        "workflow-failure-policy/v1"
+      ],
+      "schema": null
+    },
+    {
+      "identity": "workflow-retry-control/v1",
+      "owner": "workflow",
+      "authority": [
+        "src/bili_asr/services/workflow_retry.py"
+      ],
+      "consumers": [
+        "cli.workflow",
+        "operator-tools"
+      ],
+      "capabilities": [
+        "read",
+        "validate",
+        "retry-decision"
+      ],
+      "dependencies": [
+        "workflow-failure-policy/v1"
+      ],
+      "schema": null
+    },
+    {
       "identity": "asr-profile/v2",
       "owner": "workflow",
       "authority": [

@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,10 +23,30 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 1,
-          "end_line": 436,
+          "end_line": 482,
           "label": "模块定义"
         }
       ]
+    },
+    {
+      "id": "status",
+      "label": "安全状态",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 89,
+          "end_line": 145,
+          "label": "workflow_status_report"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 148,
+          "end_line": 158,
+          "label": "explain_workflow_job"
+        }
+      ],
+      "sublabel": "状态与安全恢复投影"
     },
     {
       "id": "repair",
@@ -55,7 +75,7 @@
         {
           "path": "src/bili_asr/storage/workflow.py",
           "line": 39,
-          "end_line": 900,
+          "end_line": 909,
           "label": "WorkflowRepository"
         }
       ]
@@ -68,7 +88,7 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 1,
-          "end_line": 141,
+          "end_line": 146,
           "label": "模块定义"
         }
       ],
@@ -82,7 +102,7 @@
         {
           "path": "src/bili_asr/deepseek.py",
           "line": 1,
-          "end_line": 167,
+          "end_line": 193,
           "label": "模块定义"
         }
       ],
@@ -92,127 +112,145 @@
   "messages": [
     {
       "id": "m1",
-      "to": "db",
+      "from": "op",
+      "to": "status",
       "y": 235,
-      "label": "explain 失败任务与 input/chunk/…",
+      "label": "workflow status --faile…",
       "variant": "default",
-      "note": "explain 失败任务与 input/chunk/call 原始证据；条件：主流程",
-      "from": "op"
+      "note": "workflow status --failed 或 explain；显式控制状态；条件：主流程"
     },
     {
       "id": "m2",
-      "to": "repair",
+      "from": "status",
+      "to": "db",
       "y": 301,
-      "label": "显式 repair-proofread",
+      "label": "一致只读快照查询 jobs/attempts、…",
       "variant": "default",
-      "note": "显式 repair-proofread；使用新配置，不修改旧冻结输入；条件：主流程",
-      "from": "op"
+      "note": "一致只读快照查询 jobs/attempts、安全诊断和替代任务；条件：主流程"
     },
     {
       "id": "m3",
-      "to": "db",
+      "from": "status",
+      "to": "op",
       "y": 367,
-      "label": "验证 failed proofread、准确 par…",
-      "variant": "default",
-      "note": "验证 failed proofread、准确 part/base/reference；重建新输入身份；条件：主流程",
-      "from": "repair"
+      "label": "stage/reason、位置计数、政策、ho…",
+      "variant": "return",
+      "note": "stage/reason、位置计数、政策、hold/预算与恢复命令模板；条件：主流程"
     },
     {
       "id": "m4",
-      "to": "db",
+      "from": "op",
+      "to": "repair",
       "y": 433,
-      "label": "同事务保存新 input/proofread/ren…",
+      "label": "显式 repair-proofread",
       "variant": "default",
-      "note": "同事务保存新 input/proofread/render 与依赖；旧 attempt 保留；条件：主流程",
-      "from": "repair"
+      "note": "显式 repair-proofread；使用新配置，不修改旧冻结输入；条件：主流程"
     },
     {
       "id": "m5",
-      "to": "op",
+      "from": "repair",
+      "to": "db",
       "y": 499,
-      "label": "新任务图或明确拒绝",
-      "variant": "return",
-      "note": "新任务图或明确拒绝；条件：主流程",
-      "from": "repair"
+      "label": "验证 failed proofread、准确 …",
+      "variant": "default",
+      "note": "验证 failed proofread、准确 part/base/reference；重建新输入身份；条件：主流程"
     },
     {
       "id": "m6",
-      "to": "handler",
+      "from": "repair",
+      "to": "db",
       "y": 565,
-      "label": "run 新就绪任务",
+      "label": "同事务保存新 input/proofread/…",
       "variant": "default",
-      "note": "run 新就绪任务；恢复准确冻结输入；条件：主流程",
-      "from": "op"
+      "note": "同事务保存新 input/proofread/render 与依赖；旧 attempt 保留；条件：主流程"
     },
     {
       "id": "m7",
-      "to": "db",
+      "from": "repair",
+      "to": "op",
       "y": 631,
-      "label": "复用已验证冻结源",
-      "variant": "default",
-      "note": "复用已验证冻结源；重试不读取当前 mutable 元数据或文件；条件：主流程",
-      "from": "handler"
+      "label": "新任务图或明确拒绝",
+      "variant": "return",
+      "note": "新任务图或明确拒绝；条件：主流程"
     },
     {
       "id": "m8",
-      "to": "db",
-      "y": 762,
-      "label": "当前 attempt 的 lease 校验与调用审计",
-      "variant": "security",
-      "note": "当前 attempt 的 lease 校验与调用审计；条件：loop 尚未完成块",
-      "from": "handler"
+      "from": "op",
+      "to": "handler",
+      "y": 697,
+      "label": "run 新就绪任务",
+      "variant": "default",
+      "note": "run 新就绪任务；恢复准确冻结输入；条件：主流程"
     },
     {
       "id": "m9",
-      "to": "ai",
-      "y": 828,
-      "label": "锁外调用",
+      "from": "handler",
+      "to": "db",
+      "y": 763,
+      "label": "复用已验证冻结源",
       "variant": "default",
-      "note": "锁外调用；有界远端错误，无隐式请求重试；条件：loop 尚未完成块",
-      "from": "handler"
+      "note": "复用已验证冻结源；重试不读取当前 mutable 元数据或文件；条件：主流程"
     },
     {
       "id": "m10",
-      "to": "handler",
+      "from": "handler",
+      "to": "db",
       "y": 894,
-      "label": "真实响应、usage 或错误",
-      "variant": "return",
-      "note": "真实响应、usage 或错误；条件：loop 尚未完成块",
-      "from": "ai"
+      "label": "当前 attempt 的 lease 校验与调…",
+      "variant": "security",
+      "note": "当前 attempt 的 lease 校验与调用审计；条件：loop 尚未完成块"
     },
     {
       "id": "m11",
-      "to": "db",
+      "from": "handler",
+      "to": "ai",
       "y": 960,
-      "label": "审计后结构校验",
-      "variant": "security",
-      "note": "审计后结构校验；lease 围栏保存块；条件：loop 尚未完成块",
-      "from": "handler"
+      "label": "锁外调用",
+      "variant": "default",
+      "note": "锁外调用；有界远端错误，无隐式请求重试；条件：loop 尚未完成块"
     },
     {
       "id": "m12",
+      "from": "ai",
+      "to": "handler",
+      "y": 1026,
+      "label": "真实响应、usage 或错误",
+      "variant": "return",
+      "note": "真实响应、usage 或错误；条件：loop 尚未完成块"
+    },
+    {
+      "id": "m13",
+      "from": "handler",
       "to": "db",
-      "y": 1091,
+      "y": 1092,
+      "label": "审计后结构校验",
+      "variant": "security",
+      "note": "审计后结构校验；lease 围栏保存块；条件：loop 尚未完成块"
+    },
+    {
+      "id": "m14",
+      "from": "handler",
+      "to": "db",
+      "y": 1223,
       "label": "全块完成才保存完整 revision",
       "variant": "default",
-      "note": "全块完成才保存完整 revision；独立 render 执行；条件：主流程",
-      "from": "handler"
+      "note": "全块完成才保存完整 revision；独立 render 执行；条件：主流程"
     }
   ],
   "segments": [
     {
       "from": 207,
-      "to": 677,
+      "to": 809,
       "label": "B1 · 主流程"
     },
     {
-      "from": 734,
-      "to": 1006,
+      "from": 866,
+      "to": 1138,
       "label": "B2 · loop 尚未完成块"
     },
     {
-      "from": 1063,
-      "to": 1132,
+      "from": 1195,
+      "to": 1265,
       "label": "B3 · 主流程"
     }
   ],
@@ -221,23 +259,23 @@
       "dot": "cyan",
       "title": "完整条件路径",
       "items": [
-        "B1 条件路径：主流程",
-        "B2 条件路径：loop 尚未完成块",
-        "B3 条件路径：主流程"
+        "B1 · 主流程",
+        "B2 · loop 尚未完成块",
+        "B3 · 主流程"
       ]
     },
     {
       "dot": "emerald",
       "title": "内部动作",
       "items": [
-        "校对 Handler：重复性 ASR 输入 guard；失败保留诊断（主流程）"
+        "handler：重复性 ASR 输入 guard；失败保留诊断（主流程）"
       ]
     },
     {
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "全部源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

@@ -403,22 +403,39 @@ def test_download_return_after_cancellation_cannot_publish_audio_or_store_object
     assert not list((tmp_path / "audio").glob(".workflow-audio-*"))
 
 
-def test_proofread_api_return_after_cancellation_keeps_diagnostic_but_no_accepted_revision(database, tmp_path):
+@pytest.mark.parametrize("heartbeat_observes", [False, True])
+def test_proofread_api_return_after_cancellation_keeps_diagnostic_but_no_accepted_revision(
+    database, tmp_path, monkeypatch, heartbeat_observes,
+):
     insert_record(database, record())
     workflow = WorkflowRepository(database)
     repository = EditorialRepository(database)
     prepared = repository.prepare(1, None, EditorialConfig())
     proofread_id, render_id, _, _ = workflow.request_editorial(video_part_id=1, input_id=prepared["input_id"])
+    cancellation_observed = threading.Event()
+    renew = WorkflowRepository.renew_lease
+
+    def observe_cancellation(repository, job, *, lease_seconds):
+        try:
+            return renew(repository, job, lease_seconds=lease_seconds)
+        except JobCancelledError:
+            cancellation_observed.set()
+            raise
+
+    monkeypatch.setattr(WorkflowRepository, "renew_lease", observe_cancellation)
 
     class LateClient(FakeClient):
         def complete(self, request, config):
             _cancel_from_other_connection(tmp_path, proofread_id)
+            if heartbeat_observes:
+                assert cancellation_observed.wait(5), "heartbeat never observed committed cancellation"
             return envelope(no_changes(json.loads(request["messages"][1]["content"])))
 
     handlers = EditorialWorkflowHandlers(repository, workflow, archive_root=tmp_path, client=LateClient())
     try:
         summary = WorkflowExecutor(workflow, worker_id="proofreader", handlers=handlers.handlers(),
-                                   kinds=(JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT)).run()
+                                   kinds=(JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT),
+                                   heartbeat_interval_seconds=0.01).run()
     finally:
         handlers.close()
     assert (summary.succeeded, summary.failed, summary.cancelled) == (0, 0, 1)

@@ -85,6 +85,9 @@ def test_response_file_preserves_nodes_and_failure_status(monkeypatch, tmp_path)
 def test_real_pytest_reads_selection_and_only_builds_module_fixture_once(tmp_path):
     project = tmp_path / "test-project"
     project.mkdir()
+    # Keep collection node ids relative to this isolated project even when
+    # pytest's temporary root is inside the repository checkout.
+    (project / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     module = project / "test_sample.py"
     module.write_text('''import pytest
 from pathlib import Path

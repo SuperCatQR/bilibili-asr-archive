@@ -45,9 +45,9 @@ runner->>batch: 冻结 profile；ASR/alignment 大小默认 1，各自最多 8
 
 ## 源码证据
 
-- [src/bili_asr/asr/runner.py:214](../src/bili_asr/asr/runner.py#L214)：ASRRunner。
-- [src/bili_asr/asr/batching.py:31](../src/bili_asr/asr/batching.py#L31)：BatchExecutor。
-- [src/bili_asr/asr/preparation.py:1](../src/bili_asr/asr/preparation.py#L1)：模块定义。
-- [src/bili_asr/asr/backend.py:1](../src/bili_asr/asr/backend.py#L1)：模块定义。
-- [src/bili_asr/asr/strategies.py:22](../src/bili_asr/asr/strategies.py#L22)：RuntimeStrategies。
-- [src/bili_asr/asr/execution.py:88](../src/bili_asr/asr/execution.py#L88)：execution_policy。
+- [src/bili_asr/asr/runner.py:214](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/asr/runner.py#L214)：ASRRunner。
+- [src/bili_asr/asr/batching.py:31](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/asr/batching.py#L31)：BatchExecutor。
+- [src/bili_asr/asr/preparation.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/asr/preparation.py#L1)：模块定义。
+- [src/bili_asr/asr/backend.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/asr/backend.py#L1)：模块定义。
+- [src/bili_asr/asr/strategies.py:22](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/asr/strategies.py#L22)：RuntimeStrategies。
+- [src/bili_asr/asr/execution.py:88](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/asr/execution.py#L88)：execution_policy。

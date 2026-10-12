@@ -160,13 +160,13 @@ def test_preflight_checks_persisted_editorial_budget_without_provider_calls(tmp_
         files = seed_files(tmp_path)
         policy = policy_value()
         policy.update(job_ids=[job_id], part_ids=[], kinds=["proofread"],
-                      retryable_errors={"proofread": ["RevisionValidationError"]})
+                      retryable_errors={"proofread": ["deepseek_transport_failed"]})
         write_json(files["policy_path"], policy)
         with connection:
-            connection.execute("UPDATE workflow_jobs SET last_error_code='RevisionValidationError' WHERE job_id=?", (job_id,))
-            connection.execute("UPDATE workflow_attempts SET error_code='RevisionValidationError' WHERE job_id=?", (job_id,))
+            connection.execute("UPDATE workflow_jobs SET last_error_code='deepseek_transport_failed' WHERE job_id=?", (job_id,))
+            connection.execute("UPDATE workflow_attempts SET error_code='deepseek_transport_failed' WHERE job_id=?", (job_id,))
         preview = preflight(archive_root=tmp_path, **files)
-        assert preview["events"][0]["reason"] == "editorial_budget_or_policy"
+        assert preview["events"][0]["reason"] == "physical_budget_exhausted"
         assert workflow.explain_job(job_id)["status"] == "failed"
         assert read_json(files["state_path"])["retry_ledger"] == {}
     finally:
@@ -174,3 +174,30 @@ def test_preflight_checks_persisted_editorial_budget_without_provider_calls(tmp_
             next(generator)
         except StopIteration:
             pass
+
+
+def test_preflight_uses_database_attempt_budget_with_empty_ledger(archive, tmp_path):
+    root, connection, repository, job = archive
+    files = seed_files(tmp_path)
+    with connection:
+        connection.execute("UPDATE workflow_jobs SET attempt_count=3 WHERE job_id=?", (job.job_id,))
+    report = preflight(archive_root=root, **files, clock=lambda: 10000)
+    assert report["events"][0]["reason"] == "budget_exhausted"
+    assert report["events"][0]["retries_used"] == 2
+    assert tick(archive_root=root, **files, clock=lambda: 10000)["events"][0]["reason"] == "budget_exhausted"
+    assert read_json(files["state_path"])["retry_ledger"] == {}
+    assert repository.explain_job(job.job_id)["status"] == "failed"
+
+
+def test_preflight_reuses_shared_replacement_guard(archive, tmp_path):
+    root, connection, repository, job = archive
+    files = seed_files(tmp_path)
+    with connection:
+        connection.execute("""INSERT INTO workflow_jobs(job_id,kind,dedupe_key,payload_json,status,
+            available_at,created_at,updated_at) VALUES('repair','proofread','repair',?,'succeeded',0,0,0)""",
+            (json.dumps({'repair_of_job_id': job.job_id}),))
+    preview = preflight(archive_root=root, **files, clock=lambda: 10000)
+    assert preview["events"][0]["reason"] == "replacement_exists"
+    assert tick(archive_root=root, **files, clock=lambda: 10000)["events"][0]["reason"] == "replacement_exists"
+    assert read_json(files["state_path"])["retry_ledger"] == {}
+    assert repository.explain_job(job.job_id)["status"] == "failed"

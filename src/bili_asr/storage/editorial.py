@@ -266,7 +266,7 @@ class EditorialRepository:
             # failure. Here only prove that another reservation fits the frozen
             # budget; unknown sends remain consumed.
             if last["response"] is None and last["error_code"] in {
-                    None, "DeepSeekTransportError", "Timeout", "ReadTimeout", "ConnectTimeout",
+                    None, "DeepSeekTransportError", "deepseek_transport_failed", "Timeout", "ReadTimeout", "ConnectTimeout",
                     "ConnectionError", "ConnectionResetError", "RequestException",
                     "TransportError", "TimeoutError", "TimeoutException", "ConnectError",
                     "WriteTimeout", "PoolTimeout", "NetworkError", "RemoteProtocolError"}:

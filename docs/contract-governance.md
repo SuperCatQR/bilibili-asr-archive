@@ -1,13 +1,13 @@
 # 契约治理与兼容边界
 
-当前源码核对基线为 `3ed823c961736378d8408bba5f0535b03e0046e0`。
+当前源码核对基线为 `96c5502119829119abce42a59804b79431895a98`。
 [交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述契约登记、校验、
 历史保真与文档发布边界；现行图表检查见[架构验证记录](architecture-validation.md)。
 
 ## 权威来源与责任
 
-`src/bili_asr/contracts/registry.py` 登记 50 项契约的稳定身份、owner、authority、consumers、
-capabilities 和 dependencies，其中 25 项有可执行 JSON Schema。
+`src/bili_asr/contracts/registry.py` 登记 54 项契约的稳定身份、owner、authority、consumers、
+capabilities 和 dependencies，其中 26 项有可执行 JSON Schema。
 登记记录是检索入口：数据库表结构仍由所属 SQL 和专用检查器定义，稿件内容身份仍由所属纯函数定义。
 它不负责执行数据库初始化、来源采集、迁移或调度。
 
@@ -156,3 +156,10 @@ acceptance 证据。声明本身不能跳过矩阵：无路径、不连续路径
 发布说明使用 [版本发布模板](development/version-release-template.md)，列出行为变化、消费者版本、
 剩余能力、昂贵补算、源到目标路径、历史保真证明以及运行交接。需要对任意历史提交
 进行额外基线比较时，可向分片脚本传 `--contract-baseline-ref` 加完整 Git SHA。
+
+## 失败观测与受保护恢复
+
+workflow-failure-policy/v1 定义纯错误类别、准入、恢复动作和有限预算；workflow-failure-status/v1 定义 jobs/attempts/窗口与安全诊断投影；workflow-retry-control/v1 定义显式库外 controls 读取。三项均不安装基础数据库表、不改写旧错误码和冻结输入。周期 retry-maintenance 继续持久消耗自己的 ledger，模型再生成继续遵守 input/chunk 物理预算；不同预算不可相互重置。
+
+
+当前 schema 原语归 storage/schema_contract；archive_validation 组合基础与独立 extension_contracts 的验证，运行读取不安装 DDL。contracts/identities、profile_codec 和版本化 renderer 固定历史身份与出版字节；owner 重构没有改变 54 项稳定契约及 26 份 JSON Schema。原始修复范围见 [模块边界报告](development/module-coupling-fixes.md)。

@@ -30,7 +30,7 @@ bili-asr verify --archive-root archive --format json
 | `workflow status --jobs` | 查看任务状态、内部 ID、分 P 身份及取消造成的依赖阻塞。 |
 | `workflow cancel --job-id ID` | 原子取消指定 queued/running 任务；可重复 job ID，详细语义见取消指南。 |
 | `workflow asr-evidence --run-id ID --part-id ID` | 查询某次成功 ASR 的配置身份、输入来源与逐块运行诊断。 |
-| `workflow retry [--part-id ID]` | 仅重新排队 failed jobs，保留历史 attempts。 |
+| `workflow retry [--part-id ID]` | 按错误政策及显式控制状态重排合格的 failed jobs；保留历史 attempts。 |
 | `status` / `runs` | 查看元数据数量、工作流计数、元数据待办、游标及 ingestion runs。 |
 | `search` / `export` / `coverage` / `verify` | 从 SQLite 与产物读取搜索、导出、覆盖率和完整性投影；搜索索引更新是显式操作。 |
 
@@ -397,17 +397,19 @@ audio 失败后 ASR 保持 queued，blockers 指向 audio。修复下载配置�
 其成功后 ASR 自然满足依赖：
 
 ```sh
-bili-asr workflow retry --archive-root ./archive --job-id AUDIO_JOB_ID
+bili-asr workflow retry --archive-root ./archive --job-id AUDIO_JOB_ID --control-state ./production-ops/state.json --dry-run --json
 bili-asr workflow run --archive-root ./archive
 ```
 
 `retry` 只重排 failed 任务，保留 job 身份、attempt_count 与历史 attempts。
 `--job-id`、`--kind`、`--part-id` 均可重复：同一参数内是并集，不同参数之间取交集。
-不带筛选重排全部 failed；queued 的下游任务不需要 retry。
+不带筛选检查全部 failed，但只重排政策、hold、预算、退避和替代关系允许的任务；queued 的下游任务不需要 retry。
+控制文件未提供时不会猜测 holds 为空。实际无库外控制的部署可显式声明 `--no-control-state`。
+状态报告单独展示当前 jobs、历史 attempts、完成时间窗口和安全诊断，详见 [失败与恢复](operations/workflow-failures.md)。
 
 ```sh
-bili-asr workflow retry --archive-root ./archive --kind audio --part-id 42
-bili-asr workflow retry --archive-root ./archive --job-id JOB_ID --kind asr --part-id 42
+bili-asr workflow retry --archive-root ./archive --kind audio --part-id 42 --control-state ./production-ops/state.json
+bili-asr workflow retry --archive-root ./archive --job-id JOB_ID --kind asr --part-id 42 --control-state ./production-ops/state.json
 ```
 
 过期租约在下一次领取时回收，旧 attempt 记录 `lease_expired`。终态与续租验证

@@ -1,6 +1,6 @@
 # 读取投影、覆盖、完整性、普通导出与去重
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](13-projection-verify.html) · [Archify 规格](13-projection-verify.json) · [全部时序图](architecture-sequences.md)
 
@@ -73,25 +73,25 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/ops.py:150](../src/bili_asr/cli/ops.py#L150)：_cmd_verify。
-- [src/bili_asr/export.py:453](../src/bili_asr/export.py#L453)：export_records。
-- [src/bili_asr/cli/dedup.py:19](../src/bili_asr/cli/dedup.py#L19)：_cmd_dedup。
-- [src/bili_asr/services/workflow_projection.py:126](../src/bili_asr/services/workflow_projection.py#L126)：workflow_records。
-- [src/bili_asr/transcript_selection.py:40](../src/bili_asr/transcript_selection.py#L40)：choose_transcript。
-- [src/bili_asr/archive_session.py:64](../src/bili_asr/archive_session.py#L64)：ArchiveSession。
-- [src/bili_asr/services/workflow_projection.py:30](../src/bili_asr/services/workflow_projection.py#L30)：_part_batches。
-- [src/bili_asr/services/workflow_projection.py:56](../src/bili_asr/services/workflow_projection.py#L56)：_preferred_transcripts。
-- [src/bili_asr/services/workflow_projection.py:72](../src/bili_asr/services/workflow_projection.py#L72)：_latest_publications。
-- [src/bili_asr/coverage_report.py:71](../src/bili_asr/coverage_report.py#L71)：CoverageReport。
-- [src/bili_asr/integrity.py:52](../src/bili_asr/integrity.py#L52)：IntegrityVerifier。
-- [src/bili_asr/services/bundle_verification.py:62](../src/bili_asr/services/bundle_verification.py#L62)：verify_bundle。
-- [src/bili_asr/archive.py:253](../src/bili_asr/archive.py#L253)：archive_bundle_complete。
-- [src/bili_asr/dedup.py:1](../src/bili_asr/dedup.py#L1)：模块定义。
+- [src/bili_asr/cli/ops.py:154](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/ops.py#L154)：_cmd_verify。
+- [src/bili_asr/export.py:453](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/export.py#L453)：export_records。
+- [src/bili_asr/cli/dedup.py:19](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/dedup.py#L19)：_cmd_dedup。
+- [src/bili_asr/services/workflow_projection.py:126](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_projection.py#L126)：workflow_records。
+- [src/bili_asr/transcript_selection.py:40](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/transcript_selection.py#L40)：choose_transcript。
+- [src/bili_asr/archive_session.py:64](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/archive_session.py#L64)：ArchiveSession。
+- [src/bili_asr/services/workflow_projection.py:30](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_projection.py#L30)：_part_batches。
+- [src/bili_asr/services/workflow_projection.py:56](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_projection.py#L56)：_preferred_transcripts。
+- [src/bili_asr/services/workflow_projection.py:72](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_projection.py#L72)：_latest_publications。
+- [src/bili_asr/coverage_report.py:71](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/coverage_report.py#L71)：CoverageReport。
+- [src/bili_asr/integrity.py:52](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/integrity.py#L52)：IntegrityVerifier。
+- [src/bili_asr/services/bundle_verification.py:62](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/bundle_verification.py#L62)：verify_bundle。
+- [src/bili_asr/archive.py:253](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/archive.py#L253)：archive_bundle_complete。
+- [src/bili_asr/dedup.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/dedup.py#L1)：模块定义。
 
-- [src/bili_asr/storage/metadata.py:175](../src/bili_asr/storage/metadata.py#L175)：read_source_metadata_export_many。
-- [src/bili_asr/storage/metadata.py:191](../src/bili_asr/storage/metadata.py#L191)：有界来源集合查询、标签去重及缺失观察。
-- [src/bili_asr/export.py:134](../src/bili_asr/export.py#L134)：_redact_description。
-- [src/bili_asr/export.py:404](../src/bili_asr/export.py#L404)：format_csv_export，追加六个来源列。
+- [src/bili_asr/storage/metadata.py:175](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/metadata.py#L175)：read_source_metadata_export_many。
+- [src/bili_asr/storage/metadata.py:191](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/metadata.py#L191)：有界来源集合查询、标签去重及缺失观察。
+- [src/bili_asr/export.py:134](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/export.py#L134)：_redact_description。
+- [src/bili_asr/export.py:404](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/export.py#L404)：format_csv_export，追加六个来源列。
 
 ## 当前通用来源与驻留
 

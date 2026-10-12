@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -22,9 +22,15 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 255,
-          "end_line": 436,
+          "line": 285,
+          "end_line": 482,
           "label": "_execute_workflow"
+        },
+        {
+          "path": "src/bili_asr/workflow_failure_policy.py",
+          "line": 118,
+          "end_line": 135,
+          "label": "failure_policy"
         }
       ]
     },
@@ -41,7 +47,7 @@
         },
         {
           "path": "src/bili_asr/archive_maintenance.py",
-          "line": 84,
+          "line": 83,
           "end_line": 160,
           "label": "archive_access"
         }
@@ -50,7 +56,7 @@
     },
     {
       "id": "executor",
-      "label": "Executor",
+      "label": "执行与重试",
       "type": "backend",
       "sources": [
         {
@@ -64,6 +70,12 @@
           "line": 137,
           "end_line": 222,
           "label": "WorkflowApplication.run"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_retry.py",
+          "line": 144,
+          "end_line": 205,
+          "label": "guarded_retry_failed"
         }
       ]
     },
@@ -99,8 +111,8 @@
         },
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 106,
-          "end_line": 141,
+          "line": 111,
+          "end_line": 146,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -121,7 +133,7 @@
     },
     {
       "id": "db",
-      "label": "任务与 attempt",
+      "label": "任务与尝试",
       "type": "database",
       "sources": [
         {
@@ -138,8 +150,8 @@
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 820,
-          "end_line": 881,
+          "line": 827,
+          "end_line": 890,
           "label": "WorkflowRepository._terminal"
         }
       ]
@@ -148,174 +160,210 @@
   "messages": [
     {
       "id": "m1",
+      "from": "cli",
       "to": "access",
       "y": 235,
       "label": "WRITE 打开既有 archive.db",
       "variant": "default",
-      "note": "WRITE 打开既有 archive.db；只读检查 schema；共享维护访问持有到关闭；条件：主流程",
-      "from": "cli"
+      "note": "WRITE 打开既有 archive.db；只读检查 schema；共享维护访问持有到关闭；条件：主流程"
     },
     {
       "id": "m2",
+      "from": "access",
       "to": "executor",
       "y": 301,
-      "label": "WorkflowApplication 组合一次性 …",
+      "label": "WorkflowApplication 组合一…",
       "variant": "default",
-      "note": "WorkflowApplication 组合一次性 handler 与 WorkflowControl 端口；条件：主流程",
-      "from": "access"
+      "note": "WorkflowApplication 组合一次性 handler 与 WorkflowControl 端口；条件：主流程"
     },
     {
       "id": "m3",
+      "from": "executor",
       "to": "db",
       "y": 432,
       "label": "BEGIN IMMEDIATE 后取当前时间",
       "variant": "security",
-      "note": "BEGIN IMMEDIATE 后取当前时间；回收过期 running；领取后提交前复验新 lease；条件：loop 顺序领取直到无就绪任务或达到 limit",
-      "from": "executor"
+      "note": "BEGIN IMMEDIATE 后取当前时间；回收过期 running；领取后提交前复验新 lease；条件：loop 顺序领取直到无就绪任务或达到 limit"
     },
     {
       "id": "m4",
+      "from": "db",
       "to": "executor",
       "y": 563,
       "label": "idle",
       "variant": "return",
-      "note": "idle；不执行 handler；条件：loop 顺序领取直到无就绪任务或达到 limit / alt 无任务",
-      "from": "db"
+      "note": "idle；不执行 handler；条件：loop 顺序领取直到无就绪任务或达到 limit / alt 无任务"
     },
     {
       "id": "m5",
+      "from": "db",
       "to": "executor",
       "y": 694,
-      "label": "返回精确 WorkflowJob 与 attempt…",
+      "label": "返回精确 WorkflowJob 与 atte…",
       "variant": "return",
-      "note": "返回精确 WorkflowJob 与 attempt_count；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "db"
+      "note": "返回精确 WorkflowJob 与 attempt_count；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m6",
+      "from": "executor",
       "to": "heartbeat",
       "y": 760,
       "label": "启动 daemon",
       "variant": "default",
-      "note": "启动 daemon；在心跳线程内建立独立 WRITE Session；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "executor"
+      "note": "启动 daemon；在心跳线程内建立独立 WRITE Session；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m7",
+      "from": "heartbeat",
       "to": "access",
       "y": 826,
       "label": "使用相同 busy_timeout",
       "variant": "default",
-      "note": "使用相同 busy_timeout；独立共享访问；主连接关闭后仍持有直到心跳关闭；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "heartbeat"
+      "note": "使用相同 busy_timeout；独立共享访问；主连接关闭后仍持有直到心跳关闭；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m8",
+      "from": "heartbeat",
       "to": "db",
       "y": 892,
       "label": "首次立即 renew",
       "variant": "security",
-      "note": "首次立即 renew；锁内检查精确 owner/attempt/未到期 lease；退出前复验旧与新期限；暂时错误重试；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "heartbeat"
+      "note": "首次立即 renew；锁内检查精确 owner/attempt/未到期 lease；退出前复验旧与新期限；暂时错误重试；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m9",
+      "from": "executor",
       "to": "handler",
       "y": 958,
       "label": "执行网络、模型和产物准备",
       "variant": "default",
-      "note": "执行网络、模型和产物准备；耗时工作在 SQLite 写事务外；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "executor"
+      "note": "执行网络、模型和产物准备；耗时工作在 SQLite 写事务外；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m10",
+      "from": "cli",
       "to": "db",
       "y": 1089,
-      "label": "queued/running 原子转 cancelled",
+      "label": "queued/running 原子转 canc…",
       "variant": "security",
-      "note": "queued/running 原子转 cancelled；清 lease；running attempt 同时 cancelled；不级联依赖；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / opt 操作者并发取消",
-      "from": "cli"
+      "note": "queued/running 原子转 cancelled；清 lease；running attempt 同时 cancelled；不级联依赖；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / opt 操作者并发取消"
     },
     {
       "id": "m11",
+      "from": "handler",
       "to": "guard",
       "y": 1220,
       "label": "owned_transaction",
       "variant": "security",
-      "note": "owned_transaction；BEGIN IMMEDIATE；先确认 job/owner/attempt/未过期 lease；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "handler"
+      "note": "owned_transaction；BEGIN IMMEDIATE；先确认 job/owner/attempt/未过期 lease；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m12",
+      "from": "guard",
       "to": "handler",
       "y": 1351,
-      "label": "JobCancelledError 或 LeaseL…",
+      "label": "JobCancelledError 或 Lea…",
       "variant": "return",
-      "note": "JobCancelledError 或 LeaseLostError；新权威结果不能提交；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / alt 取消或旧 worker",
-      "from": "guard"
+      "note": "JobCancelledError 或 LeaseLostError；新权威结果不能提交；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / alt 取消或旧 worker"
     },
     {
       "id": "m13",
+      "from": "guard",
       "to": "db",
       "y": 1482,
       "label": "业务事实在同一短事务落库",
       "variant": "security",
-      "note": "业务事实在同一短事务落库；yield 后再检查 lease；失败 rollback，必要时撤销 bundle marker；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / else 有效 owner",
-      "from": "guard"
+      "note": "业务事实在同一短事务落库；yield 后再检查 lease；失败 rollback，必要时撤销 bundle marker；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / else 有效 owner"
     },
     {
       "id": "m14",
+      "from": "handler",
       "to": "executor",
       "y": 1613,
       "label": "返回结果或异常",
       "variant": "return",
-      "note": "返回结果或异常；已提交审计和业务事实保留；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "handler"
+      "note": "返回结果或异常；已提交审计和业务事实保留；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m15",
+      "from": "executor",
       "to": "db",
       "y": 1679,
-      "label": "finish/fail 取得写锁后检查精确 atte…",
+      "label": "finish/fail 取得写锁后检查精确 a…",
       "variant": "security",
-      "note": "finish/fail 取得写锁后检查精确 attempt 与期限；清 lease 后提交前复验捕获期限；取消分开统计；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "executor"
+      "note": "finish/fail 取得写锁后检查精确 attempt 与期限；清 lease 后提交前复验捕获期限；取消分开统计；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m16",
+      "from": "executor",
       "to": "heartbeat",
       "y": 1745,
       "label": "停止线程并关闭独立 Session",
       "variant": "default",
-      "note": "停止线程并关闭独立 Session；有界 join；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-      "from": "executor"
+      "note": "停止线程并关闭独立 Session；有界 join；条件：loop 顺序领取直到无就绪任务或达到 limit / else 有任务"
     },
     {
       "id": "m17",
-      "to": "db",
+      "from": "cli",
+      "to": "executor",
       "y": 1876,
-      "label": "按 part/job/kind 仅重排 failed",
+      "label": "明确手动/自动模式与控制文件",
       "variant": "default",
-      "note": "按 part/job/kind 仅重排 failed；保留 attempt；succeeded/cancelled 不恢复；条件：opt workflow retry",
-      "from": "cli"
+      "note": "明确手动/自动模式与控制文件；dry-run 只读检查；条件：opt workflow retry"
     },
     {
       "id": "m18",
-      "to": "cli",
-      "y": 2007,
-      "label": "summary 含 succeeded/failed…",
-      "variant": "return",
-      "note": "summary 含 succeeded/failed/cancelled/idle；failed 非零使 CLI 退出 1；条件：主流程",
-      "from": "executor"
+      "from": "executor",
+      "to": "db",
+      "y": 1942,
+      "label": "读取准确失败与替代任务",
+      "variant": "default",
+      "note": "批量读取 failed job 与准确最新 attempt、替代任务；条件：opt workflow retry"
     },
     {
       "id": "m19",
-      "to": "access",
+      "from": "executor",
+      "to": "guard",
       "y": 2073,
+      "label": "BEGIN IMMEDIATE",
+      "variant": "security",
+      "note": "BEGIN IMMEDIATE；复验 job/attempt 与控制摘要；条件：opt workflow retry / alt 决策允许且实际重排"
+    },
+    {
+      "id": "m20",
+      "from": "guard",
+      "to": "db",
+      "y": 2139,
+      "label": "仅将准确 failed job 排队",
+      "variant": "default",
+      "note": "仅将准确 failed job 排队；保留 attempts 与冻结输入；条件：opt workflow retry / alt 决策允许且实际重排"
+    },
+    {
+      "id": "m21",
+      "from": "executor",
+      "to": "cli",
+      "y": 2270,
+      "label": "逐项决定与原因",
+      "variant": "return",
+      "note": "逐项决定与原因；不解除 holds；条件：opt workflow retry / else 只读检查或拒绝"
+    },
+    {
+      "id": "m22",
+      "from": "executor",
+      "to": "cli",
+      "y": 2401,
+      "label": "summary 含 succeeded/fai…",
+      "variant": "return",
+      "note": "summary 含 succeeded/failed/cancelled/idle；failed 非零使 CLI 退出 1；条件：主流程"
+    },
+    {
+      "id": "m23",
+      "from": "cli",
+      "to": "access",
+      "y": 2467,
       "label": "关闭主 Session",
       "variant": "default",
-      "note": "关闭主 Session；所有引用关闭后释放共享维护锁；条件：主流程",
-      "from": "cli"
+      "note": "关闭主 Session；所有引用关闭后释放共享维护锁；条件：主流程"
     }
   ],
   "segments": [
@@ -366,13 +414,23 @@
     },
     {
       "from": 1848,
-      "to": 1922,
+      "to": 1988,
       "label": "B10 · opt workflow retry"
     },
     {
-      "from": 1979,
-      "to": 2114,
-      "label": "B11 · 主流程"
+      "from": 2045,
+      "to": 2185,
+      "label": "B11 · alt 决策允许且实际重排"
+    },
+    {
+      "from": 2242,
+      "to": 2316,
+      "label": "B12 · else 只读检查或拒绝"
+    },
+    {
+      "from": 2373,
+      "to": 2509,
+      "label": "B13 · 主流程"
     }
   ],
   "cards": [
@@ -380,31 +438,35 @@
       "dot": "cyan",
       "title": "完整条件路径",
       "items": [
-        "B1 条件路径：主流程",
-        "B2 条件路径：loop 顺序领取直到无就绪任务或达到 limit",
-        "B3 条件路径：loop 顺序领取直到无就绪任务或达到 limit / alt 无任务",
-        "B4 条件路径：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-        "B5 条件路径：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / opt 操作者并发取消",
-        "B6 条件路径：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-        "B7 条件路径：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / alt 取消或旧 worker",
-        "B8 条件路径：loop 顺序领取直到无就绪任务或达到 limit / else 有任务 / else 有效 owner",
-        "B9 条件路径：loop 顺序领取直到无就绪任务或达到 limit / else 有任务",
-        "B10 条件路径：opt workflow retry",
-        "B11 条件路径：主流程"
+        "B1 · 主流程",
+        "B2 · loop 顺序领取直到无就绪任务或达到 limit",
+        "B3 · alt 无任务",
+        "B4 · else 有任务",
+        "B5 · opt 操作者并发取消",
+        "B6 · else 有任务",
+        "B7 · alt 取消或旧 worker",
+        "B8 · else 有效 owner",
+        "B9 · else 有任务",
+        "B10 · opt workflow retry",
+        "B11 · alt 决策允许且实际重排",
+        "B12 · else 只读检查或拒绝",
+        "B13 · 主流程"
       ]
     },
     {
       "dot": "emerald",
       "title": "内部动作",
       "items": [
-        "任务与 attempt：旧 attempt failed/lease_expired；job queued；新 attempt 计数递增并登记 owner/期限（loop 顺序领取直到无就绪任务或达到 limit）"
+        "db：旧 attempt failed/lease_expired；job queued；新 attempt 计数递增并登记 owner/期限（loop 顺序领取直到无就绪任务或达到 limit）",
+        "重试用例：检查错误政策、hold、预算、退避；缺失控制状态拒绝（opt workflow retry）",
+        "执行与重试列分别展开 Executor 和 guarded_retry_failed 两个用例；完整参与者边界见 Mermaid。"
       ]
     },
     {
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "全部源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
