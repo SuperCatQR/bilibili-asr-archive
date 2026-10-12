@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import ctypes
 import os
-from pathlib import Path
 import shutil
 import tempfile
+from pathlib import Path
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
-from bili_asr.artifact_inventory import collect_artifacts, portable_artifact_parts, stream_hash
+from bili_asr.artifact_inventory import (
+    collect_artifacts,
+    portable_artifact_parts,
+    stream_hash,
+)
 from bili_asr.services import maintenance_package as package
 from bili_asr.storage.maintenance_merge import merge_database
 from bili_asr.storage.maintenance_selection import table_ledger

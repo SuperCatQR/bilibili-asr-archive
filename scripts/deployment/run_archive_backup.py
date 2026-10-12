@@ -1,9 +1,9 @@
 """Run a configured archive backup policy under a local process supervisor."""
 import argparse
 import json
-from pathlib import Path
 import signal
 import threading
+from pathlib import Path
 
 
 def main():

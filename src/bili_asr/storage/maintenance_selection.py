@@ -6,16 +6,21 @@ references (a creator, shared profile or acquisition run must not pull siblings)
 """
 from __future__ import annotations
 
+import json
+import sqlite3
 from collections import defaultdict
 from contextlib import closing
 from dataclasses import asdict
-import json
 from pathlib import Path
-import sqlite3
 
 from bili_asr.storage.archive_contracts import runtime_contract
 from bili_asr.storage.migration_source import typed_table_fingerprint
-from bili_asr.storage.snapshots import _current_contract, _identifier as quote, _schema, validate_snapshot_database
+from bili_asr.storage.snapshots import (
+    _current_contract,
+    _schema,
+    validate_snapshot_database,
+)
+from bili_asr.storage.snapshots import _identifier as quote
 from bili_asr.storage.upgrade_evidence import readonly
 
 _OWNED = {
@@ -186,7 +191,7 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
                         continue
                     payload = json.loads(raw)
                     if not isinstance(payload, dict):
-                        raise ValueError("unsupported selected workflow JSON envelope")
+                        raise ValueError("unsupported selected workflow JSON envelope")  # noqa: TRY004 - invalid stored JSON
                     if table == "workflow_jobs" and payload.get("schema_version", 1) != 1:
                         raise ValueError("unsupported selected workflow payload version")
                     if table == "transcript_asr_evidence" and payload.get("schema_version") != 1:

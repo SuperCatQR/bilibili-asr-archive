@@ -6,18 +6,20 @@ original historical values rather than inventing SQL patches.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from functools import wraps
 import os
-from pathlib import Path
-import shutil
 import stat
 import tempfile
 import zipfile
+from datetime import UTC, datetime, timedelta
+from functools import wraps
+from pathlib import Path
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
-
-from bili_asr.artifact_inventory import check_artifact_collisions, portable_artifact_parts, stream_hash
+from bili_asr.artifact_inventory import (
+    check_artifact_collisions,
+    portable_artifact_parts,
+    stream_hash,
+)
 from bili_asr.services import maintenance_package as package
 from bili_asr.storage.maintenance_selection import table_ledger
 
@@ -272,7 +274,9 @@ def retention_plan(repository: Path, *, keep_count: int = 5, keep_days: int = 30
                 if package._NAME in bundle.namelist():
                     manifest = package._read_manifest(bundle)
                 elif "public-backup.json" in bundle.namelist():
-                    from bili_asr.services.maintenance_publication import verify_public_backup
+                    from bili_asr.services.maintenance_publication import (
+                        verify_public_backup,
+                    )
                     manifest = verify_public_backup(path)["manifest"]
                 else:
                     from bili_asr.services.archive_snapshot import _read_manifest

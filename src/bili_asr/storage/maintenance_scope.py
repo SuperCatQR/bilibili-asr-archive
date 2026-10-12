@@ -1,11 +1,6 @@
 """One explicit selector model shared by export, import and backup plans."""
 from __future__ import annotations
 
-from contextlib import closing
-from pathlib import Path
-
-from bili_asr.storage.upgrade_evidence import readonly
-
 DATASETS = {
     "metadata": {"videos", "video_parts", "video_details", "source_videos", "source_creators", "bilibili_users",
                  "source_metadata_observations", "metadata_refresh_attempts"},
@@ -85,5 +80,5 @@ def filter_artifacts(available: dict, required: set[str], specification: dict) -
                 and (not directories or any(key.startswith(path.rstrip("/") + "/") for path in directories))}
     missing = required - set(included)
     if missing:
-        raise ValueError("scope excludes referenced dependency; include its artifact type/directory: " + sorted(missing)[0])
+        raise ValueError("scope excludes referenced dependency; include its artifact type/directory: " + min(missing))
     return included, sorted(set(available) - set(included))

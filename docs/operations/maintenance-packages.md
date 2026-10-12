@@ -37,11 +37,15 @@ it; `retention-plan` and `retention-apply` use the repository maintenance lock.
 running jobs, leases, attempts, ingestion/acquisition runs, unfinished model
 calls, journals and incomplete SQLite checkpoints, then verifies the database.
 It cannot stop an old writer that ignores the project lock; that writer must be
-stopped by the operator. `backup-policy` writes a policy bound to its integrity digest, and
+stopped by the operator. `backup-policy` writes a policy bound to its integrity
+digest. Digests identify content and do not grant authority: apply operations
+independently rederive source, target, selectors and retention facts.
 `run_archive_backup.py` is the real polling scheduler. Every run has a durable
 receipt, immutable event idempotency, consecutive-failure alert threshold,
 retention proof and a concrete verification kind. Notifications are local JSON
 events for an operator or supervisor to consume; no third-party message is sent.
+Full and public packages use stored ZIP containers. Deflate applies to changed
+payloads of incremental/differential runs; full mode rejects deflate explicitly.
 
 The supported boundary is explicit: ZIP payload encryption is reserved metadata
 and no key is stored; selective exports of unregistered schema
@@ -51,6 +55,9 @@ external artifact root must be local and readable during export; public output i
 not a database restore; and differential chains do not patch SQL rows, they carry
 changed SQLite bytes. Upgrade and legacy migration checkpoint receipts are
 implemented in the archive upgrade service and retain the source unchanged.
+Streaming and free-space checks are exercised on frozen acceptance archives.
+Production-size merge and chain throughput have not been benchmarked, so the
+reports do not claim a production-scale wall-time guarantee.
 
 ## Minimal commands
 

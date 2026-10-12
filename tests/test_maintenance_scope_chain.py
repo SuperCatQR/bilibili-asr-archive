@@ -1,15 +1,11 @@
 """Scoped packages and differential chains expose, preserve and verify closure."""
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-import shutil
-import sqlite3
-import zipfile
 
 import pytest
 
-from bili_asr.services import maintenance_package as package
 from bili_asr.services import maintenance_chain as chain
+from bili_asr.services import maintenance_package as package
 from bili_asr.storage.maintenance_scope import scope
 from bili_asr.storage.upgrade_evidence import readonly
 from tests.fixtures.frozen_migration_archive import frozen_archive
@@ -103,7 +99,7 @@ def test_time_scope_resolves_actual_zero_rows_and_keeps_schema(tmp_path):
 
 
 def test_original_full_snapshot_is_a_supported_differential_baseline(tmp_path):
-    from bili_asr.services.archive_snapshot import save_snapshot, check_snapshot
+    from bili_asr.services.archive_snapshot import check_snapshot, save_snapshot
     source = tmp_path / "source"
     frozen_archive(source)
     base = tmp_path / "legacy-full.zip"

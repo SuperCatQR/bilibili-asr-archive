@@ -1,11 +1,10 @@
 """Malformed plans and containers must fail before modifying archive authority."""
 import copy
-from datetime import UTC, datetime
 import hashlib
 import json
-from pathlib import Path
 import sqlite3
 import zipfile
+from datetime import UTC, datetime
 
 import pytest
 
@@ -141,7 +140,7 @@ def test_interrupted_published_backup_reuses_exact_source_bound_container(tmp_pa
     # An orphan from another frozen source must never become this run's receipt.
     document2 = backup.policy(source, tmp_path / "repository2")
     monkeypatch.setattr(backup, "verify_chain", interrupt)
-    second = backup.run_backup(document2, now=100)
+    assert backup.run_backup(document2, now=100)["status"] == "failed"
     monkeypatch.setattr(backup, "verify_chain", real_verify)
     with sqlite3.connect(source / "archive.db") as connection:
         connection.execute("UPDATE videos SET updated_at=updated_at+1")

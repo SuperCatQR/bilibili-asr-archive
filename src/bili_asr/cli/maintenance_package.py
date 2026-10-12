@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sqlite3
 import zipfile
+from pathlib import Path
 
 
 def add_maintenance_package_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -117,7 +117,7 @@ def _scope(args):
 
 
 def _write_new(document: dict, output: Path) -> None:
-    from bili_asr.services.maintenance_package import absolute, canonical, _sync_file
+    from bili_asr.services.maintenance_package import _sync_file, absolute, canonical
     out = absolute(output)
     if not out.parent.is_dir():
         raise ValueError("maintenance report parent must exist")
@@ -128,13 +128,21 @@ def _write_new(document: dict, output: Path) -> None:
 
 def _cmd_maintenance_package(args: argparse.Namespace) -> int:
     from bili_asr.services.maintenance_package import (
-        apply_import, check_import, export_package, inspect_package, plan_import, verify_package, write_plan,
+        apply_import,
+        check_import,
+        export_package,
+        inspect_package,
+        plan_import,
+        verify_package,
+        write_plan,
     )
     action = args.maintenance_action
     try:
         if action == "export":
             if args.profile == "publication":
-                from bili_asr.services.maintenance_publication import export_public_profile
+                from bili_asr.services.maintenance_publication import (
+                    export_public_profile,
+                )
                 if any((args.part_id, args.bvid, args.dataset, args.artifact_type, args.directory,
                         args.since is not None, args.until is not None, args.status)):
                     raise ValueError("public publication profile uses current approved releases; use publication export for release selection")

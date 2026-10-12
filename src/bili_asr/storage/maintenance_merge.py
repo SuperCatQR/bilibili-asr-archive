@@ -1,14 +1,15 @@
 """Lossless relational union. Conflicting identities never overwrite history."""
 from __future__ import annotations
 
+import json
+import sqlite3
 from collections import defaultdict
 from contextlib import closing
-import json
 from pathlib import Path
-import sqlite3
 
 from bili_asr.storage.maintenance_selection import _JSON_EDGES
-from bili_asr.storage.snapshots import _identifier as quote, _schema, validate_snapshot_database
+from bili_asr.storage.snapshots import _identifier as quote
+from bili_asr.storage.snapshots import _schema, validate_snapshot_database
 from bili_asr.storage.upgrade_evidence import readonly
 
 

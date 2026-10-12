@@ -5,31 +5,48 @@ rewrites frozen content, downloads an object, or calls a provider.
 """
 from __future__ import annotations
 
-from contextlib import closing
-from datetime import UTC, datetime
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import stat
 import tempfile
 import zipfile
+from contextlib import closing
+from datetime import UTC, datetime
+from pathlib import Path
 
 from bili_asr import __version__
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
 from bili_asr.artifact_inventory import (
-    check_artifact_collisions, collect_artifacts, portable_artifact_parts,
-    require_no_links, require_regular_file, stream_hash,
+    check_artifact_collisions,
+    collect_artifacts,
+    portable_artifact_parts,
+    require_no_links,
+    require_regular_file,
+    stream_hash,
 )
 from bili_asr.services.archive_snapshot import (
-    _check_bundle_markers, _check_references, _empty_destination,
-    _manifest_object, _sync_directory, _sync_file,
+    _check_bundle_markers,
+    _check_references,
+    _empty_destination,
+    _manifest_object,
+    _sync_directory,
+    _sync_file,
 )
-from bili_asr.services.migration_preflight import _database_state, _hash_file, _identity, _root_entries
+from bili_asr.services.migration_preflight import (
+    _database_state,
+    _hash_file,
+    _identity,
+    _root_entries,
+)
 from bili_asr.storage.archive_contracts import runtime_contract
-from bili_asr.storage.maintenance_selection import refuse_unfinished, select_database, table_ledger
+from bili_asr.storage.maintenance_selection import (
+    refuse_unfinished,
+    select_database,
+    table_ledger,
+)
 from bili_asr.storage.snapshots import required_artifacts, validate_snapshot_database
 from bili_asr.storage.upgrade_evidence import readonly
 
@@ -104,13 +121,13 @@ def _selected_artifacts(database: Path, physical: dict[str, Path], parts: list[i
                     needed.add(key)
     missing = needed - set(physical)
     if missing:
-        raise ValueError("selected dependency artifact is missing: " + sorted(missing)[0])
+        raise ValueError("selected dependency artifact is missing: " + min(missing))
     return {key: physical[key] for key in sorted(needed)}
 
 
 def _attempt_artifacts(database: Path) -> dict[str, str | None]:
     """Registered output paths remain dependencies even after failed attempts."""
-    from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS, BUNDLE_MARKER_NAME
+    from bili_asr.artifacts import BUNDLE_MARKER_NAME, REQUIRED_ARTIFACT_KEYS
     result = {}
     with closing(readonly(database)) as connection:
         envelopes = [row[0] for row in connection.execute("SELECT result_json FROM workflow_attempts WHERE result_json IS NOT NULL")]
@@ -125,7 +142,7 @@ def _attempt_artifacts(database: Path) -> dict[str, str | None]:
         for raw in envelopes:
             value = json.loads(raw)
             if not isinstance(value, dict):
-                raise ValueError("unsupported workflow result envelope")
+                raise ValueError("unsupported workflow result envelope")  # noqa: TRY004 - persisted invalid data
             paths = []
             if "storage_key" in value:
                 paths.append((value["storage_key"], value.get("sha256")))
@@ -239,7 +256,7 @@ def _json(path: Path) -> dict:
         raise ValueError("oversized maintenance JSON document")
     document = json.loads(path.read_bytes(), object_pairs_hook=_manifest_object)
     if not isinstance(document, dict):
-        raise ValueError("maintenance document must be an object")
+        raise ValueError("maintenance document must be an object")  # noqa: TRY004 - JSON document validation
     return document
 
 
@@ -311,7 +328,7 @@ def _validate_manifest(document: dict) -> None:
         raise ValueError("invalid maintenance source provenance")
     selection = document["selection"]
     if not isinstance(selection, dict):
-        raise ValueError("invalid maintenance selection")
+        raise ValueError("invalid maintenance selection")  # noqa: TRY004 - persisted contract validation
     if selection.get("mode") == "full":
         if selection != {"mode": "full", "policy": "all-private-history/v1"}:
             raise ValueError("unsupported maintenance full selection policy")

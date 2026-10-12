@@ -1,15 +1,13 @@
 """Import strategies preserve history and make interruption observable."""
-from contextlib import closing
-import hashlib
-from pathlib import Path
-import sqlite3
 import os
+import sqlite3
+from contextlib import closing
+from pathlib import Path
 
 import pytest
 
-from bili_asr.services import maintenance_package as package
 from bili_asr.services import maintenance_import as imports
-from bili_asr.storage.maintenance_selection import table_ledger
+from bili_asr.services import maintenance_package as package
 from bili_asr.storage.upgrade_evidence import readonly
 from tests.fixtures.frozen_migration_archive import frozen_archive
 

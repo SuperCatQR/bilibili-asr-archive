@@ -6,17 +6,21 @@ for a supervisor or operator to consume, with no implicit network messaging.
 """
 from __future__ import annotations
 
-from contextlib import closing
-from datetime import UTC, datetime
-import os
-from pathlib import Path
 import sqlite3
 import time
 import zipfile
+from contextlib import closing
+from datetime import UTC, datetime
+from pathlib import Path
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
 from bili_asr.services import maintenance_package as package
-from bili_asr.services.maintenance_chain import save_delta, verify_chain, retention_plan, apply_retention
+from bili_asr.services.maintenance_chain import (
+    apply_retention,
+    retention_plan,
+    save_delta,
+    verify_chain,
+)
 from bili_asr.services.maintenance_import import _save
 from bili_asr.storage.maintenance_scope import scope
 
@@ -159,7 +163,9 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
                 else:
                     if document["mode"] == "full" or baseline is None or rollover:
                         if document["scope"] is not None and document["scope"]["profile"] == "publication":
-                            from bili_asr.services.maintenance_publication import save_public_backup
+                            from bili_asr.services.maintenance_publication import (
+                                save_public_backup,
+                            )
                             save_public_backup(source, output, artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]))
                         else:
                             package.export_package(source, output, artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]), scope=document["scope"])
