@@ -90,14 +90,15 @@ jobs:
 
       - name: Install project and audit tooling
         run: |
-          uv export --locked --extra dev --extra remote --no-emit-project --output-file audit-requirements.txt
+          python scripts/check_dependency_export.py
+          uv export --locked --extra asr --extra dev --extra remote --no-emit-project --output-file audit-requirements.txt
           AUDIT_VERSION=$(python -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "pip-audit"))')
           uv tool install "pip-audit==$AUDIT_VERSION"
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
       - name: Audit resolved dependencies
         run: |
-          pip-audit --strict --desc on -r audit-requirements.txt --format json --output audit-results.json
+          pip-audit --strict --disable-pip --no-deps --desc on -r audit-requirements.txt --format json --output audit-results.json
 
       - name: Upload dependency audit
         if: always()
