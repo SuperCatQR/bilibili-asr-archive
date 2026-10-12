@@ -90,6 +90,9 @@ class EditorialConfig:
     thinking_mode: str = "enabled"
     reasoning_effort: str = "high"
     top_p: float = 0.95
+    temperature: float | None = None
+    request_policy: str = "deepseek-v2"
+    max_chunk_regenerations: int = 2
     rule_version: str = RULE_VERSION
     max_chunk_segments: int = 256
     max_chunk_chars: int = 20_000
@@ -108,6 +111,17 @@ class EditorialConfig:
             raise ValueError("unsupported thinking effort")
         if type(self.top_p) not in {int, float} or not 0.95 <= self.top_p <= 1.0:
             raise ValueError("thinking-mode top_p must be between 0.95 and 1.0")
+        if self.request_policy not in {"legacy-v1", "deepseek-v2"}:
+            raise ValueError("unsupported editorial request policy")
+        if (type(self.max_chunk_regenerations) is not int
+                or not 0 <= self.max_chunk_regenerations <= 4):
+            raise ValueError("max_chunk_regenerations must be between 0 and 4")
+        if self.temperature is not None:
+            if (type(self.temperature) not in {int, float}
+                    or not math.isfinite(self.temperature) or not 0 <= self.temperature <= 2):
+                raise ValueError("temperature must be between 0 and 2")
+            if self.thinking_mode != "disabled" or self.request_policy != "deepseek-v2":
+                raise ValueError("temperature requires disabled thinking and deepseek-v2 policy")
         for name in ("context_tokens", "max_input_tokens", "max_output_tokens", "safety_tokens",
                      "timeout_seconds", "max_chunk_segments", "max_chunk_chars"):
             value = getattr(self, name)
@@ -122,6 +136,14 @@ class EditorialConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_snapshot(cls, values: dict[str, Any]) -> EditorialConfig:
+        """Read historical settings without changing their paid request semantics."""
+        values = dict(values)
+        values.setdefault("request_policy", "legacy-v1")
+        values.setdefault("max_chunk_regenerations", 0)
+        return cls(**values)
 
 
 def estimate_utf8_tokens(value: str | bytes) -> int:
@@ -411,6 +433,15 @@ def validate_revision(chunk: dict[str, Any], response: Any) -> list[dict[str, An
                         not isinstance(r, str) or r not in allowed for r in bad),
                     "invalid_ref_hashes": [digest(r) for r in bad
                         if not isinstance(r, str) or r not in allowed][:8]}
+                # Only known IDs belonging to another editable paragraph are
+                # eligible for bounded regeneration. Unknown/malformed IDs and
+                # readonly context retain the ordinary strict failure path.
+                known = {s["segment_id"] for s in source} | {
+                    s["segment_id"] for s in chunk["reference_segments"]}
+                invalid = [r for r in bad if not isinstance(r, str) or r not in allowed]
+                error.safe_details["reason"] = ("cross_paragraph_reference"
+                    if isinstance(refs, list) and invalid and all(isinstance(r, str) and r in known for r in invalid)
+                    else "invalid_issue_reference")
                 raise error
             issues.append(dict(issue))
         validated.append({"segment_ids": list(ids), "start_ms": originals[0]["start_ms"],

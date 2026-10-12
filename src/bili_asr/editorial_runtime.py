@@ -10,8 +10,9 @@ from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.editorial_quality import check_source_quality
 from bili_asr.workflow_errors import JobExecutionError
 
-from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
+from bili_asr.deepseek import DeepSeekClient, DeepSeekError, parse_response, request_body
 from bili_asr.editorial import EditorialConfig, local_revision, validate_revision
+from bili_asr.editorial_recovery import diagnostic_for_error, recovery_request
 from bili_asr.manuscript_files import stage_artifact
 from bili_asr.storage.editorial import EditorialRepository, template_for_input
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
@@ -42,53 +43,65 @@ class EditorialWorkflowHandlers:
         self.workflow.assert_lease(job)
         prepared = self.repository.freeze_job_input(job)
         check_source_quality(prepared)
-        config = EditorialConfig(**prepared["snapshot"]["config"])
+        config = EditorialConfig.from_snapshot(prepared["snapshot"]["config"])
         for chunk in prepared["chunks"]:
             attempt_checkpoint(job)
             self.workflow.assert_lease(job)
             if self.repository.chunk_result(prepared["input_id"], chunk["chunk_id"]) is not None:
                 continue
+            self._proofread_chunk(job, prepared, chunk, config)
+        revision_id = self.repository.commit_revision(job, prepared)
+        return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
+
+    def _proofread_chunk(self, job, prepared, chunk, config):
+        input_id, chunk_id = prepared["input_id"], chunk["chunk_id"]
+        original = request_body(chunk, config, system_prompt=prepared["snapshot"]["system_prompt"])
+        local_blocks = local_revision(chunk)
+        if local_blocks is not None:
+            call_id = self.repository.begin_call(job, input_id, chunk_id, original, invocation_kind="local_precheck")
+            envelope = {"id": "local-precheck", "model": "local-precheck", "choices": [],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
+            self.repository.finish_call(call_id, envelope)
+            self.repository.save_chunk(job, input_id, chunk_id, call_id, local_blocks)
+            return
+        while True:
+            attempt_checkpoint(job)
+            self.workflow.assert_lease(job)
             self.workflow.renew_lease(job, lease_seconds=config.timeout_seconds + 300)
-            request = request_body(chunk, config, system_prompt=prepared["snapshot"]["system_prompt"])
-            call_id = self.repository.begin_call(job, prepared["input_id"], chunk["chunk_id"], request)
+            calls = self.repository.physical_calls(input_id, chunk_id)
+            bounded = config.request_policy == "deepseek-v2"
+            request, recovery = recovery_request(original, calls[-1] if calls else None, config) if bounded else (original, None)
+            fingerprint = self.repository.request_fingerprint(input_id, chunk_id, request)
+            cached = self.repository.completed_call_record(fingerprint)
+            # The owned transaction reserves a physical invocation before HTTP;
+            # replay and local formatting rows never consume that budget.
+            call_id = self.repository.begin_call(job, input_id, chunk_id, request,
+                invocation_kind="response_replay" if cached else "provider", recovery=recovery,
+                replay_of_call_id=None if cached is None else cached["call_id"])
             envelope = None
             try:
                 attempt_checkpoint(job)
-                local_blocks = local_revision(chunk)
-                if local_blocks is not None:
-                    # Mechanical formatting-only chunks need no provider call,
-                    # but retain an auditable call row and the same checkpoint
-                    # contract as model-produced blocks.
-                    envelope = {"id": "local-precheck", "model": "local-precheck",
-                                "choices": [], "usage": {"prompt_tokens": 0,
-                                "completion_tokens": 0}}
-                    self.repository.finish_call(call_id, envelope)
-                    self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, local_blocks)
-                    continue
-                fingerprint = self.repository.request_fingerprint(
-                    prepared["input_id"], chunk["chunk_id"], request)
-                # A worker can die after the provider response is durably
-                # recorded but before the validated chunk checkpoint commits.
-                # Reuse that response and run the normal parser/validator so a
-                # recovery never trusts an unvalidated provider payload.
-                envelope = self.repository.completed_call_for_request(fingerprint)
-                if envelope is None:
-                    envelope = self.client.complete(request, config)
-                # Persist the actual envelope (including usage/model identifiers)
-                # before accepting content or raising a validation error.
+                self.workflow.assert_lease(job)
+                envelope = cached["response"] if cached else self.client.complete(request, config)
                 self.repository.finish_call(call_id, envelope)
                 attempt_checkpoint(job)
                 self.workflow.assert_lease(job)
                 blocks = validate_revision(chunk, parse_response(envelope))
-                self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, blocks)
+                self.repository.save_chunk(job, input_id, chunk_id, call_id, blocks)
+                return
             except Exception as exc:
-                self.repository.finish_call(call_id, envelope, type(exc).__name__[:64])
+                diagnostic = diagnostic_for_error(exc)
+                self.repository.finish_call(call_id, envelope, type(exc).__name__[:64], validation_diagnostic=diagnostic)
+                if cached is not None and isinstance(exc, (ValueError, DeepSeekError)):
+                    # A replayed response rejected by strict validation must not
+                    # remain a reusable success, or restart repeats it forever.
+                    self.repository.mark_validation_failure(cached["call_id"], type(exc).__name__[:64], diagnostic)
+                if bounded and config.max_chunk_regenerations and diagnostic is not None:
+                    continue
                 if hasattr(exc, "safe_details"):
-                    details = dict(exc.safe_details, call_id=call_id, chunk_id=chunk["chunk_id"])
+                    details = dict(exc.safe_details, call_id=call_id, chunk_id=chunk_id)
                     raise JobExecutionError(type(exc).__name__, details) from None
                 raise
-        revision_id = self.repository.commit_revision(job, prepared)
-        return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
 
     def render(self, job: WorkflowJob) -> dict[str, Any]:
         decode_job_payload(job)
