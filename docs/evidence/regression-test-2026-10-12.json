@@ -1,0 +1,2244 @@
+{
+  "recorded_at": "2026-10-12T12:47:33.523315+08:00",
+  "scope": "WSL-only authoritative regression on frozen working-tree inputs",
+  "environment": {
+    "os": "Linux-6.6.114.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+    "node": "22.23.1",
+    "pnpm": "12.11.2",
+    "playwright": "1.63.0",
+    "chromium": "153.0.8010.12"
+  },
+  "python_snapshot": {
+    "head": "7409c50dc6de0c2c558d44ba6edbebc5308bbda2",
+    "path": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+    "input_files": 723,
+    "after_test_integrity": {
+      "checked_files": 723,
+      "changed": [],
+      "missing": []
+    }
+  },
+  "reading_site_snapshot": {
+    "head": "7a13d8b6b3276a14e5afd6d7e0373290c37369cc",
+    "path": "/home/chosenecho/bili-asr-regression/reading-site-20261012-jvq699j4",
+    "input_files": 60,
+    "after_test_integrity": {
+      "checked_files": 60,
+      "changed": [],
+      "missing": []
+    }
+  },
+  "source_drift_after_snapshot": {
+    "checked_files": 723,
+    "changed": [],
+    "missing": []
+  },
+  "source_head_at_completion": "7409c50dc6de0c2c558d44ba6edbebc5308bbda2",
+  "default_pytest": {
+    "exit": 0,
+    "tests": 3154,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 11,
+    "passed": 3143,
+    "seconds": 1950.276,
+    "exceptions": [
+      {
+        "node": "tests/test_artifact_root_write_probe.py::test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock",
+        "kind": "skipped",
+        "message": "legacy asr command was replaced by SQLite workflow handlers",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_artifact_root_write_probe.py:141: legacy asr command was replaced by SQLite workflow handlers"
+      },
+      {
+        "node": "tests/test_artifact_root_write_probe.py::test_audio_inventory_reuses_the_invocations_resolved_roots",
+        "kind": "skipped",
+        "message": "derive-audio-inventory command was retired with the manifest queue",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_artifact_root_write_probe.py:164: derive-audio-inventory command was retired with the manifest queue"
+      },
+      {
+        "node": "tests/test_audio_reclaim.py::test_coordinator_archive_stage_reclaims_audio",
+        "kind": "skipped",
+        "message": "archive execution now belongs to SQLite workflow jobs",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_audio_reclaim.py:157: archive execution now belongs to SQLite workflow jobs"
+      },
+      {
+        "node": "tests/test_audio_retention_policy.py::test_coordinator_respects_keep_audio_policy",
+        "kind": "skipped",
+        "message": "archive execution now belongs to SQLite workflow jobs",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_audio_retention_policy.py:79: archive execution now belongs to SQLite workflow jobs"
+      },
+      {
+        "node": "tests/test_bilibili_api_gateway.py::test_live_smoke_single_public_page_for_archive_owner",
+        "kind": "skipped",
+        "message": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_bilibili_api_gateway.py:4464: live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_live_metadata_smoke.py::test_live_smoke_fetch_meta_one_page_lands_normalized_rows",
+        "kind": "skipped",
+        "message": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_live_metadata_smoke.py:289: live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_live_subtitle_smoke.py::test_live_subtitle_probe_reports_one_real_part_inventory",
+        "kind": "skipped",
+        "message": "live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_live_subtitle_smoke.py:433: live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_migration_source.py::test_standalone_reader_refuses_database_under_junction",
+        "kind": "skipped",
+        "message": "Windows junction path semantics",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_migration_source.py:236: Windows junction path semantics"
+      },
+      {
+        "node": "tests/test_proofread.py::test_cli_proofread_writes_under_proofread_work",
+        "kind": "skipped",
+        "message": "standalone proofread CLI was replaced by workflow proofread jobs",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_proofread.py:378: standalone proofread CLI was replaced by workflow proofread jobs"
+      },
+      {
+        "node": "tests/test_proofread.py::test_cli_proofread_merge_publishes_and_counts",
+        "kind": "skipped",
+        "message": "standalone proofread merge CLI was replaced by workflow rendering",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_proofread.py:390: standalone proofread merge CLI was replaced by workflow rendering"
+      },
+      {
+        "node": "tests/test_quality.py::test_recorded_cue_fixture_still_exits_zero",
+        "kind": "skipped",
+        "message": "legacy manifest-backed quality CLI was replaced by workflow quality evidence",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_quality.py:654: legacy manifest-backed quality CLI was replaced by workflow quality evidence"
+      }
+    ],
+    "module_counts": {
+      "tests.test_ai_editorial": 73,
+      "tests.test_architecture_boundaries": 4,
+      "tests.test_archive_bundle_streaming": 4,
+      "tests.test_archive_maintenance": 6,
+      "tests.test_archive_recovery": 9,
+      "tests.test_archive_sessions": 38,
+      "tests.test_archive_snapshot": 52,
+      "tests.test_archive_upgrade": 36,
+      "tests.test_artifact_catalog": 37,
+      "tests.test_artifact_contract_schemas": 10,
+      "tests.test_artifact_coordination": 3,
+      "tests.test_artifact_groups": 11,
+      "tests.test_artifact_inventory": 21,
+      "tests.test_artifact_inventory_service": 30,
+      "tests.test_artifact_key_contract": 1,
+      "tests.test_artifact_online": 13,
+      "tests.test_artifact_online_contract": 7,
+      "tests.test_artifact_packages": 28,
+      "tests.test_artifact_policy": 13,
+      "tests.test_artifact_release": 8,
+      "tests.test_artifact_restore": 11,
+      "tests.test_artifact_review_regressions": 5,
+      "tests.test_artifact_review_target_generation": 3,
+      "tests.test_artifact_root": 16,
+      "tests.test_artifact_root_write_probe": 11,
+      "tests.test_artifact_transfer": 12,
+      "tests.test_artifacts_cli": 30,
+      "tests.test_asr_audio_mixing": 30,
+      "tests.test_asr_backend": 4,
+      "tests.test_asr_batching": 23,
+      "tests.test_asr_deployment_readiness": 26,
+      "tests.test_asr_execution_evidence": 4,
+      "tests.test_asr_facade": 8,
+      "tests.test_asr_hotword_guard": 23,
+      "tests.test_asr_performance": 24,
+      "tests.test_asr_policy_review": 6,
+      "tests.test_asr_prefetch": 23,
+      "tests.test_asr_profiling_entry": 12,
+      "tests.test_asr_quality_foundation": 30,
+      "tests.test_asr_qwen": 59,
+      "tests.test_asr_runtime_strategies": 19,
+      "tests.test_asr_sessions": 31,
+      "tests.test_asr_token_budget": 9,
+      "tests.test_audio_reclaim": 11,
+      "tests.test_audio_retention_policy": 4,
+      "tests.test_bilibili_api_gateway": 403,
+      "tests.test_bundle_verification": 15,
+      "tests.test_character_time_validation": 15,
+      "tests.test_check_asr_env": 53,
+      "tests.test_conftest_tmp_root": 1,
+      "tests.test_content_upgrade_policies": 7,
+      "tests.test_contract_registry": 38,
+      "tests.test_contract_release_gate": 24,
+      "tests.test_dedup": 2,
+      "tests.test_dependency_lock": 2,
+      "tests.test_description_supplement": 8,
+      "tests.test_diagnostics": 1,
+      "tests.test_editorial_failure_recovery": 13,
+      "tests.test_export_lock": 4,
+      "tests.test_fetch_meta": 42,
+      "tests.test_fetch_meta_skip_failed_page": 6,
+      "tests.test_forensic_log": 13,
+      "tests.test_hotword_census": 5,
+      "tests.test_import_order": 10,
+      "tests.test_installed_baseline": 2,
+      "tests.test_installed_cli": 13,
+      "tests.test_live_metadata_smoke": 9,
+      "tests.test_live_subtitle_smoke": 18,
+      "tests.test_manuscript_snapshot": 13,
+      "tests.test_measure_hotwords": 2,
+      "tests.test_meta_cursor": 12,
+      "tests.test_metadata_cli": 35,
+      "tests.test_metadata_e2e": 3,
+      "tests.test_metadata_ingest": 56,
+      "tests.test_metadata_page_retries": 22,
+      "tests.test_metadata_recovery": 35,
+      "tests.test_metadata_refresh": 61,
+      "tests.test_metadata_repository": 39,
+      "tests.test_metadata_search": 33,
+      "tests.test_migration_preflight": 54,
+      "tests.test_migration_preflight_cli": 3,
+      "tests.test_migration_preservation_baseline": 4,
+      "tests.test_migration_source": 23,
+      "tests.test_opt_in_gate": 16,
+      "tests.test_page_identity": 4,
+      "tests.test_pending_subtitles_cost": 12,
+      "tests.test_preserved_body_import": 37,
+      "tests.test_production_startup": 3,
+      "tests.test_project_staging": 2,
+      "tests.test_projection_policy_consistency": 14,
+      "tests.test_proofread": 15,
+      "tests.test_public_asr_benchmark": 13,
+      "tests.test_publication": 38,
+      "tests.test_publication_cli": 10,
+      "tests.test_publication_contracts": 10,
+      "tests.test_publication_draft_export": 30,
+      "tests.test_publication_export": 35,
+      "tests.test_publication_metadata_refresh": 13,
+      "tests.test_publication_review_export": 29,
+      "tests.test_publication_series": 36,
+      "tests.test_publication_worker_entrypoint": 10,
+      "tests.test_quality": 72,
+      "tests.test_raw_characters": 17,
+      "tests.test_reference_backup": 21,
+      "tests.test_remote_storage": 18,
+      "tests.test_runtime_bindings": 8,
+      "tests.test_search": 25,
+      "tests.test_search_index_paging": 9,
+      "tests.test_search_index_recovery": 12,
+      "tests.test_snapshot_cli": 5,
+      "tests.test_snapshot_compression": 1,
+      "tests.test_snapshot_e2e": 7,
+      "tests.test_snapshot_external_artifacts": 7,
+      "tests.test_snapshot_storage": 34,
+      "tests.test_source_adapters": 42,
+      "tests.test_source_metadata_export": 12,
+      "tests.test_source_registry": 2,
+      "tests.test_source_request_scope": 3,
+      "tests.test_source_search": 6,
+      "tests.test_source_search_build": 3,
+      "tests.test_source_supplement": 21,
+      "tests.test_source_tag_observations": 12,
+      "tests.test_storage_schema": 51,
+      "tests.test_subtitle_candidates": 17,
+      "tests.test_test_coverage_gate": 6,
+      "tests.test_transcript_projection": 13,
+      "tests.test_transcript_repository": 104,
+      "tests.test_universal_archive": 31,
+      "tests.test_universal_publication": 3,
+      "tests.test_upgrade_result_reuse": 12,
+      "tests.test_verify_baseline": 23,
+      "tests.test_verify_gpu": 5,
+      "tests.test_webvtt": 33,
+      "tests.test_workflow_audio_staging": 6,
+      "tests.test_workflow_boundaries": 16,
+      "tests.test_workflow_cancellation": 27,
+      "tests.test_workflow_control_plane": 13,
+      "tests.test_workflow_dependency_repair": 3,
+      "tests.test_workflow_diagnostics": 9,
+      "tests.test_workflow_issue_regressions": 11,
+      "tests.test_workflow_lease_heartbeat": 3,
+      "tests.test_workflow_lifecycle": 15,
+      "tests.test_workflow_offloaded_audio": 14,
+      "tests.test_workflow_publication": 11,
+      "tests.test_workflow_result_fences": 28,
+      "tests.test_workflow_selection": 33,
+      "tests.test_workflow_source_factories": 8,
+      "tests.test_workflow_workers": 14,
+      "tests.test_youtube_source": 35,
+      "tests.test_youtube_workflow": 9
+    },
+    "slowest_cases": [
+      {
+        "node": "tests/test_source_supplement.py::test_export_pair_and_snapshot_restore_keep_title_evidence",
+        "seconds": 30.498
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_stdlib_venv_install_works_without_uv_or_inherited_backend",
+        "seconds": 25.143
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_help",
+        "seconds": 25.114
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_real_spawn_prepares_reuses_and_rebuilds_for_precision_and_sentinel",
+        "seconds": 20.943
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_title_only_change_preserves_current_human_edits_and_historical_ai",
+        "seconds": 20.4
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_cli_plan_apply_check_and_snapshot_restore",
+        "seconds": 20.364
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_evidence_requires_new_profile_and_is_bound_to_catalog",
+        "seconds": 18.862
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-supplemented]",
+        "seconds": 16.526
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_cli_plan_apply_check_and_no_overwrite",
+        "seconds": 16.119
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[after]",
+        "seconds": 15.766
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_new_profile_and_snapshot_restore_closed_loop",
+        "seconds": 15.294
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_mid_batch_failure_rolls_back_and_retry_creates_one_result",
+        "seconds": 14.986
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_import_exact_body_no_inference_or_inherited_approval[published]",
+        "seconds": 14.858
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_preparation_faults_reap_owned_child_and_remain_retryable[warmup-crash-InferenceSessionError-8]",
+        "seconds": 14.686
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-preserved]",
+        "seconds": 14.371
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[before]",
+        "seconds": 14.092
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_preserves_body_summary_history_and_honest_time[\\u4e2d\\u6587\\u7b80\\u4ecb\\r\\n\\u5f15\\u7528: \"\\u54f2\\u5b66\" \\\\ archive\\nhttps://example.org/reference-1234]",
+        "seconds": 14.081
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_preserves_body_summary_history_and_honest_time[\\u4e2d\\u6587\\u7b80\\u4ecb\\r\\n\\u5f15\\u7528: \"\\u54f2\\u5b66\" \\\\ archive\\nhttps://example.org/reference-None]",
+        "seconds": 13.714
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_preserves_body_summary_history_and_honest_time[-1234]",
+        "seconds": 13.703
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-supplemented]",
+        "seconds": 13.696
+      }
+    ]
+  },
+  "superseded_frozen_pytest": {
+    "snapshot_head": "ab2dcffa7c583cb7bcd191b7812ea4b37acee798",
+    "tests": 3246,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 11,
+    "passed": 3235,
+    "seconds": 2015.31,
+    "exceptions": [
+      {
+        "node": "tests/test_artifact_root_write_probe.py::test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock",
+        "kind": "skipped",
+        "message": "legacy asr command was replaced by SQLite workflow handlers",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_artifact_root_write_probe.py:141: legacy asr command was replaced by SQLite workflow handlers"
+      },
+      {
+        "node": "tests/test_artifact_root_write_probe.py::test_audio_inventory_reuses_the_invocations_resolved_roots",
+        "kind": "skipped",
+        "message": "derive-audio-inventory command was retired with the manifest queue",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_artifact_root_write_probe.py:164: derive-audio-inventory command was retired with the manifest queue"
+      },
+      {
+        "node": "tests/test_audio_reclaim.py::test_coordinator_archive_stage_reclaims_audio",
+        "kind": "skipped",
+        "message": "archive execution now belongs to SQLite workflow jobs",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_audio_reclaim.py:157: archive execution now belongs to SQLite workflow jobs"
+      },
+      {
+        "node": "tests/test_audio_retention_policy.py::test_coordinator_respects_keep_audio_policy",
+        "kind": "skipped",
+        "message": "archive execution now belongs to SQLite workflow jobs",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_audio_retention_policy.py:79: archive execution now belongs to SQLite workflow jobs"
+      },
+      {
+        "node": "tests/test_bilibili_api_gateway.py::test_live_smoke_single_public_page_for_archive_owner",
+        "kind": "skipped",
+        "message": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_bilibili_api_gateway.py:4464: live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_live_metadata_smoke.py::test_live_smoke_fetch_meta_one_page_lands_normalized_rows",
+        "kind": "skipped",
+        "message": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_live_metadata_smoke.py:289: live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_live_subtitle_smoke.py::test_live_subtitle_probe_reports_one_real_part_inventory",
+        "kind": "skipped",
+        "message": "live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_live_subtitle_smoke.py:433: live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_migration_source.py::test_standalone_reader_refuses_database_under_junction",
+        "kind": "skipped",
+        "message": "Windows junction path semantics",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_migration_source.py:236: Windows junction path semantics"
+      },
+      {
+        "node": "tests/test_proofread.py::test_cli_proofread_writes_under_proofread_work",
+        "kind": "skipped",
+        "message": "standalone proofread CLI was replaced by workflow proofread jobs",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_proofread.py:378: standalone proofread CLI was replaced by workflow proofread jobs"
+      },
+      {
+        "node": "tests/test_proofread.py::test_cli_proofread_merge_publishes_and_counts",
+        "kind": "skipped",
+        "message": "standalone proofread merge CLI was replaced by workflow rendering",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_proofread.py:390: standalone proofread merge CLI was replaced by workflow rendering"
+      },
+      {
+        "node": "tests/test_quality.py::test_recorded_cue_fixture_still_exits_zero",
+        "kind": "skipped",
+        "message": "legacy manifest-backed quality CLI was replaced by workflow quality evidence",
+        "detail": "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/tests/test_quality.py:654: legacy manifest-backed quality CLI was replaced by workflow quality evidence"
+      }
+    ],
+    "module_counts": {
+      "tests.test_ai_editorial": 73,
+      "tests.test_architecture_boundaries": 4,
+      "tests.test_archive_bundle_streaming": 4,
+      "tests.test_archive_maintenance": 6,
+      "tests.test_archive_recovery": 9,
+      "tests.test_archive_sessions": 38,
+      "tests.test_archive_snapshot": 52,
+      "tests.test_archive_upgrade": 36,
+      "tests.test_artifact_catalog": 37,
+      "tests.test_artifact_contract_schemas": 10,
+      "tests.test_artifact_coordination": 3,
+      "tests.test_artifact_groups": 11,
+      "tests.test_artifact_inventory": 21,
+      "tests.test_artifact_inventory_service": 30,
+      "tests.test_artifact_key_contract": 1,
+      "tests.test_artifact_online": 13,
+      "tests.test_artifact_online_contract": 7,
+      "tests.test_artifact_packages": 28,
+      "tests.test_artifact_policy": 13,
+      "tests.test_artifact_release": 8,
+      "tests.test_artifact_restore": 11,
+      "tests.test_artifact_review_regressions": 5,
+      "tests.test_artifact_review_target_generation": 3,
+      "tests.test_artifact_root": 16,
+      "tests.test_artifact_root_write_probe": 11,
+      "tests.test_artifact_transfer": 12,
+      "tests.test_artifacts_cli": 30,
+      "tests.test_asr_audio_mixing": 30,
+      "tests.test_asr_backend": 4,
+      "tests.test_asr_batching": 23,
+      "tests.test_asr_deployment_readiness": 26,
+      "tests.test_asr_execution_evidence": 4,
+      "tests.test_asr_facade": 8,
+      "tests.test_asr_hotword_guard": 23,
+      "tests.test_asr_performance": 24,
+      "tests.test_asr_policy_review": 6,
+      "tests.test_asr_prefetch": 23,
+      "tests.test_asr_profiling_entry": 12,
+      "tests.test_asr_quality_foundation": 30,
+      "tests.test_asr_qwen": 59,
+      "tests.test_asr_runtime_strategies": 19,
+      "tests.test_asr_sessions": 31,
+      "tests.test_asr_token_budget": 9,
+      "tests.test_audio_reclaim": 11,
+      "tests.test_audio_retention_policy": 4,
+      "tests.test_bilibili_api_gateway": 403,
+      "tests.test_bundle_verification": 15,
+      "tests.test_character_time_validation": 15,
+      "tests.test_check_asr_env": 53,
+      "tests.test_conftest_tmp_root": 1,
+      "tests.test_content_upgrade_policies": 7,
+      "tests.test_contract_registry": 38,
+      "tests.test_contract_release_gate": 26,
+      "tests.test_dedup": 2,
+      "tests.test_dependency_lock": 2,
+      "tests.test_description_supplement": 8,
+      "tests.test_diagnostics": 1,
+      "tests.test_editorial_diagnostics": 28,
+      "tests.test_editorial_failure_recovery": 13,
+      "tests.test_export_lock": 4,
+      "tests.test_fetch_meta": 42,
+      "tests.test_fetch_meta_skip_failed_page": 6,
+      "tests.test_forensic_log": 13,
+      "tests.test_hotword_census": 5,
+      "tests.test_import_order": 10,
+      "tests.test_installed_baseline": 2,
+      "tests.test_installed_cli": 13,
+      "tests.test_live_metadata_smoke": 9,
+      "tests.test_live_subtitle_smoke": 18,
+      "tests.test_manuscript_snapshot": 13,
+      "tests.test_measure_hotwords": 2,
+      "tests.test_meta_cursor": 12,
+      "tests.test_metadata_cli": 35,
+      "tests.test_metadata_e2e": 3,
+      "tests.test_metadata_ingest": 56,
+      "tests.test_metadata_page_retries": 22,
+      "tests.test_metadata_recovery": 35,
+      "tests.test_metadata_refresh": 61,
+      "tests.test_metadata_repository": 39,
+      "tests.test_metadata_search": 33,
+      "tests.test_migration_preflight": 54,
+      "tests.test_migration_preflight_cli": 3,
+      "tests.test_migration_preservation_baseline": 4,
+      "tests.test_migration_source": 23,
+      "tests.test_opt_in_gate": 16,
+      "tests.test_page_identity": 4,
+      "tests.test_pending_subtitles_cost": 12,
+      "tests.test_preserved_body_import": 37,
+      "tests.test_production_startup": 3,
+      "tests.test_project_staging": 2,
+      "tests.test_projection_policy_consistency": 14,
+      "tests.test_proofread": 15,
+      "tests.test_public_asr_benchmark": 13,
+      "tests.test_publication": 38,
+      "tests.test_publication_cli": 10,
+      "tests.test_publication_contracts": 10,
+      "tests.test_publication_draft_export": 30,
+      "tests.test_publication_export": 35,
+      "tests.test_publication_metadata_refresh": 13,
+      "tests.test_publication_review_export": 29,
+      "tests.test_publication_series": 36,
+      "tests.test_publication_worker_entrypoint": 10,
+      "tests.test_quality": 72,
+      "tests.test_raw_characters": 17,
+      "tests.test_reference_backup": 21,
+      "tests.test_remote_storage": 18,
+      "tests.test_runtime_bindings": 8,
+      "tests.test_search": 25,
+      "tests.test_search_index_paging": 9,
+      "tests.test_search_index_recovery": 12,
+      "tests.test_snapshot_cli": 5,
+      "tests.test_snapshot_compression": 1,
+      "tests.test_snapshot_e2e": 7,
+      "tests.test_snapshot_external_artifacts": 7,
+      "tests.test_snapshot_storage": 34,
+      "tests.test_source_adapters": 42,
+      "tests.test_source_metadata_export": 12,
+      "tests.test_source_registry": 2,
+      "tests.test_source_request_scope": 3,
+      "tests.test_source_search": 6,
+      "tests.test_source_search_build": 3,
+      "tests.test_source_supplement": 21,
+      "tests.test_source_tag_observations": 12,
+      "tests.test_storage_schema": 51,
+      "tests.test_subtitle_candidates": 17,
+      "tests.test_test_coverage_gate": 6,
+      "tests.test_transcript_projection": 13,
+      "tests.test_transcript_repository": 104,
+      "tests.test_universal_archive": 31,
+      "tests.test_universal_publication": 3,
+      "tests.test_upgrade_result_reuse": 12,
+      "tests.test_verify_baseline": 23,
+      "tests.test_verify_gpu": 5,
+      "tests.test_webvtt": 33,
+      "tests.test_workflow_audio_staging": 6,
+      "tests.test_workflow_boundaries": 16,
+      "tests.test_workflow_cancellation": 27,
+      "tests.test_workflow_control_plane": 13,
+      "tests.test_workflow_dependency_repair": 3,
+      "tests.test_workflow_diagnostics": 9,
+      "tests.test_workflow_failure_policy": 16,
+      "tests.test_workflow_failure_status": 18,
+      "tests.test_workflow_issue_regressions": 11,
+      "tests.test_workflow_lease_heartbeat": 3,
+      "tests.test_workflow_lifecycle": 15,
+      "tests.test_workflow_offloaded_audio": 14,
+      "tests.test_workflow_publication": 16,
+      "tests.test_workflow_result_fences": 28,
+      "tests.test_workflow_retry_policy": 23,
+      "tests.test_workflow_selection": 33,
+      "tests.test_workflow_source_factories": 8,
+      "tests.test_workflow_workers": 14,
+      "tests.test_youtube_source": 35,
+      "tests.test_youtube_workflow": 9
+    },
+    "slowest_cases": [
+      {
+        "node": "tests/test_source_supplement.py::test_export_pair_and_snapshot_restore_keep_title_evidence",
+        "seconds": 30.838
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_stdlib_venv_install_works_without_uv_or_inherited_backend",
+        "seconds": 28.465
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_help",
+        "seconds": 26.181
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_cli_plan_apply_check_and_snapshot_restore",
+        "seconds": 20.64
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_title_only_change_preserves_current_human_edits_and_historical_ai",
+        "seconds": 20.391
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_real_spawn_prepares_reuses_and_rebuilds_for_precision_and_sentinel",
+        "seconds": 19.819
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_evidence_requires_new_profile_and_is_bound_to_catalog",
+        "seconds": 19.497
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_cli_plan_apply_check_and_no_overwrite",
+        "seconds": 16.557
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[after]",
+        "seconds": 15.96
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_new_profile_and_snapshot_restore_closed_loop",
+        "seconds": 15.565
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-supplemented]",
+        "seconds": 15.23
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_mid_batch_failure_rolls_back_and_retry_creates_one_result",
+        "seconds": 15.212
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_import_exact_body_no_inference_or_inherited_approval[published]",
+        "seconds": 14.903
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[before]",
+        "seconds": 14.341
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_preparation_faults_reap_owned_child_and_remain_retryable[warmup-crash-InferenceSessionError-8]",
+        "seconds": 14.254
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_preserves_body_summary_history_and_honest_time[\\u4e2d\\u6587\\u7b80\\u4ecb\\r\\n\\u5f15\\u7528: \"\\u54f2\\u5b66\" \\\\ archive\\nhttps://example.org/reference-None]",
+        "seconds": 14.075
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_preserves_body_summary_history_and_honest_time[\\u4e2d\\u6587\\u7b80\\u4ecb\\r\\n\\u5f15\\u7528: \"\\u54f2\\u5b66\" \\\\ archive\\nhttps://example.org/reference-1234]",
+        "seconds": 14.02
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-preserved]",
+        "seconds": 13.784
+      },
+      {
+        "node": "tests/test_description_supplement.py::test_description_preserves_body_summary_history_and_honest_time[-1234]",
+        "seconds": 13.67
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_preparation_faults_reap_owned_child_and_remain_retryable[warmup-error-InferenceSessionError-8]",
+        "seconds": 13.564
+      }
+    ]
+  },
+  "initial_wsl_pytest": {
+    "tests": 3246,
+    "failures": 8,
+    "errors": 12,
+    "skipped": 11,
+    "passed": 3215,
+    "seconds": 1464.04,
+    "exceptions": [
+      {
+        "node": "tests/test_artifact_root_write_probe.py::test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock",
+        "kind": "skipped",
+        "message": "legacy asr command was replaced by SQLite workflow handlers",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_artifact_root_write_probe.py:141: legacy asr command was replaced by SQLite workflow handlers"
+      },
+      {
+        "node": "tests/test_artifact_root_write_probe.py::test_audio_inventory_reuses_the_invocations_resolved_roots",
+        "kind": "skipped",
+        "message": "derive-audio-inventory command was retired with the manifest queue",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_artifact_root_write_probe.py:164: derive-audio-inventory command was retired with the manifest queue"
+      },
+      {
+        "node": "tests/test_audio_reclaim.py::test_coordinator_archive_stage_reclaims_audio",
+        "kind": "skipped",
+        "message": "archive execution now belongs to SQLite workflow jobs",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_audio_reclaim.py:157: archive execution now belongs to SQLite workflow jobs"
+      },
+      {
+        "node": "tests/test_audio_retention_policy.py::test_coordinator_respects_keep_audio_policy",
+        "kind": "skipped",
+        "message": "archive execution now belongs to SQLite workflow jobs",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_audio_retention_policy.py:79: archive execution now belongs to SQLite workflow jobs"
+      },
+      {
+        "node": "tests/test_bilibili_api_gateway.py::test_live_smoke_single_public_page_for_archive_owner",
+        "kind": "skipped",
+        "message": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_bilibili_api_gateway.py:4464: live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_contract_registry.py::test_contract_cli_publishes_checks_and_rejects_documentation_drift",
+        "kind": "failure",
+        "message": "AssertionError: /mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python: Error while finding module specification for 'bili_asr.contracts' (ModuleNotFoundError: No module named 'bili_asr')\n  \nassert 1 == 0\n +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-m', 'bili_asr.contracts', '--wr...Error while finding module specification for 'bili_asr.contracts' (ModuleNotFoundError: No module named 'bili_asr')\\n\").returncode",
+        "detail": "tmp_path = PosixPath('/tmp/bili-asr-regression-20261012/test_contract_cli_publishes_ch0')\n\n>   ???\nE   AssertionError: /mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python: Error while finding module specification for 'bili_asr.contracts' (ModuleNotFoundError: No module named 'bili_asr')\nE     \nE   assert 1 == 0\nE    +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-m', 'bili_asr.contracts', '--wr...Error while finding module specification for 'bili_asr.contracts' (ModuleNotFoundError: No module named 'bili_asr')\\n\").returncode\n\nC:\\WorkSpace\\bilibili-asr-archive\\tests\\test_contract_registry.py:174: AssertionError"
+      },
+      {
+        "node": "tests/test_installed_baseline.py::test_installed_package_bootstraps_schema_and_status",
+        "kind": "failure",
+        "message": "AssertionError: /mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python: No module named bili_asr\n  \nassert 1 == 0\n +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-m', 'bili_asr', 'status', '--ar...turncode=1, stdout='', stderr='/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python: No module named bili_asr\\n').returncode",
+        "detail": "tmp_path = PosixPath('/tmp/bili-asr-regression-20261012/test_installed_package_bootstr0')\n\n>   ???\nE   AssertionError: /mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python: No module named bili_asr\nE     \nE   assert 1 == 0\nE    +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-m', 'bili_asr', 'status', '--ar...turncode=1, stdout='', stderr='/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python: No module named bili_asr\\n').returncode\n\nC:\\WorkSpace\\bilibili-asr-archive\\tests\\test_installed_baseline.py:28: AssertionError"
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_help",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_status_fails_without_database",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_stdlib_venv_install_works_without_uv_or_inherited_backend",
+        "kind": "failure",
+        "message": "Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_status_rejects_empty_database_without_initializing",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_publication_commands_and_removed_aliases",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_proofread_help_and_workflow_status",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_snapshot_round_trip_offline",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_script_is_not_path_or_checkout_source",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_resolves_its_packaged_host_check",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_status_requires_database",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_sentinel_never_appears_in_cli_output",
+        "kind": "error",
+        "message": "failed on setup with \"Failed: Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script.\"",
+        "detail": "Installed-entrypoint verification prerequisite failed: offline contract dependency installation failed (ERROR: No matching distribution found for jsonschema<5,>=4.25)\n\nRequired:\n  - Python 3.12 interpreter (this project's supported verification environment)\n  - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)\n  - local pip, setuptools>=69 and wheel in the test interpreter (for an\n    offline wheel build when the isolated backend is absent)\n  - contract validator wheels prepared in .test-wheelhouse (or the directory\n    named by BILI_ASR_TEST_WHEELHOUSE); tests never download dependencies\n  - a local, offline install of this package that provides the `bili-asr`\n    console script inside that virtualenv\n\nThis check does not skip. Isolated verification (no live HTTP / model download):\n\n  uv venv --python 3.12 .venv\n  uv pip install --python .venv/bin/python -e \".[dev]\"\n  uv pip install --python .venv/bin/python pip \"setuptools>=69\" wheel\n  .venv/bin/python -m pip download --dest .test-wheelhouse \"jsonschema>=4.25,<5\"\n  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py\n\nThe tests themselves provision a separate temporary virtualenv; a `bili-asr`\nalready present in the developer checkout is not a substitute.\n\n`python -m bili_asr` remaining green is not a substitute for the installed\nconsole script."
+      },
+      {
+        "node": "tests/test_live_metadata_smoke.py::test_live_smoke_fetch_meta_one_page_lands_normalized_rows",
+        "kind": "skipped",
+        "message": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_live_metadata_smoke.py:289: live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_live_subtitle_smoke.py::test_live_subtitle_probe_reports_one_real_part_inventory",
+        "kind": "skipped",
+        "message": "live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_live_subtitle_smoke.py:433: live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+      },
+      {
+        "node": "tests/test_migration_source.py::test_standalone_reader_refuses_database_under_junction",
+        "kind": "skipped",
+        "message": "Windows junction path semantics",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_migration_source.py:236: Windows junction path semantics"
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_process_exit_recovery_has_one_receipt_and_no_missing_files[False]",
+        "kind": "failure",
+        "message": "AssertionError: Traceback (most recent call last):\n    File \"<string>\", line 5, in <module>\n  ModuleNotFoundError: No module named 'bili_asr'\n  \nassert 1 == 79\n +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode",
+        "detail": "historical = (<bili_asr.archive_session._SessionConnection object at 0x7286c00f6450>, PosixPath('/tmp/bili-asr-regression-20261012/..., 'blocked_job': '2ee58982-6349-4b75-a8f1-a081152720b1', 'cancelled_job': 'bc5a1ea5-0344-408b-838a-0d26b5cfde7f', ...})\ntmp_path = PosixPath('/tmp/bili-asr-regression-20261012/test_process_exit_recovery_has0')\nafter_commit = False\n\n>   ???\nE   AssertionError: Traceback (most recent call last):\nE       File \"<string>\", line 5, in <module>\nE     ModuleNotFoundError: No module named 'bili_asr'\nE     \nE   assert 1 == 79\nE    +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode\n\nC:\\WorkSpace\\bilibili-asr-archive\\tests\\test_preserved_body_import.py:254: AssertionError"
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_process_exit_recovery_has_one_receipt_and_no_missing_files[True]",
+        "kind": "failure",
+        "message": "AssertionError: Traceback (most recent call last):\n    File \"<string>\", line 5, in <module>\n  ModuleNotFoundError: No module named 'bili_asr'\n  \nassert 1 == 79\n +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode",
+        "detail": "historical = (<bili_asr.archive_session._SessionConnection object at 0x7286c0efd050>, PosixPath('/tmp/bili-asr-regression-20261012/..., 'blocked_job': '2ee58982-6349-4b75-a8f1-a081152720b1', 'cancelled_job': 'bc5a1ea5-0344-408b-838a-0d26b5cfde7f', ...})\ntmp_path = PosixPath('/tmp/bili-asr-regression-20261012/test_process_exit_recovery_has1')\nafter_commit = True\n\n>   ???\nE   AssertionError: Traceback (most recent call last):\nE       File \"<string>\", line 5, in <module>\nE     ModuleNotFoundError: No module named 'bili_asr'\nE     \nE   assert 1 == 79\nE    +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode\n\nC:\\WorkSpace\\bilibili-asr-archive\\tests\\test_preserved_body_import.py:254: AssertionError"
+      },
+      {
+        "node": "tests/test_proofread.py::test_cli_proofread_writes_under_proofread_work",
+        "kind": "skipped",
+        "message": "standalone proofread CLI was replaced by workflow proofread jobs",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_proofread.py:378: standalone proofread CLI was replaced by workflow proofread jobs"
+      },
+      {
+        "node": "tests/test_proofread.py::test_cli_proofread_merge_publishes_and_counts",
+        "kind": "skipped",
+        "message": "standalone proofread merge CLI was replaced by workflow rendering",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_proofread.py:390: standalone proofread merge CLI was replaced by workflow rendering"
+      },
+      {
+        "node": "tests/test_quality.py::test_recorded_cue_fixture_still_exits_zero",
+        "kind": "skipped",
+        "message": "legacy manifest-backed quality CLI was replaced by workflow quality evidence",
+        "detail": "C:\\WorkSpace\\bilibili-asr-archive\\tests\\test_quality.py:654: legacy manifest-backed quality CLI was replaced by workflow quality evidence"
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[before]",
+        "kind": "failure",
+        "message": "AssertionError: Traceback (most recent call last):\n    File \"<string>\", line 5, in <module>\n  ModuleNotFoundError: No module named 'bili_asr'\n  \nassert 1 == 79\n +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode",
+        "detail": "preserved = (<bili_asr.archive_session._SessionConnection object at 0x7286c2c5ad50>, PosixPath('/tmp/bili-asr-regression-20261012/...f8b1eb316f3bc899a4ed31c319e062808670df16d9c931aa8eb93', 'parent_edition_id': 'e568e1d694fa4bad93fb8b5df08d59a1', ...}])\ntmp_path = PosixPath('/tmp/bili-asr-regression-20261012/test_process_exit_before_and_a0')\nstage = 'before'\n\n>   ???\nE   AssertionError: Traceback (most recent call last):\nE       File \"<string>\", line 5, in <module>\nE     ModuleNotFoundError: No module named 'bili_asr'\nE     \nE   assert 1 == 79\nE    +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode\n\nC:\\WorkSpace\\bilibili-asr-archive\\tests\\test_source_supplement.py:286: AssertionError"
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[after]",
+        "kind": "failure",
+        "message": "AssertionError: Traceback (most recent call last):\n    File \"<string>\", line 5, in <module>\n  ModuleNotFoundError: No module named 'bili_asr'\n  \nassert 1 == 79\n +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode",
+        "detail": "preserved = (<bili_asr.archive_session._SessionConnection object at 0x7286c1540750>, PosixPath('/tmp/bili-asr-regression-20261012/...f8b1eb316f3bc899a4ed31c319e062808670df16d9c931aa8eb93', 'parent_edition_id': 'e568e1d694fa4bad93fb8b5df08d59a1', ...}])\ntmp_path = PosixPath('/tmp/bili-asr-regression-20261012/test_process_exit_before_and_a1')\nstage = 'after'\n\n>   ???\nE   AssertionError: Traceback (most recent call last):\nE       File \"<string>\", line 5, in <module>\nE     ModuleNotFoundError: No module named 'bili_asr'\nE     \nE   assert 1 == 79\nE    +  where 1 = CompletedProcess(args=['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python', '-c', '\\nimport json, os, sys\\nfr...(most recent call last):\\n  File \"<string>\", line 5, in <module>\\nModuleNotFoundError: No module named \\'bili_asr\\'\\n').returncode\n\nC:\\WorkSpace\\bilibili-asr-archive\\tests\\test_source_supplement.py:286: AssertionError"
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_concurrent_identical_batches_share_the_same_editions",
+        "kind": "failure",
+        "message": "AssertionError: Traceback (most recent call last):\n    File \"<string>\", line 5, in <module>\n  ModuleNotFoundError: No module named 'bili_asr'\n  \nassert 1 == 0\n +  where 1 = <Popen: returncode: 1 args: ['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-ws...>.returncode",
+        "detail": "preserved = (<bili_asr.archive_session._SessionConnection object at 0x7286c1542e50>, PosixPath('/tmp/bili-asr-regression-20261012/...f8b1eb316f3bc899a4ed31c319e062808670df16d9c931aa8eb93', 'parent_edition_id': 'e568e1d694fa4bad93fb8b5df08d59a1', ...}])\ntmp_path = PosixPath('/tmp/bili-asr-regression-20261012/test_concurrent_identical_batc0')\n\n>   ???\nE   AssertionError: Traceback (most recent call last):\nE       File \"<string>\", line 5, in <module>\nE     ModuleNotFoundError: No module named 'bili_asr'\nE     \nE   assert 1 == 0\nE    +  where 1 = <Popen: returncode: 1 args: ['/mnt/c/WorkSpace/bilibili-asr-archive/.venv-ws...>.returncode\n\nC:\\WorkSpace\\bilibili-asr-archive\\tests\\test_source_supplement.py:306: AssertionError"
+      }
+    ],
+    "module_counts": {
+      "tests.test_ai_editorial": 73,
+      "tests.test_architecture_boundaries": 4,
+      "tests.test_archive_bundle_streaming": 4,
+      "tests.test_archive_maintenance": 6,
+      "tests.test_archive_recovery": 9,
+      "tests.test_archive_sessions": 38,
+      "tests.test_archive_snapshot": 52,
+      "tests.test_archive_upgrade": 36,
+      "tests.test_artifact_catalog": 37,
+      "tests.test_artifact_contract_schemas": 10,
+      "tests.test_artifact_coordination": 3,
+      "tests.test_artifact_groups": 11,
+      "tests.test_artifact_inventory": 21,
+      "tests.test_artifact_inventory_service": 30,
+      "tests.test_artifact_key_contract": 1,
+      "tests.test_artifact_online": 13,
+      "tests.test_artifact_online_contract": 7,
+      "tests.test_artifact_packages": 28,
+      "tests.test_artifact_policy": 13,
+      "tests.test_artifact_release": 8,
+      "tests.test_artifact_restore": 11,
+      "tests.test_artifact_review_regressions": 5,
+      "tests.test_artifact_review_target_generation": 3,
+      "tests.test_artifact_root": 16,
+      "tests.test_artifact_root_write_probe": 11,
+      "tests.test_artifact_transfer": 12,
+      "tests.test_artifacts_cli": 30,
+      "tests.test_asr_audio_mixing": 30,
+      "tests.test_asr_backend": 4,
+      "tests.test_asr_batching": 23,
+      "tests.test_asr_deployment_readiness": 26,
+      "tests.test_asr_execution_evidence": 4,
+      "tests.test_asr_facade": 8,
+      "tests.test_asr_hotword_guard": 23,
+      "tests.test_asr_performance": 24,
+      "tests.test_asr_policy_review": 6,
+      "tests.test_asr_prefetch": 23,
+      "tests.test_asr_profiling_entry": 12,
+      "tests.test_asr_quality_foundation": 30,
+      "tests.test_asr_qwen": 59,
+      "tests.test_asr_runtime_strategies": 19,
+      "tests.test_asr_sessions": 31,
+      "tests.test_asr_token_budget": 9,
+      "tests.test_audio_reclaim": 11,
+      "tests.test_audio_retention_policy": 4,
+      "tests.test_bilibili_api_gateway": 403,
+      "tests.test_bundle_verification": 15,
+      "tests.test_character_time_validation": 15,
+      "tests.test_check_asr_env": 53,
+      "tests.test_conftest_tmp_root": 1,
+      "tests.test_content_upgrade_policies": 7,
+      "tests.test_contract_registry": 38,
+      "tests.test_contract_release_gate": 26,
+      "tests.test_dedup": 2,
+      "tests.test_dependency_lock": 2,
+      "tests.test_description_supplement": 8,
+      "tests.test_diagnostics": 1,
+      "tests.test_editorial_diagnostics": 28,
+      "tests.test_editorial_failure_recovery": 13,
+      "tests.test_export_lock": 4,
+      "tests.test_fetch_meta": 42,
+      "tests.test_fetch_meta_skip_failed_page": 6,
+      "tests.test_forensic_log": 13,
+      "tests.test_hotword_census": 5,
+      "tests.test_import_order": 10,
+      "tests.test_installed_baseline": 2,
+      "tests.test_installed_cli": 13,
+      "tests.test_live_metadata_smoke": 9,
+      "tests.test_live_subtitle_smoke": 18,
+      "tests.test_manuscript_snapshot": 13,
+      "tests.test_measure_hotwords": 2,
+      "tests.test_meta_cursor": 12,
+      "tests.test_metadata_cli": 35,
+      "tests.test_metadata_e2e": 3,
+      "tests.test_metadata_ingest": 56,
+      "tests.test_metadata_page_retries": 22,
+      "tests.test_metadata_recovery": 35,
+      "tests.test_metadata_refresh": 61,
+      "tests.test_metadata_repository": 39,
+      "tests.test_metadata_search": 33,
+      "tests.test_migration_preflight": 54,
+      "tests.test_migration_preflight_cli": 3,
+      "tests.test_migration_preservation_baseline": 4,
+      "tests.test_migration_source": 23,
+      "tests.test_opt_in_gate": 16,
+      "tests.test_page_identity": 4,
+      "tests.test_pending_subtitles_cost": 12,
+      "tests.test_preserved_body_import": 37,
+      "tests.test_production_startup": 3,
+      "tests.test_project_staging": 2,
+      "tests.test_projection_policy_consistency": 14,
+      "tests.test_proofread": 15,
+      "tests.test_public_asr_benchmark": 13,
+      "tests.test_publication": 38,
+      "tests.test_publication_cli": 10,
+      "tests.test_publication_contracts": 10,
+      "tests.test_publication_draft_export": 30,
+      "tests.test_publication_export": 35,
+      "tests.test_publication_metadata_refresh": 13,
+      "tests.test_publication_review_export": 29,
+      "tests.test_publication_series": 36,
+      "tests.test_publication_worker_entrypoint": 10,
+      "tests.test_quality": 72,
+      "tests.test_raw_characters": 17,
+      "tests.test_reference_backup": 21,
+      "tests.test_remote_storage": 18,
+      "tests.test_runtime_bindings": 8,
+      "tests.test_search": 25,
+      "tests.test_search_index_paging": 9,
+      "tests.test_search_index_recovery": 12,
+      "tests.test_snapshot_cli": 5,
+      "tests.test_snapshot_compression": 1,
+      "tests.test_snapshot_e2e": 7,
+      "tests.test_snapshot_external_artifacts": 7,
+      "tests.test_snapshot_storage": 34,
+      "tests.test_source_adapters": 42,
+      "tests.test_source_metadata_export": 12,
+      "tests.test_source_registry": 2,
+      "tests.test_source_request_scope": 3,
+      "tests.test_source_search": 6,
+      "tests.test_source_search_build": 3,
+      "tests.test_source_supplement": 21,
+      "tests.test_source_tag_observations": 12,
+      "tests.test_storage_schema": 51,
+      "tests.test_subtitle_candidates": 17,
+      "tests.test_test_coverage_gate": 6,
+      "tests.test_transcript_projection": 13,
+      "tests.test_transcript_repository": 104,
+      "tests.test_universal_archive": 31,
+      "tests.test_universal_publication": 3,
+      "tests.test_upgrade_result_reuse": 12,
+      "tests.test_verify_baseline": 23,
+      "tests.test_verify_gpu": 5,
+      "tests.test_webvtt": 33,
+      "tests.test_workflow_audio_staging": 6,
+      "tests.test_workflow_boundaries": 16,
+      "tests.test_workflow_cancellation": 27,
+      "tests.test_workflow_control_plane": 13,
+      "tests.test_workflow_dependency_repair": 3,
+      "tests.test_workflow_diagnostics": 9,
+      "tests.test_workflow_failure_policy": 16,
+      "tests.test_workflow_failure_status": 18,
+      "tests.test_workflow_issue_regressions": 11,
+      "tests.test_workflow_lease_heartbeat": 3,
+      "tests.test_workflow_lifecycle": 15,
+      "tests.test_workflow_offloaded_audio": 14,
+      "tests.test_workflow_publication": 16,
+      "tests.test_workflow_result_fences": 28,
+      "tests.test_workflow_retry_policy": 23,
+      "tests.test_workflow_selection": 33,
+      "tests.test_workflow_source_factories": 8,
+      "tests.test_workflow_workers": 14,
+      "tests.test_youtube_source": 35,
+      "tests.test_youtube_workflow": 9
+    },
+    "slowest_cases": [
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_help",
+        "seconds": 17.217
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_stdlib_venv_install_works_without_uv_or_inherited_backend",
+        "seconds": 16.48
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_real_spawn_prepares_reuses_and_rebuilds_for_precision_and_sentinel",
+        "seconds": 15.949
+      },
+      {
+        "node": "tests/test_contract_release_gate.py::test_actual_full_pytest_collection_covers_every_registered_upgrade",
+        "seconds": 13.272
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-native]",
+        "seconds": 12.653
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-supplemented]",
+        "seconds": 11.558
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-supplemented]",
+        "seconds": 11.412
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-preserved]",
+        "seconds": 11.284
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-preserved]",
+        "seconds": 10.967
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-native]",
+        "seconds": 10.736
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_preparation_faults_reap_owned_child_and_remain_retryable[warmup-crash-InferenceSessionError-8]",
+        "seconds": 10.508
+      },
+      {
+        "node": "tests/test_asr_deployment_readiness.py::test_preparation_faults_reap_owned_child_and_remain_retryable[warmup-error-InferenceSessionError-8]",
+        "seconds": 10.468
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_changed_receipt_or_target_is_not_reused_and_new_work_is_preserved",
+        "seconds": 9.024
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[supplemented]",
+        "seconds": 8.465
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[preserved]",
+        "seconds": 8.235
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[native]",
+        "seconds": 8.093
+      },
+      {
+        "node": "tests/test_workflow_lifecycle.py::test_application_stops_blocking_handler_and_persists_drain_failure[file]",
+        "seconds": 7.667
+      },
+      {
+        "node": "tests/test_workflow_issue_regressions.py::test_four_processes_never_claim_the_same_job",
+        "seconds": 7.049
+      },
+      {
+        "node": "tests/test_workflow_issue_regressions.py::test_heartbeat_bounds_inherited_timeout_and_survives_process_write_contention",
+        "seconds": 6.977
+      },
+      {
+        "node": "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-supplemented]",
+        "seconds": 6.503
+      }
+    ]
+  },
+  "installed_cli_and_baseline_retry": {
+    "tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 15,
+    "seconds": 43.114,
+    "exceptions": [],
+    "module_counts": {
+      "tests.test_installed_baseline": 2,
+      "tests.test_installed_cli": 13
+    },
+    "slowest_cases": [
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_help",
+        "seconds": 17.512
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_stdlib_venv_install_works_without_uv_or_inherited_backend",
+        "seconds": 17.45
+      },
+      {
+        "node": "tests/test_installed_baseline.py::test_installed_package_bootstraps_schema_and_status",
+        "seconds": 1.861
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_publication_commands_and_removed_aliases",
+        "seconds": 1.534
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_snapshot_round_trip_offline",
+        "seconds": 1.396
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
+        "seconds": 0.624
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_proofread_help_and_workflow_status",
+        "seconds": 0.282
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json",
+        "seconds": 0.177
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_status_rejects_empty_database_without_initializing",
+        "seconds": 0.175
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_resolves_its_packaged_host_check",
+        "seconds": 0.174
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_sentinel_never_appears_in_cli_output",
+        "seconds": 0.144
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_status_requires_database",
+        "seconds": 0.142
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_script_is_not_path_or_checkout_source",
+        "seconds": 0.14
+      },
+      {
+        "node": "tests/test_installed_cli.py::test_installed_console_script_status_fails_without_database",
+        "seconds": 0.125
+      },
+      {
+        "node": "tests/test_installed_baseline.py::test_installed_package_contains_check_asr_env_module",
+        "seconds": 0.015
+      }
+    ]
+  },
+  "source_import_contract_retry": {
+    "tests": 96,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 96,
+    "seconds": 116.413,
+    "exceptions": [],
+    "module_counts": {
+      "tests.test_contract_registry": 38,
+      "tests.test_preserved_body_import": 37,
+      "tests.test_source_supplement": 21
+    },
+    "slowest_cases": [
+      {
+        "node": "tests/test_source_supplement.py::test_export_pair_and_snapshot_restore_keep_title_evidence",
+        "seconds": 6.894
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_title_only_change_preserves_current_human_edits_and_historical_ai",
+        "seconds": 4.287
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[after]",
+        "seconds": 3.86
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_process_exit_before_and_after_commit_recovers_one_receipt[before]",
+        "seconds": 3.659
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_cli_plan_apply_check_and_no_overwrite",
+        "seconds": 3.559
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_new_profile_and_snapshot_restore_closed_loop",
+        "seconds": 3.33
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_mid_batch_failure_rolls_back_and_retry_creates_one_result",
+        "seconds": 3.179
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_concurrent_identical_batches_share_the_same_editions",
+        "seconds": 3.16
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_import_exact_body_no_inference_or_inherited_approval[published]",
+        "seconds": 3.134
+      },
+      {
+        "node": "tests/test_contract_registry.py::test_contract_cli_publishes_checks_and_rejects_documentation_drift",
+        "seconds": 2.824
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_import_exact_body_no_inference_or_inherited_approval[edited]",
+        "seconds": 2.656
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_storage_reader_rejects_damaged_evidence_and_inheritance[lost-inheritance]",
+        "seconds": 2.617
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_storage_reader_rejects_damaged_evidence_and_inheritance[wrong-cid]",
+        "seconds": 2.567
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_native_edition_is_skipped_and_keeps_its_frozen_source",
+        "seconds": 2.54
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_storage_reader_rejects_damaged_evidence_and_inheritance[evidence]",
+        "seconds": 2.418
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_head_and_live_evidence_changes_block_stale_plan",
+        "seconds": 2.167
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_process_exit_recovery_has_one_receipt_and_no_missing_files[True]",
+        "seconds": 2.129
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_import_exact_body_no_inference_or_inherited_approval[ai]",
+        "seconds": 2.128
+      },
+      {
+        "node": "tests/test_preserved_body_import.py::test_process_exit_recovery_has_one_receipt_and_no_missing_files[False]",
+        "seconds": 2.118
+      },
+      {
+        "node": "tests/test_source_supplement.py::test_rehashed_invented_evidence_is_rejected_without_partial_commit[observedAt-123]",
+        "seconds": 1.931
+      }
+    ]
+  },
+  "live_smoke": {
+    "exit": 1,
+    "tests": 3,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 1,
+    "seconds": 9.653,
+    "exceptions": [
+      {
+        "node": "tests/test_bilibili_api_gateway.py::test_live_smoke_single_public_page_for_archive_owner",
+        "kind": "failure",
+        "message": "Failed: live one-page smoke ended in a bounded upstream failure (code='rate_limited'); rerun when upstream recovers",
+        "detail": "tmp_root = '/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/.test-tmp/manifest-test-5288-0-01b2cb5325a24d6b96038c64db1158a5'\nopt_in_gate = ('BILI_LIVE_SMOKE', Mark(name='live_smoke', args=(), kwargs={'skip_reason': 'live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it'}))\n\n    @pytest.mark.live_smoke(skip_reason=_LIVE_SMOKE_SKIP_REASON)\n    def test_live_smoke_single_public_page_for_archive_owner(tmp_root, opt_in_gate):\n        \"\"\"Opt-in live probe: ONE public metadata page for UID 23191782.\n    \n        Skipped unless the operator sets ``BILI_LIVE_SMOKE=1``.  The probe\n        requests exactly one bounded page (``ps=30``) for the archive owner\n        through the real adapter, ingests it into a fresh temporary SQLite\n        database, calls no subtitle/playback/audio/ASR/export endpoint,\n        requires no credential, and keeps every raw upstream payload\n        process-local.\n        \"\"\"\n    \n    \n        try:\n            gateway = _load_gateway()\n        except ImportError as error:\n            pytest.fail(\n                \"live smoke was requested but the pinned package is not importable\"\n                f\" in this environment ({error}); install bilibili-api-python==\"\n                f\"{PINNED_PACKAGE_VERSION} (uv sync) first\"\n            )\n    \n        assert gateway.get_package_version() == PINNED_PACKAGE_VERSION\n        connection = open_database(os.path.join(tmp_root, \"live-smoke.sqlite\"))\n        try:\n            repository = MetadataRepository(connection)\n            result = MetadataIngestor(gateway, repository).collect_user_pages(\n                MID, start_page=1, page_limit=1\n            )\n    \n            # Bounded: exactly one requested page and one page-evidence row.\n            assert result.page_count == 1\n            if result.outcome in (\"failed\", \"risk_interrupted\"):\n>               pytest.fail(\n                    \"live one-page smoke ended in a bounded upstream failure\"\n                    f\" (code={result.error_code!r}); rerun when upstream recovers\"\n                )\nE               Failed: live one-page smoke ended in a bounded upstream failure (code='rate_limited'); rerun when upstream recovers\n\ntests/test_bilibili_api_gateway.py:4497: Failed"
+      },
+      {
+        "node": "tests/test_live_metadata_smoke.py::test_live_smoke_fetch_meta_one_page_lands_normalized_rows",
+        "kind": "skipped",
+        "message": "live smoke ended in the documented bounded anonymous rejection (error_code='rate_limited', exit 2): without a credential the run is anonymous, and upstream rejects some anonymous metadata access; the smoke accepts this bounded no-credential outcome rather than treating it as a defect. Provide a credential via BILI_SESSDATA in the environment for the happy-path run; this smoke builds its own argv, so its --sessdata flag is never passed.",
+        "detail": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/tests/test_live_metadata_smoke.py:349: live smoke ended in the documented bounded anonymous rejection (error_code='rate_limited', exit 2): without a credential the run is anonymous, and upstream rejects some anonymous metadata access; the smoke accepts this bounded no-credential outcome rather than treating it as a defect. Provide a credential via BILI_SESSDATA in the environment for the happy-path run; this smoke builds its own argv, so its --sessdata flag is never passed."
+      }
+    ],
+    "module_counts": {
+      "tests.test_bilibili_api_gateway": 1,
+      "tests.test_live_metadata_smoke": 1,
+      "tests.test_live_subtitle_smoke": 1
+    },
+    "slowest_cases": [
+      {
+        "node": "tests/test_bilibili_api_gateway.py::test_live_smoke_single_public_page_for_archive_owner",
+        "seconds": 0.619
+      },
+      {
+        "node": "tests/test_live_metadata_smoke.py::test_live_smoke_fetch_meta_one_page_lands_normalized_rows",
+        "seconds": 0.57
+      },
+      {
+        "node": "tests/test_live_subtitle_smoke.py::test_live_subtitle_probe_reports_one_real_part_inventory",
+        "seconds": 0.08
+      }
+    ]
+  },
+  "coverage": {
+    "gate_exit": 0,
+    "line_floor": 75,
+    "branch_floor": 63,
+    "totals": {
+      "covered_lines": 21210,
+      "num_statements": 25128,
+      "percent_covered": 81.62040290466152,
+      "percent_covered_display": "81.62",
+      "missing_lines": 3918,
+      "excluded_lines": 146,
+      "percent_statements_covered": 84.40783190066858,
+      "percent_statements_covered_display": "84.41",
+      "num_branches": 9024,
+      "num_partial_branches": 1553,
+      "covered_branches": 6665,
+      "missing_branches": 2359,
+      "percent_branches_covered": 73.85859929078015,
+      "percent_branches_covered_display": "73.86"
+    },
+    "gate_output": "Product line coverage: 84.41% (21210/25128); minimum 75.00%\nProduct branch coverage: 73.86% (6665/9024); minimum 63.00%\n"
+  },
+  "release_collection": {
+    "baseline": "05fba1341a26c5eeb9cfd77629ce09314e5b26f4",
+    "registered_edges": 9,
+    "frozen_files": 3,
+    "collected_acceptance": {
+      "bilibili-to-universal/v1": [
+        "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[native]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[converter]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[missing-file]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[plan]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[source]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[unknown-extension]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[wal]"
+      ],
+      "preserved-body-extension/v1": [
+        "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[preserved]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[converter]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[missing-file]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[plan]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[source]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[unknown-extension]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[wal]"
+      ],
+      "source-supplement-extension/v1": [
+        "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[supplemented]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[converter]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[missing-file]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[plan]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[source]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[unknown-extension]",
+        "tests/test_archive_upgrade.py::test_changed_or_invalid_inputs_fail_before_target_install[wal]"
+      ],
+      "artifact-storage-native/v1": [
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-native]",
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-native]"
+      ],
+      "artifact-storage-preserved/v1": [
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-preserved]",
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-preserved]"
+      ],
+      "artifact-storage-supplemented/v1": [
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-historical-supplemented]",
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[stored-native-supplemented]"
+      ],
+      "artifact-online-native/v1": [
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-native]",
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-native]"
+      ],
+      "artifact-online-preserved/v1": [
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-preserved]",
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-preserved]"
+      ],
+      "artifact-online-supplemented/v1": [
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-supplemented]",
+        "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-supplemented]"
+      ]
+    },
+    "baseline_count": 2,
+    "required_tests": [
+      "tests/test_installed_cli.py::test_installed_contract_resources_resolve_offline_outside_checkout",
+      "tests/test_installed_cli.py::test_installed_contract_authorities_include_registered_sql_and_json",
+      "tests/test_upgrade_result_reuse.py::test_formal_upgrade_reuses_completed_ai_jobs_and_preserves_pending_work",
+      "tests/test_upgrade_result_reuse.py::test_explicit_refresh_or_changed_configuration_creates_current_input",
+      "tests/test_upgrade_result_reuse.py::test_upgrade_keeps_committed_chunks_and_only_explicit_retry_runs_missing_chunks",
+      "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[failed]",
+      "tests/test_upgrade_result_reuse.py::test_replanning_does_not_revive_terminal_historical_editorial_job[cancelled]",
+      "tests/test_content_upgrade_policies.py::test_formal_upgrade_and_registered_content_conversion_keep_original_review_and_body",
+      "tests/test_source_supplement.py::test_title_only_change_preserves_current_human_edits_and_historical_ai",
+      "tests/test_source_supplement.py::test_export_pair_and_snapshot_restore_keep_title_evidence",
+      "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[native]",
+      "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[preserved]",
+      "tests/test_archive_upgrade.py::test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots[supplemented]"
+    ],
+    "test_execution": "required_by_pytest_shards"
+  },
+  "excluded_retired_suites": [
+    "test_archive_md.py",
+    "test_archive_producer_health.py",
+    "test_artifact_root_readers.py",
+    "test_artifact_root_writes.py",
+    "test_asr_coverage_attestation.py",
+    "test_asr_supervisor.py",
+    "test_audio.py",
+    "test_audio_budget.py",
+    "test_audio_inventory.py",
+    "test_audio_pipeline_reliability.py",
+    "test_audio_usage_tracking.py",
+    "test_batch_hotwords_record.py",
+    "test_batch_run_records.py",
+    "test_campaign.py",
+    "test_cli_artifact_root.py",
+    "test_cli_asr.py",
+    "test_cli_asr_writeback_refusal.py",
+    "test_cli_derive_manifest.py",
+    "test_cli_exit_contract.py",
+    "test_cli_pilot.py",
+    "test_cli_publish_transcripts.py",
+    "test_cli_queue_source.py",
+    "test_cli_registry.py",
+    "test_concurrency_gate.py",
+    "test_coordinator.py",
+    "test_coverage_manifest_projection.py",
+    "test_coverage_report.py",
+    "test_derived_queue_chain.py",
+    "test_export.py",
+    "test_integrity.py",
+    "test_integrity_finding_classes.py",
+    "test_integrity_journal_bootstrap.py",
+    "test_long_live.py",
+    "test_manifest.py",
+    "test_manifest_derivation.py",
+    "test_mixed_outcome_contract.py",
+    "test_page_pipeline.py",
+    "test_persistence_scale.py",
+    "test_pilot_select.py",
+    "test_pipeline_recovery_quality.py",
+    "test_pipeline_writeback_safety.py",
+    "test_publication_supervisor.py",
+    "test_publish_audio_only.py",
+    "test_publish_bad_candidates.py",
+    "test_publish_candidate_limits.py",
+    "test_publish_pending.py",
+    "test_publish_read_failures.py",
+    "test_published_projection_readers.py",
+    "test_quality_path_probe_cost.py",
+    "test_quality_raw_confinement.py",
+    "test_raw_sidecar_readers.py",
+    "test_run_ledger.py",
+    "test_run_ledger_diagnostics.py",
+    "test_runtime_burndown.py",
+    "test_scheduler.py",
+    "test_search_index.py",
+    "test_stem_contract.py",
+    "test_storage_queue_gaps.py",
+    "test_storage_queue_writes.py",
+    "test_subtitles.py",
+    "test_transcript_adoption.py",
+    "test_cli_help.py",
+    "test_live_subtitle_cli_smoke.py",
+    "test_proofread_routes.py",
+    "test_subtitle_cli.py",
+    "test_subtitle_e2e.py"
+  ],
+  "dependency_audit": {
+    "scope": "uv.lock default + dev + remote",
+    "exit": 0,
+    "dependencies": 66,
+    "vulnerabilities": 0
+  },
+  "current_version_checks": {
+    "snapshot": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+    "project": "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/project",
+    "commands": [
+      {
+        "label": "lock",
+        "command": [
+          "/home/chosenecho/bili-asr-regression/tools-20261012/bin/uv",
+          "lock",
+          "--check"
+        ],
+        "cwd": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-lock-20261012.log"
+      },
+      {
+        "label": "lint",
+        "command": [
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python",
+          "-m",
+          "ruff",
+          "check",
+          "src",
+          "scripts",
+          "tests",
+          "--select",
+          "E9"
+        ],
+        "cwd": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-lint-20261012.log"
+      },
+      {
+        "label": "compile",
+        "command": [
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python",
+          "-m",
+          "compileall",
+          "-q",
+          "src",
+          "tests",
+          "scripts"
+        ],
+        "cwd": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-compile-20261012.log"
+      },
+      {
+        "label": "contracts",
+        "command": [
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python",
+          "-m",
+          "bili_asr.contracts",
+          "--check-docs",
+          "docs/contracts"
+        ],
+        "cwd": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-contracts-20261012.log"
+      },
+      {
+        "label": "audit-export",
+        "command": [
+          "/home/chosenecho/bili-asr-regression/tools-20261012/bin/uv",
+          "export",
+          "--locked",
+          "--extra",
+          "dev",
+          "--extra",
+          "remote",
+          "--no-emit-project",
+          "--format",
+          "requirements.txt",
+          "--output-file",
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-audit-requirements-20261012.txt"
+        ],
+        "cwd": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-audit-export-20261012.log"
+      },
+      {
+        "label": "audit",
+        "command": [
+          "/home/chosenecho/bili-asr-regression/tools-20261012/bin/pip-audit",
+          "--strict",
+          "--desc",
+          "on",
+          "-r",
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-audit-requirements-20261012.txt",
+          "--format",
+          "json",
+          "-o",
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-audit-results-20261012.json"
+        ],
+        "cwd": "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu",
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-audit-20261012.log"
+      },
+      {
+        "label": "build",
+        "command": [
+          "/home/chosenecho/bili-asr-regression/tools-20261012/bin/uv",
+          "build",
+          "--python",
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python",
+          "--no-build-isolation",
+          "--sdist",
+          "--wheel",
+          "--out-dir",
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/dist"
+        ],
+        "cwd": "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/project",
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-current-build-20261012.log"
+      }
+    ]
+  },
+  "package_checks": {
+    "project": "/home/chosenecho/bili-asr-regression/package-20261012-2hoq_fy2/project",
+    "commands": [
+      {
+        "label": "build",
+        "command": [
+          "/home/chosenecho/bili-asr-regression/tools-20261012/bin/uv",
+          "build",
+          "--python",
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python",
+          "--no-build-isolation",
+          "--sdist",
+          "--wheel",
+          "--out-dir",
+          "/home/chosenecho/bili-asr-regression/package-20261012-2hoq_fy2/dist"
+        ],
+        "exit": 0,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-build-20261012.log"
+      },
+      {
+        "label": "gpu_environment",
+        "command": [
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl-asr/bin/python",
+          "/home/chosenecho/bili-asr-regression/snapshot-20261012-7g6e_l86/scripts/check_asr_env.py"
+        ],
+        "exit": 1,
+        "log": "/mnt/c/WorkSpace/bilibili-asr-archive/.tmp/wsl-gpu_environment-20261012.log"
+      }
+    ]
+  },
+  "clean_wheel": {
+    "wheel": "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/dist/bili_asr-0.1.0-py3-none-any.whl",
+    "sha256": "6607ec9383b83e1a470942888b39f46394eab995bf764e0b34f424bfaa510d02",
+    "commands": [
+      {
+        "command": [
+          "/mnt/c/WorkSpace/bilibili-asr-archive/.venv-wsl/bin/python",
+          "-m",
+          "venv",
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/clean-venv"
+        ],
+        "exit": 0,
+        "output": ""
+      },
+      {
+        "command": [
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/clean-venv/bin/python",
+          "-m",
+          "pip",
+          "install",
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/dist/bili_asr-0.1.0-py3-none-any.whl"
+        ],
+        "exit": 0,
+        "output": "Processing /home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/dist/bili_asr-0.1.0-py3-none-any.whl\nCollecting jsonschema<5,>=4.25 (from bili-asr==0.1.0)\n  Using cached jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)\nCollecting requests>=2.32 (from bili-asr==0.1.0)\n  Using cached requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)\nCollecting bilibili-api-python==17.4.2 (from bili-asr==0.1.0)\n  Using cached bilibili_api_python-17.4.2-py3-none-any.whl.metadata (11 kB)\nCollecting curl_cffi>=0.16 (from bili-asr==0.1.0)\n  Using cached curl_cffi-0.16.3-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (17 kB)\nCollecting beautifulsoup4 (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached beautifulsoup4-4.15.0-py3-none-any.whl.metadata (3.8 kB)\nCollecting colorama (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)\nCollecting lxml (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached lxml-6.1.3-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (3.3 kB)\nCollecting pyyaml (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)\nCollecting brotli (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached brotli-1.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (6.1 kB)\nCollecting qrcode (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached qrcode-8.2-py3-none-any.whl.metadata (17 kB)\nCollecting APScheduler (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached apscheduler-3.11.3-py3-none-any.whl.metadata (6.5 kB)\nCollecting pillow (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.1 kB)\nCollecting yarl (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (111 kB)\nCollecting pycryptodomex (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached pycryptodomex-3.24.1-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (3.4 kB)\nCollecting qrcode_terminal (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached qrcode_terminal-0.8-py3-none-any.whl\nCollecting PyJWT (from bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached pyjwt-2.15.1-py3-none-any.whl.metadata (3.5 kB)\nCollecting cffi>=2.0.0 (from curl_cffi>=0.16->bili-asr==0.1.0)\n  Using cached cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.5 kB)\nCollecting certifi>=2024.2.2 (from curl_cffi>=0.16->bili-asr==0.1.0)\n  Using cached certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)\nCollecting attrs>=22.2.0 (from jsonschema<5,>=4.25->bili-asr==0.1.0)\n  Using cached attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)\nCollecting jsonschema-specifications>=2023.03.6 (from jsonschema<5,>=4.25->bili-asr==0.1.0)\n  Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)\nCollecting referencing>=0.28.4 (from jsonschema<5,>=4.25->bili-asr==0.1.0)\n  Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)\nCollecting rpds-py>=0.25.0 (from jsonschema<5,>=4.25->bili-asr==0.1.0)\n  Using cached rpds_py-2026.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)\nCollecting charset_normalizer<4,>=2 (from requests>=2.32->bili-asr==0.1.0)\n  Using cached charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (46 kB)\nCollecting idna<4,>=2.5 (from requests>=2.32->bili-asr==0.1.0)\n  Using cached idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nCollecting urllib3<3,>=1.26 (from requests>=2.32->bili-asr==0.1.0)\n  Using cached urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)\nCollecting pycparser (from cffi>=2.0.0->curl_cffi>=0.16->bili-asr==0.1.0)\n  Using cached pycparser-3.11-py3-none-any.whl.metadata (8.2 kB)\nCollecting typing-extensions>=4.4.0 (from referencing>=0.28.4->jsonschema<5,>=4.25->bili-asr==0.1.0)\n  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting tzlocal>=3.0 (from APScheduler->bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached tzlocal-5.4.4-py3-none-any.whl.metadata (7.7 kB)\nCollecting soupsieve>=1.6.1 (from beautifulsoup4->bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached soupsieve-3.0.2-py3-none-any.whl.metadata (4.4 kB)\nCollecting multidict>=4.0 (from yarl->bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached multidict-7.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (6.2 kB)\nCollecting propcache>=0.2.1 (from yarl->bilibili-api-python==17.4.2->bili-asr==0.1.0)\n  Using cached propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (25 kB)\nUsing cached bilibili_api_python-17.4.2-py3-none-any.whl (387 kB)\nUsing cached curl_cffi-0.16.3-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (13.5 MB)\nUsing cached jsonschema-4.26.0-py3-none-any.whl (90 kB)\nUsing cached requests-2.34.2-py3-none-any.whl (73 kB)\nUsing cached attrs-26.1.0-py3-none-any.whl (67 kB)\nUsing cached certifi-2026.7.22-py3-none-any.whl (136 kB)\nUsing cached cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (221 kB)\nUsing cached charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (257 kB)\nUsing cached idna-3.20-py3-none-any.whl (69 kB)\nUsing cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)\nUsing cached referencing-0.37.0-py3-none-any.whl (26 kB)\nUsing cached rpds_py-2026.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (371 kB)\nUsing cached urllib3-2.8.0-py3-none-any.whl (135 kB)\nUsing cached apscheduler-3.11.3-py3-none-any.whl (66 kB)\nUsing cached beautifulsoup4-4.15.0-py3-none-any.whl (109 kB)\nUsing cached brotli-1.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (1.4 MB)\nUsing cached colorama-0.4.6-py2.py3-none-any.whl (25 kB)\nUsing cached lxml-6.1.3-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (5.2 MB)\nUsing cached pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (6.9 MB)\nUsing cached pycryptodomex-3.24.1-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (2.3 MB)\nUsing cached pyjwt-2.15.1-py3-none-any.whl (33 kB)\nUsing cached pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (807 kB)\nUsing cached qrcode-8.2-py3-none-any.whl (45 kB)\nUsing cached yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (117 kB)\nUsing cached multidict-7.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (483 kB)\nUsing cached propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (250 kB)\nUsing cached soupsieve-3.0.2-py3-none-any.whl (41 kB)\nUsing cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nUsing cached tzlocal-5.4.4-py3-none-any.whl (18 kB)\nUsing cached pycparser-3.11-py3-none-any.whl (51 kB)\nInstalling collected packages: brotli, urllib3, tzlocal, typing-extensions, soupsieve, rpds-py, qrcode, pyyaml, PyJWT, pycryptodomex, pycparser, propcache, pillow, multidict, lxml, idna, colorama, charset_normalizer, certifi, attrs, yarl, requests, referencing, qrcode_terminal, cffi, beautifulsoup4, APScheduler, jsonschema-specifications, curl_cffi, bilibili-api-python, jsonschema, bili-asr\nSuccessfully installed APScheduler-3.11.3 PyJWT-2.15.1 attrs-26.1.0 beautifulsoup4-4.15.0 bili-asr-0.1.0 bilibili-api-python-17.4.2 brotli-1.2.0 certifi-2026.7.22 cffi-2.1.1 charset_normalizer-3.5.2 colorama-0.4.6 curl_cffi-0.16.3 idna-3.20 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 lxml-6.1.3 multidict-7.1.0 pillow-12.3.0 propcache-0.5.4 pycparser-3.11 pycryptodomex-3.24.1 pyyaml-6.0.3 qrcode-8.2 qrcode_terminal-0.8 referencing-0.37.0 requests-2.34.2 rpds-py-2026.9.1 soupsieve-3.0.2 typing-extensions-4.16.0 tzlocal-5.4.4 urllib3-2.8.0 yarl-1.25.1\n"
+      },
+      {
+        "command": [
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/clean-venv/bin/python",
+          "-m",
+          "pip",
+          "check"
+        ],
+        "exit": 0,
+        "output": "No broken requirements found.\n"
+      },
+      {
+        "command": [
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/clean-venv/bin/bili-asr",
+          "--help"
+        ],
+        "exit": 0,
+        "output": "usage: bili-asr [-h] [--version]\n                {workflow,publication,editorial,snapshot,archive,artifacts,remote,reference,source,dedup,fetch-meta,fetch-tags,status,runs,search,search-index,coverage,verify,export,check-asr-env}\n                ...\n\nBilibili metadata, transcript workflow, and archive query CLI.\n\npositional arguments:\n  {workflow,publication,editorial,snapshot,archive,artifacts,remote,reference,source,dedup,fetch-meta,fetch-tags,status,runs,search,search-index,coverage,verify,export,check-asr-env}\n    workflow            Plan and run independent subtitle, audio, and ASR jobs\n                        from SQLite\n    publication         Edit, review and explicitly release 发布稿\n    editorial           Export AI 合成稿件 and 校验参照稿件 for internal review\n    snapshot            Save, check, and restore portable archive snapshots\n    archive             Initialize, inspect or explicitly convert an archive\n    artifacts           Inspect artifacts, plan offload and explicitly upgrade\n                        the storage catalog\n    remote              Explicit SSH directory package copy and restoration\n    reference           Non-self-contained state backups with explicit\n                        dependencies\n    source              Import one provider video into an explicitly created\n                        universal archive\n    dedup               Inspect exact content reuse without changing the\n                        archive\n    fetch-meta          Collect video metadata into SQLite\n    fetch-tags          Refresh original tags for archived videos\n    status              Show SQLite archive and workflow status\n    runs                List metadata collection runs\n    search              Search stored video metadata and transcript segments\n    search-index        Build or update SQLite FTS5\n    coverage            Report workflow coverage from SQLite\n    verify              Verify workflow artifacts\n    export              Export workflow records as JSON or CSV\n    check-asr-env       Inspect ASR deployment or verify the AMD WSL recipe\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n"
+      },
+      {
+        "command": [
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/clean-venv/bin/python",
+          "-m",
+          "bili_asr.contracts",
+          "--check-docs",
+          "/home/chosenecho/bili-asr-regression/current-20261012-38wgk7iu/docs/contracts"
+        ],
+        "exit": 0,
+        "output": "Contract documentation verified: 50 contracts, 25 schemas\n"
+      },
+      {
+        "command": [
+          "/home/chosenecho/bili-asr-regression/package-current-20261012-c40eohv3/clean-venv/bin/python",
+          "-c",
+          "from importlib.resources import files\nfrom pathlib import Path, PurePosixPath\nfrom bili_asr.contracts import CONTRACTS\nimport hashlib\ncount=0\nfor entry in CONTRACTS.values():\n    for name in entry.authority:\n        relative=PurePosixPath(name)\n        if relative.suffix in {\".sql\", \".json\"}:\n            relative=relative.relative_to(\"src/bili_asr\")\n            body=files(\"bili_asr\").joinpath(*relative.parts).read_bytes()\n            assert body and hashlib.sha256(body).digest()==hashlib.sha256(Path(name).read_bytes()).digest(), name\n            count+=1\nprint(\"packaged_authorities_verified=\"+str(count))\n"
+        ],
+        "exit": 0,
+        "output": "packaged_authorities_verified=31\n"
+      }
+    ]
+  },
+  "reading_site": {
+    "node_tests": {
+      "passed": 10,
+      "failed": 0
+    },
+    "catalog_articles": 20,
+    "build": "passed",
+    "bundle_kb": 2689.66,
+    "bundle_gzip_kb": 812.56,
+    "browser": {
+      "snapshot": "/home/chosenecho/bili-asr-regression/reading-site-20261012-jvq699j4",
+      "browser_version": "153.0.8010.12",
+      "articles": 20,
+      "reviews": 20,
+      "results": [
+        {
+          "profile": "desktop",
+          "test": "directory",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "desktop",
+          "test": "search_empty_reset",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "desktop",
+          "test": "all_tags",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "desktop",
+          "test": "all_reading_routes",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "desktop",
+          "test": "all_review_routes",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "desktop",
+          "test": "not_found",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "desktop",
+          "test": "theme_persistence",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "desktop",
+          "test": "no_horizontal_overflow",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "directory",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "search_empty_reset",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "all_tags",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "all_reading_routes",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "all_review_routes",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "not_found",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "theme_persistence",
+          "page_errors": [],
+          "status": "passed"
+        },
+        {
+          "profile": "mobile",
+          "test": "no_horizontal_overflow",
+          "page_errors": [],
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "reading_site_dependency_audit": {
+    "exit": 0,
+    "result": {
+      "advisories": {},
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0
+        },
+        "dependencies": 7,
+        "devDependencies": 64,
+        "optionalDependencies": 53,
+        "totalDependencies": 71
+      }
+    },
+    "registry": "https://registry.npmjs.org",
+    "initial_mirror_error": "ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS at registry.npmmirror.com"
+  },
+  "default_suite_warnings": {
+    "count": 7,
+    "duplicate_zip_member": {
+      "count": 1,
+      "context": "intentional malformed package fixture"
+    },
+    "resource_tracker_cleanup": {
+      "count": 6,
+      "node": "tests/test_asr_sessions.py::test_each_response_identity_field_is_fenced_before_returning_real_child_result[generation]",
+      "message": "ResourceTracker called reentrantly for resource cleanup, which is unsupported. The semaphore object might leak.",
+      "targeted_retries": [
+        {
+          "run": 1,
+          "exit": 0,
+          "output": ".                                                                        [100%]\n1 passed in 4.05s\n"
+        },
+        {
+          "run": 2,
+          "exit": 0,
+          "output": ".                                                                        [100%]\n1 passed in 4.16s\n"
+        }
+      ]
+    }
+  },
+  "findings": [
+    {
+      "id": "REG-WSL-001",
+      "type": "environment",
+      "status": "resolved",
+      "summary": "editable installation pointed to nonexistent nested src; reinstalled editable project"
+    },
+    {
+      "id": "REG-WSL-002",
+      "type": "environment",
+      "status": "resolved",
+      "summary": "offline installed tests lacked jsonschema wheelhouse; populated Linux wheels"
+    },
+    {
+      "id": "REG-WSL-003",
+      "type": "external",
+      "status": "open",
+      "summary": "public metadata live smoke rate_limited; 1 failed, 1 skipped, subtitle smoke passed"
+    },
+    {
+      "id": "REG-WSL-004",
+      "type": "environment",
+      "status": "open",
+      "summary": "GPU environment probe failed all 5 checks; real GPU inference not verified"
+    },
+    {
+      "id": "REG-WSL-005",
+      "type": "performance_warning",
+      "status": "open",
+      "summary": "reading-site main JS 2689.66 kB, gzip 812.56 kB exceeds Vite chunk warning threshold"
+    },
+    {
+      "id": "REG-WSL-006",
+      "type": "environment",
+      "status": "resolved",
+      "summary": "Chromium libnspr4.so missing; installed Linux browser dependencies; all 16 browser groups passed"
+    },
+    {
+      "id": "REG-WSL-007",
+      "type": "test_provenance",
+      "status": "resolved",
+      "summary": "working-tree HEAD changed during first frozen run; completed a separate full regression on current 7409c50 snapshot"
+    },
+    {
+      "id": "REG-WSL-008",
+      "type": "environment",
+      "status": "resolved",
+      "summary": "npm mirror lacks advisory audit endpoint; reran audit using official npm registry without changing lockfile"
+    },
+    {
+      "id": "REG-WSL-009",
+      "type": "runtime_warning",
+      "status": "not_reproduced_on_targeted_retry",
+      "summary": "full suite emitted 6 ResourceTracker semaphore cleanup warnings in ASR generation fencing test; two targeted retries passed without warnings; leak not confirmed"
+    }
+  ],
+  "limitations": [
+    "3 live smoke tests skipped in default suite; separately attempted all 3",
+    "retired collect_ignore suites not collected",
+    "Windows junction test skipped under WSL",
+    "real GPU/ASR model accuracy and throughput not measured",
+    "no actual paid AI or remote deployment/production worker execution",
+    "browser smoke covers Chromium desktop/mobile emulation; no screenshot baseline comparison or other browser engines",
+    "dependency audit excludes heavyweight ASR and youtube extras"
+  ],
+  "evidence_hashes": {
+    ".tmp/wsl-audit-20261012.exit": {
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    ".tmp/wsl-audit-20261012.log": {
+      "bytes": 9215,
+      "sha256": "5c965fc0ca26132a50fc6df166b3b8b13c8c036997032d26820e2cf9401f99ad"
+    },
+    ".tmp/wsl-audit-export-20261012.log": {
+      "bytes": 123568,
+      "sha256": "570e8f2d32a374129f8da268bf76cc0d6b6bcf3aab20673dfb6d762b383c801d"
+    },
+    ".tmp/wsl-audit-requirements-20261012.txt": {
+      "bytes": 123482,
+      "sha256": "0e738a5e4f1379729c5f0e052f1f7de7d7d8e4232dc99c26158ea47e1cca2532"
+    },
+    ".tmp/wsl-audit-results-20261012.json": {
+      "bytes": 3792,
+      "sha256": "b3ed549ac8406a9e1a410b366c3abb89534d3017a63cac9b5e6487bb8a584589"
+    },
+    ".tmp/wsl-audit-tools-20261012.log": {
+      "bytes": 7410,
+      "sha256": "9e2d45bad1959fc9353c4cbcb64494c8b2143a03d2b12adcddcf62de607ef462"
+    },
+    ".tmp/wsl-build-20261012.log": {
+      "bytes": 84324,
+      "sha256": "dac06ea5565112362fc4b5c82a62bca915c7167b6274b3fa350b21544f8eb8b2"
+    },
+    ".tmp/wsl-clean-wheel-20261012.json": {
+      "bytes": 11519,
+      "sha256": "605326160a16f82b235ae910d0f660e36244c40e3f6e5898eb693327cad8d90d"
+    },
+    ".tmp/wsl-clean-wheel-20261012.log": {
+      "bytes": 10562,
+      "sha256": "b338320ce14b99e2a077091e8b99505b64f95998ae7fb46d0b2af592c5820acd"
+    },
+    ".tmp/wsl-clean-wheel-harness-path-20261012.log": {
+      "bytes": 12638,
+      "sha256": "bee1f2f03f67b46c8da3a4f7e0ec0cce2b6e988579e206c183f19cbf0d0f89f2"
+    },
+    ".tmp/wsl-collect-20261012.txt": {
+      "bytes": 336776,
+      "sha256": "b1ddedec73d5b48aa8ac6d848e3525b7aa0114532832edff481a06b51ab59c6d"
+    },
+    ".tmp/wsl-compile-20261012.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".tmp/wsl-contracts-20261012.log": {
+      "bytes": 58,
+      "sha256": "0fe1cd1a3ef215fa9d529ef30da25299225c0c515cbfb635ab67ea3201fdad26"
+    },
+    ".tmp/wsl-current-audit-20261012.log": {
+      "bytes": 31,
+      "sha256": "15950a68a7ed99c59779717acefdceb3f69cfd31bde67d2c954f2a3cea4d7955"
+    },
+    ".tmp/wsl-current-audit-export-20261012.log": {
+      "bytes": 123151,
+      "sha256": "729369c3774f6e5abd7c18d19214a8799c6044bd7b471d3172cf099b5d3fc1a2"
+    },
+    ".tmp/wsl-current-audit-requirements-20261012.txt": {
+      "bytes": 123065,
+      "sha256": "cac1ed41d33b5654f5f36b3e99481ebf9ca4dc0b20d71a17769eb41fac40e3fc"
+    },
+    ".tmp/wsl-current-audit-results-20261012.json": {
+      "bytes": 3792,
+      "sha256": "b3ed549ac8406a9e1a410b366c3abb89534d3017a63cac9b5e6487bb8a584589"
+    },
+    ".tmp/wsl-current-build-20261012.log": {
+      "bytes": 82781,
+      "sha256": "82c4c9b0ef33884adfa94d68019184d0d39e4c2237edf81bcc2f6341081b6453"
+    },
+    ".tmp/wsl-current-checks-20261012.json": {
+      "bytes": 3740,
+      "sha256": "dcc10dd0b488532395e7c881d564e3f8a362b58723efc8f72c055d21efc791af"
+    },
+    ".tmp/wsl-current-clean-wheel-20261012.json": {
+      "bytes": 13252,
+      "sha256": "91b755e2e80ac58f1ac4c9b3add0cae3e0aa941786999c6f4f2262b1b5a819ef"
+    },
+    ".tmp/wsl-current-clean-wheel-20261012.log": {
+      "bytes": 12225,
+      "sha256": "01f93a3c64d11465db64ec17f8bfb0159a9a0f1d9822e6e3078a23ab47bf4c94"
+    },
+    ".tmp/wsl-current-collection-20261012.txt": {
+      "bytes": 326280,
+      "sha256": "3d611cd03996d11e47579048fb0a7dbeefbb279418eccf834c2a8610ce4867dc"
+    },
+    ".tmp/wsl-current-compile-20261012.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".tmp/wsl-current-contracts-20261012.log": {
+      "bytes": 58,
+      "sha256": "3c6dfebd274b8a890baaf7f428c7b285a5fc5e2acf7ee39a84f809a84be8b2b7"
+    },
+    ".tmp/wsl-current-coverage-20261012.json": {
+      "bytes": 2122470,
+      "sha256": "fd2a7c5d3678748f139f4f7368b8b26f72d20487ae711c46938a393d68f8e04e"
+    },
+    ".tmp/wsl-current-coverage-20261012.txt": {
+      "bytes": 29552,
+      "sha256": "4da258362fe5456ffed462f73c1bccb55afdb901c1206a6b98753099d4cfeb48"
+    },
+    ".tmp/wsl-current-coverage-20261012.xml": {
+      "bytes": 1185049,
+      "sha256": "69edad40cc8342ca4778320d4c68fd11dd9f172c78d42ef56a49595512aa6b45"
+    },
+    ".tmp/wsl-current-coverage-combine-20261012.log": {
+      "bytes": 31,
+      "sha256": "4ed8151f8ca7d0792b8974480e5a5bd28a1a003fec69947db540a7d1d892eb7a"
+    },
+    ".tmp/wsl-current-coverage-gate-20261012.exit": {
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    ".tmp/wsl-current-coverage-gate-20261012.log": {
+      "bytes": 120,
+      "sha256": "a153071621f7f44e1f68bd56617c30cde7bb4ab7f6c163738be3e516eadcb9a5"
+    },
+    ".tmp/wsl-current-lint-20261012.log": {
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    ".tmp/wsl-current-live-20261012.exit": {
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    ".tmp/wsl-current-live-20261012.log": {
+      "bytes": 3197,
+      "sha256": "6a6a33dddd969c9f107af8dbca1fe1c9685a6d9b6254fa2a0c9340839c324655"
+    },
+    ".tmp/wsl-current-live-20261012.xml": {
+      "bytes": 4069,
+      "sha256": "2ccbc1113320946e87900f45438dfd963837b6093b67d52c20178b8c9a2ba95a"
+    },
+    ".tmp/wsl-current-lock-20261012.log": {
+      "bytes": 86,
+      "sha256": "4792c8786fe7e0849306ebf0b4e8608598e88720eb1b69b3140e4e6c66aa23cc"
+    },
+    ".tmp/wsl-current-pytest-20261012.exit": {
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    ".tmp/wsl-current-pytest-20261012.log": {
+      "bytes": 7321,
+      "sha256": "6cc59a5ed43c18c7aec9ebcfec072810fd6aa2dd1334b72bbfb41f17ac7de5e8"
+    },
+    ".tmp/wsl-current-pytest-20261012.xml": {
+      "bytes": 456184,
+      "sha256": "685cb1bed202e76803ea1b15b0a208b5944ae3932a848395742a89424873d81c"
+    },
+    ".tmp/wsl-current-release-gate-20261012.json": {
+      "bytes": 6314,
+      "sha256": "c8e010fcc1e8bc9a574b344bd4fb38e9984ebc0926507e245cbeef35b2544439"
+    },
+    ".tmp/wsl-current-snapshot-20261012.json": {
+      "bytes": 83979,
+      "sha256": "3608125ad27a2aa7c66c40517458fbf9a62be894291fe4dd4ef5ee7624cc3c65"
+    },
+    ".tmp/wsl-editable-install-20261012.log": {
+      "bytes": 1073,
+      "sha256": "dd7856ef87c90190065e90baa76cc22b7db770e5788784442521c312bd709ff2"
+    },
+    ".tmp/wsl-final-collection-20261012.txt": {
+      "bytes": 336775,
+      "sha256": "dd62c2e164ce2922437748a92ec41f5527974e800b53bb9a423d6665e14b8cea"
+    },
+    ".tmp/wsl-final-coverage-20261012.json": {
+      "bytes": 2161382,
+      "sha256": "29aecb22d03e40ae36858f41f6e1782f30fc8af2494fa0046059adb48cbd3d8b"
+    },
+    ".tmp/wsl-final-coverage-20261012.txt": {
+      "bytes": 30078,
+      "sha256": "83c8f88ba3d36755aaca56a9e21e8594a9743597d06a67ebd602445fbd111b88"
+    },
+    ".tmp/wsl-final-coverage-20261012.xml": {
+      "bytes": 1205672,
+      "sha256": "e7c920c6b73ad4a6d9fbcb76d7f353e667f2e7886201960785dac9a6721ddd53"
+    },
+    ".tmp/wsl-final-coverage-combine-20261012.log": {
+      "bytes": 31,
+      "sha256": "746bcb7f24ff98c60381e332a02f1bfe51b6aa10a8a75d38153450d4b7017dd9"
+    },
+    ".tmp/wsl-final-coverage-gate-20261012.exit": {
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    ".tmp/wsl-final-coverage-gate-20261012.log": {
+      "bytes": 120,
+      "sha256": "aed2ae29459d6ca677569d11ef32e5657d81972517c02eab689b388839e6fc28"
+    },
+    ".tmp/wsl-final-pytest-20261012.exit": {
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    ".tmp/wsl-final-pytest-20261012.log": {
+      "bytes": 5428,
+      "sha256": "8670b00248352eeabca8dccc52cdd01d7069332d5740ca43b5909aa4f90e586d"
+    },
+    ".tmp/wsl-final-pytest-20261012.xml": {
+      "bytes": 470557,
+      "sha256": "ff49ceb5989aafeefb010d98fdabe9180bc481aa4bb33253498f3b671eb7b243"
+    },
+    ".tmp/wsl-gpu_environment-20261012.log": {
+      "bytes": 3882,
+      "sha256": "bc47d5f0778a85902fdccbfe554876bb379e3b2555610b2adbc691f88e57c659"
+    },
+    ".tmp/wsl-input-integrity-20261012.json": {
+      "bytes": 4679,
+      "sha256": "4930ada8556718cd60de24aeebedb553d5f6ae6b8f4c1d786c9cb1cf2941a353"
+    },
+    ".tmp/wsl-installed-final-20261012.log": {
+      "bytes": 100,
+      "sha256": "f1a039bc5ba640dd70455d3365491e511883eee874a96543e78aa0fda7689d18"
+    },
+    ".tmp/wsl-installed-final-20261012.xml": {
+      "bytes": 2141,
+      "sha256": "df074c7660ba7199fbfb069f5eaa151f7751f4b72cf4cbb49eccc76b7f574868"
+    },
+    ".tmp/wsl-lint-20261012.log": {
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    ".tmp/wsl-live-smoke-20261012.exit": {
+      "bytes": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    ".tmp/wsl-live-smoke-20261012.log": {
+      "bytes": 1481,
+      "sha256": "c6c1370f3c750fd7b83018f98b0cbd350b050ce715e268364e2575a69873b1c8"
+    },
+    ".tmp/wsl-live-smoke-20261012.xml": {
+      "bytes": 2290,
+      "sha256": "eb46aa129330146f12db01df099759b7319cb6d82d89323b38b56b27e92eee6e"
+    },
+    ".tmp/wsl-lock-check-20261012.log": {
+      "bytes": 86,
+      "sha256": "2e715c71815e5fca584852085892a36062d7ecdf61b0be87fc96755e677c8dc6"
+    },
+    ".tmp/wsl-package-checks-20261012.json": {
+      "bytes": 975,
+      "sha256": "dbb8275337f541e68204a5b05baad34f5bcbdd22ee2cf23f6afcd6c7776dc6a7"
+    },
+    ".tmp/wsl-reading-audit-20261012.exit": {
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    ".tmp/wsl-reading-audit-20261012.json": {
+      "bytes": 277,
+      "sha256": "1f689e66f7dc03b77768e3717082ae3cb801f087270f2485c5543b405abddabc"
+    },
+    ".tmp/wsl-reading-audit-20261012.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".tmp/wsl-reading-audit-mirror-failure-20261012.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".tmp/wsl-reading-browser-20261012.json": {
+      "bytes": 2152,
+      "sha256": "d829f92c736e881496c96ccaa222f0e316931e1aa075da491d7d4914568aea99"
+    },
+    ".tmp/wsl-reading-build-20261012.log": {
+      "bytes": 799,
+      "sha256": "f235d96305a80842a40c0d33d2edede1088e2bc13e6057792282b4d3c2501be5"
+    },
+    ".tmp/wsl-reading-install-20261012.log": {
+      "bytes": 778,
+      "sha256": "a1500ebacfd1db8d1171a590b21bf92a51bf383d350ff8e6997c804e1b2937be"
+    },
+    ".tmp/wsl-reading-site-snapshot-20261012.json": {
+      "bytes": 6553,
+      "sha256": "f6776dccd663f80697ab04ac459753f62c0c6188942bd2ddc1bdde1cd56a0bb6"
+    },
+    ".tmp/wsl-reading-tests-20261012.log": {
+      "bytes": 1772,
+      "sha256": "f84699d3af4b56afa8107418a7f52d43c2e1606081bc373e1df57957343d65a6"
+    },
+    ".tmp/wsl-reading-validate-20261012.log": {
+      "bytes": 80,
+      "sha256": "6119f08608b148fed6da3aa04f7dbf02d6353d7dcfcc1c11d90d4a2d1ae3fb33"
+    },
+    ".tmp/wsl-regression-pytest-20261012.log": {
+      "bytes": 31409,
+      "sha256": "c7da8b57160b9f511510a16fa8c831533cfed19ba8aa02b17f184daab3ceb61d"
+    },
+    ".tmp/wsl-regression-pytest-20261012.xml": {
+      "bytes": 518678,
+      "sha256": "bdf08d2e301acbb772f8eb4c3aa59d463b32303782088d4da8ba774ad9851b89"
+    },
+    ".tmp/wsl-regression-snapshot-20261012.json": {
+      "bytes": 81532,
+      "sha256": "46dcf72adc0303d15193aee11ce2e3d702436633bcae12b67cf730ab171d79af"
+    },
+    ".tmp/wsl-release-gate-20261012.log": {
+      "bytes": 15198,
+      "sha256": "97ad93c0073e21c59e92d2464c05c8596cf00fb114e9b6bfab0c0109f7f119ea"
+    },
+    ".tmp/wsl-resource-tracker-retry-1-20261012.log": {
+      "bytes": 98,
+      "sha256": "31597de6913012447eff02acbff4fa14d96839ce5257f672f82d27bcaa889f29"
+    },
+    ".tmp/wsl-resource-tracker-retry-2-20261012.log": {
+      "bytes": 98,
+      "sha256": "6460136a355b3ee5168b4b9137f25e7d817397068bd8afdba7fd1d47a807130e"
+    },
+    ".tmp/wsl-resource-tracker-retry-20261012.json": {
+      "bytes": 313,
+      "sha256": "2952ededce8b64feb902240598f8d3345bda0dd77d806f5f0827eadef0cd288e"
+    },
+    ".tmp/wsl-retry-final-20261012.log": {
+      "bytes": 191,
+      "sha256": "1bd98d70e07418973cfed9ddbe0f0596bdfdc26b099b31d6cdc8af117d7d300e"
+    },
+    ".tmp/wsl-retry-final-20261012.xml": {
+      "bytes": 13820,
+      "sha256": "a26a395b389f19669d058325c5a4588394f411eb1ddd35fa1c42fb50029cbaa8"
+    },
+    ".tmp/wsl-wheelhouse-20261012.log": {
+      "bytes": 1738,
+      "sha256": "9d01dfe2ae3ecf2d8a9bd2f6d5323455b685590863e47950e276654b515d8fbe"
+    }
+  }
+}
