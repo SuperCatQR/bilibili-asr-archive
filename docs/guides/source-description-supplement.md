@@ -34,10 +34,20 @@ bili-asr publication supplement-source check --archive-root <archive> --edition-
 新简介版本必须用 `--contract-profile universal-origin-v2` 导出。
 catalog 仍为 v3，source-metadata 仍为 v1；origins schema 为 2，manifest 为 3。
 旧 `universal-origin-v1` profile 及既有冻结 schema 不变，并明确拒绝简介补充版本。
-当前 `markdown-reading-site` 仅支持旧 profile：在消费者实现新 profile 之前，
-新简介版本只能在本仓库验证和审核，不能导入现有 reader。
-实现不修改另一仓库或绕过消费者的未知字段检查。
+阅读站的配套实现位于独立分支 `codex/source-description-contract`，显式支持
+`universal-origin-v1` 与 `universal-origin-v2` 两个完整契约组合，并展示冻结简介。
+部署阅读站前先核对消费端是否已经包含该实现；旧部署仍会拒绝新 profile，
+不能仅修改 manifest 版本、删除证据或绕过未知字段检查来导入。
+生产者导出与阅读站构建分别验证；两仓库的代码交付不代表生产快照已经更新。
 
 新 profile 接受旧原生、保留旧正文、partTitle 补充的 origin，也接受简介补充。
 简介值、hash、采集时间、policy 和每字段 metadataEvidence 会交叉验证；
 不能改一个 JSON 的值或时间再声称证据仍有效。
+
+## 当前范围与后续扩展
+
+本入口用于保留旧正文的历史文章补充未知简介。新建原生 v2 输入本身会冻结当时
+的来源元数据；这个入口不更新已有原生 v2 文章，也不覆盖已冻结的非空或空简介。
+标题补充后继续补简介需要新的多字段证据与继承契约，不属于当前单字段政策。
+这两项限制在 plan 的 skipped/blocked 结果中明确给出，不能通过删除旧 supplement
+或重新执行 ASR/AI 绕过。需要扩展时应独立登记政策、消费者和历史兼容验收。

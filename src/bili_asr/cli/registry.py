@@ -41,6 +41,7 @@ class CommandSpec:
 
 
 COMMANDS = MappingProxyType({
+    "retry-maintenance": CommandSpec("_cmd_retry_maintenance", ArtifactPolicy.NONE, None),
     "workflow": CommandSpec("_cmd_workflow", ArtifactPolicy.NONE, ArchiveAccessMode.WRITE, write_flags=("apply",)),
     "snapshot": CommandSpec("_cmd_snapshot", ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE),
     "archive": CommandSpec("_cmd_archive", ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE, archive_argument="source_root"),

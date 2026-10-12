@@ -1,6 +1,6 @@
 # 契约治理与兼容边界
 
-当前源码核对基线为 `378f415ac5bf2a47de9137ee593f201e86827d43`。
+当前源码核对基线为 `3ed823c961736378d8408bba5f0535b03e0046e0`。
 [交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述契约登记、校验、
 历史保真与文档发布边界；现行图表检查见[架构验证记录](architecture-validation.md)。
 

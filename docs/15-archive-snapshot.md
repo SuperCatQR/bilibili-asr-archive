@@ -1,6 +1,6 @@
 # 统一维护访问、公开清单与归档 ZIP 恢复
 
-源码基线：`378f415ac5bf2a47de9137ee593f201e86827d43`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](15-archive-snapshot.html) · [Archify 规格](15-archive-snapshot.json) · [全部时序图](architecture-sequences.md)
 
