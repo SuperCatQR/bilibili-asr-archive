@@ -28,4 +28,6 @@
 
 最终整合 CI 的导入顺序测试发现 CLI 帮助入口仍有两处提前加载 ASR runner/session 的顶层导入。已移除重复导入，保留 `_execute_workflow` 执行时的局部导入；导入顺序、架构边界与相关工作流测试重新验证为 88 passed。该修正不改变恢复政策或模块所有权，图中源码行号继续绑定已明确记录的 `96c5502` 快照，最终提交另行运行完整 CI。
 
+该修正的完整 CI [run 38249163817](https://github.com/SuperCatQR/bilibili-asr-archive/actions/runs/38249163817) 八项检查通过；第四分片首次因 runner 下载 ffmpeg 超时未执行测试，重跑后通过。随后同步主线 `6dc64b0` 的 CI 性能优化：SQL 规范化缓存仅缓存不可变文本，heartbeat 保留权威取消异常，失败恢复政策未变。取消、恢复、schema cache、导入边界和相关 CI 工具整合测试 132 passed。架构图继续保留明确的固定源码快照及收据；最终合并提交的完整 CI 独立运行。
+
 本轮没有启用生产 timer、重排生产任务、历史批量回填、付费 API、OpenCode Go 实网参数验证或 FP8 GPU 验收。部署按 [维护交接手册](operations/retry-maintenance.md)保留 holds/累计 ledger，停用旧 retry writer，使用同一个现有锁。策略模板允许已知 transport 错误、两次重试及 [0,600] 退避，空 selector 必须填入复核范围；浏览器门禁不替代生产往返或外部部署验证。
