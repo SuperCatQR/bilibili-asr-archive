@@ -1,6 +1,6 @@
 # 冻结 AI 输入、共享提交保护与逐块续跑
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](09-ai-proofread.html) · [Archify 规格](09-ai-proofread.json) · [全部时序图](architecture-sequences.md)
 
@@ -65,18 +65,18 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/services/workflow_application.py:108](../src/bili_asr/services/workflow_application.py#L108)：WorkflowApplication.proofread。
-- [src/bili_asr/workflow_payloads.py:92](../src/bili_asr/workflow_payloads.py#L92)：decode_job_payload。
-- [src/bili_asr/editorial_runtime.py:41](../src/bili_asr/editorial_runtime.py#L41)：EditorialWorkflowHandlers.proofread。
-- [src/bili_asr/storage/editorial.py:180](../src/bili_asr/storage/editorial.py#L180)：EditorialRepository.freeze_job_input。
-- [src/bili_asr/storage/editorial.py:215](../src/bili_asr/storage/editorial.py#L215)：EditorialRepository.begin_call。
-- [src/bili_asr/storage/editorial.py:347](../src/bili_asr/storage/editorial.py#L347)：EditorialRepository.finish_call。
-- [src/bili_asr/storage/job_commit.py:13](../src/bili_asr/storage/job_commit.py#L13)：JobCommitGuard。
-- [src/bili_asr/storage/editorial.py:144](../src/bili_asr/storage/editorial.py#L144)：EditorialRepository.store_input。
-- [src/bili_asr/storage/editorial.py:418](../src/bili_asr/storage/editorial.py#L418)：EditorialRepository.save_chunk。
-- [src/bili_asr/storage/editorial.py:423](../src/bili_asr/storage/editorial.py#L423)：EditorialRepository.commit_revision。
-- [src/bili_asr/deepseek.py:98](../src/bili_asr/deepseek.py#L98)：DeepSeekClient.complete。
-- [src/bili_asr/deepseek.py:131](../src/bili_asr/deepseek.py#L131)：parse_response。
+- [src/bili_asr/services/workflow_application.py:108](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_application.py#L108)：WorkflowApplication.proofread。
+- [src/bili_asr/workflow_payloads.py:92](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_payloads.py#L92)：decode_job_payload。
+- [src/bili_asr/editorial_runtime.py:46](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/editorial_runtime.py#L46)：EditorialWorkflowHandlers.proofread。
+- [src/bili_asr/storage/editorial.py:180](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L180)：EditorialRepository.freeze_job_input。
+- [src/bili_asr/storage/editorial.py:215](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L215)：EditorialRepository.begin_call。
+- [src/bili_asr/storage/editorial.py:347](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L347)：EditorialRepository.finish_call。
+- [src/bili_asr/storage/job_commit.py:13](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/job_commit.py#L13)：JobCommitGuard。
+- [src/bili_asr/storage/editorial.py:144](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L144)：EditorialRepository.store_input。
+- [src/bili_asr/storage/editorial.py:418](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L418)：EditorialRepository.save_chunk。
+- [src/bili_asr/storage/editorial.py:423](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L423)：EditorialRepository.commit_revision。
+- [src/bili_asr/deepseek.py:110](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/deepseek.py#L110)：DeepSeekClient.complete。
+- [src/bili_asr/deepseek.py:149](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/deepseek.py#L149)：parse_response。
 
 ## 当前冻结与失败恢复
 
@@ -98,8 +98,13 @@ disabled 不发送 reasoning_effort，发送有效 top_p=1 和可选 temperature
 OpenCode Go 接收兼容请求形状，代码不证明代理实际遵守这些控制。缺少新字段的历史
 snapshot 按 legacy-v1/零再生成解码，保留旧嵌套请求语义；显式新配置修复创建新身份。
 
-新增源码证据：[请求策略分派](../src/bili_asr/deepseek.py#L23)、
-[冻结配置的历史解码](../src/bili_asr/editorial.py#L141)、
-[持久再生成策略](../src/bili_asr/editorial_recovery.py#L1)、
-[块恢复与缓存重放](../src/bili_asr/editorial_runtime.py#L57)、
-[物理调用预留与计数](../src/bili_asr/storage/editorial.py#L215)。
+新增源码证据：[请求策略分派](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/deepseek.py#L35)、
+[冻结配置的历史解码](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/editorial.py#L143)、
+[持久再生成策略](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/editorial_recovery.py#L1)、
+[块恢复与缓存重放](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/editorial_runtime.py#L62)、
+[物理调用预留与计数](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L215)。
+
+## 安全失败诊断与恢复准入
+
+每一种响应校验失败都有有界 stage/reason、位置、计数和安全摘要。HTTP、网络、配置、解析与来源覆盖错误分别分类，状态默认不输出模型正文。冻结输入中的物理调用预算、缓存重放与白名单整块再生成继续按上述持久政策执行；workflow job 重排预算是另一项准入，不能重置已经消耗的模型调用额度。
+普通 workflow retry 仍复用原冻结输入，需通过统一失败政策与显式 controls 检查；改变配置走 repair，新建输入与任务，保留原失败和模型调用。完整操作见[工作流失败恢复](operations/workflow-failures.md)与[流程33](33-workflow-failure-recovery.md)。

@@ -39,6 +39,9 @@ def archive(tmp_path):
     repository.plan(part_ids=[1], policy=AsrPolicy.ALL, profile_id=profile)
     job = repository.claim("worker", kinds=[JobKind.AUDIO])
     repository.fail(job.job_id, worker_id="worker", error_code="TimeoutError")
+    with connection:
+        connection.execute('UPDATE workflow_attempts SET finished_at=1000')
+        connection.execute('UPDATE workflow_jobs SET available_at=1000 WHERE status=\'failed\'')
     yield root, connection, repository, job
     connection.close()
 
@@ -63,6 +66,9 @@ def test_restart_backoff_budget_and_attempt_evidence(archive, tmp_path):
     assert connection.execute("SELECT outcome,error_code FROM workflow_attempts").fetchone()[:] == ("failed", "TimeoutError")
     next_job = repository.claim("worker", kinds=[job.kind])
     repository.fail(next_job.job_id, worker_id="worker", error_code="TimeoutError")
+    with connection:
+        connection.execute("UPDATE workflow_attempts SET finished_at=1000 WHERE outcome='failed'")
+        connection.execute("UPDATE workflow_jobs SET available_at=1000 WHERE status='failed'")
     assert tick(archive_root=root, **files, clock=lambda: 1599)["events"][0]["reason"] == "backoff"
     assert tick(archive_root=root, **files, clock=lambda: 1600)["events"][0]["retry"] == 2
     third = repository.claim("worker", kinds=[job.kind])
@@ -239,9 +245,10 @@ def test_editorial_legacy_cross_reference_and_new_budget_gate(tmp_path):
         value.update(job_ids=[job_id], part_ids=[], kinds=["proofread"],
                      retryable_errors={"proofread": ["RevisionValidationError"]})
         state = {"retry_holds": {}, "retry_ledger": {}}
-        result = maintain_failed_jobs(connection, RetryPolicy.load(value), state,
-                                     state_path=tmp_path / "state.json", now=1000)
-        assert result[0]["action"] == "requeued"
+        # Historical reference recovery remains explicit manual work; a
+        # deployment allowlist cannot grant automatic revision exceptions.
+        with pytest.raises(ValueError, match='unsafe maintenance'):
+            RetryPolicy.load(value)
         assert workflow.explain_job(job_id)["attempt_count"] == 1
         workflow.cancel(job_ids=[job_id])
 
@@ -252,11 +259,12 @@ def test_editorial_legacy_cross_reference_and_new_budget_gate(tmp_path):
         value["job_ids"] = [new_id]
         # Spoofing an allowlisted workflow category cannot bypass persisted budget.
         with connection:
-            connection.execute("UPDATE workflow_jobs SET last_error_code='RevisionValidationError' WHERE job_id=?", (new_id,))
-            connection.execute("UPDATE workflow_attempts SET error_code='RevisionValidationError' WHERE job_id=?", (new_id,))
+            connection.execute("UPDATE workflow_jobs SET last_error_code='deepseek_transport_failed',available_at=1000 WHERE job_id=?", (new_id,))
+            connection.execute("UPDATE workflow_attempts SET error_code='deepseek_transport_failed',finished_at=1000 WHERE job_id=?", (new_id,))
+        value['retryable_errors'] = {'proofread': ['deepseek_transport_failed']}
         result = maintain_failed_jobs(connection, RetryPolicy.load(value), state,
                                      state_path=tmp_path / "state.json", now=2000)
-        assert result[0]["reason"] == "editorial_budget_or_policy"
+        assert result[0]["reason"] == "physical_budget_exhausted"
         assert new_id not in state["retry_ledger"]
     finally:
         try:
@@ -283,6 +291,9 @@ def test_editorial_transport_retry_has_remaining_physical_budget(tmp_path):
             connection, tmp_path, TransportClient())
         assert executor.run().failed == 1
         assert repository.recovery_status_for_job(job_id)["eligible"]
+        with connection:
+            connection.execute('UPDATE workflow_jobs SET available_at=1000 WHERE job_id=?', (job_id,))
+            connection.execute('UPDATE workflow_attempts SET finished_at=1000 WHERE job_id=?', (job_id,))
         value = policy_value()
         value.update(job_ids=[job_id], part_ids=[], kinds=["proofread"],
                      retryable_errors={"proofread": ["ConnectError"]})
@@ -320,9 +331,12 @@ def test_requests_transport_vs_payment_runtime_maintenance_gate(tmp_path, failur
         client = DeepSeekClient(api_key="offline-test", session=HttpSession())
         _workflow, _repository, _handlers, executor, _prepared, job_id = queued(connection, tmp_path, client)
         assert executor.run().failed == 1
+        with connection:
+            connection.execute('UPDATE workflow_jobs SET available_at=1000 WHERE job_id=?', (job_id,))
+            connection.execute('UPDATE workflow_attempts SET finished_at=1000 WHERE job_id=?', (job_id,))
         value = policy_value()
         value.update(job_ids=[job_id], part_ids=[], kinds=["proofread"],
-                     retryable_errors={"proofread": ["DeepSeekTransportError"]})
+                     retryable_errors={"proofread": ["deepseek_transport_failed"]})
         state = {"retry_holds": {}, "retry_ledger": {}}
         result = maintain_failed_jobs(connection, RetryPolicy.load(value), state,
                                      state_path=tmp_path / "state.json", now=1000)

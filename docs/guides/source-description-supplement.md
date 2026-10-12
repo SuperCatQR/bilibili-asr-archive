@@ -34,7 +34,9 @@ bili-asr publication supplement-source check --archive-root <archive> --edition-
 新简介版本必须用 `--contract-profile universal-origin-v2` 导出。
 catalog 仍为 v3，source-metadata 仍为 v1；origins schema 为 2，manifest 为 3。
 旧 `universal-origin-v1` profile 及既有冻结 schema 不变，并明确拒绝简介补充版本。
-阅读站的配套实现位于独立分支 `codex/source-description-contract`，显式支持
+阅读站的配套实现已在 [PR #104](https://github.com/SuperCatQR/markdown-reading-site/pull/104)
+于 2026-10-12 09:00:11（香港时间）合并，commit
+`682a7cf79f2eb6f1dac3c2207b2ed0628de5acdd`，显式支持
 `universal-origin-v1` 与 `universal-origin-v2` 两个完整契约组合，并展示冻结简介。
 部署阅读站前先核对消费端是否已经包含该实现；旧部署仍会拒绝新 profile，
 不能仅修改 manifest 版本、删除证据或绕过未知字段检查来导入。

@@ -215,6 +215,16 @@ def test_failed_dependency_explanation_and_targeted_retry(tmp_path, capsys):
         assert repo.requeue_failed(job_ids=[audio.job_id], kinds=[JobKind.SUBTITLE]) == 0
         assert cli.main(["workflow", "retry", "--archive-root", str(tmp_path), "--job-id", audio.job_id,
                          "--kind", "audio", "--part-id", "1"]) == 0
+        assert "control_state_unknown" in capsys.readouterr().out
+        assert repo.explain_job(audio.job_id)["status"] == "failed"
+        assert cli.main(["workflow", "retry", "--archive-root", str(tmp_path), "--job-id", audio.job_id,
+                         "--no-control-state", "--json"]) == 0
+        decision = json.loads(capsys.readouterr().out)["decisions"][0]
+        assert not decision["allowed"] and decision["reason"] == "manual_override_required"
+        assert cli.main(["workflow", "retry", "--archive-root", str(tmp_path), "--job-id", audio.job_id,
+                         "--no-control-state", "--manual-override",
+                         "--override-reason", "download condition inspected and repaired", "--json"]) == 0
+        assert json.loads(capsys.readouterr().out)["requeued"] == 1
         assert repo.explain_job(subtitle.job_id)["status"] == "failed"
         assert repo.explain_job(asr.job_id)["blockers"][0]["status"] == "queued"
         retry = repo.claim("w", kinds=[JobKind.AUDIO])

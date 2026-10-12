@@ -43,9 +43,9 @@ op->>remote: prepare/probe 核验 host key、target_id 与 instance_id
 
 ## 源码证据
 
-- [src/bili_asr/cli/remote_storage.py:1](../src/bili_asr/cli/remote_storage.py#L1)：模块定义。
-- [src/bili_asr/services/reference_backup.py:1](../src/bili_asr/services/reference_backup.py#L1)：模块定义。
-- [src/bili_asr/storage/artifact_catalog.py:1](../src/bili_asr/storage/artifact_catalog.py#L1)：模块定义。
-- [src/bili_asr/services/remote_artifacts.py:1](../src/bili_asr/services/remote_artifacts.py#L1)：模块定义。
-- [src/bili_asr/remote_storage.py:1](../src/bili_asr/remote_storage.py#L1)：模块定义。
-- [src/bili_asr/services/reference_backup.py:348](../src/bili_asr/services/reference_backup.py#L348)：restore_reference_backup。
+- [src/bili_asr/cli/remote_storage.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/remote_storage.py#L1)：模块定义。
+- [src/bili_asr/services/reference_backup.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/reference_backup.py#L1)：模块定义。
+- [src/bili_asr/storage/artifact_catalog.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/artifact_catalog.py#L1)：模块定义。
+- [src/bili_asr/services/remote_artifacts.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/remote_artifacts.py#L1)：模块定义。
+- [src/bili_asr/remote_storage.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/remote_storage.py#L1)：模块定义。
+- [src/bili_asr/services/reference_backup.py:348](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/reference_backup.py#L348)：restore_reference_backup。

@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,13 +23,13 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 1,
-          "end_line": 436,
+          "end_line": 482,
           "label": "模块定义"
         },
         {
           "path": "src/bili_asr/cli/publication.py",
           "line": 1,
-          "end_line": 340,
+          "end_line": 348,
           "label": "模块定义"
         }
       ]
@@ -80,7 +80,7 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 419,
-          "end_line": 581,
+          "end_line": 604,
           "label": "ArchiveWorkflowHandlers._publish"
         },
         {
@@ -117,14 +117,14 @@
       "sources": [
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 234,
-          "end_line": 245,
+          "line": 343,
+          "end_line": 354,
           "label": "_collect_origin"
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 248,
-          "end_line": 254,
+          "line": 357,
+          "end_line": 363,
           "label": "_add_origins"
         }
       ]
@@ -356,7 +356,7 @@
       "dot": "amber",
       "title": "源码与协议",
       "items": [
-        "源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
         "Reader 配套 commit 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已实现并验证 v1/v2，尚未合并或部署。",
         "代码与 fixture 验证不代替生产回填、按新 edition 审核、显式 publish、重新导出和部署。"
       ]

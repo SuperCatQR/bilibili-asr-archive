@@ -19,7 +19,7 @@ bili-asr workflow cancel --archive-root archive --job-id JOB_ID --job-id ANOTHER
 
 取消不级联。例如取消 audio 后，依赖它的 ASR、校对和渲染任务仍为 queued，无法满足前置依赖。`workflow status` 显示 `blocked_by_cancelled` 的数量；`--jobs` 标记被直接或间接阻塞的任务。若这些任务也不再需要，可把它们的 ID 一并传给取消命令。
 
-`workflow retry` 只重排 failed。重复 plan、请求 publication、请求相同修订与模板的 render 都不会恢复同一个 cancelled job。修改 profile、输入或模板可能产生新的任务身份；它不是恢复旧 attempt 的操作。当前没有 resume-cancelled 或按 BVID 自动级联取消的入口。
+`workflow retry` 只重排 failed，并检查错误政策、显式控制状态、hold、预算、退避和活动替代任务；见 [失败与恢复](../operations/workflow-failures.md)。重复 plan、请求 publication、请求相同修订与模板的 render 都不会恢复同一个 cancelled job。修改 profile、输入或模板可能产生新的任务身份；它不是恢复旧 attempt 的操作。当前没有 resume-cancelled 或按 BVID 自动级联取消的入口。
 
 ## 运行中的工作如何停止
 

@@ -1,6 +1,6 @@
 # 公开、未发布预览与私有审阅三种导出
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](12-reader-private-export.html) · [Archify 规格](12-reader-private-export.json) · [全部时序图](architecture-sequences.md)
 
@@ -59,19 +59,19 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/publication.py:63](../src/bili_asr/cli/publication.py#L63)：_cmd_publication。
-- [src/bili_asr/cli/editorial.py:14](../src/bili_asr/cli/editorial.py#L14)：_cmd_editorial。
-- [src/bili_asr/publication_export.py:91](../src/bili_asr/publication_export.py#L91)：export_publications。
-- [src/bili_asr/publication_export.py:148](../src/bili_asr/publication_export.py#L148)：export_publication_drafts。
-- [src/bili_asr/publication_export.py:282](../src/bili_asr/publication_export.py#L282)：export_editorial。
-- [src/bili_asr/publication_export.py:37](../src/bili_asr/publication_export.py#L37)：_read_snapshot。
-- [src/bili_asr/publication.py:109](../src/bili_asr/publication.py#L109)：verify_release。
-- [src/bili_asr/publication.py:1](../src/bili_asr/publication.py#L1)：模块定义。
-- [src/bili_asr/export_snapshot.py:431](../src/bili_asr/export_snapshot.py#L431)：replace_snapshot。
-- [src/bili_asr/publication_export.py:1](../src/bili_asr/publication_export.py#L1)：模块定义。
+- [src/bili_asr/cli/publication.py:63](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/publication.py#L63)：_cmd_publication。
+- [src/bili_asr/cli/editorial.py:14](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/editorial.py#L14)：_cmd_editorial。
+- [src/bili_asr/publication_export.py:161](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L161)：export_publications。
+- [src/bili_asr/publication_export.py:242](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L242)：export_publication_drafts。
+- [src/bili_asr/publication_export.py:391](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L391)：export_editorial。
+- [src/bili_asr/publication_export.py:106](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L106)：_read_snapshot。
+- [src/bili_asr/publication.py:109](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication.py#L109)：verify_release。
+- [src/bili_asr/publication.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication.py#L1)：模块定义。
+- [src/bili_asr/export_snapshot.py:472](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/export_snapshot.py#L472)：replace_snapshot。
+- [src/bili_asr/publication_export.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L1)：模块定义。
 
-- [src/bili_asr/publication_export.py:234](../src/bili_asr/publication_export.py#L234)：_collect_origin，简介补充版本要求 universal-origin-v2。
-- [src/bili_asr/publication_export.py:248](../src/bili_asr/publication_export.py#L248)：_add_origins 按 profile 分派 schema。
+- [src/bili_asr/publication_export.py:343](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L343)：_collect_origin，简介补充版本要求 universal-origin-v2。
+- [src/bili_asr/publication_export.py:357](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L357)：_add_origins 按 profile 分派 schema。
 
 ## 本次边界修复
 

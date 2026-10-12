@@ -8,7 +8,12 @@ import pytest
 import requests
 
 from bili_asr import cli
-from bili_asr.deepseek import DeepSeekClient, DeepSeekError, DeepSeekTransportError, request_body
+from bili_asr.deepseek import (
+    DeepSeekClient,
+    DeepSeekError,
+    DeepSeekTransportError,
+    request_body,
+)
 from bili_asr.editorial import EditorialConfig, digest
 from bili_asr.storage import open_database
 from tests import test_ai_editorial as editorial_fixtures
@@ -99,6 +104,33 @@ def test_regeneration_persists_feedback_and_preserves_original_input(database, t
     assert feedback["regeneration"] == 1
     assert repository.load_input(prepared["input_id"]) == frozen
     calls = repository.physical_calls(prepared["input_id"], prepared["chunks"][0]["chunk_id"])
+    assert calls[0]["error_code"] == "RevisionValidationError"
+    assert calls[1]["stored_request"]["recovery"]["previous_call_id"] == calls[0]["call_id"]
+    assert repository.revision_for_job(job_id)
+
+
+def test_second_chunk_reference_recovery_reuses_first_success(database, tmp_path):
+    with database:
+        database.execute("INSERT INTO transcript_segments VALUES (1,2,2000,2900,?)", ("第三段文字",))
+        database.execute("INSERT INTO transcript_segments VALUES (1,3,3000,3900,?)", ("第四段文字",))
+    class SecondChunkClient(ReferenceClient):
+        def complete(self, request, config):
+            self.requests.append(deepcopy(request))
+            chunk = json.loads(request["messages"][1]["content"])
+            value = no_changes(chunk)
+            if len(self.requests) == 2:
+                value["paragraphs"][0]["issues"] = [{"note": "核对", "candidate": "",
+                    "evidence_refs": [chunk["editable_segments"][1]["segment_id"]]}]
+            return envelope(value)
+    client = SecondChunkClient()
+    _, repository, _, executor, prepared, job_id = queued(database, tmp_path, client,
+        EditorialConfig(max_chunk_segments=2, context_segments=0))
+    assert len(prepared["chunks"]) == 2
+    assert executor.run().succeeded == 2 and len(client.requests) == 3
+    first, second = prepared["chunks"]
+    assert len(repository.physical_calls(prepared["input_id"], first["chunk_id"])) == 1
+    calls = repository.physical_calls(prepared["input_id"], second["chunk_id"])
+    assert len(calls) == 2 and calls[0]["response"] is not None
     assert calls[0]["error_code"] == "RevisionValidationError"
     assert calls[1]["stored_request"]["recovery"]["previous_call_id"] == calls[0]["call_id"]
     assert repository.revision_for_job(job_id)

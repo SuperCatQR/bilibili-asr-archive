@@ -7,12 +7,14 @@ usage remains the source of truth for final cost accounting.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import math
 import re
-from typing import Any, TYPE_CHECKING
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Any
+
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.editorial_segments import language_key, segments
+from bili_asr.workflow_errors import safe_job_details
 
 if TYPE_CHECKING:
     from bili_asr.storage.models import TranscriptRecord
@@ -230,9 +232,6 @@ def local_revision(chunk: dict[str, Any]) -> list[dict[str, Any]] | None:
     return blocks
 
 
-
-
-
 def estimate_chunk_budget(chunk: dict[str, Any], *, system_prompt: str = SYSTEM_PROMPT,
                           max_output_tokens: int | None = None) -> dict[str, int | str]:
     """Estimate request composition for cost and chunking observability.
@@ -354,17 +353,29 @@ def prepare_input(base: TranscriptRecord, reference: TranscriptRecord | None,
 class RevisionValidationError(ValueError):
     """The model response does not obey the frozen input contract."""
 
+    error_code = "RevisionValidationError"
 
-def _fields(value: Any, names: set[str]) -> None:
+    def __init__(self, message: str, *, reason_code: str = "invalid_revision", **details: Any):
+        self.safe_details = safe_job_details(dict(
+            stage="revision_validation", reason_code=reason_code, **details))
+        super().__init__(message)
+
+
+def _fields(value: Any, names: set[str], **details: Any) -> None:
     if not isinstance(value, dict) or set(value) != names:
-        raise RevisionValidationError("unknown or missing response fields")
+        raise RevisionValidationError("unknown or missing response fields", reason_code="invalid_fields",
+                                      expected_field_count=len(names),
+                                      actual_field_count=len(value) if isinstance(value, dict) else None,
+                                      **details)
 
 
-def _string(value: Any, *, maximum: int, empty: bool = True) -> str:
+def _string(value: Any, *, maximum: int, empty: bool = True, **details: Any) -> str:
     if not isinstance(value, str) or len(value) > maximum or (not empty and not value.strip()):
-        raise RevisionValidationError("invalid response string")
+        raise RevisionValidationError("invalid response string", reason_code="invalid_string",
+                                      maximum_chars=maximum,
+                                      actual_chars=len(value) if isinstance(value, str) else None, **details)
     if any(ord(c) < 32 and c not in "\n\t" for c in value):
-        raise RevisionValidationError("control character in response")
+        raise RevisionValidationError("control character in response", reason_code="control_character", **details)
     return value
 
 
@@ -374,63 +385,70 @@ def validate_revision(chunk: dict[str, Any], response: Any) -> list[dict[str, An
     Source coverage is structural provenance, not proof of semantic accuracy.
     Uncertain passages remain reviewable without reverting the whole paragraph.
     """
-    _fields(response, {"chunk_id", "paragraphs"})
-    if response["chunk_id"] != chunk["chunk_id"] or not isinstance(response["paragraphs"], list):
-        raise RevisionValidationError("wrong chunk identity or paragraphs")
+    _fields(response, {"chunk_id", "paragraphs"}, section="revision")
+    if response["chunk_id"] != chunk["chunk_id"]:
+        raise RevisionValidationError("wrong chunk identity or paragraphs", reason_code="wrong_chunk_identity")
+    if not isinstance(response["paragraphs"], list):
+        raise RevisionValidationError("wrong chunk identity or paragraphs", reason_code="invalid_paragraphs")
     source = chunk["editable_segments"]
     expected = [s["segment_id"] for s in source]
     if not response["paragraphs"]:
-        raise RevisionValidationError("empty reading paragraphs")
+        raise RevisionValidationError("empty reading paragraphs", reason_code="empty_paragraphs",
+                                      expected_segment_count=len(expected), paragraph_count=0)
     cursor, validated = 0, []
     for paragraph_index, paragraph in enumerate(response["paragraphs"]):
-        _fields(paragraph, {"segment_ids", "text", "issues"})
+        location = {"paragraph_index": paragraph_index}
+        _fields(paragraph, {"segment_ids", "text", "issues"}, section="paragraph", **location)
         ids = paragraph["segment_ids"]
         if (not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids)
                 or ids != expected[cursor:cursor + len(ids)]):
-            raise RevisionValidationError("missing, duplicated, unknown or reordered source segments")
+            raise RevisionValidationError("missing, duplicated, unknown or reordered source segments",
+                                          reason_code="source_coverage_order", segment_cursor=cursor,
+                                          expected_segment_count=len(expected),
+                                          received_segment_count=len(ids) if isinstance(ids, list) else None,
+                                          **location)
         originals = source[cursor:cursor + len(ids)]
         original_text = "".join(s["text"] for s in originals)
-        corrected = _string(paragraph["text"], maximum=max(4000, len(original_text) * 3), empty=False).strip()
+        corrected = _string(paragraph["text"], maximum=max(4000, len(original_text) * 3), empty=False,
+                            field="text", **location).strip()
         if "\n" in corrected or re.match(r"^(?:#{1,6}\s|[-*]\s|\[?\d{2}:\d{2}:\d{2})", corrected):
-            raise RevisionValidationError("reading text must be one plain paragraph without headings or timestamps")
+            raise RevisionValidationError("reading text must be one plain paragraph without headings or timestamps",
+                                          reason_code="invalid_paragraph_format", **location)
         if not isinstance(paragraph["issues"], list):
-            raise RevisionValidationError("issues must be a list")
+            raise RevisionValidationError("issues must be a list", reason_code="invalid_issues", **location)
         reference_ids = {r["segment_id"] for r in chunk["reference_segments"]
                          if any(r["start_ms"] < s["end_ms"] and r["end_ms"] > s["start_ms"]
                                 for s in originals)}
         allowed = reference_ids | set(ids)
         issues = []
         for issue_index, issue in enumerate(paragraph["issues"]):
-            _fields(issue, {"note", "candidate", "evidence_refs"})
-            _string(issue["note"], maximum=2000, empty=False)
-            _string(issue["candidate"], maximum=4000)
+            issue_location = dict(location, issue_index=issue_index)
+            _fields(issue, {"note", "candidate", "evidence_refs"}, section="issue", **issue_location)
+            _string(issue["note"], maximum=2000, empty=False, field="note", **issue_location)
+            _string(issue["candidate"], maximum=4000, field="candidate", **issue_location)
             refs = issue["evidence_refs"]
             if (not isinstance(refs, list)
                     or any(not isinstance(r, str) or r not in allowed for r in refs)):
-                error = RevisionValidationError("unknown or unrelated issue reference")
                 bad = refs if isinstance(refs, list) else []
-                error.safe_details = {"paragraph_index": paragraph_index, "issue_index": issue_index,
-                    "allowed_count": len(allowed), "invalid_count": sum(
-                        not isinstance(r, str) or r not in allowed for r in bad),
-                    "invalid_ref_hashes": [digest(r) for r in bad
-                        if not isinstance(r, str) or r not in allowed][:8]}
-                # Only known IDs belonging to another editable paragraph are
-                # eligible for bounded regeneration. Unknown/malformed IDs and
-                # readonly context retain the ordinary strict failure path.
+                # Bounded regeneration accepts only known cross-paragraph
+                # IDs. Unknown IDs and readonly context still fail strictly.
                 known = {s["segment_id"] for s in source} | {
                     s["segment_id"] for s in chunk["reference_segments"]}
                 invalid = [r for r in bad if not isinstance(r, str) or r not in allowed]
-                error.safe_details["reason"] = ("cross_paragraph_reference"
+                recovery_reason = ("cross_paragraph_reference"
                     if isinstance(refs, list) and invalid and all(isinstance(r, str) and r in known for r in invalid)
                     else "invalid_issue_reference")
-                raise error
+                raise RevisionValidationError("unknown or unrelated issue reference", reason_code="invalid_evidence_refs",
+                    **issue_location, allowed_count=len(allowed), invalid_count=len(invalid),
+                    invalid_ref_hashes=[digest(r) for r in invalid][:8], reason=recovery_reason)
             issues.append(dict(issue))
         validated.append({"segment_ids": list(ids), "start_ms": originals[0]["start_ms"],
                           "end_ms": max(s["end_ms"] for s in originals),
                           "original_text": original_text, "text": corrected, "issues": issues})
         cursor += len(ids)
     if cursor != len(expected):
-        raise RevisionValidationError("revision does not cover all source segments")
+        raise RevisionValidationError("revision does not cover all source segments", reason_code="incomplete_source_coverage",
+                                      expected_segment_count=len(expected), covered_segment_count=cursor)
     return validated
 
 

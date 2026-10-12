@@ -122,7 +122,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: actions/setup-python@v7
         with:
@@ -137,29 +137,15 @@ jobs:
 
       - name: Ensure ffmpeg is available
         timeout-minutes: 4
+        run: bash scripts/ensure_ci_ffmpeg.sh
+
+      - name: Fetch exact contract baseline
+        env:
+          CONTRACT_BASELINE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
         run: |
-          if ! ffmpeg -version > /dev/null 2>&1; then
-            for attempt in 1 2; do
-              echo "Installing ffmpeg (attempt ${attempt}/2)"
-              if sudo timeout --kill-after=10s 90s apt-get \
-                  -o Acquire::Retries=1 \
-                  -o Acquire::http::Timeout=20 \
-                  -o Acquire::https::Timeout=20 update \
-                  && sudo timeout --kill-after=10s 90s apt-get \
-                  -o Acquire::Retries=1 \
-                  -o Acquire::http::Timeout=20 \
-                  -o Acquire::https::Timeout=20 \
-                  install -y --no-install-recommends ffmpeg; then
-                break
-              fi
-              if [ "$attempt" -eq 2 ]; then
-                echo "ffmpeg installation failed after two bounded attempts" >&2
-                exit 1
-              fi
-              sleep 5
-            done
+          if [[ -n "$CONTRACT_BASELINE" && "$CONTRACT_BASELINE" != 0000000000000000000000000000000000000000 ]]; then
+            git fetch --no-tags --depth=1 origin "$CONTRACT_BASELINE"
           fi
-          ffmpeg -version
 
       - name: Install test dependencies
         run: |
@@ -350,8 +336,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: pytest-diagnostics-${{ github.run_id }}-*
-          merge-multiple: true
-          path: test-results
+          path: pytest-diagnostics
 
       - name: Summarize regression tests
         if: ${{ !cancelled() }}
@@ -359,9 +344,10 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import os
+          from scripts.update_pytest_durations import latest_reports
           import xml.etree.ElementTree as ET
 
-          files = sorted(Path("test-results").rglob("pytest-*.xml"))
+          files = latest_reports(Path("pytest-diagnostics"), 4)
           if not files:
               raise SystemExit("no shard JUnit reports were downloaded")
           total = failures = errors = skipped = 0
@@ -387,6 +373,15 @@ jobs:
               raise SystemExit("regression test failures are present in shard reports")
           PY
 
+      - name: Measure shard timing hints
+        if: ${{ !cancelled() && needs.python.result == 'success' }}
+        env:
+          TIMING_SOURCE_REF: ${{ github.sha }}
+        run: |
+          python scripts/update_pytest_durations.py pytest-diagnostics \
+            --shard-count 4 --source-ref "$TIMING_SOURCE_REF" \
+            --output pytest-shard-durations.json
+
       - name: Upload coverage report
         if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
         uses: actions/upload-artifact@v7
@@ -395,5 +390,6 @@ jobs:
           path: |
             coverage.xml
             coverage.json
+            pytest-shard-durations.json
           if-no-files-found: error
           retention-days: 14

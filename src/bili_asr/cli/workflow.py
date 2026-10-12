@@ -153,6 +153,13 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     status.set_defaults(database_policy=ArchiveAccessMode.READ)
     status.add_argument("--archive-root", default=archive_root)
     status.add_argument("--jobs", action="store_true", help="List job IDs, stored part identity, and cancellation blockers")
+    status.add_argument("--json", action="store_true", help="Print the same status report as JSON")
+    status.add_argument("--failed", action="store_true", help="Include a page of current failed jobs with safe diagnostics")
+    status.add_argument("--since", type=int, default=None, help="Inclusive failed-attempt finished_at UTC epoch second")
+    status.add_argument("--until", type=int, default=None, help="Exclusive failed-attempt finished_at UTC epoch second")
+    status.add_argument("--limit", type=int, default=100, help="Job page size, 1-1000 (default: 100)")
+    status.add_argument("--offset", type=int, default=0)
+    _add_control_arguments(status)
 
     cancel = actions.add_parser("cancel", help="Cancel selected queued/running jobs at safe commit boundaries")
     cancel.add_argument("--archive-root", default=archive_root)
@@ -170,6 +177,7 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     explain.set_defaults(database_policy=ArchiveAccessMode.READ)
     explain.add_argument("--archive-root", default=archive_root)
     explain.add_argument("--job-id", required=True)
+    _add_control_arguments(explain)
 
     evidence = actions.add_parser("asr-evidence", help="Print persisted ASR diagnostics for one acquisition run")
     evidence.set_defaults(database_policy=ArchiveAccessMode.READ)
@@ -189,6 +197,15 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     retry.add_argument("--part-id", type=int, action="append", default=None)
     retry.add_argument("--job-id", action="append", default=None)
     retry.add_argument("--kind", choices=[kind.value for kind in JobKind], action="append", default=None)
+    retry_mode = retry.add_mutually_exclusive_group()
+    retry_mode.add_argument("--automatic", action="store_true", help="Apply bounded automatic policy, budget, backoff and controls")
+    retry_mode.add_argument("--manual", action="store_true", help="Explicit manual retry using frozen inputs (default)")
+    retry.add_argument("--manual-override", action="store_true", help="Override repair/unknown policy for exactly one job; holds still apply")
+    retry.add_argument("--override-reason", default=None, help="Required audit reason for --manual-override")
+    retry.add_argument("--dry-run", action=_ReadOnlyDryRun, nargs=0, default=False,
+                       help="Inspect decisions using read-only database access")
+    retry.add_argument("--json", action="store_true", help="Print decisions and requeue result as JSON")
+    _add_control_arguments(retry)
 
     repair = actions.add_parser("repair-dependencies", help="Plan or apply a fenced repair of legacy producer edges")
     repair.set_defaults(database_policy=ArchiveAccessMode.READ)
@@ -197,6 +214,19 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     repair.add_argument("--apply", action="store_true", help="Apply the exact inspected plan")
     repair.add_argument("--expected-plan-id", default=None, help="Required inspected plan identity for --apply")
     repair.add_argument("--retry-failed", action="store_true", help="Requeue failed audio and ASR producers, preserving attempts")
+
+
+class _ReadOnlyDryRun(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, True)
+        namespace.database_policy = ArchiveAccessMode.READ
+
+
+def _add_control_arguments(parser: argparse.ArgumentParser) -> None:
+    control = parser.add_mutually_exclusive_group()
+    control.add_argument("--control-state", default=None, help="Explicit external holds/retry-ledger JSON snapshot")
+    control.add_argument("--no-control-state", action="store_true",
+                         help="Explicitly declare this deployment has no external retry controls")
 
 
 def _nonnegative_page_index(value: str) -> int:
@@ -275,7 +305,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                                    require_writable=args.workflow_action == "run")
     readonly = args.workflow_action in {"status", "explain", "asr-evidence", "asr-performance"} or (
         args.workflow_action == "repair-dependencies" and not args.apply) or (
-        args.workflow_action == "publish" and args.dry_run)
+        args.workflow_action in {"publish", "retry"} and args.dry_run)
     mode = ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE
     session = ArchiveSession(args.archive_root, mode=mode, artifact_roots=artifact_roots).open()
     connection = session.connection
@@ -293,7 +323,9 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         if args.workflow_action == "repair-dependencies":
             if args.apply and args.expected_plan_id is None:
                 raise ValueError("--apply requires --expected-plan-id from the inspected plan")
-            from bili_asr.storage.workflow_dependency_repair import repair_producer_dependencies
+            from bili_asr.storage.workflow_dependency_repair import (
+                repair_producer_dependencies,
+            )
             report = repair_producer_dependencies(connection, args.part_id, apply=args.apply,
                 expected_plan_id=args.expected_plan_id, retry_failed=args.retry_failed)
             print(json.dumps(report, ensure_ascii=False, sort_keys=True, allow_nan=False))
@@ -332,8 +364,11 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 print("workflow publish: " + " ".join(f"{name}={value}" for name, value in item.items()))
             return 0
         if args.workflow_action == "explain":
+            from bili_asr.services.workflow_status import explain_workflow_job
             try:
-                print(json.dumps(repository.explain_job(args.job_id), ensure_ascii=False, sort_keys=True))
+                print(json.dumps(explain_workflow_job(connection, args.job_id,
+                    control_state_path=args.control_state, no_control_state=args.no_control_state),
+                    ensure_ascii=False, sort_keys=True, allow_nan=False))
             except ValueError as exc:
                 write_stderr(f"workflow explain: {exc}")
                 return 1
@@ -349,26 +384,37 @@ def _execute_workflow(args: argparse.Namespace) -> int:
             print(f"workflow render: job_id={job_id}")
             return 0
         if args.workflow_action == "status":
-            counts = repository.count_by_status()
-            for status in ("queued", "running", "succeeded", "failed", "cancelled"):
-                print(f"{status}: {counts.get(status, 0)}")
-            blocked = repository.blocked_by_cancelled()
-            print(f"blocked_by_cancelled: {len(blocked)}")
-            if args.jobs:
-                rows = repository.list_job_identities()
-                for row in rows:
-                    print(f"  job_id={row['job_id']} kind={row['kind']} status={row['status']} "
-                          f"bvid={row['bvid']} page_index={row['page_index']} "
-                          f"video_part_id={row['video_part_id']} attempts={row['attempt_count']} "
-                          f"blocked_by_cancelled={int(row['job_id'] in blocked)}")
-            if args.details:
-                for job in repository.list_jobs():
-                    print(json.dumps(repository.explain_job(job.job_id), ensure_ascii=False, sort_keys=True))
+            from bili_asr.services.workflow_status import (
+                render_status_text,
+                workflow_status_report,
+            )
+            report = workflow_status_report(connection, since=args.since, until=args.until,
+                limit=args.limit, offset=args.offset, failed_only=args.failed,
+                include_jobs=args.jobs or args.details, control_state_path=args.control_state,
+                no_control_state=args.no_control_state)
+            if args.json:
+                print(json.dumps(report, ensure_ascii=False, sort_keys=True, allow_nan=False))
+            else:
+                print(render_status_text(report, jobs=args.jobs, details=args.details or args.failed))
             return 0
         if args.workflow_action == "retry":
-            count = repository.requeue_failed(part_ids=args.part_id, job_ids=args.job_id,
-                                             kinds=None if args.kind is None else [JobKind(k) for k in args.kind])
-            print(f"workflow retry: requeued={count}")
+            from bili_asr.services.workflow_retry import guarded_retry_failed
+            if args.manual_override and (args.automatic or len(args.job_id or []) != 1
+                    or args.part_id is not None or args.kind is not None):
+                raise ValueError('--manual-override requires exactly one --job-id and no other selector or --automatic')
+            if args.override_reason is not None and not args.manual_override:
+                raise ValueError('--override-reason requires --manual-override')
+            report = guarded_retry_failed(repository, part_ids=args.part_id, job_ids=args.job_id,
+                kinds=None if args.kind is None else [JobKind(k) for k in args.kind],
+                control_state_path=args.control_state, no_control_state=args.no_control_state,
+                automatic=args.automatic, manual_override=args.manual_override,
+                override_reason=args.override_reason, dry_run=args.dry_run)
+            if args.json:
+                print(json.dumps(report, ensure_ascii=False, sort_keys=True, allow_nan=False))
+            else:
+                print(f"workflow retry: requeued={report['requeued']} dry_run={int(args.dry_run)}")
+                for decision in report['decisions']:
+                    print('  retry_decision: ' + json.dumps(decision, ensure_ascii=False, sort_keys=True))
             return 0
         if args.workflow_action == "plan":
             try:

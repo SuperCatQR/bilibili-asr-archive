@@ -1,6 +1,6 @@
 # 字幕来源端口、缺失证据与不可变转录
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [Archify 规格](05-subtitle-ingest.json) · [交互时序图](05-subtitle-ingest.html) · [全部时序图](architecture-sequences.md)
 
@@ -74,19 +74,19 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/workflow.py:128](../src/bili_asr/workflow.py#L128)：WorkflowExecutor.run。
-- [src/bili_asr/workflow_runtime.py:137](../src/bili_asr/workflow_runtime.py#L137)：ArchiveWorkflowHandlers.subtitle。
-- [src/bili_asr/workflow_runtime_ports.py:16](../src/bili_asr/workflow_runtime_ports.py#L16)：GatewayFactory。
-- [src/bili_asr/services/subtitle_ingest.py:467](../src/bili_asr/services/subtitle_ingest.py#L467)：SubtitleIngestor._acquire_part。
-- [src/bili_asr/services/subtitle_ingest.py:316](../src/bili_asr/services/subtitle_ingest.py#L316)：SubtitleIngestor._source_for。
-- [src/bili_asr/sources/bilibili_source.py:49](../src/bili_asr/sources/bilibili_source.py#L49)：BilibiliSubtitleSource。
-- [src/bili_asr/sources/protocols.py:62](../src/bili_asr/sources/protocols.py#L62)：SubtitleSource。
-- [src/bili_asr/sources/protocols.py:32](../src/bili_asr/sources/protocols.py#L32)：SourceAccessObservation。
-- [src/bili_asr/sources/bilibili_api_gateway.py:1028](../src/bili_asr/sources/bilibili_api_gateway.py#L1028)：BilibiliApiGateway.get_subtitle_tracks。
-- [src/bili_asr/sources/bilibili_api_gateway.py:1047](../src/bili_asr/sources/bilibili_api_gateway.py#L1047)：BilibiliApiGateway.validate_subtitle_credentials。
-- [src/bili_asr/sources/bilibili_api_gateway.py:1071](../src/bili_asr/sources/bilibili_api_gateway.py#L1071)：BilibiliApiGateway.fetch_subtitle_segments。
-- [src/bili_asr/storage/transcripts.py:206](../src/bili_asr/storage/transcripts.py#L206)：TranscriptRepository.record_acquired_transcript。
-- [src/bili_asr/storage/transcripts.py:538](../src/bili_asr/storage/transcripts.py#L538)：TranscriptRepository.record_subtitle_attempt。
+- [src/bili_asr/workflow.py:128](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow.py#L128)：WorkflowExecutor.run。
+- [src/bili_asr/workflow_runtime.py:137](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime.py#L137)：ArchiveWorkflowHandlers.subtitle。
+- [src/bili_asr/workflow_runtime_ports.py:16](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime_ports.py#L16)：GatewayFactory。
+- [src/bili_asr/services/subtitle_ingest.py:467](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/subtitle_ingest.py#L467)：SubtitleIngestor._acquire_part。
+- [src/bili_asr/services/subtitle_ingest.py:316](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/subtitle_ingest.py#L316)：SubtitleIngestor._source_for。
+- [src/bili_asr/sources/bilibili_source.py:49](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_source.py#L49)：BilibiliSubtitleSource。
+- [src/bili_asr/sources/protocols.py:62](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/protocols.py#L62)：SubtitleSource。
+- [src/bili_asr/sources/protocols.py:32](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/protocols.py#L32)：SourceAccessObservation。
+- [src/bili_asr/sources/bilibili_api_gateway.py:1028](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_api_gateway.py#L1028)：BilibiliApiGateway.get_subtitle_tracks。
+- [src/bili_asr/sources/bilibili_api_gateway.py:1047](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_api_gateway.py#L1047)：BilibiliApiGateway.validate_subtitle_credentials。
+- [src/bili_asr/sources/bilibili_api_gateway.py:1071](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_api_gateway.py#L1071)：BilibiliApiGateway.fetch_subtitle_segments。
+- [src/bili_asr/storage/transcripts.py:206](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/transcripts.py#L206)：TranscriptRepository.record_acquired_transcript。
+- [src/bili_asr/storage/transcripts.py:538](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/transcripts.py#L538)：TranscriptRepository.record_subtitle_attempt。
 
 ## 提交期限补充
 

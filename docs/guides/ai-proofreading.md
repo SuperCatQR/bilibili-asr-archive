@@ -145,6 +145,11 @@ Go 官方文档将该服务定位于编程代理及类似请求，字幕阅读�
 temperature、top_p 和最大输出预算的实际支持尚未通过本次修复验证，不能直接视为已经验证的官方 DeepSeek 规格。
 参考：[OpenCode Go 文档](https://opencode.ai/docs/en/go/)、[模型目录](https://opencode.ai/zen/go/v1/models)。
 
+可复核的真实保存调用回放、显式付费的小样本参数检查和持久调用上限见
+[校对恢复与参数评估](../operations/editorial-evaluation.md)。离线回放不访问模型；
+在线检查要求显式 `--allow-paid-calls`，最多四次物理调用，每次输出最多 8192 tokens。
+HTTP 接受请求、严格结构通过、参数确实生效与人工核验语义质量必须分别记录。
+
 ## 修订与文档
 
 当前规则 `readable-prose-v2` 的目标是让转录可阅读，语句和局部论述关系通顺。
@@ -189,14 +194,20 @@ render 只排队，随后的 run 与 publication create / editorial export 都�
 ## 失败重试与重新渲染
 
 ```bash
-bili-asr workflow retry --archive-root /srv/bili-archive --part-id 101
+bili-asr workflow retry --archive-root /srv/bili-archive --part-id 101 \
+  --control-state /srv/production-ops/state.json --dry-run --json
+# 检查决定后去掉 --dry-run，实际重排符合政策、hold、预算与退避的任务。
 bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 ```
 
 每个通过校验的块在任务拥有的写事务内保存；完整修订也在独立的受保护事务内提交。
 事务取得 SQLite 写锁后重新检查 job、lease owner、attempt 编号及未过期租约，
 使校验结果与取消决定串行化。进程重启、超时或模型响应无效导致任务失败后，
-`workflow retry` 可复用已保存块，只重新请求尚未通过校验的块。
+政策允许的 `workflow retry` 可复用已保存块，只重新请求尚未通过校验的块。
+它要求显式控制文件，或在确无库外控制的部署中声明 `--no-control-state`。
+模型结构校验失败默认不自动重试；余额、配置和源质量失败要求先修复原因。
+精确人工 override 需要一个 job ID 和理由，也不会解除 holds。
+完整分类、状态口径和命令见 [工作流失败与恢复](../operations/workflow-failures.md)。
 全部块完成并提交完整修订后，校对 job 还须成功结束，渲染依赖才能就绪。
 如果请求已到达供应商，但本地尚未保存结果时进程退出，重试可能重复计费；不承诺外部调用 exactly-once。
 调用快照包含由输入、块和完整请求计算的稳定指纹。恢复时会先查找同一指纹下已保存且未标记错误的响应，

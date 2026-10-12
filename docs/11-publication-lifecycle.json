@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -22,8 +22,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 237,
-          "end_line": 340,
+          "line": 240,
+          "end_line": 348,
           "label": "add_publication_parser"
         }
       ]
@@ -42,7 +42,7 @@
         {
           "path": "src/bili_asr/publication.py",
           "line": 123,
-          "end_line": 168,
+          "end_line": 174,
           "label": "publish_edition"
         },
         {
@@ -60,14 +60,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 128,
-          "end_line": 165,
+          "line": 131,
+          "end_line": 168,
           "label": "PublicationRepository.insert_edition"
         },
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 167,
-          "end_line": 190,
+          "line": 170,
+          "end_line": 193,
           "label": "PublicationRepository.set_review"
         }
       ],
@@ -81,7 +81,7 @@
         {
           "path": "src/bili_asr/publication.py",
           "line": 1,
-          "end_line": 182,
+          "end_line": 188,
           "label": "模块定义"
         },
         {
@@ -99,14 +99,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 192,
-          "end_line": 219,
+          "line": 195,
+          "end_line": 222,
           "label": "PublicationRepository.register_release"
         },
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 221,
-          "end_line": 240,
+          "line": 224,
+          "end_line": 243,
           "label": "PublicationRepository.withdraw"
         }
       ]
@@ -355,7 +355,7 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "全部源码固定于 0c62a0f511880e9d07bbf9505771ec15657995e7；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

@@ -14,29 +14,25 @@ from bili_asr.export_snapshot import _validate_snapshot, ExportSnapshotError
 from bili_asr.publication import edit_edition, get_edition, publish_edition, get_ai_artifacts
 from bili_asr.publication_export import export_editorial, export_publication_drafts, export_publications
 from bili_asr.publication_origins import PROFILE
-from bili_asr.services.archive_migration import migrate_archive
 from bili_asr.services.archive_snapshot import save_snapshot, check_snapshot, restore_snapshot
 from bili_asr.services.preserved_body_import import (
-    install_preserved_body_extension, plan_preserved_body_import,
+    plan_preserved_body_import,
     apply_preserved_body_import, check_preserved_body_import,
 )
 from bili_asr.storage.import_origins import import_origin
 from bili_asr.storage.publication import PublicationConflictError
-from tests.fixtures.frozen_migration_archive import frozen_archive
 from tests.support.content_permissions import grant_test_permission
+from tests.fixtures.migrated_archive import copy_archive
 from tests.test_publication import approve
 
 
 @pytest.fixture
-def historical(tmp_path):
-    source, target = tmp_path / "old", tmp_path / "archive"
-    facts = frozen_archive(source)
-    migrate_archive(source, target)
-    assert install_preserved_body_extension(target)["installed"]
-    assert not install_preserved_body_extension(target)["installed"]
+def historical(tmp_path, historical_archive_template):
+    template, ids = historical_archive_template
+    target = copy_archive(template, tmp_path / "archive")
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
         grant_all_current(session.connection, target)
-        yield session.connection, target, facts["ids"]
+        yield session.connection, target, dict(ids)
 
 
 def plan_for(connection, root, kind, identity):

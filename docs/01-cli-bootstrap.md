@@ -1,6 +1,6 @@
 # CLI 启动、路径策略与数据库契约
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](01-cli-bootstrap.html) · [Archify 规格](01-cli-bootstrap.json) · [全部时序图](architecture-sequences.md)
 
@@ -58,15 +58,15 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/parser.py:11](../src/bili_asr/cli/parser.py#L11)：build_parser。
-- [src/bili_asr/cli/main.py:41](../src/bili_asr/cli/main.py#L41)：_main。
-- [src/bili_asr/cli/registry.py:20](../src/bili_asr/cli/registry.py#L20)：CommandSpec。
-- [src/bili_asr/cli/workflow.py:255](../src/bili_asr/cli/workflow.py#L255)：_execute_workflow。
-- [src/bili_asr/cli/publication.py:63](../src/bili_asr/cli/publication.py#L63)：_cmd_publication。
-- [src/bili_asr/archive_session.py:64](../src/bili_asr/archive_session.py#L64)：ArchiveSession。
-- [src/bili_asr/archive_maintenance.py:84](../src/bili_asr/archive_maintenance.py#L84)：archive_access。
-- [src/bili_asr/storage/database.py:87](../src/bili_asr/storage/database.py#L87)：connect_database。
-- [src/bili_asr/storage/database.py:530](../src/bili_asr/storage/database.py#L530)：initialize_schema。
-- [src/bili_asr/storage/database.py:553](../src/bili_asr/storage/database.py#L553)：require_archive_schema。
+- [src/bili_asr/cli/parser.py:11](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/parser.py#L11)：build_parser。
+- [src/bili_asr/cli/main.py:41](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/main.py#L41)：_main。
+- [src/bili_asr/cli/registry.py:20](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/registry.py#L20)：CommandSpec。
+- [src/bili_asr/cli/workflow.py:285](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/workflow.py#L285)：_execute_workflow。
+- [src/bili_asr/cli/publication.py:63](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/publication.py#L63)：_cmd_publication。
+- [src/bili_asr/archive_session.py:64](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/archive_session.py#L64)：ArchiveSession。
+- [src/bili_asr/archive_maintenance.py:84](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/archive_maintenance.py#L84)：archive_access。
+- [src/bili_asr/storage/database.py:87](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/database.py#L87)：connect_database。
+- [src/bili_asr/storage/database.py:530](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/database.py#L530)：initialize_schema。
+- [src/bili_asr/storage/database.py:553](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/database.py#L553)：require_archive_schema。
 
 `retry-maintenance` 子命令在服务内部取得 WRITE Session；健康只读与启动时间先于归档访问检查。见 [32](32-retry-maintenance.md)。

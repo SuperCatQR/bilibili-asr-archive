@@ -6,19 +6,24 @@ import hashlib
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
-from bili_asr.artifact_root import ArtifactRoots
-from bili_asr.editorial_quality import check_source_quality
-from bili_asr.workflow_errors import JobExecutionError
 
-from bili_asr.deepseek import DeepSeekClient, DeepSeekError, parse_response, request_body
+from bili_asr.artifact_root import ArtifactRoots
+from bili_asr.deepseek import (
+    DeepSeekClient,
+    DeepSeekError,
+    parse_response,
+    request_body,
+)
 from bili_asr.editorial import EditorialConfig, local_revision, validate_revision
+from bili_asr.editorial_quality import check_source_quality
 from bili_asr.editorial_recovery import diagnostic_for_error, recovery_request
 from bili_asr.manuscript_files import stage_artifact
+from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
 from bili_asr.storage.editorial import EditorialRepository, template_for_input
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
-from bili_asr.workflow_payloads import decode_job_payload
 from bili_asr.workflow import attempt_checkpoint
-from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
+from bili_asr.workflow_errors import JobExecutionError
+from bili_asr.workflow_payloads import decode_job_payload
 
 
 class EditorialWorkflowHandlers:
@@ -91,17 +96,17 @@ class EditorialWorkflowHandlers:
                 self.repository.save_chunk(job, input_id, chunk_id, call_id, blocks)
                 return
             except Exception as exc:
+                error_code = getattr(exc, "error_code", type(exc).__name__[:64])
                 diagnostic = diagnostic_for_error(exc)
-                self.repository.finish_call(call_id, envelope, type(exc).__name__[:64], validation_diagnostic=diagnostic)
+                self.repository.finish_call(call_id, envelope, error_code, validation_diagnostic=diagnostic)
                 if cached is not None and isinstance(exc, (ValueError, DeepSeekError)):
-                    # A replayed response rejected by strict validation must not
-                    # remain a reusable success, or restart repeats it forever.
-                    self.repository.mark_validation_failure(cached["call_id"], type(exc).__name__[:64], diagnostic)
+                    # A rejected replay must not remain a reusable success.
+                    self.repository.mark_validation_failure(cached["call_id"], error_code, diagnostic)
                 if bounded and config.max_chunk_regenerations and diagnostic is not None:
                     continue
                 if hasattr(exc, "safe_details"):
-                    details = dict(exc.safe_details, call_id=call_id, chunk_id=chunk_id)
-                    raise JobExecutionError(type(exc).__name__, details) from None
+                    details = dict(exc.safe_details, input_id=input_id, call_id=call_id, chunk_id=chunk_id)
+                    raise JobExecutionError(error_code, details) from None
                 raise
 
     def render(self, job: WorkflowJob) -> dict[str, Any]:

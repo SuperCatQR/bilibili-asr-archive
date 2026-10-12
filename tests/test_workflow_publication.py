@@ -17,6 +17,8 @@ from bili_asr import archive, cli
 from bili_asr.storage import open_database
 from bili_asr.storage.workflow import JobKind, WorkflowRepository
 from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
+from bili_asr.workflow_errors import JobExecutionError
+from bili_asr.workflow_models import JobCancelledError, LeaseLostError
 from tests.test_workflow_control_plane import _seed_part
 
 
@@ -56,6 +58,74 @@ def _publish_args(root, *part_ids):
 
 def _publication(connection):
     return connection.execute("SELECT * FROM workflow_jobs WHERE kind = 'publish'").fetchone()
+
+
+def test_publication_contract_error_preserves_original_transcript_and_attempt(database, tmp_path, monkeypatch):
+    _store_transcript(database)
+    repository = WorkflowRepository(database)
+    job_id, _ = repository.request_publication(video_part_id=1, transcript_id=1)
+    job = repository.claim("publisher", kinds=(JobKind.PUBLISH,))
+    before = [tuple(row) for row in database.execute("SELECT * FROM transcript_segments")]
+    attempt_before = [tuple(row) for row in database.execute("SELECT * FROM workflow_attempts")]
+
+    def invalid_bundle(*args, **kwargs):
+        raise ValueError("SECRET model output, unrepresentable cue")
+
+    monkeypatch.setattr(archive, "write_archive", invalid_bundle)
+    handlers = ArchiveWorkflowHandlers(database, repository, archive_root=tmp_path, sessdata=None)
+    try:
+        with pytest.raises(JobExecutionError) as captured:
+            handlers.publish(job)
+    finally:
+        handlers.close()
+    assert captured.value.error_code == "publication_contract_failed"
+    assert captured.value.safe_details == {
+        "stage": "publication_validation", "reason_code": "bundle_contract_invalid", "transcript_id": 1}
+    assert "SECRET" not in str(captured.value) + json.dumps(captured.value.safe_details)
+    assert [tuple(row) for row in database.execute("SELECT * FROM transcript_segments")] == before
+    assert [tuple(row) for row in database.execute("SELECT * FROM workflow_attempts")] == attempt_before
+    assert repository.explain_job(job_id)["status"] == "running"
+    assert database.execute("SELECT count(*) FROM workflow_publications").fetchone()[0] == 0
+
+
+def test_backward_publication_cues_fail_without_sorting_or_clamping(database, tmp_path):
+    _store_transcript(database)
+    with database:
+        database.execute("UPDATE transcript_segments SET start_ms=1000,end_ms=2000 WHERE transcript_id=1")
+        database.execute("INSERT INTO transcript_segments VALUES (1,1,900,1800,'second backward cue')")
+    repository = WorkflowRepository(database)
+    repository.request_publication(video_part_id=1, transcript_id=1)
+    job = repository.claim("publisher", kinds=(JobKind.PUBLISH,))
+    before = [tuple(row) for row in database.execute("SELECT * FROM transcript_segments ORDER BY ordinal")]
+    handlers = ArchiveWorkflowHandlers(database, repository, archive_root=tmp_path, sessdata=None)
+    try:
+        with pytest.raises(JobExecutionError, match="publication_contract_failed"):
+            handlers.publish(job)
+    finally:
+        handlers.close()
+    assert [tuple(row) for row in database.execute("SELECT * FROM transcript_segments ORDER BY ordinal")] == before
+    assert database.execute("SELECT count(*) FROM workflow_publications").fetchone()[0] == 0
+    assert not list(tmp_path.rglob(".bundle-complete.json"))
+
+
+@pytest.mark.parametrize("failure", [LeaseLostError("lease lost"), JobCancelledError("cancelled"), OSError("disk error")])
+def test_publication_operational_failure_is_not_reclassified(database, tmp_path, monkeypatch, failure):
+    _store_transcript(database)
+    repository = WorkflowRepository(database)
+    repository.request_publication(video_part_id=1, transcript_id=1)
+    job = repository.claim("publisher", kinds=(JobKind.PUBLISH,))
+
+    def fail(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(archive, "write_archive", fail)
+    handlers = ArchiveWorkflowHandlers(database, repository, archive_root=tmp_path, sessdata=None)
+    try:
+        with pytest.raises(type(failure)) as captured:
+            handlers.publish(job)
+    finally:
+        handlers.close()
+    assert captured.value is failure
 
 
 class _PublicationCommitFailure(sqlite3.OperationalError):
