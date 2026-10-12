@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 
-from bili_asr.archive_session import ArchiveAccessMode
+from bili_asr.archive_modes import ArchiveAccessMode
 
 
 class ArtifactPolicy(Enum):
@@ -19,12 +19,15 @@ class ArtifactPolicy(Enum):
 @dataclass(frozen=True)
 class CommandSpec:
     handler: str
+    handler_module: str
     artifacts: ArtifactPolicy
     database: ArchiveAccessMode | None
     write_flags: tuple[str, ...] = ()
     archive_argument: str = "archive_root"
 
     def __post_init__(self) -> None:
+        if not isinstance(self.handler_module, str) or not self.handler_module.startswith("bili_asr.cli."):
+            raise TypeError("command needs an explicit handler owner")
         if not isinstance(self.artifacts, ArtifactPolicy):
             raise TypeError("command artifact policy must be ArtifactPolicy")
         if self.database is not None and not isinstance(self.database, ArchiveAccessMode):
@@ -41,27 +44,27 @@ class CommandSpec:
 
 
 COMMANDS = MappingProxyType({
-    "retry-maintenance": CommandSpec("_cmd_retry_maintenance", ArtifactPolicy.NONE, None),
-    "workflow": CommandSpec("_cmd_workflow", ArtifactPolicy.NONE, ArchiveAccessMode.WRITE, write_flags=("apply",)),
-    "snapshot": CommandSpec("_cmd_snapshot", ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE),
-    "archive": CommandSpec("_cmd_archive", ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE, archive_argument="source_root"),
-    "artifacts": CommandSpec("_cmd_artifacts", ArtifactPolicy.NONE, ArchiveAccessMode.READ),
-    "remote": CommandSpec("_cmd_remote", ArtifactPolicy.NONE, None),
-    "reference": CommandSpec("_cmd_reference", ArtifactPolicy.NONE, None),
-    "source": CommandSpec("_cmd_source", ArtifactPolicy.NONE, ArchiveAccessMode.WRITE),
-    "fetch-tags": CommandSpec("_cmd_fetch_tags", ArtifactPolicy.NONE, ArchiveAccessMode.BOOTSTRAP),
-    "fetch-meta": CommandSpec("_cmd_fetch_meta", ArtifactPolicy.NONE, ArchiveAccessMode.BOOTSTRAP),
-    "status": CommandSpec("_cmd_status", ArtifactPolicy.NONE, ArchiveAccessMode.READ),
-    "runs": CommandSpec("_cmd_runs", ArtifactPolicy.NONE, ArchiveAccessMode.READ),
-    "coverage": CommandSpec("_cmd_coverage", ArtifactPolicy.READ, ArchiveAccessMode.READ),
-    "verify": CommandSpec("_cmd_verify", ArtifactPolicy.READ, ArchiveAccessMode.READ),
-    "search": CommandSpec("_cmd_search", ArtifactPolicy.READ, ArchiveAccessMode.READ, write_flags=("rebuild",)),
-    "search-index": CommandSpec("_cmd_search_index", ArtifactPolicy.READ, ArchiveAccessMode.WRITE),
-    "check-asr-env": CommandSpec("_cmd_check_asr_env", ArtifactPolicy.NONE, None),
-    "export": CommandSpec("_cmd_export", ArtifactPolicy.READ, ArchiveAccessMode.READ),
-    "publication": CommandSpec("_cmd_publication", ArtifactPolicy.NONE, ArchiveAccessMode.READ),
-    "editorial": CommandSpec("_cmd_editorial", ArtifactPolicy.NONE, ArchiveAccessMode.READ),
-    "dedup": CommandSpec("_cmd_dedup", ArtifactPolicy.READ, ArchiveAccessMode.READ),
+    "retry-maintenance": CommandSpec("_cmd_retry_maintenance", 'bili_asr.cli.maintenance', ArtifactPolicy.NONE, None),
+    "workflow": CommandSpec("_cmd_workflow", 'bili_asr.cli.workflow', ArtifactPolicy.NONE, ArchiveAccessMode.WRITE, write_flags=("apply",)),
+    "snapshot": CommandSpec("_cmd_snapshot", 'bili_asr.cli.snapshot', ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE),
+    "archive": CommandSpec("_cmd_archive", 'bili_asr.cli.archive', ArtifactPolicy.NONE, ArchiveAccessMode.MAINTENANCE, archive_argument="source_root"),
+    "artifacts": CommandSpec("_cmd_artifacts", 'bili_asr.cli.artifacts', ArtifactPolicy.NONE, ArchiveAccessMode.READ),
+    "remote": CommandSpec("_cmd_remote", 'bili_asr.cli.remote_storage', ArtifactPolicy.NONE, None),
+    "reference": CommandSpec("_cmd_reference", 'bili_asr.cli.remote_storage', ArtifactPolicy.NONE, None),
+    "source": CommandSpec("_cmd_source", 'bili_asr.cli.source', ArtifactPolicy.NONE, ArchiveAccessMode.WRITE),
+    "fetch-tags": CommandSpec("_cmd_fetch_tags", 'bili_asr.cli.meta', ArtifactPolicy.NONE, ArchiveAccessMode.BOOTSTRAP),
+    "fetch-meta": CommandSpec("_cmd_fetch_meta", 'bili_asr.cli.meta', ArtifactPolicy.NONE, ArchiveAccessMode.BOOTSTRAP),
+    "status": CommandSpec("_cmd_status", 'bili_asr.cli.status_cmd', ArtifactPolicy.NONE, ArchiveAccessMode.READ),
+    "runs": CommandSpec("_cmd_runs", 'bili_asr.cli.status_cmd', ArtifactPolicy.NONE, ArchiveAccessMode.READ),
+    "coverage": CommandSpec("_cmd_coverage", 'bili_asr.cli.status_cmd', ArtifactPolicy.READ, ArchiveAccessMode.READ),
+    "verify": CommandSpec("_cmd_verify", 'bili_asr.cli.ops', ArtifactPolicy.READ, ArchiveAccessMode.READ),
+    "search": CommandSpec("_cmd_search", 'bili_asr.cli.search', ArtifactPolicy.READ, ArchiveAccessMode.READ, write_flags=("rebuild",)),
+    "search-index": CommandSpec("_cmd_search_index", 'bili_asr.cli.search', ArtifactPolicy.READ, ArchiveAccessMode.WRITE),
+    "check-asr-env": CommandSpec("_cmd_check_asr_env", 'bili_asr.cli.ops', ArtifactPolicy.NONE, None),
+    "export": CommandSpec("_cmd_export", 'bili_asr.cli.ops', ArtifactPolicy.READ, ArchiveAccessMode.READ),
+    "publication": CommandSpec("_cmd_publication", 'bili_asr.cli.publication', ArtifactPolicy.NONE, ArchiveAccessMode.READ),
+    "editorial": CommandSpec("_cmd_editorial", 'bili_asr.cli.editorial', ArtifactPolicy.NONE, ArchiveAccessMode.READ),
+    "dedup": CommandSpec("_cmd_dedup", 'bili_asr.cli.dedup', ArtifactPolicy.READ, ArchiveAccessMode.READ),
 })
 
 

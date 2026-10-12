@@ -185,7 +185,7 @@ class WorkflowRepository:
         for spec in specs:
             payload, dedupe_key = spec.materialize(ids)
             if spec.kind is JobKind.RENDER_DOCUMENT:
-                from bili_asr.storage.editorial import input_for_proofread, template_for_input
+                from bili_asr.storage.editorial_facts import input_for_proofread, template_for_input
 
                 proof_id = payload["proofread_job_id"]
                 pending = self.connection.execute("SELECT job_id,status FROM workflow_jobs WHERE dedupe_key=?",
@@ -197,7 +197,7 @@ class WorkflowRepository:
                     continue
                 input_id = input_for_proofread(self.connection, proof_id)
                 if input_id is not None:
-                    self.bind_editorial_render(proof_id, input_id)
+                    self.bind_editorial_render(proof_id, template_for_input(self.connection, input_id))
                 existing_render = self.connection.execute(
                     "SELECT j.job_id,j.status,j.dedupe_key,j.attempt_count FROM workflow_jobs j "
                     "JOIN workflow_job_dependencies d ON d.job_id=j.job_id "
@@ -472,13 +472,12 @@ class WorkflowRepository:
         ids, created = self._enqueue_specs(specs, existing_ids={} if external is None else {external: prerequisite_job_id})
         return ids[specs[0].key], ids[specs[1].key], bool(created.get(JobKind.PROOFREAD)), bool(created.get(JobKind.RENDER_DOCUMENT))
 
-    def bind_editorial_render(self, proof_id: str, input_id: str) -> None:
+    def bind_editorial_render(self, proof_id: str, template: str) -> None:
         """Finalize unattempted placeholders without rewriting execution history."""
-        from bili_asr.storage.editorial import template_for_input
-
+        if template not in {"ai-draft-v1", "ai-draft-v2"}:
+            raise ValueError("unsupported document template version")
         if not self.connection.in_transaction:
             raise RuntimeError("render binding requires a write transaction")
-        template = template_for_input(self.connection, input_id)
         key = f"render:{proof_id}:{template}"
         rows = self.connection.execute(
             "SELECT j.* FROM workflow_jobs j JOIN workflow_job_dependencies d ON d.job_id=j.job_id "
@@ -516,13 +515,13 @@ class WorkflowRepository:
 
     def request_document(self, *, video_part_id: int, revision_id: str,
                          template_version: str | None = None) -> tuple[str, bool]:
-        from bili_asr.storage.editorial import EditorialRepository, template_for_input
+        from bili_asr.storage.editorial_facts import revision, template_for_input
 
         if template_version is not None and template_version not in {"ai-draft-v1", "ai-draft-v2"}:
             raise ValueError("unsupported document template version")
         self.require_cancellation_contract()
         self._require_editorial_contract()
-        prepared, _ = EditorialRepository(self.connection).revision(revision_id)
+        prepared, _ = revision(self.connection, revision_id)
         expected = template_for_input(self.connection, prepared["input_id"])
         if template_version is not None and template_version != expected:
             raise ValueError("unsupported document template version for frozen input")
@@ -730,34 +729,8 @@ class WorkflowRepository:
             (profile_id,),
         ).fetchone()
         if snapshot is not None:
-            values = json.loads(snapshot["config_json"])
-            if values.pop("schema_version") != 2:
-                raise ValueError("unsupported ASR profile schema")
-            precision = values.pop("precision", None)
-            if precision is not None:
-                if (not isinstance(precision, dict)
-                        or set(precision) != {"schema_version", "model_dtype", "aligner_dtype"}
-                        or type(precision["schema_version"]) is not int
-                        or precision["schema_version"] != 1):
-                    raise ValueError("unsupported ASR precision schema")
-                values.update({name: precision[name] for name in ("model_dtype", "aligner_dtype")})
-            batching = values.pop("batching", None)
-            if batching is not None:
-                names = {"asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",
-                         "batch_max_input_bytes", "batch_max_tokens"}
-                if (not isinstance(batching, dict) or set(batching) != names | {"schema_version"}
-                        or type(batching["schema_version"]) is not int or batching["schema_version"] != 1):
-                    raise ValueError("unsupported ASR batching schema")
-                values.update({name: batching[name] for name in names})
-            strategies = values.pop("runtime_strategies", None)
-            if strategies is not None:
-                from ..asr.strategies import STRATEGY_DEFAULTS
-                names = set(STRATEGY_DEFAULTS)
-                if (not isinstance(strategies, dict) or set(strategies) != names | {"schema_version"}
-                        or type(strategies["schema_version"]) is not int or strategies["schema_version"] != 1):
-                    raise ValueError("unsupported ASR runtime strategies schema")
-                values.update({name: strategies[name] for name in names})
-            values["hotwords"] = tuple(values["hotwords"])
+            from bili_asr.profile_codec import decode_profile
+            values = decode_profile(snapshot["config_json"])
             profile = AsrProfile(profile_key=str(row["profile_key"]), **values)
             if hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest() != row["config_sha256"]:
                 raise ValueError("ASR profile snapshot hash mismatch")

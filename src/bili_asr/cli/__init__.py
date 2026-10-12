@@ -1,42 +1,28 @@
-"""Public command-line boundary for the SQLite workflow."""
-
-from __future__ import annotations
-
-import types
-import sys
-
-from bili_asr.cli._shared import DEFAULT_ARCHIVE_ROOT
-from bili_asr.cli.parser import build_parser
-from bili_asr.cli import main as main
-from bili_asr.cli.main import _dispatch_command, _main
-from bili_asr.cli.meta import _cmd_fetch_meta, _cmd_fetch_tags
-from bili_asr.cli.status_cmd import _cmd_coverage, _cmd_runs, _cmd_status
-from bili_asr.cli.search import _cmd_search, _cmd_search_index
-from bili_asr.cli.ops import _cmd_check_asr_env, _cmd_export, _cmd_verify
-from bili_asr.cli.workflow import _cmd_workflow
-from bili_asr.cli.publication import _cmd_publication
-from bili_asr.cli.editorial import _cmd_editorial
-from bili_asr.cli.dedup import _cmd_dedup
-from bili_asr.cli.snapshot import _cmd_snapshot
-from bili_asr.cli.archive import _cmd_archive
-from bili_asr.cli.artifacts import _cmd_artifacts
-from bili_asr.cli.remote_storage import _cmd_reference, _cmd_remote
-from bili_asr.cli.source import _cmd_source
-from bili_asr.cli.maintenance import _cmd_retry_maintenance
-
-class _MainModule(types.ModuleType):
-    """Keep the package attribute module-shaped and directly callable."""
-
-    def __call__(self, argv: list[str] | None = None) -> int:
-        return self.main(argv)
+"""Lazy CLI compatibility exports; registry owns production dispatch."""
+from importlib import import_module
+_EXPORTS = {
+    "main": ("bili_asr.cli.main", None),
+    "build_parser": ("bili_asr.cli.parser", "build_parser"),
+    "DEFAULT_ARCHIVE_ROOT": ("bili_asr.cli._shared", "DEFAULT_ARCHIVE_ROOT"),
+    "_dispatch_command": ("bili_asr.cli.main", "_dispatch_command"),
+    "_main": ("bili_asr.cli.main", "_main"),
+}
 
 
-if not isinstance(main, _MainModule):
-    main.__class__ = _MainModule
+def __getattr__(name):
+    target = _EXPORTS.get(name)
+    if target is None and name.startswith("_cmd_"):
+        from bili_asr.cli.registry import COMMANDS
+        spec = next((spec for spec in COMMANDS.values() if spec.handler == name), None)
+        if spec is not None:
+            target = (spec.handler_module, name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module, attribute = target
+    owner = import_module(module)
+    value = owner if attribute is None else getattr(owner, attribute)
+    globals()[name] = value
+    return value
 
 
-__all__ = [
-    "DEFAULT_ARCHIVE_ROOT",
-    "build_parser",
-    "main",
-]
+__all__ = ["DEFAULT_ARCHIVE_ROOT", "build_parser", "main"]

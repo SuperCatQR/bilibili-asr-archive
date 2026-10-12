@@ -186,7 +186,7 @@ def test_review_export_exact_baseline_parent_diff_and_review_target(manuscript, 
     assert (output / "ai-draft.md").read_bytes() == (ai_path / "ai-draft.md").read_bytes()
     with pytest.raises(ValueError, match="does not belong"):
         export_editorial(connection, revision_id="f" * 64, edition_id=edition["edition_id"], artifact_roots=(root,), output=output)
-    assert result["snapshot_id"] == json.loads((output / "editorial-export-manifest.json").read_text())["snapshotId"]
+    assert result["snapshot_id"] == json.loads((output / "editorial-export-manifest.json").read_text(encoding="utf-8"))["snapshotId"]
     with pytest.raises(ValueError, match="managed publication-export"):
         export_publications(connection, artifact_roots=(root,), output=output)
 
@@ -414,7 +414,7 @@ def test_catalog_schema_id_patterns_match_actual_exports(manuscript, tmp_path):
     output = tmp_path / "public"
     export_publications(connection, artifact_roots=(root,), output=output)
     schemas = Path(__file__).parents[1] / "docs" / "contracts"
-    schema = json.loads((schemas / "publication-catalog.schema.json").read_text())
+    schema = json.loads((schemas / "publication-catalog.schema.json").read_text(encoding="utf-8"))
     entry = catalog(output)["articles"][0]
     definitions = schema["$defs"]["article"]["properties"]
     for key in ("editionId", "releaseId", "aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256"):
@@ -425,8 +425,8 @@ def test_catalog_schema_id_patterns_match_actual_exports(manuscript, tmp_path):
     assert entry["editionId"] == edition["edition_id"] and entry["releaseId"] == release["release_id"]
     review_output = tmp_path / "review"
     export_editorial(connection, revision_id=revision_id, edition_id=edition["edition_id"], artifact_roots=(root,), output=review_output)
-    review_schema = json.loads((schemas / "editorial-review.schema.json").read_text())
-    review = json.loads((review_output / "review.json").read_text())
+    review_schema = json.loads((schemas / "editorial-review.schema.json").read_text(encoding="utf-8"))
+    review = json.loads((review_output / "review.json").read_text(encoding="utf-8"))
     assert re.fullmatch(review_schema["$defs"]["editionId"]["pattern"], review["editionId"])
     assert set(entry) == set(schema["$defs"]["article"]["required"])
 

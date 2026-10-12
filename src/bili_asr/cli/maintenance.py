@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 
 from bili_asr.diagnostics import write_stderr
-from bili_asr.services.retry_maintenance import health, tick
 
 
 def add_maintenance_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -25,6 +24,8 @@ def add_maintenance_parser(subparsers: argparse._SubParsersAction, *, archive_ro
 
 
 def _cmd_retry_maintenance(args) -> int:
+    from bili_asr.services.retry_maintenance import health, tick
+
     try:
         if args.maintenance_action == "tick":
             result = tick(archive_root=args.archive_root, policy_path=args.policy,

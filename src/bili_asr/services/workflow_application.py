@@ -17,14 +17,7 @@ from bili_asr.storage.workflow_selection import WorkflowSelection, resolve_workf
 from bili_asr.transcript_selection import choose_transcript
 from bili_asr.workflow import ExecutionSummary, WorkflowExecutor
 from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind, WorkflowPlan
-
-
-WORKER_ROLES = {
-    "asr": (JobKind.ASR,),
-    "acquisition": (JobKind.SUBTITLE, JobKind.AUDIO),
-    "editorial": (JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT),
-    "cpu": (JobKind.SUBTITLE, JobKind.AUDIO, JobKind.PUBLISH),
-}
+from bili_asr.workflow_roles import WORKER_ROLES
 
 
 @dataclass(frozen=True)
@@ -185,8 +178,12 @@ class WorkflowApplication:
                     asr_prefetch=asr_prefetch, asr_prefetch_bytes=asr_prefetch_bytes)
                 resources.callback(archive.close)
                 registered.update(archive.handlers())
-                from bili_asr.services.source_workflow import compose_source_handlers
-                registered.update(compose_source_handlers(archive, source_registry))
+                from bili_asr.services.source_workflow import SourceWorkflowPorts, compose_source_handlers
+                registered.update(compose_source_handlers(SourceWorkflowPorts(
+                    connection=self.session.connection, workflow=self.repository,
+                    artifact_roots=self.session.artifact_roots,
+                    bilibili_subtitle=archive.subtitle, bilibili_audio=archive.audio,
+                    store_audio=archive.store_audio), source_registry))
             stop = shutdown_event or threading.Event()
             from bili_asr.workflow_shutdown import WorkerShutdown
             shutdown = resources.enter_context(WorkerShutdown(

@@ -9,28 +9,16 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from bili_asr.editorial import ARTIFACT_ROLES, TEMPLATE_VERSION, EditorialConfig, canonical, digest, language_key, prepare_input
+from bili_asr.editorial import ARTIFACT_ROLES, EditorialConfig, canonical, digest, language_key, prepare_input
+from bili_asr.storage.editorial_facts import template_for_input, input_for_proofread, load_input, revision
 from bili_asr.storage.database import require_editorial_schema
 from bili_asr.storage.transcripts import TranscriptRepository
 from bili_asr.workflow_models import WorkflowJob
 from bili_asr.storage.job_commit import JobCommitGuard
 from bili_asr.transcript_selection import choose_transcript
-from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, frozen_version, register_frozen_version
+from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, register_frozen_version
 
 
-def template_for_input(connection: sqlite3.Connection, input_id: str) -> str:
-    """Resolve rendering from the persisted input contract, including migrated v1."""
-    return "ai-draft-v2" if frozen_version(connection, "input", input_id) == 2 else TEMPLATE_VERSION
-
-
-def input_for_proofread(connection: sqlite3.Connection, job_id: str) -> str | None:
-    row = connection.execute("SELECT input_id FROM editorial_job_inputs WHERE job_id=?", (job_id,)).fetchone()
-    if row is None:
-        row = connection.execute("SELECT input_id FROM editorial_revisions WHERE job_id=?", (job_id,)).fetchone()
-    if row is not None:
-        return str(row[0])
-    row = connection.execute("SELECT payload_json FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
-    return None if row is None else json.loads(row[0]).get("input_id")
 
 
 class EditorialRepository:
@@ -82,7 +70,7 @@ class EditorialRepository:
             if existing is not None:
                 return existing
         if runtime_contract(self.connection) == UNIVERSAL_V2:
-            from bili_asr.publication_content_v2 import prepare_input_v2
+            from bili_asr.editorial_input_v2 import prepare_input_v2
             from bili_asr.storage.metadata import MetadataRepository
             return prepare_input_v2(base, reference, config,
                                     source_metadata=MetadataRepository(self.connection).read_source_metadata(base.video_part_id))
@@ -165,52 +153,13 @@ class EditorialRepository:
 
     def load_input(self, input_id: str) -> dict[str, Any]:
         require_editorial_schema(self.connection)
-        row = self.connection.execute("SELECT prepared_json FROM editorial_inputs WHERE input_id = ?", (input_id,)).fetchone()
-        if row is None:
-            raise ValueError("unknown editorial input")
-        frozen_version(self.connection, "input", input_id)
-        try:
-            prepared = json.loads(row["prepared_json"])
-            if prepared["input_id"] != input_id or digest(prepared["snapshot"]) != input_id:
-                raise ValueError("editorial input identity mismatch")
-        except (KeyError, TypeError, json.JSONDecodeError) as exc:
-            raise ValueError("invalid frozen editorial input") from exc
-        return prepared
+        return load_input(self.connection, input_id)
 
-    def freeze_job_input(self, job: WorkflowJob) -> dict[str, Any]:
-        row = self.connection.execute("SELECT input_id FROM editorial_job_inputs WHERE job_id = ?", (job.job_id,)).fetchone()
-        if row:
-            prepared = self.load_input(row["input_id"])
-            with self.owned_transaction(job):
-                self._bind_render_jobs(job, prepared["input_id"])
-            return prepared
-        if "input_id" in job.payload:
-            prepared = self.load_input(str(job.payload["input_id"]))
-        else:
-            # Automatic acquisition chain fixes the exact ASR prerequisite result,
-            # rather than selecting whichever ASR happens to be newest on retry.
-            prerequisite = self.connection.execute(
-                "SELECT result_json FROM workflow_attempts WHERE job_id = ? AND outcome = 'succeeded' "
-                "ORDER BY finished_at DESC, rowid DESC LIMIT 1", (job.payload["asr_job_id"],)).fetchone()
-            if prerequisite is None:
-                raise ValueError("ASR prerequisite result is missing")
-            base_id = int(json.loads(prerequisite["result_json"])["transcript_id"])
-            base = self.read_source(base_id)
-            reference_id = self.latest_reference(base.video_part_id, base.language)
-            prepared = self.build_input(base_id, reference_id, EditorialConfig.from_snapshot(job.payload["editorial_config"]),
-                                        reuse_existing=True)
-        if prepared["snapshot"]["video_part_id"] != job.video_part_id:
-            raise ValueError("editorial input belongs to another video part")
-        with self.owned_transaction(job):
-            self.store_input(prepared)
-            self.connection.execute("INSERT OR IGNORE INTO editorial_job_inputs VALUES (?, ?)", (job.job_id, prepared["input_id"]))
-            self._bind_render_jobs(job, prepared["input_id"])
-        return prepared
-
-    def _bind_render_jobs(self, job: WorkflowJob, input_id: str) -> None:
-        from bili_asr.storage.workflow import WorkflowRepository
-
-        WorkflowRepository(self.connection).bind_editorial_render(job.job_id, input_id)
+    def bind_job_input(self, job_id: str, input_id: str) -> None:
+        """Associate the immutable input inside the caller's owned transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("editorial input binding requires a write transaction")
+        self.connection.execute("INSERT OR IGNORE INTO editorial_job_inputs VALUES (?, ?)", (job_id, input_id))
 
     def begin_call(self, job: WorkflowJob, input_id: str, chunk_id: str, request: dict[str, Any], *,
                    invocation_kind: str = "provider", recovery: dict[str, Any] | None = None,
@@ -440,17 +389,7 @@ class EditorialRepository:
 
     def revision(self, revision_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         require_editorial_schema(self.connection)
-        row = self.connection.execute("SELECT * FROM editorial_revisions WHERE revision_id = ?", (revision_id,)).fetchone()
-        if row is None:
-            raise ValueError("unknown editorial revision")
-        prepared = self.load_input(row["input_id"])
-        try:
-            blocks = json.loads(row["blocks_json"])
-            if digest({"input_id": row["input_id"], "blocks": blocks}) != revision_id:
-                raise ValueError("editorial revision identity mismatch")
-        except json.JSONDecodeError as exc:
-            raise ValueError("invalid frozen editorial revision") from exc
-        return prepared, blocks
+        return revision(self.connection, revision_id)
 
     def revision_for_job(self, job_id: str) -> str:
         require_editorial_schema(self.connection)

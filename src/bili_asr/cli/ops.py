@@ -5,6 +5,7 @@ from __future__ import annotations
 from bili_asr.diagnostics import write_stderr
 
 from pathlib import Path
+import argparse
 
 import json
 import os
@@ -62,13 +63,8 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     override = os.environ.get("BILI_ASR_CHECK_SCRIPT")
     if override:
         candidates.append(Path(override).expanduser())
-    # src/bili_asr/cli/__init__.py -> package root -> scripts/  (resolved through
-    # the package so that tests monkeypatching ``bili_asr.cli.__file__`` observe
-    # the patched anchor, matching the pre-split behaviour where the handler
-    # lived in ``cli.py`` itself).
-    import bili_asr.cli as _cli_pkg
-    candidates.append(Path(_cli_pkg.__file__).resolve().parents[1] / "check_asr_env.py")
-    candidates.append(Path(_cli_pkg.__file__).resolve().parents[3] / "scripts" / "check_asr_env.py")
+    candidates.append(Path(__file__).resolve().parents[1] / "check_asr_env.py")
+    candidates.append(Path(__file__).resolve().parents[3] / "scripts" / "check_asr_env.py")
     candidates.append(Path.cwd() / "scripts" / "check_asr_env.py")
 
     for candidate in candidates:

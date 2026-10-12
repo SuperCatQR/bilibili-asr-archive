@@ -49,7 +49,7 @@ def require_publication_enabled() -> None:
 @contextmanager
 def distribution_lock(connection, *, blocking: bool = False):
     """Serialize authorization changes with the complete export installation."""
-    from bili_asr.export_snapshot import _exclusive_lock
+    from bili_asr.file_ops import exclusive_lock as _exclusive_lock
     database = next((r[2] for r in connection.execute('PRAGMA database_list') if r[1] == 'main'), '')
     # Keep the marker beside the root so a read-only archive can still export.
     archive = Path(database).parent if database else None

@@ -14,7 +14,7 @@ from bili_asr.search_index import TranscriptSearchIndex
 from bili_asr.search_index.query import search_archive
 from bili_asr.services.archive_migration import initialize_archive
 from bili_asr.services.archive_snapshot import save_snapshot,check_snapshot,restore_snapshot
-from bili_asr.services.source_workflow import compose_source_handlers
+from bili_asr.services.source_workflow import SourceWorkflowPorts, compose_source_handlers
 from bili_asr.services.workflow_projection import workflow_records
 from bili_asr.sources.registry import SourceRegistry
 from bili_asr.sources.youtube_source import YoutubeSource
@@ -42,7 +42,7 @@ def test_youtube_caption_real_process_to_bundle_fts_export_and_snapshot(tmp_path
         runtime = ArchiveWorkflowHandlers(connection,workflow,archive_root=root,sessdata=None)
         registry = SourceRegistry(youtube_factory=lambda **kwargs: YoutubeSource(command=(sys.executable,str(extractor)),**kwargs))
         handlers = dict(runtime.handlers())
-        handlers.update(compose_source_handlers(runtime,registry))
+        handlers.update(compose_source_handlers(SourceWorkflowPorts(runtime.connection, runtime.repository, runtime.artifact_roots, runtime.subtitle, runtime.audio, runtime.store_audio),registry))
         summary = WorkflowExecutor(workflow,worker_id="youtube-test",handlers=handlers).run()
         assert summary.failed == 0 and summary.succeeded == 2
         transcript = connection.execute("SELECT * FROM transcripts").fetchone()
@@ -111,7 +111,7 @@ def test_youtube_body_failure_never_attests_absence(tmp_path,monkeypatch,extract
         workflow.plan(part_ids=[part_id],policy=AsrPolicy.BELOW_THRESHOLD,
                       profile_id=_profile(workflow),quality_threshold=.5)
         runtime = ArchiveWorkflowHandlers(connection,workflow,archive_root=root,sessdata=None)
-        handlers = compose_source_handlers(runtime,SourceRegistry(youtube_factory=lambda **kwargs: source))
+        handlers = compose_source_handlers(SourceWorkflowPorts(runtime.connection, runtime.repository, runtime.artifact_roots, runtime.subtitle, runtime.audio, runtime.store_audio),SourceRegistry(youtube_factory=lambda **kwargs: source))
         result = WorkflowExecutor(workflow,worker_id="youtube-test",handlers=handlers).run(limit=1)
         assert result.failed == 1
         job = connection.execute("SELECT * FROM workflow_jobs").fetchone()
@@ -166,7 +166,7 @@ def test_caption_selection_excludes_translation_and_bounds_fetches(tmp_path, sce
                       profile_id=_profile(workflow), quality_threshold=.5)
         runtime = ArchiveWorkflowHandlers(connection, workflow, archive_root=root, sessdata=None)
         try:
-            handlers = compose_source_handlers(runtime, SourceRegistry(youtube_factory=lambda **kwargs: source))
+            handlers = compose_source_handlers(SourceWorkflowPorts(runtime.connection, runtime.repository, runtime.artifact_roots, runtime.subtitle, runtime.audio, runtime.store_audio), SourceRegistry(youtube_factory=lambda **kwargs: source))
             result = WorkflowExecutor(workflow, worker_id="youtube-test", handlers=handlers).run(limit=1)
             if scenario in {"large-inventory", "many-originals", "original-auto"}:
                 assert result.failed == 0 and result.succeeded == 1

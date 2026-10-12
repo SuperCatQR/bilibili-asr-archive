@@ -11,10 +11,12 @@ import sqlite3
 from bili_asr.cli._shared import _ARTIFACT_ROOT_HELP
 from bili_asr.cli.registry import ArtifactPolicy
 from bili_asr.diagnostics import write_stderr
-from bili_asr.archive_session import ArchiveAccessMode, ArchiveContract, open_archive_connection
+from bili_asr.archive_modes import ArchiveAccessMode, ArchiveContract
 
 
 def archive_connection(archive_root: str, *, readonly: bool = True) -> sqlite3.Connection:
+    from bili_asr.archive_session import open_archive_connection
+
     return open_archive_connection(archive_root,
         mode=ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE,
         contract=ArchiveContract.MANUSCRIPT)
@@ -25,23 +27,7 @@ def validate_archive(archive_root: str) -> None:
         pass
 
 
-def _json_object(path: str) -> dict:
-    def object_pairs(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate metadata key: {key}")
-            result[key] = value
-        return result
-
-    def invalid_constant(value):
-        raise ValueError(f"invalid JSON constant: {value}")
-
-    result = json.loads(Path(path).read_text(encoding="utf-8"),
-                        object_pairs_hook=object_pairs, parse_constant=invalid_constant)
-    if not isinstance(result, dict):
-        raise ValueError("metadata file must contain a JSON object")
-    return result
+from bili_asr.cli.json_input import _json_object
 
 
 def print_result(result: dict, output_format: str) -> None:

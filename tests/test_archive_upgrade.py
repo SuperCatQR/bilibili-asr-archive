@@ -259,14 +259,14 @@ def test_external_holds_remain_external_and_block_automatic_continuation(tmp_pat
     source, target = tmp_path / "source", tmp_path / "target"
     expected = frozen_archive(source)
     state = tmp_path / "operations.json"
-    state.write_text(json.dumps({"retry_holds": {expected["ids"]["cancelled_job"]: {"reason": "manual hold"}}}))
+    state.write_text(json.dumps({"retry_holds": {expected["ids"]["cancelled_job"]: {"reason": "manual hold"}}}), encoding="utf-8")
     before = state.read_bytes()
     plan = _plan(source, target, control_state=(state,))
     assert not plan["control_state"]["continuation_allowed"]
     assert upgrade.apply_upgrade(plan)["valid"]
     assert state.read_bytes() == before
     assert not any(path.name == state.name for path in target.rglob("*"))
-    state.write_text('{"retry_holds":{"unknown-job":{}}}')
+    state.write_text('{"retry_holds":{"unknown-job":{}}}', encoding="utf-8")
     with pytest.raises(ValueError, match="cannot be bound"):
         upgrade.apply_upgrade(plan)
 
@@ -277,7 +277,7 @@ def test_converter_cannot_drop_unreferenced_historical_file(tmp_path, monkeypatc
     initialize_archive(source)
     (source / "documents").mkdir()
     history = source / "documents/operator-history.json"
-    history.write_text('{"historical":"keep exact bytes"}')
+    history.write_text('{"historical":"keep exact bytes"}', encoding="utf-8")
     plan = _plan(source, target)
     original = upgrade._convert
     def damaged(edge, stage):
@@ -286,19 +286,19 @@ def test_converter_cannot_drop_unreferenced_historical_file(tmp_path, monkeypatc
         if damage == "remove":
             path.unlink(missing_ok=True)
         else:
-            path.write_text("changed")
+            path.write_text("changed", encoding="utf-8")
     monkeypatch.setattr(upgrade, "_convert", damaged)
     with pytest.raises(ValueError, match="protected source file"):
         upgrade.apply_upgrade(plan)
     assert not target.exists()
-    assert history.read_text() == '{"historical":"keep exact bytes"}'
+    assert history.read_text(encoding="utf-8") == '{"historical":"keep exact bytes"}'
 
 
 def test_receipt_cannot_omit_planned_source_file_or_hide_added_file(tmp_path):
     source, target = tmp_path / "source", tmp_path / "target"
     initialize_archive(source)
     (source / "documents").mkdir()
-    (source / "documents/retained.json").write_text("{}")
+    (source / "documents/retained.json").write_text("{}", encoding="utf-8")
     plan = _plan(source, target)
     upgrade.apply_upgrade(plan)
     receipt_path = target / "documents/upgrades" / plan["plan_id"] / "receipt.json"
@@ -306,10 +306,10 @@ def test_receipt_cannot_omit_planned_source_file_or_hide_added_file(tmp_path):
     receipt = json.loads(original)
     receipt["files"] = [item for item in receipt["files"] if item["path"] != "documents/retained.json"]
     receipt["receipt_id"] = digest({key: value for key, value in receipt.items() if key != "receipt_id"})
-    receipt_path.write_text(json.dumps(receipt))
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
     with pytest.raises(ValueError, match="protected source file"):
         upgrade.check_upgrade(target, expected_plan_id=plan["plan_id"])
     receipt_path.write_bytes(original)
-    (target / "documents/new-business-file.json").write_text("{}")
+    (target / "documents/new-business-file.json").write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="file set changed"):
         upgrade.check_upgrade(target, expected_plan_id=plan["plan_id"])

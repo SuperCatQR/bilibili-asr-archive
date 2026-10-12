@@ -8,7 +8,7 @@ import pytest
 
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.platform_identity import ContentRef
-from bili_asr.services.source_workflow import compose_source_handlers
+from bili_asr.services.source_workflow import SourceWorkflowPorts, compose_source_handlers
 from bili_asr.services.workflow_audio_access import retained_audio, verified_local_audio
 from bili_asr.storage.archive_contracts import _resource, bootstrap_contract
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
@@ -81,7 +81,7 @@ def test_new_audio_job_reuses_bound_identity_or_requires_explicit_restore(retain
     with connection:
         connection.execute("UPDATE workflow_jobs SET status='queued' WHERE job_id=?", (audio_job.job_id,))
     job = workflow.claim("test", kinds=(JobKind.AUDIO,))
-    audio_handler = compose_source_handlers(handlers)[JobKind.AUDIO]
+    audio_handler = compose_source_handlers(SourceWorkflowPorts(handlers.connection, handlers.repository, handlers.artifact_roots, handlers.subtitle, handlers.audio, handlers.store_audio))[JobKind.AUDIO]
     with pytest.raises(JobExecutionError, match="artifact_input_unavailable"):
         audio_handler(job)
     path = handlers.archive_root / key

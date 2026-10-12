@@ -114,12 +114,13 @@ def test_atomic_edit_compare_and_swap_and_cli_without_database(tmp_path, capsys)
 
 def test_failed_replace_preserves_original_editorial_file(tmp_path, monkeypatch):
     import bili_asr.publication_series as module
+    from bili_asr import file_ops
     original = write(tmp_path / "original.json")
     before = original.read_bytes()
     replacement = write(tmp_path / "input.json")
     syncs = []
     monkeypatch.setattr(module, "sync_directory", syncs.append)
-    monkeypatch.setattr(module.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("synthetic failure")))
+    monkeypatch.setattr(file_ops.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("synthetic failure")))
     with pytest.raises(OSError):
         edit_series(replacement, original, actor="new editor", expected_sha256=hashlib.sha256(before).hexdigest())
     assert original.read_bytes() == before
