@@ -53,6 +53,27 @@ def _validate_calls(connection, variant_names, maximum=MAX_CALLS):
         raise ValueError("experiment ledger variant budget changed")
 
 
+def _initialize_ledger(connection, manifest, variant_names, maximum):
+    # Schema inspection, both tables and the immutable manifest form one
+    # transaction. Another process must never observe a half-created ledger.
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if tables and tables != {"manifest", "calls"}:
+            raise ValueError("ledger is not a dedicated provider experiment database")
+        for statement in LEDGER_TABLES.values():
+            connection.execute(statement.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1))
+        _validate_schema(connection)
+        _validate_calls(connection, variant_names, maximum)
+        existing = connection.execute("SELECT identity,body FROM manifest").fetchall()
+        if existing and (len(existing) != 1 or existing[0][0] != digest(manifest)
+                         or existing[0][1] != canonical(manifest)):
+            raise ValueError("experiment identity or budget changed; existing ledger cannot be reset")
+        if not existing and connection.execute("SELECT 1 FROM calls LIMIT 1").fetchone():
+            raise ValueError("experiment ledger calls have no manifest")
+        connection.execute("INSERT OR IGNORE INTO manifest VALUES (?,?)", (digest(manifest), canonical(manifest)))
+
+
 def variants(sample: dict[str, Any], endpoint: str, model: str) -> list[tuple[str, EditorialConfig]]:
     historic = EditorialConfig.from_snapshot(sample["prepared"]["snapshot"]["config"])
     common = replace(historic, base_url=endpoint, model=model, request_policy="deepseek-v2",
@@ -74,22 +95,7 @@ def evaluate_provider(sample: dict[str, Any], ledger: Path, *, endpoint: str, mo
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(ledger)) as connection:
         connection.row_factory = sqlite3.Row
-        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if tables and tables != {"manifest", "calls"}:
-            raise ValueError("ledger is not a dedicated provider experiment database")
-        for statement in LEDGER_TABLES.values():
-            connection.execute(statement.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1))
-        with connection:
-            connection.execute("BEGIN IMMEDIATE")
-            _validate_schema(connection)
-            _validate_calls(connection, VARIANT_NAMES)
-            existing = connection.execute("SELECT identity,body FROM manifest").fetchall()
-            if existing and (len(existing) != 1 or existing[0][0] != digest(manifest)
-                             or existing[0][1] != canonical(manifest)):
-                raise ValueError("experiment identity or budget changed; existing ledger cannot be reset")
-            if not existing and connection.execute("SELECT 1 FROM calls LIMIT 1").fetchone():
-                raise ValueError("experiment ledger calls have no manifest")
-            connection.execute("INSERT OR IGNORE INTO manifest VALUES (?,?)", (digest(manifest), canonical(manifest)))
+        _initialize_ledger(connection, manifest, VARIANT_NAMES, MAX_CALLS)
         owned = client is None
         client = client or DeepSeekClient()
         try:
@@ -149,22 +155,7 @@ def evaluate_campaign(samples: list[dict[str, Any]], ledger: Path, *, endpoint: 
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(ledger)) as connection:
         connection.row_factory = sqlite3.Row
-        tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if tables and tables != {"manifest", "calls"}:
-            raise ValueError("ledger is not a dedicated provider experiment database")
-        for statement in LEDGER_TABLES.values():
-            connection.execute(statement.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1))
-        with connection:
-            connection.execute("BEGIN IMMEDIATE")
-            _validate_schema(connection)
-            _validate_calls(connection, names, MAX_CAMPAIGN_CALLS)
-            existing = connection.execute("SELECT identity,body FROM manifest").fetchall()
-            if existing and (len(existing) != 1 or existing[0][0] != digest(manifest)
-                             or existing[0][1] != canonical(manifest)):
-                raise ValueError("experiment identity or budget changed; existing ledger cannot be reset")
-            if not existing and connection.execute("SELECT 1 FROM calls LIMIT 1").fetchone():
-                raise ValueError("experiment ledger calls have no manifest")
-            connection.execute("INSERT OR IGNORE INTO manifest VALUES (?,?)", (digest(manifest), canonical(manifest)))
+        _initialize_ledger(connection, manifest, names, MAX_CAMPAIGN_CALLS)
         # Check every persisted request and completed response before any new
         # sends. A changed later sample cannot consume earlier unused slots.
         for sample, name, config, diagnostic in runs:

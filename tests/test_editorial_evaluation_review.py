@@ -23,6 +23,110 @@ def campaign(sample, path, client=None):
         model="deepseek-flash", allow_paid_calls=True, client=client or ReferenceClient(failures=0))
 
 
+def _paused_initialization_process(samples, ledger, sends, paused, release, second_begin, first, evaluator):
+    from bili_asr.deepseek import DeepSeekError
+    original_connect = sqlite3.connect
+
+    def connect(*args, **kwargs):
+        connection = original_connect(*args, **kwargs)
+
+        def trace(statement):
+            if first and statement.startswith("CREATE TABLE IF NOT EXISTS calls") and not paused.is_set():
+                paused.set()
+                if not release.wait(15):
+                    raise RuntimeError("initialization test barrier timed out")
+            if not first and statement == "BEGIN IMMEDIATE":
+                second_begin.set()
+
+        connection.set_trace_callback(trace)
+        return connection
+
+    class UnknownClient:
+        def complete(self, request, config):
+            sends.put("physical-send")
+            raise DeepSeekError("simulated uncertain send")
+
+    sqlite3.connect = connect
+    try:
+        function = provider.evaluate_campaign if evaluator == "campaign" else provider.evaluate_provider
+        argument = samples if evaluator == "campaign" else samples[0]
+        function(argument, ledger, endpoint="https://api.deepseek.com", model="deepseek-flash",
+                 allow_paid_calls=True, client=UnknownClient())
+    finally:
+        sqlite3.connect = original_connect
+
+
+@pytest.mark.parametrize("evaluator,trial", [("campaign", 0), ("campaign", 1), ("campaign", 2), ("provider", 0)])
+def test_initialization_is_atomic_between_real_processes_and_unknown_sends_are_retained(sample, tmp_path, evaluator, trial):
+    import multiprocessing
+    import queue
+    context = multiprocessing.get_context("spawn")
+    sends, paused, release, second_begin = context.Queue(), context.Event(), context.Event(), context.Event()
+    samples = [dict(deepcopy(sample), call_id=f"historic-{number}") for number in range(5)]
+    ledger = tmp_path / f"atomic-{evaluator}-{trial}.db"
+    processes = [context.Process(target=_paused_initialization_process,
+        args=(samples, ledger, sends, paused, release, second_begin, first, evaluator)) for first in (True, False)]
+    try:
+        processes[0].start()
+        assert paused.wait(15), "first process did not reach the gap between table creation statements"
+        # Readers see the old empty schema until both tables and manifest commit.
+        with sqlite3.connect(ledger) as connection:
+            assert connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == []
+        processes[1].start()
+        assert second_begin.wait(15), "second process did not wait on the initialization write transaction"
+        release.set()
+        for process in processes:
+            process.join(30)
+            assert process.exitcode == 0
+    finally:
+        release.set()
+        for process in processes:
+            if process.pid is not None and process.is_alive():
+                process.terminate()
+                process.join(10)
+    sent = []
+    while True:
+        try:
+            sent.append(sends.get(timeout=.1))
+        except queue.Empty:
+            break
+    expected = 10 if evaluator == "campaign" else 2
+    with sqlite3.connect(ledger) as connection:
+        original_rows = connection.execute("SELECT * FROM calls ORDER BY ordinal").fetchall()
+        assert len(original_rows) == len(sent) == expected
+        assert [row[0] for row in original_rows] == list(range(1, expected + 1))
+        assert all(row[3] is None and row[4] == "DeepSeekError" for row in original_rows)
+        assert connection.execute("SELECT COUNT(*) FROM manifest").fetchone()[0] == 1
+        assert connection.execute("SELECT MAX(n) FROM (SELECT COUNT(*) n FROM calls GROUP BY variant)").fetchone()[0] == 1
+    # Reopening the same immutable identity cannot resend the unknown calls.
+    client = ReferenceClient(failures=0)
+    function = provider.evaluate_campaign if evaluator == "campaign" else provider.evaluate_provider
+    function(samples if evaluator == "campaign" else samples[0], ledger,
+             endpoint="https://api.deepseek.com", model="deepseek-flash", allow_paid_calls=True, client=client)
+    assert client.requests == []
+    with sqlite3.connect(ledger) as connection:
+        assert connection.execute("SELECT * FROM calls ORDER BY ordinal").fetchall() == original_rows
+
+
+def test_failed_initialization_rolls_back_both_tables_without_sending(sample, tmp_path, monkeypatch):
+    ledger = tmp_path / "initialization-failure.db"
+    client = ReferenceClient(failures=0)
+    original = provider._validate_schema
+
+    def reject(connection):
+        original(connection)
+        raise ValueError("injected validation failure before manifest installation")
+
+    monkeypatch.setattr(provider, "_validate_schema", reject)
+    with pytest.raises(ValueError, match="injected validation"):
+        campaign(sample, ledger, client)
+    assert client.requests == []
+    with sqlite3.connect(ledger) as connection:
+        assert connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == []
+    monkeypatch.setattr(provider, "_validate_schema", original)
+    assert campaign(sample, ledger, client)["physical_calls"] == 2
+
+
 @pytest.mark.parametrize("mutation,match", [
     ("unknown", "unknown frozen"), ("empty", "empty frozen"), ("source_id", "source identity"),
     ("precheck", "precheck"), ("budget", "estimate"), ("boundary", "boundary identity"),
