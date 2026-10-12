@@ -1,37 +1,9 @@
-# 获取 buvid3 / buvid4 / b_nut（风控前置）
+# 风控与音频实现说明
 
-## 接口获取 buvid3 / buvid4
+本文件为本项目独立撰写的事实说明，替代授权不明的上游复制文档。事实来源：[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)。
 
-> https://api.bilibili.com/x/frontend/finger/spi
+客户端对平台错误实行有限退避。出现拒绝访问、权限错误或验证码时不得将重试、代理、账号切换视为授权；缺少平台与内容处理依据时停止实际网络请求。
 
-*请求方式: GET*
+音频质量编号是实现使用的协议事实：30216、30232、30280 为常规音频等级；30250 与 30251 分别表示特殊高质量轨道。30232 不是 FLAC 的标识，实际编码与容器必须按媒体探测结果判断。音频格式处理在 src/bili_asr/audio.py，外部 FFmpeg 发行许可另行核查。
 
-`data`对象: `b_3` = buvid3, `b_4` = buvid4，需手动存放至 cookie。
-
-## 仅获取 buvid3
-
-> https://api.bilibili.com/x/web-frontend/getbuvid
-
----
-
-# 公共错误码（misc/errcode.md）
-
-| 代码 | 含义 |
-| ---- | ---- |
-| -352 | 风控校验失败 (UA 或 wbi 参数不合法) |
-| -400 | 请求错误 |
-| -403 | 访问权限不足 |
-| -412 | 请求被拦截 (客户端 ip 被服务端风控) |
-| -799 | 请求过于频繁 |
-| -101 | 账号未登录 |
-
----
-
-# 取流要点（video/videostream_url.md 摘录）
-
-- web 取流：`https://api.bilibili.com/x/player/wbi/playurl`，WBI 签名 + SESSDATA
-- DASH 音频 id：30216=64K / 30232=132K / 30280=192K / 30250=杜比 / 30251=Hi-Res
-- 音频流在 `data.dash.audio[]`（`baseUrl` + `backupUrl`），m4s 容器，ffmpeg 可直接读
-- 拉流防盗链：必须带 `Referer: https://www.bilibili.com/` + 浏览器 UA，否则 403
-- 流地址有效期 120min
-- `try_look=1` 可不登录拉 64/80 清晰度（视频流；音频同理可试）
+协议参数和签名常量不是第三方文档表达的开放许可。实现来源和分发条件仍应依据真实文件和许可进行检查。

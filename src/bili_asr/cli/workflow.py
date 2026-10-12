@@ -255,6 +255,10 @@ def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--thinking-mode", choices=("enabled", "disabled"), default=defaults.thinking_mode)
     parser.add_argument("--reasoning-effort", choices=("low", "high", "max"), default=defaults.reasoning_effort)
     parser.add_argument("--top-p", type=float, default=defaults.top_p)
+    parser.add_argument("--temperature", type=float, default=None,
+                        help="Optional sampling temperature; requires --thinking-mode disabled")
+    parser.add_argument("--max-chunk-regenerations", type=int, default=defaults.max_chunk_regenerations,
+                        help="Persisted extra physical call budget per chunk (0..4); only allowlisted reference failures regenerate")
     parser.add_argument("--max-chunk-segments", type=int, default=defaults.max_chunk_segments)
     parser.add_argument("--max-chunk-chars", type=int, default=defaults.max_chunk_chars)
 
@@ -266,6 +270,7 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
                            context_segments=args.context_segments, timeout_seconds=args.api_timeout,
                            thinking_mode=args.thinking_mode,
                            reasoning_effort=args.reasoning_effort, top_p=args.top_p,
+                           temperature=args.temperature, max_chunk_regenerations=args.max_chunk_regenerations,
                            max_chunk_segments=args.max_chunk_segments, max_chunk_chars=args.max_chunk_chars)
 
 

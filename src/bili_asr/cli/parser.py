@@ -18,6 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     from bili_asr.cli.workflow import add_workflow_parser
     add_workflow_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    from bili_asr.cli.maintenance import add_maintenance_parser
+    add_maintenance_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.publication import add_publication_parser
     from bili_asr.cli.editorial import add_editorial_parser
     add_publication_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
@@ -125,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--out", default=None)
     export.add_argument("--status", action="append", default=None)
     export.add_argument("--with-text", action="store_true")
+    export.add_argument("--private", action="store_true", help="Acknowledge private text export when compliance mode is enabled")
     export.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
     environment = subparsers.add_parser("check-asr-env", help="Inspect ASR deployment or verify the AMD WSL recipe")

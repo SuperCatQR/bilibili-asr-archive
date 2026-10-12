@@ -75,6 +75,29 @@ sample with actual compiled Triton kernels, graph breaks, allocator peaks and
 baseline timings. Human-verified quality, sustained throughput and Hygon/FP8
 hardware behavior remain unverified; profiler timings do not establish speedups.
 
+## Deferred FP8 scope (Issue #302)
+
+Real FP8/quantization experiments remain deferred. The default is BF16; the HF
+backend advertises only BF16/FP16, with ASR and aligner precision configured
+independently. Unsupported precision is rejected before loading. This is a
+configuration boundary, not evidence that FP8 weights run or improve quality.
+
+A future isolated implementation belongs behind the existing inference backend
+port. Its versioned profile must identify original and quantized weights,
+calibration data/method, quantized modules, and the actual audio encoder,
+language model, lm_head and aligner precision. Session identity, execution
+evidence and published provenance must carry the effective configuration;
+historical profiles and bundles are not rewritten. Any explicit BF16 fallback
+must be recorded as the actual execution, not labelled FP8.
+
+Activation requires a suitable backend/hardware, an explicit experimental
+budget and human-verified Chinese quality samples including names, numbers,
+weak/noisy speech, long chunks and the genuine two-pass path. Compare the full
+ASR plus alignment workflow for quality, timestamps, omissions/repetition,
+failure rate, memory and throughput. Offline capability tests cannot close the
+real-effects acceptance. This repair does not download/convert quantized weights
+or change the production BF16 path.
+
 Sources: [Transformers Qwen3-ASR compilation](https://huggingface.co/docs/transformers/v5.19.0/model_doc/qwen3_asr),
 [HF cache strategies](https://huggingface.co/docs/transformers/v5.19.0/kv_cache),
 [generation configuration source](https://github.com/huggingface/transformers/blob/v5.19.0/src/transformers/generation/configuration_utils.py),

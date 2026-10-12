@@ -1,51 +1,9 @@
-# 播放器
+# 播放器接口事实契约
 
-## web 播放器信息
+本文件为本项目独立撰写的实现说明，不再分发上游文档摘录。历史来源仅作为事实来源引用：[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)。
 
-web 播放器的信息接口，提供正常播放需要的元数据，包括：智能防挡弹幕、字幕、章节看点等。
+实现调用 api.bilibili.com 的 /x/player/wbi/v2，并以 bvid 与 cid 区分视频和分 P。源码 gateway 只保留归一化字幕语言、轨道与分段数据；字幕地址仅在请求期间使用。
 
-> https://api.bilibili.com/x/player/wbi/v2  
-> https://api.bilibili.com/x/player/v2
+subtitle.subtitles 表示字幕轨道列表。需登录的轨道必须由用户自己的有效凭据按获准范围访问；凭据不授予再发布权，不得绕过访问控制。空列表只表示没有取得可用轨道，不证明原音频静音。
 
-*请求方式：GET*
-
-**URL参数:**
-
-| 参数名 | 类型 | 内容      | 必要性      | 备注              |
-| ------ | ---- | --------- | ----------- | ----------------- |
-| aid    | num  | 稿件 avid | 必要 (可选) | aid 与 bvid 任选 |
-| bvid   | str  | 稿件 bvid | 必要 (可选) | aid 与 bvid 任选 |
-| cid    | num  | 稿件 cid | 必要 | |
-| season_id | num | 番剧 season_id | 不必要 | |
-| ep_id | num | 剧集 ep_id | 不必要 | |
-| w_rid | str  | WBI 签名 | 不必要 |  |
-| wts   | num  | 当前 unix 时间戳 | 不必要 |  |
-
-关键字段（字幕探测用）：
-- `data.subtitle.subtitles[]` — 字幕列表（**不登录为 `[]`**，即 AI 字幕必须带登录态查询）
-  - `lan` / `lan_doc`：语言；`subtitle_url`：字幕 JSON 地址（`//aisubtitle.hdslb.com/...json?auth_key=...`）
-  - `ai_status` / `ai_type`：AI 字幕标记
-- `data.need_login_subtitle` — 是否必须登录才能看字幕
-- `data.view_points[]` — 分段章节（live 回放分章信息，可选保存）
-
-**示例（已登录，返回 AI 字幕）：**
-
-```json
-"subtitle": {
-  "allow_submit": true,
-  "lan": "zh-CN",
-  "lan_doc": "中文（中国）",
-  "subtitles": [
-    {
-      "id": 13643112644608002,
-      "lan": "zh-Hans",
-      "lan_doc": "中文（简体）",
-      "is_lock": true,
-      "subtitle_url": "//aisubtitle.hdslb.com/bfs/subtitle/xxx.json?auth_key=...",
-      "type": 0,
-      "ai_type": 0,
-      "ai_status": 0
-    }
-  ]
-}
-```
+/x/player/wbi/playurl 的响应由音频下载层解析。网络获取需要平台访问与内容处理依据，公开转录另需内容权利台账授权。具体字段以 src/bili_asr/sources/bilibili_api_gateway.py 和 src/bili_asr/bili_client.py 的受测实现为准。

@@ -17,6 +17,9 @@ from bili_asr.storage.database import require_manuscript_schema
 from bili_asr.publication_content_v2 import content_from_ai_v2, render_publish_v2
 from bili_asr.publication_origins import PROFILE, public_origin
 from bili_asr.storage.import_origins import import_origin, read_baseline
+from bili_asr.content_rights import (
+    ContentRightsError, public_notice, require_public_rights, distribution_status, serialized_distribution,
+)
 
 
 def _source_fields(edition: dict) -> dict:
@@ -31,6 +34,72 @@ def _source_fields(edition: dict) -> dict:
 
 def _render_edition(edition: dict) -> bytes:
     return (render_publish_v2 if edition["content_version"] == 2 else render_publication)(edition["content"])
+
+
+def _require_current_rights(connection: sqlite3.Connection, checks: list[tuple[str, bytes]]) -> None:
+    for edition_id, review_document in checks:
+        edition = get_edition(connection, edition_id)
+        require_public_rights(connection, edition, review_document)
+
+
+def _install_public_snapshot(
+    connection: sqlite3.Connection,
+    output: Path,
+    *,
+    manuscript_type: str,
+    articles: list[dict],
+    notices: list[dict],
+    rights_checks: list[tuple[str, bytes]],
+    files: dict[str, bytes],
+    series: dict | None,
+    origins: list[dict],
+    contract_profile: str | None,
+) -> int:
+    """Drop permissions that expire during staging, then atomically install the result."""
+    while True:
+        denied = {
+            edition_id for edition_id, _ in rights_checks
+            if not distribution_status(connection, get_edition(connection, edition_id))["public"]
+        }
+        if denied:
+            for article in articles:
+                if article["editionId"] in denied:
+                    files.pop(article["file"], None)
+                    files.pop(article["reviewFile"], None)
+            articles = [article for article in articles if article["editionId"] not in denied]
+            notices = [notice for notice in notices if notice["editionId"] not in denied]
+            rights_checks = [check for check in rights_checks if check[0] not in denied]
+            origins = [origin for origin in origins if origin.get("editionId") not in denied]
+            files["catalog.json"] = json_bytes({
+                "schemaVersion": 3 if contract_profile or any(article.get("contentVersion") == 2 for article in articles) else 2,
+                "manuscriptType": "publication-draft" if manuscript_type == "publication-draft-export" else "publication",
+                "articles": articles,
+            })
+            files.pop("content-rights.json", None)
+            if notices:
+                files["content-rights.json"] = json_bytes({"schemaVersion": 1, "notices": notices})
+            files.pop("series.json", None)
+            _add_series(files, series, articles,
+                        "publication-draft" if manuscript_type == "publication-draft-export" else "publication")
+            files.pop("origins.json", None)
+            _add_origins(files, origins,
+                         "publication-draft" if manuscript_type == "publication-draft-export" else "publication",
+                         contract_profile)
+        try:
+            replace_snapshot(
+                output,
+                kind=manuscript_type,
+                files=files,
+                profile=contract_profile,
+                before_install=lambda: _require_current_rights(connection, rights_checks),
+            )
+            return len(articles)
+        except ContentRightsError:
+            if not any(
+                distribution_status(connection, get_edition(connection, edition_id))["status"] == "expired"
+                for edition_id, _ in rights_checks
+            ):
+                raise
 
 
 @contextmanager
@@ -88,6 +157,7 @@ def _select_heads(heads: list, identities: list[str] | None, key: str) -> list:
     return [head for head in heads if head[key] in requested]
 
 
+@serialized_distribution
 def export_publications(
     connection: sqlite3.Connection,
     *,
@@ -104,6 +174,8 @@ def export_publications(
     files: dict[str, bytes] = {}
     articles = []
     origins = []
+    notices = []
+    rights_checks = []
     with _read_snapshot(connection):
         broken_release = connection.execute(
             "SELECT r.release_id FROM publication_releases r "
@@ -120,13 +192,29 @@ def export_publications(
         ).fetchall()
         heads = _select_heads(heads, release_ids, "current_release_id")
         for head in heads:
+            candidate = connection.execute(
+                "SELECT edition_id FROM publication_releases WHERE release_id = ?",
+                (head["current_release_id"],),
+            ).fetchone()
+            if candidate is None:
+                raise ExportSnapshotError("publication head points to an unknown release")
+            if not distribution_status(connection, get_edition(connection, candidate["edition_id"]))["public"]:
+                continue
             release, edition, document = verify_release(connection, str(head["current_release_id"]), artifact_roots)
             if release["status"] != "published" or release["video_part_id"] != head["video_part_id"]:
                 raise ExportSnapshotError("publication head does not identify a valid current release")
+            if not distribution_status(connection, edition)["public"]:
+                continue
             artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
             _collect_origin(connection, edition, artifact_roots, contract_profile, origins)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
+            permission = distribution_status(connection, edition, review_document)
+            if not permission["public"]:
+                continue
+            if permission["status"] == "granted":
+                notices.append(public_notice(edition, permission))
+                rights_checks.append((edition["edition_id"], review_document))
             entry = _public_entry(release, edition, review_document)
             if entry["file"] in files:
                 raise ExportSnapshotError("duplicate public article identity")
@@ -141,10 +229,16 @@ def export_publications(
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication", "articles": articles})
     _add_series(files, series, articles, "publication")
     _add_origins(files, origins, "publication", contract_profile)
-    replace_snapshot(output, kind="publication-export", files=files, profile=contract_profile)
-    return len(articles)
+    if notices:
+        files["content-rights.json"] = json_bytes({"schemaVersion": 1, "notices": notices})
+    return _install_public_snapshot(
+        connection, output, manuscript_type="publication-export", articles=articles,
+        notices=notices, rights_checks=rights_checks, files=files, series=series,
+        origins=origins, contract_profile=contract_profile,
+    )
 
 
+@serialized_distribution
 def export_publication_drafts(
     connection: sqlite3.Connection,
     *,
@@ -161,6 +255,8 @@ def export_publication_drafts(
     files: dict[str, bytes] = {}
     articles = []
     origins = []
+    notices = []
+    rights_checks = []
     with _read_snapshot(connection):
         missing_head = connection.execute(
             "SELECT e.video_part_id FROM publication_editions e "
@@ -195,12 +291,20 @@ def export_publication_drafts(
                 if edition_ids is not None:
                     raise ExportSnapshotError("export-scope: selected draft edition has already had a release")
                 continue
+            if not distribution_status(connection, edition)["public"]:
+                continue
             # Verify both immutable AI artifacts before exporting the original
             # review reference. Model-call audits remain outside the snapshot.
             artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
             _collect_origin(connection, edition, artifact_roots, contract_profile, origins)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
+            permission = distribution_status(connection, edition, review_document)
+            if not permission["public"]:
+                continue
+            if permission["status"] == "granted":
+                notices.append(public_notice(edition, permission))
+                rights_checks.append((edition["edition_id"], review_document))
             content = edition["content"]
             document = _render_edition(edition)
             slug = f"edition-{edition['edition_id']}"
@@ -227,8 +331,13 @@ def export_publication_drafts(
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication-draft", "articles": articles})
     _add_series(files, series, articles, "publication-draft")
     _add_origins(files, origins, "publication-draft", contract_profile)
-    replace_snapshot(output, kind="publication-draft-export", files=files, profile=contract_profile)
-    return len(articles)
+    if notices:
+        files["content-rights.json"] = json_bytes({"schemaVersion": 1, "notices": notices})
+    return _install_public_snapshot(
+        connection, output, manuscript_type="publication-draft-export", articles=articles,
+        notices=notices, rights_checks=rights_checks, files=files, series=series,
+        origins=origins, contract_profile=contract_profile,
+    )
 
 
 def _collect_origin(connection, edition, roots, profile, origins) -> None:

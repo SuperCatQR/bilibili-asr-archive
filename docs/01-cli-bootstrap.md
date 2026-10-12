@@ -1,6 +1,6 @@
 # CLI 启动、路径策略与数据库契约
 
-源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](01-cli-bootstrap.html) · [Archify 规格](01-cli-bootstrap.json) · [全部时序图](architecture-sequences.md)
 
@@ -54,17 +54,19 @@ sequenceDiagram
 - 普通归档访问不升级；archive init 显式 bootstrap 空目标，archive upgrade-* 在新目标按登记路径转换。BOOTSTRAP 是初始化入口；NONE 留给历史索引/专用契约，不能作为业务库绕过校验的默认模式。
 - open_archive_connection 返回的连接持有 session lease，close 才释放；失败契约检查也关闭连接并释放锁。
 - 共享 OS 维护锁只协调合作写入者与快照/预检；SQLite BEGIN IMMEDIATE 决定事务写入顺序。
-- 注册表中共有 20 个顶层命令；旧版命令不能由源码中的历史 docstring 推断为当前入口。
+- 注册表中共有 21 个顶层命令；旧版命令不能由源码中的历史 docstring 推断为当前入口。
 
 ## 源码证据
 
 - [src/bili_asr/cli/parser.py:11](../src/bili_asr/cli/parser.py#L11)：build_parser。
 - [src/bili_asr/cli/main.py:41](../src/bili_asr/cli/main.py#L41)：_main。
-- [src/bili_asr/cli/registry.py:19](../src/bili_asr/cli/registry.py#L19)：CommandSpec。
-- [src/bili_asr/cli/workflow.py:280](../src/bili_asr/cli/workflow.py#L280)：_execute_workflow。
+- [src/bili_asr/cli/registry.py:20](../src/bili_asr/cli/registry.py#L20)：CommandSpec。
+- [src/bili_asr/cli/workflow.py:255](../src/bili_asr/cli/workflow.py#L255)：_execute_workflow。
 - [src/bili_asr/cli/publication.py:63](../src/bili_asr/cli/publication.py#L63)：_cmd_publication。
 - [src/bili_asr/archive_session.py:64](../src/bili_asr/archive_session.py#L64)：ArchiveSession。
-- [src/bili_asr/archive_maintenance.py:83](../src/bili_asr/archive_maintenance.py#L83)：archive_access。
+- [src/bili_asr/archive_maintenance.py:84](../src/bili_asr/archive_maintenance.py#L84)：archive_access。
 - [src/bili_asr/storage/database.py:87](../src/bili_asr/storage/database.py#L87)：connect_database。
 - [src/bili_asr/storage/database.py:530](../src/bili_asr/storage/database.py#L530)：initialize_schema。
 - [src/bili_asr/storage/database.py:553](../src/bili_asr/storage/database.py#L553)：require_archive_schema。
+
+`retry-maintenance` 子命令在服务内部取得 WRITE Session；健康只读与启动时间先于归档访问检查。见 [32](32-retry-maintenance.md)。

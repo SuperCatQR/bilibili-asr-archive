@@ -88,7 +88,7 @@
             "items": {
               "properties": {
                 "path": {
-                  "pattern": "^(catalog\\.json|origins\\.json|series\\.json|articles/part-[1-9][0-9]*/(publish|review)\\.md)$"
+                  "pattern": "^(catalog\\.json|origins\\.json|content-rights\\.json|series\\.json|articles/part-[1-9][0-9]*/(publish|review)\\.md)$"
                 }
               }
             }
@@ -101,7 +101,7 @@
             "items": {
               "properties": {
                 "path": {
-                  "pattern": "^(catalog\\.json|origins\\.json|series\\.json|drafts/edition-[0-9a-f]{32}/(preview|review)\\.md)$"
+                  "pattern": "^(catalog\\.json|origins\\.json|content-rights\\.json|series\\.json|drafts/edition-[0-9a-f]{32}/(preview|review)\\.md)$"
                 }
               }
             }

@@ -8,7 +8,8 @@ import sqlite3
 import pytest
 
 from bili_asr.archive_maintenance import archive_access
-from bili_asr.publication import create_edition, edit_edition, publish_edition, review_edition, withdraw_release
+from bili_asr.publication import create_edition, edit_edition, review_edition, withdraw_release
+from tests.support.legacy_publication import publish_legacy_edition
 from bili_asr.services import migration_preflight as service
 from bili_asr.services.migration_preflight import MigrationPreflightError, migration_preflight
 from bili_asr.storage import database, snapshots
@@ -111,12 +112,12 @@ def test_workflow_bundle_requires_complete_marker_and_matching_bytes(tmp_path, d
 def _historical_archive(root):
     connection, revision, roots = seeded_publication(root)
     first = create_edition(connection, revision_id=revision, artifact_roots=roots, actor="editor")
-    approve(connection, first)
-    released = publish_edition(connection, edition_id=first["edition_id"], artifact_roots=roots,
+    approve(connection, first, authorize=False)
+    released = publish_legacy_edition(connection, edition_id=first["edition_id"], artifact_roots=roots,
                                write_root=root, actor="publisher")
     second = edit_edition(connection, edition_id=first["edition_id"], markdown_text="second", actor="editor", note="edit")
-    approve(connection, second)
-    newer = publish_edition(connection, edition_id=second["edition_id"], artifact_roots=roots,
+    approve(connection, second, authorize=False)
+    newer = publish_legacy_edition(connection, edition_id=second["edition_id"], artifact_roots=roots,
                             write_root=root, actor="publisher", expected_release_id=released["release_id"])
     withdraw_release(connection, release_id=newer["release_id"], actor="publisher", note="withdraw")
     connection.close()

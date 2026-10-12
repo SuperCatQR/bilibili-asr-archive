@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,7 +23,7 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 1,
-          "end_line": 477,
+          "end_line": 436,
           "label": "模块定义"
         },
         {
@@ -43,7 +43,7 @@
           "path": "src/bili_asr/services/workflow_application.py",
           "line": 52,
           "end_line": 71,
-          "label": "publish"
+          "label": "WorkflowApplication.publish"
         },
         {
           "path": "src/bili_asr/services/publication_refresh.py",
@@ -80,8 +80,8 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 419,
-          "end_line": 604,
-          "label": "_publish"
+          "end_line": 581,
+          "label": "ArchiveWorkflowHandlers._publish"
         },
         {
           "path": "src/bili_asr/services/artifact_groups.py",
@@ -307,8 +307,8 @@
       "from": "export",
       "to": "op",
       "y": 1684,
-      "label": "当前 Reader 仍需升级",
-      "note": "旧 universal-origin-v1 保持并拒绝简介补充；新 profile 不能导入当前仅支持 v1 的 Reader。",
+      "label": "配套 Reader 支持已验证",
+      "note": "配套 Reader 分支 codex/source-description-contract / 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已验证 v1/v2，交叉绑定简介值/身份/hash/时间并安全展示；旧 v1 继续严格接受。不代表已合并或生产部署。",
       "variant": "return"
     }
   ],
@@ -356,8 +356,9 @@
       "dot": "amber",
       "title": "源码与协议",
       "items": [
-        "源码固定于 813982215dab490ca462f991a5b440bd2ef19621；2026-10-12 核对。",
-        "当前 Reader 新 profile 支持是后续工作；本图不代表生产迁移或外部消费者已升级。"
+        "源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "Reader 配套 commit 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已实现并验证 v1/v2，尚未合并或部署。",
+        "代码与 fixture 验证不代替生产回填、按新 edition 审核、显式 publish、重新导出和部署。"
       ]
     }
   ]

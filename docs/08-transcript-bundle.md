@@ -1,6 +1,6 @@
 # 择优发布、锁定原转录回填与 bundle v3
 
-源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](08-transcript-bundle.html) · [Archify 规格](08-transcript-bundle.json) · [全部时序图](architecture-sequences.md)
 
@@ -63,11 +63,11 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/storage/workflow.py:658](../src/bili_asr/storage/workflow.py#L658)：WorkflowRepository.request_publication。
+- [src/bili_asr/storage/workflow.py:651](../src/bili_asr/storage/workflow.py#L651)：WorkflowRepository.request_publication。
 - [src/bili_asr/workflow_runtime.py:411](../src/bili_asr/workflow_runtime.py#L411)：ArchiveWorkflowHandlers.publish。
 - [src/bili_asr/services/transcript_projection.py:106](../src/bili_asr/services/transcript_projection.py#L106)：ordered_candidates。
 - [src/bili_asr/services/transcript_projection.py:151](../src/bili_asr/services/transcript_projection.py#L151)：writer_segments。
-- [src/bili_asr/storage/workflow.py:827](../src/bili_asr/storage/workflow.py#L827)：WorkflowRepository._terminal。
+- [src/bili_asr/storage/workflow.py:820](../src/bili_asr/storage/workflow.py#L820)：WorkflowRepository._terminal。
 - [src/bili_asr/archive.py:888](../src/bili_asr/archive.py#L888)：write_archive。
 - [src/bili_asr/archive.py:405](../src/bili_asr/archive.py#L405)：_publish_bundle。
 - [src/bili_asr/archive.py:253](../src/bili_asr/archive.py#L253)：archive_bundle_complete。

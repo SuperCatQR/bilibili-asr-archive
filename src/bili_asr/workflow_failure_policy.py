@@ -31,6 +31,16 @@ _ARTIFACT = FailurePolicy("artifact_unavailable", "blocked", "restore_artifacts_
 _UNKNOWN = FailurePolicy("unknown", "unknown", "inspect_failure")
 
 _POLICIES = {
+    "TimeoutError": _TRANSIENT,
+    "TimeoutException": _TRANSIENT,
+    "ConnectError": _TRANSIENT,
+    "ConnectTimeout": _TRANSIENT,
+    "ReadTimeout": _TRANSIENT,
+    "WriteTimeout": _TRANSIENT,
+    "PoolTimeout": _TRANSIENT,
+    "NetworkError": _TRANSIENT,
+    "RemoteProtocolError": _TRANSIENT,
+    "DeepSeekTransportError": _TRANSIENT,
     "deepseek_transport_failed": _TRANSIENT,
     "deepseek_transport": _TRANSIENT,
     "transport_error": _TRANSIENT,

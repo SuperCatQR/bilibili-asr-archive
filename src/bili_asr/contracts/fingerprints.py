@@ -4,8 +4,9 @@ import json
 
 
 def database_fingerprint(kind: str, imports: bool = False, supplements: bool = False,
-                         artifacts: bool = False, online: bool = False) -> str:
-    if any(type(flag) is not bool for flag in (imports, supplements, artifacts, online)):
+                         artifacts: bool = False, online: bool = False,
+                         rights: bool = False) -> str:
+    if any(type(flag) is not bool for flag in (imports, supplements, artifacts, online, rights)):
         raise ValueError("snapshot extension flag must be boolean")
     key = kind + ("+preserved-body-import-v1" if imports else "")
     if supplements:
@@ -14,6 +15,8 @@ def database_fingerprint(kind: str, imports: bool = False, supplements: bool = F
         key += "+artifact-storage-v1"
     if online:
         key += "+artifact-online-v1"
+    if rights:
+        key += "+content-rights-v1"
     document = json.loads(resources.files("bili_asr.contracts").joinpath(
         "database-fingerprints.json").read_text(encoding="utf-8"))
     try:

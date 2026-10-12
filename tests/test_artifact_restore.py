@@ -235,4 +235,3 @@ def test_install_before_catalog_commit_can_be_reconciled_by_idempotent_restore(t
     monkeypatch.setattr(restore_service, "_register_local", original)
     result = _restore(roots, target, audio)
     assert result["reused_local"] and result["restored_bytes"] == 0
-

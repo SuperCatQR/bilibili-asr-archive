@@ -19,6 +19,9 @@ from tests.test_ai_editorial import insert_record, record, runtime, FakeClient
 from bili_asr.editorial import EditorialConfig
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.mark.parametrize("tags,state,success,failure", [
     (None, "unavailable", 0, 1), ((), "success_empty", 1, 0),
     ((VideoTag(1, "original", "type"),), "success_nonempty", 1, 0),
@@ -88,6 +91,8 @@ def test_create_freezes_deduplicated_source_names_and_sync_is_audited_cas(tmp_pa
         event = connection.execute("SELECT actor, note FROM publication_events ORDER BY event_id DESC").fetchone()
         assert event["actor"] == "operator" and "Source video_tags sync" in event["note"]
         output = tmp_path / "drafts"
+        from tests.support.content_permissions import grant_test_permission
+        grant_test_permission(connection, second, roots)
         export_publication_drafts(connection, artifact_roots=roots, output=output)
         assert json.loads((output / "catalog.json").read_text(encoding="utf-8"))["articles"][0]["tags"] == ["updated"]
     finally:

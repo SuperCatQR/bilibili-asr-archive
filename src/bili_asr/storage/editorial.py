@@ -126,6 +126,11 @@ class EditorialRepository:
             comparison_config.setdefault("thinking_mode", "enabled")
             comparison_config.setdefault("max_chunk_segments", 256)
             comparison_config.setdefault("max_chunk_chars", 20_000)
+            # New request/recovery policies are installed only by explicit
+            # refresh/repair; ordinary replanning reuses historical paid work.
+            comparison_config.setdefault("request_policy", config.request_policy)
+            comparison_config.setdefault("temperature", None)
+            comparison_config.setdefault("max_chunk_regenerations", 0 if config.request_policy == "legacy-v1" else 2)
             if comparison_config != config.to_dict():
                 continue
             if (snapshot.get("video_part_id") != base.video_part_id or snapshot.get("base") != expected_base
@@ -192,7 +197,7 @@ class EditorialRepository:
             base_id = int(json.loads(prerequisite["result_json"])["transcript_id"])
             base = self.read_source(base_id)
             reference_id = self.latest_reference(base.video_part_id, base.language)
-            prepared = self.build_input(base_id, reference_id, EditorialConfig(**job.payload["editorial_config"]),
+            prepared = self.build_input(base_id, reference_id, EditorialConfig.from_snapshot(job.payload["editorial_config"]),
                                         reuse_existing=True)
         if prepared["snapshot"]["video_part_id"] != job.video_part_id:
             raise ValueError("editorial input belongs to another video part")
@@ -207,10 +212,17 @@ class EditorialRepository:
 
         WorkflowRepository(self.connection).bind_editorial_render(job.job_id, input_id)
 
-    def begin_call(self, job: WorkflowJob, input_id: str, chunk_id: str, request: dict[str, Any]) -> str:
+    def begin_call(self, job: WorkflowJob, input_id: str, chunk_id: str, request: dict[str, Any], *,
+                   invocation_kind: str = "provider", recovery: dict[str, Any] | None = None,
+                   replay_of_call_id: str | None = None) -> str:
         now, call_id = int(time.time()), uuid4().hex
         request_fingerprint = self.request_fingerprint(input_id, chunk_id, request)
         with self.owned_transaction(job):
+            if recovery is not None and invocation_kind == "provider":
+                from bili_asr.editorial_recovery import exhausted
+                consumed = len(self.physical_calls(input_id, chunk_id))
+                if consumed >= recovery["max_physical_calls"]:
+                    raise exhausted(chunk_id, consumed, recovery["max_physical_calls"])
             attempt = self.connection.execute(
                 "SELECT attempt_id FROM workflow_attempts WHERE job_id = ? AND worker_id = ? AND outcome = 'running'",
                 (job.job_id, job.lease_owner)).fetchone()
@@ -220,20 +232,127 @@ class EditorialRepository:
             # archives.  The fingerprint is carried in the durable request
             # envelope rather than adding columns to the contract.
             stored_request = {"request": request, "request_fingerprint": request_fingerprint}
+            stored_request.update(envelope_version=2, invocation_kind=invocation_kind)
+            if recovery is not None:
+                stored_request["recovery"] = recovery
+            if replay_of_call_id is not None:
+                stored_request["replay_of_call_id"] = replay_of_call_id
             self.connection.execute(
                 "INSERT INTO editorial_model_calls(call_id, attempt_id, input_id, chunk_id, request_json, started_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (call_id, attempt["attempt_id"], input_id, chunk_id, canonical(stored_request), now))
         return call_id
 
+    def physical_calls(self, input_id: str, chunk_id: str) -> list[dict[str, Any]]:
+        """All sends, including unfinished/failed reservations, across attempts."""
+        rows = self.connection.execute(
+            "SELECT call_id,request_json,response_json,error_code FROM editorial_model_calls "
+            "WHERE input_id=? AND chunk_id=? ORDER BY rowid", (input_id, chunk_id))
+        result = []
+        for row in rows:
+            stored = json.loads(row["request_json"])
+            if "request" not in stored:
+                # Some historical packages stored the raw HTTP body. Preserve
+                # it and conservatively count its invocation as a send.
+                stored = {"request": stored}
+            kind = stored.get("invocation_kind", "provider")
+            if kind not in {"provider", "response_replay", "local_precheck"}:
+                raise ValueError("unknown editorial invocation kind")
+            if kind != "provider":
+                continue
+            response = None if row["response_json"] is None else json.loads(row["response_json"])
+            # Historical formatting rows predate explicit invocation kinds.
+            if response is not None and response.get("id") == "local-precheck":
+                continue
+            result.append(dict(row, stored_request=stored, response=response))
+        return result
+
+    def recovery_status_for_job(self, job_id: str) -> dict[str, Any]:
+        """Read-only gate for maintenance; no budget resets or job mutation."""
+        from bili_asr.editorial_recovery import recoverable
+        input_id = input_for_proofread(self.connection, job_id)
+        if input_id is None:
+            return {"eligible": False, "exhausted": False, "reason": "unfrozen_input"}
+        prepared = self.load_input(input_id)
+        config = EditorialConfig.from_snapshot(prepared["snapshot"]["config"])
+        legacy = config.request_policy != "deepseek-v2"
+        free_replay = False
+        transient = False
+        reference_failure = False
+        for chunk in prepared["chunks"]:
+            if self.chunk_result(input_id, chunk["chunk_id"]) is not None:
+                continue
+            calls = self.physical_calls(input_id, chunk["chunk_id"])
+            maximum = 1 + config.max_chunk_regenerations
+            if not legacy and len(calls) >= maximum:
+                # A complete but unvalidated successful envelope can still be
+                # replayed for free even after its final reservation was spent.
+                last = calls[-1]
+                if last["response"] is None or last["error_code"] is not None:
+                    return {"eligible": False, "exhausted": True, "reason": "physical_budget_exhausted"}
+            if not calls:
+                continue
+            last = calls[-1]
+            diagnostic = last["stored_request"].get("validation_diagnostic")
+            if legacy and last["response"] is not None:
+                # Read-only validation of saved evidence proves this specific
+                # failure without changing the historical request or input.
+                from bili_asr.deepseek import DeepSeekError, parse_response
+                from bili_asr.editorial import (
+                    RevisionValidationError,
+                    validate_revision,
+                )
+                from bili_asr.editorial_recovery import diagnostic_for_error
+                try:
+                    validate_revision(chunk, parse_response(last["response"]))
+                except RevisionValidationError as exc:
+                    diagnostic = diagnostic_for_error(exc)
+                except DeepSeekError:
+                    pass
+            if (legacy or config.max_chunk_regenerations) and recoverable(diagnostic):
+                reference_failure = True
+            if last["response"] is not None and last["error_code"] is None:
+                free_replay = True
+            # The outer maintenance policy verifies the concrete HTTP/transport
+            # failure. Here only prove that another reservation fits the frozen
+            # budget; unknown sends remain consumed.
+            if last["response"] is None and last["error_code"] in {
+                    None, "DeepSeekTransportError", "deepseek_transport_failed", "Timeout", "ReadTimeout", "ConnectTimeout",
+                    "ConnectionError", "ConnectionResetError", "RequestException",
+                    "TransportError", "TimeoutError", "TimeoutException", "ConnectError",
+                    "WriteTimeout", "PoolTimeout", "NetworkError", "RemoteProtocolError"}:
+                transient = True
+        reason = ("cross_paragraph_reference" if reference_failure else "response_replay" if free_replay
+                  else "remaining_physical_budget" if transient else "no_allowlisted_failure")
+        return {"eligible": reference_failure or free_replay or transient, "exhausted": False, "reason": reason}
+
+    def mark_validation_failure(self, call_id: str, error_code: str, diagnostic: dict[str, Any] | None) -> None:
+        """Reject a cached envelope without changing its completion chronology."""
+        with self.connection:
+            row = self.connection.execute("SELECT request_json FROM editorial_model_calls WHERE call_id=?", (call_id,)).fetchone()
+            stored = json.loads(row[0])
+            if diagnostic is not None:
+                if "request" not in stored:
+                    stored = {"request": stored}
+                stored["validation_diagnostic"] = diagnostic
+                self.connection.execute("UPDATE editorial_model_calls SET request_json=? WHERE call_id=?",
+                                        (canonical(stored), call_id))
+            self.connection.execute("UPDATE editorial_model_calls SET error_code=? WHERE call_id=?", (error_code, call_id))
+
     @staticmethod
     def request_fingerprint(input_id: str, chunk_id: str, request: dict[str, Any]) -> str:
         """Derive the stable identity used to avoid paid duplicate requests."""
         return digest({"input_id": input_id, "chunk_id": chunk_id, "request": request})
 
-    def finish_call(self, call_id: str, response: dict[str, Any] | None, error_code: str | None = None) -> None:
+    def finish_call(self, call_id: str, response: dict[str, Any] | None, error_code: str | None = None, *,
+                    validation_diagnostic: dict[str, Any] | None = None) -> None:
         require_editorial_schema(self.connection)
         with self.connection:
+            if validation_diagnostic is not None:
+                row = self.connection.execute("SELECT request_json FROM editorial_model_calls WHERE call_id=?", (call_id,)).fetchone()
+                stored = json.loads(row[0])
+                stored["validation_diagnostic"] = validation_diagnostic
+                self.connection.execute("UPDATE editorial_model_calls SET request_json=? WHERE call_id=?", (canonical(stored), call_id))
             self.connection.execute(
                 "UPDATE editorial_model_calls SET response_json = ?, error_code = ?, finished_at = ? "
                 "WHERE call_id = ?",
@@ -265,17 +384,24 @@ class EditorialRepository:
         duplicate request.
         """
         require_editorial_schema(self.connection)
+        found = self.completed_call_record(request_fingerprint)
+        return None if found is None else found["response"]
+
+    def completed_call_record(self, request_fingerprint: str) -> dict[str, Any] | None:
         rows = self.connection.execute(
-            "SELECT request_json, response_json FROM editorial_model_calls "
+            "SELECT call_id, input_id, chunk_id, request_json, response_json FROM editorial_model_calls "
             "WHERE response_json IS NOT NULL AND error_code IS NULL "
             "ORDER BY finished_at DESC, rowid DESC"
         )
         for row in rows:
             try:
                 stored = json.loads(row["request_json"])
-                if stored.get("request_fingerprint") != request_fingerprint:
+                stored_fingerprint = stored.get("request_fingerprint")
+                if stored_fingerprint is None:
+                    stored_fingerprint = self.request_fingerprint(row["input_id"], row["chunk_id"], stored.get("request", stored))
+                if stored_fingerprint != request_fingerprint:
                     continue
-                return json.loads(row["response_json"])
+                return {"call_id": row["call_id"], "response": json.loads(row["response_json"])}
             except (AttributeError, TypeError, json.JSONDecodeError) as exc:
                 raise ValueError("invalid stored editorial model response") from exc
         return None

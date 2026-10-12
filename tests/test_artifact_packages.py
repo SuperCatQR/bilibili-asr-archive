@@ -332,4 +332,3 @@ def test_concurrent_destination_creation_is_never_overwritten(tmp_path, monkeypa
                                         expected_sha256=sources[0].sha256, expected_size=sources[0].size_bytes)
     assert destination.read_bytes() == b"concurrent writer"
     assert not list(tmp_path.glob(".artifact-restore-stage-*"))
-

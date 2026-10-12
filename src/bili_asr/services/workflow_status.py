@@ -10,6 +10,7 @@ from typing import Any
 
 from bili_asr.services.workflow_retry import decide_retry, load_control_state
 from bili_asr.storage import workflow_status as facts
+from bili_asr.storage.workflow_retry import editorial_retry_facts
 from bili_asr.workflow_errors import safe_job_details
 from bili_asr.workflow_failure_policy import failure_policy
 
@@ -22,7 +23,8 @@ def _control_summary(control) -> dict[str, Any]:
     return control.as_dict()
 
 
-def _project(row: dict, *, control, now: int, replacements: list[dict], prerequisites: list[dict]) -> dict:
+def _project(row: dict, *, control, now: int, replacements: list[dict], prerequisites: list[dict],
+             editorial_retry: dict | None = None) -> dict:
     row = dict(row)
     encoded = row.pop('diagnostic_json')
     state = row.pop('diagnostic_state')
@@ -49,7 +51,8 @@ def _project(row: dict, *, control, now: int, replacements: list[dict], prerequi
                replacements_truncated=row['replacement_count'] > len(replacements),
                prerequisites_truncated=row['prerequisite_count'] > len(prerequisites))
     row['policy'] = _policy(row['error_code'])
-    decision_input = {**row, 'latest_finished_at': None if attempt is None else attempt['finished_at']}
+    decision_input = {**row, 'latest_finished_at': None if attempt is None else attempt['finished_at'],
+                      'editorial_retry': editorial_retry}
     row['retry_decision'] = decide_retry(decision_input, control_state=control, now=now,
                                         automatic=True, replacements=replacements)
     row['recovery'] = _recovery(row)
@@ -103,8 +106,11 @@ def workflow_status_report(connection: sqlite3.Connection, *, since: int | None 
             item.update(policy=_policy(item['error_code']), retry_decisions={}, active_retryable_failures=0)
         allowed = 0
         superseded = 0
+        editorial = editorial_retry_facts(connection, (dict(row) for row in connection.execute(
+            "SELECT job_id,kind FROM workflow_jobs WHERE status='failed' AND kind='proofread'")))
         for raw in facts.failed_facts(connection):
             row = dict(raw)
+            row['editorial_retry'] = editorial.get(row['job_id'])
             replaced = bool(row.pop('has_replacement'))
             replacements = [{'status': 'queued'}] if replaced else []
             decision = decide_retry(row, control_state=control, now=now, automatic=True,
@@ -130,8 +136,10 @@ def workflow_status_report(connection: sqlite3.Connection, *, since: int | None 
             ids = tuple(row['job_id'] for row in rows)
             repairs = facts.replacements(connection, ids)
             prerequisites = facts.prerequisites(connection, ids)
+            page_editorial = editorial_retry_facts(connection, rows)
             report['jobs'] = [_project(row, control=control, now=now,
-                replacements=repairs.get(row['job_id'], []), prerequisites=prerequisites.get(row['job_id'], []))
+                replacements=repairs.get(row['job_id'], []), prerequisites=prerequisites.get(row['job_id'], []),
+                editorial_retry=page_editorial.get(row['job_id']))
                 for row in rows]
             report['pagination'].update(total=total, returned=len(rows))
     return report
@@ -145,8 +153,9 @@ def explain_workflow_job(connection: sqlite3.Connection, job_id: str, *, control
         row = facts.job_fact(connection, job_id)
         repairs = facts.replacements(connection, (job_id,))
         prerequisites = facts.prerequisites(connection, (job_id,))
+        editorial = editorial_retry_facts(connection, (row,))
         return _project(row, control=control, now=now, replacements=repairs.get(job_id, []),
-                        prerequisites=prerequisites.get(job_id, []))
+                        prerequisites=prerequisites.get(job_id, []), editorial_retry=editorial.get(job_id))
 
 
 def render_status_text(report: dict, *, jobs: bool = False, details: bool = False) -> str:

@@ -1,6 +1,6 @@
 # 字幕候选、可信证据与独立 ASR
 
-源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 对应 issue #285 的字幕结果分类与旧依赖修复；旧文档中的历史基线不被本图替换。
 
 [交互时序图](22-subtitle-candidates.html) · [Archify 规格](22-subtitle-candidates.json) · [全部时序图](architecture-sequences.md)
@@ -92,13 +92,13 @@ sequenceDiagram
 
 ## 固定源码证据
 
-- [CLI 的预览/应用入口](https://github.com/SuperCatQR/bilibili-asr-archive/blob/813982215dab490ca462f991a5b440bd2ef19621/src/bili_asr/cli/workflow.py#L248-L289)。
-- [任务规划的独立依赖](https://github.com/SuperCatQR/bilibili-asr-archive/blob/813982215dab490ca462f991a5b440bd2ef19621/src/bili_asr/workflow_planning.py#L60-L91)。
-- [旧图修复与事务内计划复验](https://github.com/SuperCatQR/bilibili-asr-archive/blob/813982215dab490ca462f991a5b440bd2ef19621/src/bili_asr/storage/workflow_dependency_repair.py#L12-L85)。
-- [候选预算、typed 读取及失败条件](https://github.com/SuperCatQR/bilibili-asr-archive/blob/813982215dab490ca462f991a5b440bd2ef19621/src/bili_asr/services/subtitle_ingest.py#L467-L565)。
-- [gateway 合法空正文规范化](https://github.com/SuperCatQR/bilibili-asr-archive/blob/813982215dab490ca462f991a5b440bd2ef19621/src/bili_asr/sources/bilibili_api_gateway.py#L645-L656)。
-- [Bilibili 可信缺口视图](https://github.com/SuperCatQR/bilibili-asr-archive/blob/813982215dab490ca462f991a5b440bd2ef19621/src/bili_asr/storage/schema-transcripts.sql#L262-L331)。
-- [handler 的结果与诊断](https://github.com/SuperCatQR/bilibili-asr-archive/blob/813982215dab490ca462f991a5b440bd2ef19621/src/bili_asr/workflow_runtime.py#L137-L180)。
+- [CLI 的预览/应用入口](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/workflow.py#L255-L289)。
+- [任务规划的独立依赖](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/workflow_planning.py#L60-L91)。
+- [旧图修复与事务内计划复验](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/workflow_dependency_repair.py#L12-L85)。
+- [候选预算、typed 读取及失败条件](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/subtitle_ingest.py#L467-L565)。
+- [gateway 合法空正文规范化](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/sources/bilibili_api_gateway.py#L645-L656)。
+- [Bilibili 可信缺口视图](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/schema-transcripts.sql#L262-L331)。
+- [handler 的结果与诊断](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/workflow_runtime.py#L137-L180)。
 
 ## 交付验证
 

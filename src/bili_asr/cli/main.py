@@ -60,6 +60,13 @@ def _main(
     spec = COMMANDS.get(args.command)
     if spec is None:
         raise ValueError(f"command {args.command!r} is not implemented")
+    if getattr(args, "requires_publication_enabled", False):
+        from bili_asr.content_rights import ContentRightsError, require_publication_enabled
+        try:
+            require_publication_enabled()
+        except ContentRightsError as exc:
+            write_stderr(f"{args.command}: {exc}")
+            return 1
     # Resolve configured artifact roots once at the command boundary.
     artifact_policy = getattr(args, "artifact_policy", spec.artifacts)
     metadata_only_search = args.command == "search" and getattr(args, "scope", "transcripts") == "metadata"

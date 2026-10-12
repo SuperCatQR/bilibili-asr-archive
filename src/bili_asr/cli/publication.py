@@ -70,10 +70,13 @@ def _cmd_publication(args: argparse.Namespace) -> int:
         return _cmd_import_preserved(args)
     if action == "supplement-source":
         return _cmd_supplement_source(args)
-    readonly = action in {"show", "export", "export-drafts"}
+    readonly = action in {"show", "export", "export-drafts"} or (action == "rights" and args.rights_action == "show")
     try:
         with closing(archive_connection(args.archive_root, readonly=readonly)) as connection:
-            if action == "create":
+            if action == "rights":
+                from bili_asr.cli.rights import rights_command
+                result = rights_command(connection, args)
+            elif action == "create":
                 result = publication.create_edition(
                     connection, revision_id=args.revision_id,
                     artifact_roots=args.artifact_roots.read_bases(),
@@ -237,6 +240,8 @@ def _common(parser, archive_root, *, artifacts=ArtifactPolicy.NONE, actor=False,
 def add_publication_parser(subparsers, *, archive_root: str) -> None:
     parser = subparsers.add_parser("publication", help="Edit, review and explicitly release 发布稿")
     actions = parser.add_subparsers(dest="publication_action", required=True)
+    from bili_asr.cli.rights import add_rights_parser
+    add_rights_parser(actions, archive_root=archive_root, common=_common)
     create = actions.add_parser("create", help="Create a pending edition from AI 合成稿件")
     _common(create, archive_root, artifacts=ArtifactPolicy.READ, actor=True, database=ArchiveAccessMode.WRITE)
     create.add_argument("--revision-id", required=True)
@@ -264,6 +269,7 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     review.add_argument("--issue-url", default=None)
 
     publish = actions.add_parser("publish", help="Materialize publish.md from an approved edition")
+    publish.set_defaults(requires_publication_enabled=True)
     _common(publish, archive_root, artifacts=ArtifactPolicy.WRITE, actor=True, database=ArchiveAccessMode.WRITE)
     publish.add_argument("--edition-id", required=True)
     publish.add_argument("--expected-release-id", default=None)
@@ -277,6 +283,7 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     show.add_argument("--edition-id", required=True)
 
     export = actions.add_parser("export", help="Export only currently released 发布稿")
+    export.set_defaults(requires_publication_enabled=True)
     _common(export, archive_root, artifacts=ArtifactPolicy.READ)
     export.add_argument("--out", required=True)
     export.add_argument("--series-file", default=None, help="Editor-confirmed series source, optional and separately versioned")
@@ -285,6 +292,7 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     public_scope.add_argument("--empty-scope", dest="release_ids", action="store_const", const=[], help="Explicitly export an empty publication snapshot")
 
     drafts = actions.add_parser("export-drafts", help="Export current reader drafts that have never been released")
+    drafts.set_defaults(requires_publication_enabled=True)
     _common(drafts, archive_root, artifacts=ArtifactPolicy.READ)
     drafts.add_argument("--out", required=True)
     drafts.add_argument("--series-file", default=None, help="Editor-confirmed series source, optional and separately versioned")

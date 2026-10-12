@@ -20,6 +20,9 @@ from tests.test_ai_editorial import FakeClient, runtime
 from tests.test_publication import approve, seeded_publication
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 def catalog(output):
     return json.loads((output / "catalog.json").read_bytes())
 
@@ -36,6 +39,8 @@ def reader(request, tmp_path):
     edition = edit_edition(connection, edition_id=initial["edition_id"], markdown_text="Manual reader edit.\n",
                            actor="editor", note="Private edit reason")
     exporter = export_publications if request.param == "publication" else export_publication_drafts
+    from tests.support.content_permissions import grant_test_permission
+    grant_test_permission(connection, edition)
     if request.param == "publication":
         approve(connection, edition)
         publish_edition(connection, edition_id=edition["edition_id"], artifact_roots=roots,
@@ -66,7 +71,7 @@ def test_reader_exports_original_review_bytes_and_preserves_all_database_state(r
     kind = f"{manuscript_type}-export"
     manifest = json.loads((output / f"{kind}-manifest.json").read_bytes())
     assert manifest["schemaVersion"] == 1
-    assert {record["path"] for record in manifest["files"]} == {"catalog.json", entry["file"], entry["reviewFile"]}
+    assert {record["path"] for record in manifest["files"]} == {"catalog.json", "content-rights.json", entry["file"], entry["reviewFile"]}
     assert not any(path.endswith(("review.json", "edition.json", ".patch")) for path in files(output))
 
 
@@ -165,6 +170,8 @@ def test_published_a_and_draft_b_use_reviews_from_their_exact_different_revision
         assert revision_a != revision_b
         b = create_edition(connection, revision_id=revision_b, artifact_roots=roots, actor="editor",
                            expected_edition_id=a["edition_id"])
+        from tests.support.content_permissions import grant_test_permission
+        grant_test_permission(connection, b)
         public, drafts = tmp_path / "public", tmp_path / "drafts"
         assert export_publications(connection, artifact_roots=roots, output=public) == 1
         assert export_publication_drafts(connection, artifact_roots=roots, output=drafts) == 1

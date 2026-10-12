@@ -23,6 +23,7 @@ from bili_asr.services.preserved_body_import import (
 from bili_asr.storage.import_origins import import_origin
 from bili_asr.storage.publication import PublicationConflictError
 from tests.fixtures.frozen_migration_archive import frozen_archive
+from tests.support.content_permissions import grant_test_permission
 from tests.test_publication import approve
 
 
@@ -34,6 +35,7 @@ def historical(tmp_path):
     assert install_preserved_body_extension(target)["installed"]
     assert not install_preserved_body_extension(target)["installed"]
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
+        grant_all_current(session.connection, target)
         yield session.connection, target, facts["ids"]
 
 
@@ -43,6 +45,11 @@ def plan_for(connection, root, kind, identity):
 
 def apply(connection, root, plan):
     return apply_preserved_body_import(connection, plan=plan, artifact_roots=(root,), write_root=root, actor="migration-operator")
+
+
+def grant_all_current(connection, root):
+    for row in connection.execute("SELECT edition_id FROM publication_editions"):
+        grant_test_permission(connection, get_edition(connection, row[0]), (root,))
 
 
 @pytest.mark.parametrize("selection", ["ai", "edited", "published"])
@@ -93,6 +100,7 @@ def test_new_profile_and_snapshot_restore_closed_loop(historical, tmp_path):
     plan = plan_preserved_body_import(connection, selectors=selections, artifact_roots=(root,))
     assert not plan["blocked"]
     result = apply(connection, root, plan)
+    grant_all_current(connection, root)
     public_edition = next(get_edition(connection, item["editionId"]) for item in result["editions"] if get_edition(connection, item["editionId"])["video_part_id"] == 1)
     approve(connection, public_edition)
     publish_edition(connection, edition_id=public_edition["edition_id"], artifact_roots=(root,), write_root=root,
@@ -268,6 +276,7 @@ def test_origin_contract_refuses_wrong_bindings(historical, tmp_path, change):
     selectors = [{"kind": "edition", "id": row[0]} for row in connection.execute("SELECT current_edition_id FROM publication_heads")]
     plan = plan_preserved_body_import(connection, selectors=selectors, artifact_roots=(root,))
     apply(connection, root, plan)
+    grant_all_current(connection, root)
     output = tmp_path / "drafts"
     export_publication_drafts(connection, artifact_roots=(root,), output=output, contract_profile=PROFILE)
     catalog = json.loads((output / "catalog.json").read_text())
@@ -319,6 +328,7 @@ def test_empty_origin_profile_and_native_only(historical, tmp_path):
         job_id, *_ = workflow.request_editorial(video_part_id=part_id, input_id=prepared["input_id"])
         assert executor.run().failed == 0
         create_edition(native, revision_id=repository.revision_for_job(job_id), artifact_roots=(native_root,), actor="editor")
+        grant_all_current(native, native_root)
         output = tmp_path / "native-drafts"
         export_publication_drafts(native, artifact_roots=(native_root,), output=output, contract_profile=PROFILE)
         assert json.loads((output / "origins.json").read_text())["entries"][0]["kind"] == "ai-generated-v2"
@@ -347,6 +357,7 @@ def test_native_and_imported_drafts_share_exact_profile(historical, tmp_path):
     job_id, *_ = workflow.request_editorial(video_part_id=part_id, input_id=prepared["input_id"])
     assert executor.run().failed == 0
     create_edition(connection, revision_id=repository.revision_for_job(job_id), artifact_roots=(root,), actor="editor")
+    grant_all_current(connection, root)
     output = tmp_path / "mixed-drafts"
     export_publication_drafts(connection, artifact_roots=(root,), output=output, contract_profile=PROFILE)
     assert _validate_snapshot(output, "publication-draft-export")
@@ -385,6 +396,7 @@ def test_explicit_export_scope_never_silently_drops_unknown_or_stale_ids(histori
     connection, root, ids = historical
     imported = apply(connection, root, plan_for(connection, root, "ai-revision", ids["draft_revision"]))["editions"][0]
     edition_id = imported["editionId"]
+    grant_test_permission(connection, get_edition(connection, edition_id), (root,))
     output = tmp_path / "selected"
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output, contract_profile=PROFILE, edition_ids=[edition_id]) == 1
     assert json.loads((output / "catalog.json").read_text())["articles"][0]["editionId"] == edition_id

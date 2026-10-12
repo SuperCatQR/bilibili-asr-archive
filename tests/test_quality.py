@@ -583,7 +583,7 @@ def test_srt_only_artefact_reports_no_low_confidence(tmp_path: Path) -> None:
 
 @pytest.fixture(scope="module")
 def recorded_cues() -> list[dict]:
-    """The recorded cues for one archived part, frozen when the FunASR shaper was retired.
+    """Synthetic cues preserving duration, confidence and length edge cases.
 
     The raw token timestamps the shaper consumed stay beside this file as the evidence; the cues
     themselves are the product shape the quality surface reads, and the archive still holds
@@ -595,13 +595,13 @@ def recorded_cues() -> list[dict]:
         Path(__file__).parent
         / "fixtures"
         / "asr-cues"
-        / "BV1wLTP6NE9h.p0.cues.json"
+        / "synthetic.p0.cues.json"
     )
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _recorded_entry() -> dict[str, object]:
-    ident = page_identity("BV1wLTP6NE9h", 0, 12345)
+    ident = page_identity("BVsynthetic", 0, 12345)
     return {
         "bvid": ident.bvid,
         "work_id": ident.work_id,
@@ -1269,7 +1269,7 @@ def test_the_ngram_scan_bounds_its_own_work_above_the_bound() -> None:
 
 
 def test_the_ngram_bound_does_not_change_a_real_transcripts_answer(tmp_path: Path) -> None:
-    """The archived corpus never reaches the bound, so its answers stay exact.
+    """Synthetic regression text stays below the comparison bound.
 
     The longest archived part joins to a few thousand characters; the bound sits
     far above that, so this change is invisible to every real artifact.
@@ -1277,7 +1277,7 @@ def test_the_ngram_bound_does_not_change_a_real_transcripts_answer(tmp_path: Pat
 
     from pathlib import Path as _Path
 
-    fixture = _Path(__file__).resolve().parent / "fixtures" / "asr-cues" / "BV1wLTP6NE9h.p0.tokens.json"
+    fixture = _Path(__file__).resolve().parent / "fixtures" / "asr-cues" / "synthetic.p0.tokens.json"
     payload = json.loads(fixture.read_text(encoding="utf-8"))
     joined = "".join(str(item.get("text", "")) for item in payload)
     assert 0 < len(joined) < quality._NGRAM_MAX_CHARS

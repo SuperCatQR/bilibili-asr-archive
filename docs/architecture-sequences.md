@@ -1,6 +1,6 @@
 # 当前完整时序图
 
-32 个流程与三张架构图共 35 张交互图。2026-10-12 本轮将受影响的 19 张既有图与新增流程 32 绑定修复分支源码 `813982215dab490ca462f991a5b440bd2ef19621`；其余 15 张保留 `378f415ac5bf2a47de9137ee593f201e86827d43` 的原验收身份。逐图源码与 gate 见 [验证记录](architecture-validation.md)。
+原主分支32个流程与三张架构图的历史验收绑定 `3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期 2026-10-12（Asia/Hong_Kong）。本轮源码位于独立修复分支，未表示远端 main 或生产已更新。09 加入有界恢复，32 加入独立周期失败维护，12/31 记录 Reader 配套提交。既有 #348 流程：08 加入锁定原转录的 v3 回填，12 展示新的 origin profile，13 展示批量来源字段，28 展示简介证据与待审子版；31 串起旧 bundle 回填和旧文章补充。已有流程的条件和源码证据保留并核对。
 
 Markdown 的 Mermaid 保留 alt/opt/loop/par 和内部动作；HTML 按条件路径展开跨参与者消息，B 编号与完整条件卡片对应。互斥分支不同时执行，纵向位置不表示墙钟耗时。每条 HTML 消息的注释保存完整操作，短标签用于默认阅读。
 
@@ -38,11 +38,12 @@ Markdown 的 Mermaid 保留 alt/opt/loop/par 和内部动作；HTML 按条件路
 | 30 | [冻结失败诊断、显式修复与输入重用](30-editorial-repair.md) | [HTML](30-editorial-repair.html) · [JSON](30-editorial-repair.json) |
 | 31 | [来源元数据、旧包回填与文章简介补充](31-source-metadata-migration.md) | [HTML](31-source-metadata-migration.html) · [JSON](31-source-metadata-migration.json) |
 
-| 32 | [失败状态、政策决策与受保护重排](32-workflow-failure-recovery.md) | [HTML](32-workflow-failure-recovery.html) · [JSON](32-workflow-failure-recovery.json) |
+| 32 | [失败重试维护：周期接管、预算与健康](32-retry-maintenance.md) | [HTML](32-retry-maintenance.html) · [JSON](32-retry-maintenance.json) |
+| 33 | [失败状态、政策决策与受保护重排](33-workflow-failure-recovery.md) | [HTML](33-workflow-failure-recovery.html) · [JSON](33-workflow-failure-recovery.json) |
 
 ## 本轮新增流程
 
-32 展示只读快照、纯错误分类、显式控制证据与受保护重排。04 更新政策准入，09 保存稳定诊断，30 展示安全状态和修复指引。普通重试继续旧冻结输入，repair 新建链路；旧失败、attempt、模型响应和 holds 保留。
+33 展示一致只读快照、jobs/attempts/窗口口径、安全诊断、纯错误分类、显式库外控制证据与受保护重排。04 更新准入，09 在持久块恢复基础上补充稳定诊断，30 展示安全状态和修复指引。旧失败、attempt、冻结输入、原响应与 holds 保留。合并后的图表尚需绑定完整源码提交并重新执行四道 gate，逐项身份以验证记录为准。
 
 31 区分两个显式操作：已安装 catalog 的旧 bundle 在 publication 围栏内保留原转录并冻结当前来源；已保留旧正文的文章根据本地逐字段证据新建待审子版，审核后用 universal-origin-v2 导出。两条链不触发 ASR/AI，也不自动发布或升级外部阅读站。
 

@@ -141,6 +141,7 @@ _CONTRACTS = (
           dependencies=("publication-draft-catalog/v2", "source-metadata/v1")),
     _json("publication-export-manifest/v1", "publication-export-manifest.schema.json"),
     _json("publication-draft-export-manifest/v1", "publication-draft-export-manifest.schema.json"),
+    _json("content-rights/v1", "content-rights.schema.json"),
     _json("publication-origin-manifest/v2", "publication-origin-manifest-v2.schema.json",
           dependencies=(ORIGIN_PROFILE,)),
     _json(ORIGIN_PROFILE, "publication-origins-v1.schema.json",

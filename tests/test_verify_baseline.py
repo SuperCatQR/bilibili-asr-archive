@@ -82,7 +82,7 @@ def test_preflight_classifies_build_backend_bootstrap_failure(monkeypatch: pytes
     assert "raw pip output" not in message
 def test_offline_install_bootstraps_declared_build_requirements_before_project(tmp_path: Path):
     bootstrap, project_install = offline_install_commands(Path("/tmp/venv/bin/python"), tmp_path / "fixture")
-    assert bootstrap[-1] == "setuptools>=69"
+    assert bootstrap[-1] == "setuptools>=77"
     assert "--no-build-isolation" not in bootstrap
     assert project_install[-2:] == ["--no-build-isolation", ".[dev]"]
     assert bootstrap[:4] == project_install[:4]

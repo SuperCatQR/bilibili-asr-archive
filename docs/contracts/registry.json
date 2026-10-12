@@ -814,6 +814,23 @@
       "schema": "publication-draft-export-manifest.schema.json"
     },
     {
+      "identity": "content-rights/v1",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/schemas/content-rights.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [],
+      "schema": "content-rights.schema.json"
+    },
+    {
       "identity": "publication-origin-manifest/v2",
       "owner": "publication",
       "authority": [

@@ -1261,6 +1261,8 @@ class BilibiliApiGateway:
         matter how many pages are collected.
         """
 
+        from bili_asr.platform_access import require_platform_access
+        require_platform_access()
         if mid not in self._w_webid_by_mid:
             try:
                 access_id: object = await User(
@@ -1287,6 +1289,9 @@ class BilibiliApiGateway:
         name only. Its diagnostic carries validated numeric HTTP/API codes
         or a fixed reason. Upstream text, URLs and payload content stay local.
         """
+
+        from bili_asr.platform_access import require_platform_access
+        require_platform_access()
 
         async def scoped_call():
             async with sdk_settings_scope(request_settings, self.resolved_proxy):

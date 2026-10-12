@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -17,7 +17,7 @@
     {
       "id": "cli",
       "label": "CLI 与访问模式",
-      "sublabel": "20 顶层命令；维护锁与会话",
+      "sublabel": "21 顶层命令；维护锁与会话",
       "type": "backend",
       "pos": [
         40,
@@ -31,7 +31,7 @@
         {
           "path": "src/bili_asr/cli/registry.py",
           "line": 1,
-          "end_line": 76,
+          "end_line": 77,
           "label": "模块定义"
         }
       ]
@@ -39,7 +39,7 @@
     {
       "id": "workflow",
       "label": "Workflow 控制",
-      "sublabel": "依赖、lease、失败政策与恢复",
+      "sublabel": "调度 / lease / 失败观测与恢复",
       "type": "backend",
       "pos": [
         470,
@@ -197,8 +197,8 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 419,
-          "end_line": 604,
-          "label": "_publish"
+          "end_line": 581,
+          "label": "ArchiveWorkflowHandlers._publish"
         },
         {
           "path": "src/bili_asr/services/publication_refresh.py",
@@ -231,7 +231,7 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 1,
-          "end_line": 130,
+          "end_line": 141,
           "label": "模块定义"
         }
       ]
@@ -333,7 +333,7 @@
     {
       "id": "maintenance",
       "label": "维护与契约升级",
-      "sublabel": "新目录保真转换；独立恢复交接",
+      "sublabel": "升级备份；有界失败 tick",
       "type": "backend",
       "pos": [
         470,
@@ -349,6 +349,18 @@
           "line": 1,
           "end_line": 369,
           "label": "模块定义"
+        },
+        {
+          "path": "src/bili_asr/services/retry_maintenance.py",
+          "line": 145,
+          "label": "tick",
+          "end_line": 181
+        },
+        {
+          "path": "src/bili_asr/storage/retry_maintenance.py",
+          "line": 19,
+          "label": "requeue_exact_failure",
+          "end_line": 32
         }
       ]
     },
@@ -541,7 +553,16 @@
         "通用 JSON/CSV 投影读取当前数据库；bundle.md 与 source-metadata.json 固定发布时来源快照，两者可以不同。",
         "旧包显式 preserve-transcript：绑定原 publication 与转录哈希，核验旧 marker 并保留完整 artifact group，再写 v3。",
         "旧文章 description 补充创建 pending-review 子版，保留原正文与旧 release；需重新审核和显式发布。",
-        "简介补充使用 universal-origin-v2；当前 Reader 仍只支持旧 profile，需消费者升级后导入。"
+        "简介补充使用 universal-origin-v2；配套 Reader 提交 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已支持 v1/v2，部署与回填独立。"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "失败维护与模型调用预算",
+      "items": [
+        "retry-maintenance 是显式周期服务；worker 存活、维护成功与锁竞争分别观测。",
+        "沿用已有 holds/累计 ledger；范围、allowlist、backoff 和准确 attempt CAS 限制重排，先扣额后派发。",
+        "模型逐块 physical budget 在 HTTP 前持久预留，成功块/有效响应重用，耗尽停止；legacy 请求保持。"
       ]
     },
     {

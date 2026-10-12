@@ -1,12 +1,12 @@
 # 契约治理与兼容边界
 
-当前源码核对基线为 `813982215dab490ca462f991a5b440bd2ef19621`。
+当前源码核对基线为 `3ed823c961736378d8408bba5f0535b03e0046e0`。
 [交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述契约登记、校验、
 历史保真与文档发布边界；现行图表检查见[架构验证记录](architecture-validation.md)。
 
 ## 权威来源与责任
 
-`src/bili_asr/contracts/registry.py` 登记 53 项契约的稳定身份、owner、authority、consumers、
+`src/bili_asr/contracts/registry.py` 登记 50 项契约的稳定身份、owner、authority、consumers、
 capabilities 和 dependencies，其中 25 项有可执行 JSON Schema。
 登记记录是检索入口：数据库表结构仍由所属 SQL 和专用检查器定义，稿件内容身份仍由所属纯函数定义。
 它不负责执行数据库初始化、来源采集、迁移或调度。
@@ -17,7 +17,6 @@ capabilities 和 dependencies，其中 25 项有可执行 JSON Schema。
 | 快照数据库身份 | `contracts/database-fingerprints.json` 与 `storage/snapshots.py` | 固定 schema 指纹；完整库和产物保真 |
 | 固定旧迁移源 | `storage/migration-source-bilibili-v1.json` 与 `migration_source.py` | 独立的严格源检查，只读；转换到明确目标 |
 | workflow / profile / evidence | 登记的版本常量与各自模型、存储边界 | 类型、语义和持久化版本；延续既有缺省 payload v1 |
-| workflow failure / status / retry control | 纯政策、只读状态投影、显式库外控制适配器 | 分类、恢复决定与安全诊断；不改基础 SQL 或历史失败证据 |
 | 稿件 JSON 结构 | `contracts/schemas/` | 必填字段、字段集合、类型、枚举、版本与跨 Schema 引用 |
 | 内容身份与模板 | `canonical_json.py`、`publication_content*.py`、`manuscript_templates.py` | 内容摘要、引用一致性、历史 Markdown 字节 |
 | 公共标量输入 | `contracts/values.py` | 来源模型和存储模型共用整数、单行文本、字幕文本规则 |
@@ -157,3 +156,7 @@ acceptance 证据。声明本身不能跳过矩阵：无路径、不连续路径
 发布说明使用 [版本发布模板](development/version-release-template.md)，列出行为变化、消费者版本、
 剩余能力、昂贵补算、源到目标路径、历史保真证明以及运行交接。需要对任意历史提交
 进行额外基线比较时，可向分片脚本传 `--contract-baseline-ref` 加完整 Git SHA。
+
+## 失败观测与受保护恢复
+
+workflow-failure-policy/v1 定义纯错误类别、准入、恢复动作和有限预算；workflow-failure-status/v1 定义 jobs/attempts/窗口与安全诊断投影；workflow-retry-control/v1 定义显式库外 controls 读取。三项均不安装基础数据库表、不改写旧错误码和冻结输入。周期 retry-maintenance 继续持久消耗自己的 ledger，模型再生成继续遵守 input/chunk 物理预算；不同预算不可相互重置。

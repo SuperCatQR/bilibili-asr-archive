@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bili_asr.storage.workflow_retry import (
+    editorial_retry_facts,
     requeue_decided_job,
     retry_candidates,
     retry_replacements,
@@ -119,6 +120,8 @@ def decide_retry(job: Mapping, *, control_state: ControlState, now: int,
         reason = "control_state_unknown"
     elif active_replacements:
         reason = "replacement_exists"
+    elif (job.get('editorial_retry') or {}).get('eligible') is False:
+        reason = job['editorial_retry']['reason']
     elif automatic and not policy.automatic_retry:
         reason = "policy_denied"
     elif not automatic and policy.retry_policy not in ("automatic", "manual") and not manual_override:
@@ -135,7 +138,7 @@ def decide_retry(job: Mapping, *, control_state: ControlState, now: int,
             "allowed": reason in ("eligible", "manual_override"), "reason": reason,
             "control_state": control_state.status, "automatic": automatic,
             "next_retry_at": next_at, "retries_used": retries, "max_retries": budget,
-            "replacements": active_replacements}
+            "replacements": active_replacements, "editorial_retry": job.get('editorial_retry')}
 
 
 def guarded_retry_failed(workflow, *, part_ids=None, job_ids=None, kinds=None,
@@ -165,7 +168,8 @@ def guarded_retry_failed(workflow, *, part_ids=None, job_ids=None, kinds=None,
 
     def decisions(rows):
         replacements = retry_replacements(workflow.connection, (row["job_id"] for row in rows))
-        return [decide_retry(row, control_state=control, now=captured_at, automatic=automatic,
+        editorial = editorial_retry_facts(workflow.connection, rows)
+        return [decide_retry({**row, 'editorial_retry': editorial.get(row['job_id'])}, control_state=control, now=captured_at, automatic=automatic,
                              manual_override=manual_override, override_reason=override_reason,
                              replacements=replacements[row["job_id"]]) for row in rows]
 

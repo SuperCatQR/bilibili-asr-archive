@@ -289,7 +289,7 @@ def test_workflow_only_archive_is_visible_to_read_projections(tmp_path) -> None:
         "unit": "work_items", "count": 1, "state": "available",
         "source": "workflow_database",
     }
-    assert json.loads(export_records(tmp_path, "json", with_text=True))[0]["transcript_text"] == "投影"
+    assert json.loads(export_records(tmp_path, "json", with_text=True, private=True))[0]["transcript_text"] == "投影"
     assert IntegrityVerifier().verify(tmp_path).authoritative is True
 
 

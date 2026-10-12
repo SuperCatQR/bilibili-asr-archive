@@ -99,6 +99,11 @@ bili-asr publication review --archive-root /srv/bili-archive \
 
 ## 发布与撤回
 
+合规流程限制默认关闭；设置 `BILI_COMPLIANCE_ENABLED=1` 后，内容权限登记、发布和读者快照导出才默认关闭，需另设 `BILI_PUBLICATION_ENABLED=1` 并登记有效授权。
+启用合规模式后，发布必须具备独立内容授权。初始化和逐版本登记参见
+[内容权限与公开发布](content-compliance.md)。旧稿件默认不获授权；编辑 approved 不等于
+权利许可。授权须涵盖完整稿件与公开 review.md，绑定两者的确切哈希。
+
 ```bash
 bili-asr publication publish --archive-root /srv/bili-archive \
   --edition-id E --actor publisher --format json
@@ -125,6 +130,7 @@ withdraw 只操作明确指定的 release。撤回历史 release 不会下线另
 ## 已发布、未发布预览与内部导出
 
 公开导出只读取有效 release，验证 release -> edition -> approval 关系、内容与发布字节哈希，
+并排除没有有效内容授权、已过期、撤回或处于分 P hold 的条目。
 并完整校验同一 AI revision 的配对基线与原始 `review.md` 字节。
 没有有效 release 的分 P 不出现；损坏发布稿会让整次导出失败，不回退 AI 或待审稿。
 
@@ -178,6 +184,7 @@ bili-asr editorial export --archive-root /srv/bili-archive \
 ### 未发布稿公开预览
 
 维护者可以明确将当前未发布 edition 的读者内容公开，用于在网站查看和核验：
+该操作同样要求内容授权，未取得授权的草稿不会进入公开目录。
 
 ```bash
 bili-asr publication export-drafts --archive-root /srv/bili-archive \

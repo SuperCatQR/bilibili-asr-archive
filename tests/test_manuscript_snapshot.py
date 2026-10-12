@@ -27,6 +27,9 @@ from tests.test_archive_snapshot import _rewrite_snapshot
 from tests.test_publication import approve, seeded_publication
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 def _published_archive(root):
     connection, revision, roots = seeded_publication(root)
     edition = create_edition(connection, revision_id=revision, artifact_roots=roots, actor="editor")

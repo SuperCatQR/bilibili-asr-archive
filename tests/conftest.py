@@ -257,6 +257,20 @@ def mock_torch(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
 
+@pytest.fixture
+def enable_content_publication_for_tests(monkeypatch):
+    """Exercise the optional compliance policy and its publication opt-in."""
+    monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
+    monkeypatch.setenv("BILI_PUBLICATION_ENABLED", "1")
+
+
+@pytest.fixture(autouse=True)
+def enable_content_publication_for_legacy_flows(monkeypatch):
+    """Keep existing compliance regressions running in strict mode."""
+    monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
+    monkeypatch.setenv("BILI_PUBLICATION_ENABLED", "1")
+
+
 # --- opt-in gates (plan 008-pytest-markers) ----------------------------------
 # One central env-var -> marker mapping for the whole suite. Each opt-in test
 # takes the ``opt_in_gate`` fixture and supplies its existing skip reason in

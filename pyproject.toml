@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -14,10 +14,8 @@ dependencies = [
     "bilibili-api-python==17.4.2",
     "curl_cffi>=0.16",
 ]
-license = { text = "GNU General Public License v3.0" }
-classifiers = [
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 
 [project.scripts]
 bili-asr = "bili_asr.cli:main"
@@ -91,7 +89,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "bili_asr.contracts" = ["schemas/*.json", "database-fingerprints.json"]
-"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "schema-content-v2.sql", "schema-observations.sql", "schema-source-sync.sql", "schema-preserved-body-import.sql", "schema-source-supplements.sql", "schema-artifact-storage.sql", "schema-artifact-online.sql", "migration-source-bilibili-v1.json"]
+"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "schema-content-v2.sql", "schema-observations.sql", "schema-source-sync.sql", "schema-preserved-body-import.sql", "schema-source-supplements.sql", "schema-artifact-storage.sql", "schema-artifact-online.sql", "schema-rights.sql", "migration-source-bilibili-v1.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

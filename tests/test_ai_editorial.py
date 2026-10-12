@@ -310,7 +310,8 @@ def test_official_http_adapter_uses_json_mode_and_never_persists_auth_in_request
     sent = json.loads(responses.calls[0].request.body)
     assert sent["model"] == "deepseek-flash"
     assert sent["response_format"] == {"type": "json_object"}
-    assert sent["thinking"] == {"type": "enabled", "reasoning_effort": "high"}
+    assert sent["thinking"] == {"type": "enabled"}
+    assert sent["reasoning_effort"] == "high"
     assert sent["top_p"] == 0.95
     assert "temperature" not in sent
     assert "offline-secret" not in canonical(request)
@@ -654,6 +655,7 @@ def test_cli_proofread_render_and_error_paths(database, tmp_path, monkeypatch, c
     assert cli.main(["workflow", "render", "--archive-root", root, "--revision-id", revision]) == 0
     assert cli.main(["workflow", "run", "--archive-root", root, "--only-editorial"]) == 0
     assert len(fake.requests) == 1
-    assert fake.requests[0]["thinking"] == {"type": "enabled", "reasoning_effort": "high"}
+    assert fake.requests[0]["thinking"] == {"type": "enabled"}
+    assert fake.requests[0]["reasoning_effort"] == "high"
     assert fake.requests[0]["top_p"] == 0.95
     assert cli.main(["workflow", "proofread", "--archive-root", root, "--part-id", "99"]) == 1

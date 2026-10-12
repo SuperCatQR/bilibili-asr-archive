@@ -1,6 +1,6 @@
 # 运维查询、显式库工具与独立 worker 组合入口
 
-源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](16-library-and-operations.html) · [Archify 规格](16-library-and-operations.json) · [全部时序图](architecture-sequences.md)
 
@@ -68,7 +68,3 @@ sequenceDiagram
 ## 已接入能力
 
 workflow supervise/role/drain/持久会话已有真实 CLI 路径；新 worker 执行见 [19](19-persistent-asr.md)。独立 asr-performance、profile_asr 和部署 probe 为观察/验收入口，不代表所有旧保留工具被自动启用。
-
-## 失败状态与重试控制
-
-`workflow status/explain` 从一致只读快照输出当前 jobs、历史 attempts、finished_at 窗口和安全诊断，显式读取 holds/ledger 时才给完整重试资格。`workflow retry --dry-run` 为 READ；实际恢复采用纯政策与受保护事务复验。普通部署脚本升级须显式改用统一用例，见 [操作说明](operations/workflow-failures.md) 与 [32](32-workflow-failure-recovery.md)。

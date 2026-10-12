@@ -4,7 +4,7 @@
   "meta": {
     "title": "失败观测、政策决定与受保护恢复",
     "locale": "zh-CN",
-    "output": "docs/32-workflow-failure-recovery.html",
+    "output": "docs/33-workflow-failure-recovery.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",

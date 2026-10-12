@@ -22,6 +22,7 @@ from bili_asr.cli.archive import _cmd_archive
 from bili_asr.cli.artifacts import _cmd_artifacts
 from bili_asr.cli.remote_storage import _cmd_reference, _cmd_remote
 from bili_asr.cli.source import _cmd_source
+from bili_asr.cli.maintenance import _cmd_retry_maintenance
 
 class _MainModule(types.ModuleType):
     """Keep the package attribute module-shaped and directly callable."""

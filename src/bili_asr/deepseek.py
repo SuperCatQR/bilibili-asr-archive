@@ -28,17 +28,32 @@ class DeepSeekError(RuntimeError):
         super().__init__(message)
 
 
+class DeepSeekTransportError(DeepSeekError):
+    """A request transport failure, distinct from payment/protocol failures."""
+
+
 def request_body(chunk: dict[str, Any], config: EditorialConfig, *, system_prompt: str = SYSTEM_PROMPT) -> dict[str, Any]:
     thinking = {"type": config.thinking_mode}
-    if config.thinking_mode == "enabled":
+    if config.thinking_mode == "enabled" and config.request_policy == "legacy-v1":
         thinking["reasoning_effort"] = config.reasoning_effort
-    return {"model": config.model, "messages": [
+    body = {"model": config.model, "messages": [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": canonical(chunk)}],
         "response_format": {"type": "json_object"}, "stream": False,
         "thinking": thinking,
         "top_p": config.top_p,
         "max_tokens": config.max_output_tokens}
+    if config.request_policy == "deepseek-v2":
+        if config.thinking_mode == "enabled":
+            body["reasoning_effort"] = config.reasoning_effort
+        else:
+            # Non-thinking DeepSeek ignores top_p: freeze and send its effective
+            # value explicitly. OpenCode receives the same compatibility shape;
+            # this does not assert that the proxy honors these controls.
+            body["top_p"] = 1
+            if config.temperature is not None:
+                body["temperature"] = config.temperature
+    return body
 
 
 def _nonnegative_int(value: Any) -> int | None:
@@ -114,8 +129,8 @@ class DeepSeekClient:
         except requests.RequestException:
             # Exception strings can include request details. Keep them out of
             # logs, durable attempt records and CLI diagnostics.
-            raise DeepSeekError("DeepSeek transport failed", error_code="deepseek_transport_failed",
-                                reason_code="transport_failure") from None
+            raise DeepSeekTransportError("DeepSeek transport failed", error_code="deepseek_transport_failed",
+                                         reason_code="transport_failure") from None
         if response.status_code != 200:
             raise DeepSeekError(f"DeepSeek HTTP {response.status_code}",
                                 error_code=f"deepseek_http_{response.status_code}",

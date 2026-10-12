@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -35,8 +35,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 95,
-          "end_line": 130,
+          "line": 106,
+          "end_line": 141,
           "label": "EditorialWorkflowHandlers.render"
         },
         {
@@ -80,7 +80,7 @@
       "sources": [
         {
           "path": "src/bili_asr/manuscript_files.py",
-          "line": 109,
+          "line": 110,
           "end_line": 127,
           "label": "stage_artifact"
         },
@@ -106,7 +106,7 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/job_commit.py",
-          "line": 57,
+          "line": 58,
           "end_line": 62,
           "label": "JobCommitGuard.owned_transaction"
         }
@@ -120,14 +120,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 347,
-          "end_line": 368,
+          "line": 473,
+          "end_line": 494,
           "label": "EditorialRepository.preflight_artifacts"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 370,
-          "end_line": 378,
+          "line": 496,
+          "end_line": 504,
           "label": "EditorialRepository.record_artifacts"
         },
         {
@@ -328,7 +328,7 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 813982215dab490ca462f991a5b440bd2ef19621；2026-10-12 核对。",
+        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

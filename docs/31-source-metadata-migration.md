@@ -1,6 +1,6 @@
 # 来源回填：旧转写包与旧文章
 
-源码固定于 `813982215dab490ca462f991a5b440bd2ef19621`，2026-10-12 核对。
+源码固定于 `3ed823c961736378d8408bba5f0535b03e0046e0`，2026-10-11 核对。
 交互版：[来源回填流程图](31-source-metadata-migration.html)，可编辑源：[JSON](31-source-metadata-migration.json)。
 
 两种操作分别显式执行。旧包回填更新来源快照，锁定原来实际发布的转录；旧文章补充生成新的待审版本。普通 JSON/CSV 导出读取当前数据库来源信息，文章和 bundle 则保存各自版本的快照。
@@ -36,7 +36,7 @@ sequenceDiagram
         Operator->>Article: 按新内容 hash 审核后显式 publish
         Operator->>Export: export --contract-profile universal-origin-v2
         Export->>DB: 校验来源身份、简介值、hash、时间及 policy
-        Export-->>Operator: catalog 3 / origins 2 / manifest 3；Reader 需升级
+        Export-->>Operator: catalog 3 / origins 2 / manifest 3；配套 Reader 分支已验证支持
     end
 ```
 
@@ -46,7 +46,7 @@ sequenceDiagram
 
 `apply` 对整批来源证据、当前正文身份和双头执行事务核对；冲突要求重新规划，同一成功计划重试返回原回执。新版本保存原正文 UTF-8 字节和编辑摘要，保留旧 release、原 AI 双稿及审核记录；随后仍需按新版本重新审核并显式发布。符合未发布条件的新版也可通过 `export-drafts` 预览。
 
-简介补充必须导出为 `universal-origin-v2`：catalog 为 3、origins 为 2、manifest 为 3，`source-metadata-v1` 保持原协议。旧 `universal-origin-v1` 继续使用 origins 1 / manifest 2，并拒绝简介补充。当前 Reader 仅支持旧 profile，消费者的新 profile 支持仍需后续实现。
+简介补充必须导出为 `universal-origin-v2`：catalog 为 3、origins 为 2、manifest 为 3，`source-metadata-v1` 保持原协议。旧 `universal-origin-v1` 继续使用 origins 1 / manifest 2，并拒绝简介补充。阅读站配套独立分支 `codex/source-description-contract` 提交 `4a5933c743a05d067ce719b63c04cb9dfbc5ab6c` 已实现并验证 v1/v2 严格消费、来源简介纯文本展示与字段证据；保留换行、区分编辑摘要和未知/已知空简介。该分支不代表已合并或部署，操作员仍需显式回填、审核、导出与部署，不能把代码验收作为生产迁移完成。
 
 实现证据：
 

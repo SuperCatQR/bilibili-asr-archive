@@ -1,6 +1,6 @@
 # 增量发现、字段刷新与失败重放
 
-源码基线：`378f415ac5bf2a47de9137ee593f201e86827d43`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 对应 issue #286 的当前源元数据与 #287 的增量采集、字段刷新和失败补采。
 
 [交互时序图](23-metadata-refresh.html) · [Archify 规格](23-metadata-refresh.json) · [全部时序图](architecture-sequences.md)
@@ -95,14 +95,14 @@ sequenceDiagram
 
 ## 固定源码证据
 
-- [CLI 模式、字段与预算参数](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/cli/parser.py#L42-L81)。
-- [分页发现、fan-out 与事务调用](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/services/metadata_ingest.py#L243-L605)。
-- [定向刷新与失败操作选择](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/services/metadata_refresh.py#L31-L163)。
-- [成功观察时间与字段事务](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/services/metadata_refresh.py#L165-L214)。
-- [共享计数、timeout、冷却与等待](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/request_budget.py#L14-L79)。
-- [字段保留与观察账本](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/storage/metadata.py#L412-L467)。
-- [页原子提交与失败证据](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/storage/metadata.py#L592-L767)。
-- [v2 独立 schema 对象](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/storage/schema-observations.sql#L1-L22)。
+- [CLI 模式、字段与预算参数](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/parser.py#L42-L81)。
+- [分页发现、fan-out 与事务调用](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/metadata_ingest.py#L243-L605)。
+- [定向刷新与失败操作选择](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/metadata_refresh.py#L31-L163)。
+- [成功观察时间与字段事务](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/metadata_refresh.py#L165-L214)。
+- [共享计数、timeout、冷却与等待](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/request_budget.py#L14-L79)。
+- [字段保留与观察账本](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/metadata.py#L412-L467)。
+- [页原子提交与失败证据](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/metadata.py#L592-L767)。
+- [v2 独立 schema 对象](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/schema-observations.sql#L1-L22)。
 
 ## 交付验证
 

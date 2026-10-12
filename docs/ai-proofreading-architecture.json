@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -39,7 +39,7 @@
     {
       "id": "input",
       "label": "冻结输入与任务",
-      "sublabel": "v1/v2；合法重用与显式修复",
+      "sublabel": "冻结 request policy · 历史语义保留",
       "type": "backend",
       "pos": [
         440,
@@ -52,14 +52,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 175,
-          "end_line": 203,
+          "line": 180,
+          "end_line": 208,
           "label": "EditorialRepository.freeze_job_input"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 270,
-          "end_line": 349,
+          "line": 291,
+          "end_line": 370,
           "label": "prepare_input"
         }
       ]
@@ -86,16 +86,21 @@
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 341,
+          "line": 342,
           "end_line": 350,
           "label": "WorkflowRepository.owned_transaction"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_status.py",
+          "line": 89,
+          "label": "workflow_status_report"
         }
       ]
     },
     {
       "id": "api",
       "label": "校对 API",
-      "sublabel": "DeepSeek / OpenCode Go；HTTPS",
+      "sublabel": "顶层 effort · disabled sampling",
       "type": "external",
       "pos": [
         40,
@@ -108,8 +113,8 @@
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 95,
-          "end_line": 131,
+          "line": 98,
+          "end_line": 128,
           "label": "DeepSeekClient.complete"
         }
       ]
@@ -117,7 +122,7 @@
     {
       "id": "proofread",
       "label": "校对与块校验",
-      "sublabel": "恢复已完成块 · 全部来源覆盖",
+      "sublabel": "严格校验 · 有界再生成 · 免费重放",
       "type": "backend",
       "pos": [
         440,
@@ -130,22 +135,28 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 40,
-          "end_line": 93,
+          "line": 41,
+          "end_line": 54,
           "label": "EditorialWorkflowHandlers.proofread"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 381,
-          "end_line": 445,
+          "line": 390,
+          "end_line": 453,
           "label": "validate_revision"
+        },
+        {
+          "path": "src/bili_asr/editorial_recovery.py",
+          "line": 1,
+          "end_line": 57,
+          "label": "模块定义"
         }
       ]
     },
     {
       "id": "revisions",
       "label": "SQLite AI 修订事实",
-      "sublabel": "调用审计 / chunk / revision",
+      "sublabel": "物理预留 / 诊断 / chunk / revision",
       "type": "database",
       "pos": [
         840,
@@ -158,14 +169,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 292,
-          "end_line": 295,
+          "line": 418,
+          "end_line": 421,
           "label": "EditorialRepository.save_chunk"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 297,
-          "end_line": 313,
+          "line": 423,
+          "end_line": 439,
           "label": "EditorialRepository.commit_revision"
         }
       ]
@@ -208,8 +219,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 95,
-          "end_line": 130,
+          "line": 106,
+          "end_line": 141,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -426,14 +437,14 @@
       "id": "proofread-api",
       "from": "proofread",
       "to": "api",
-      "label": "JSON 请求",
+      "label": "冻结策略请求",
       "variant": "default"
     },
     {
       "id": "proofread-revisions",
       "from": "proofread",
       "to": "revisions",
-      "label": "guard 提交",
+      "label": "预留与有效块",
       "variant": "security"
     },
     {
@@ -516,6 +527,23 @@
   ],
   "cards": [
     {
+      "dot": "amber",
+      "title": "校对恢复与冻结兼容",
+      "items": [
+        "新输入 deepseek-v2：enabled 顶层 reasoning_effort；disabled top_p=1、可选 temperature，不发 effort；历史缺字段 legacy-v1 / 零再生成，旧形状/input 保留。",
+        "input/chunk 在短保护事务内预留 provider 调用，最多 1+max_chunk_regenerations；失败和未完成预留跨 attempt 累计。",
+        "仅跨段引用诊断允许 paragraph-reference-v1 再生整块，严格 validator 不放宽；完成响应按指纹重放再校验，坏缓存失效，local/replay 不计物理预算。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "阅读站配套交付",
+      "items": [
+        "配套分支 codex/source-description-contract / 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已验证 v1/v2 严格消费，不代表已合并、部署或历史回填完成。",
+        "完整版本 tuple、简介值/来源/hash/observedAt 交叉绑定；安全纯文本保留换行，编辑摘要独立。原生 v2 回填与单篇多字段补充仍未支持。"
+      ]
+    },
+    {
       "dot": "cyan",
       "title": "独立不可变层",
       "items": [
@@ -561,7 +589,7 @@
         "plan 从已存 video_details 读取真实简介；apply 在同一事务复验来源证据、正文 hash 和 draft/release heads。",
         "简介不替换编辑摘要；正文 UTF-8 字节与固定 AI 双稿保留，旧正式发布继续有效。",
         "universal-origin-v2：catalog 3、origins 2、manifest 3、source-metadata 1；旧 profile 保持并拒绝新简介补充。",
-        "当前 Reader 只支持 universal-origin-v1；新 profile 消费者升级属于后续工作。"
+        "Reader 配套分支 commit 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已验证明确 v1/v2 消费与简介展示；不表示已合并或生产部署。"
       ]
     },
     {

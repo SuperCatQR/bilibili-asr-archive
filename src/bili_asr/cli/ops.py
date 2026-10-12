@@ -136,11 +136,15 @@ def _cmd_export(args: argparse.Namespace) -> int:
             out_path=args.out,
             status_filter=status_filter,
             with_text=args.with_text,
+            private=getattr(args, "private", False),
             artifact_roots=args.artifact_roots,
         )
         if not args.out or args.out == "-":
             sys.stdout.write(content + ("\n" if not content.endswith("\n") else ""))
             sys.stdout.flush()
+    except ValueError as exc:
+        write_stderr(f"export: {exc}")
+        return 1
     except Exception:
         write_stderr("export: unexpected error")
         return 1

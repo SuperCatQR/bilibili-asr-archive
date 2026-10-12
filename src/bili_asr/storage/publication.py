@@ -30,13 +30,16 @@ class PublicationRepository:
     def transaction(self):
         if self.connection.in_transaction:
             raise ValueError("publication-transaction: caller transaction must be completed")
-        self.connection.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-            self.connection.commit()
-        except BaseException:
-            self.connection.rollback()
-            raise
+        # Head changes and withdrawals must not race the export directory swap.
+        from bili_asr.content_rights import distribution_lock
+        with distribution_lock(self.connection, blocking=True):
+            self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+                self.connection.commit()
+            except BaseException:
+                self.connection.rollback()
+                raise
 
     def head(self, part_id: int) -> dict | None:
         row = self.connection.execute(

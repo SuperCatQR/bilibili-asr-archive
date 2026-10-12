@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "813982215dab490ca462f991a5b440bd2ef19621",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -41,9 +41,15 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 40,
-          "end_line": 93,
+          "line": 41,
+          "end_line": 54,
           "label": "EditorialWorkflowHandlers.proofread"
+        },
+        {
+          "path": "src/bili_asr/editorial_recovery.py",
+          "line": 1,
+          "end_line": 57,
+          "label": "模块定义"
         }
       ]
     },
@@ -54,20 +60,20 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 175,
-          "end_line": 203,
+          "line": 180,
+          "end_line": 208,
           "label": "EditorialRepository.freeze_job_input"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 210,
-          "end_line": 227,
+          "line": 215,
+          "end_line": 244,
           "label": "EditorialRepository.begin_call"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 234,
-          "end_line": 240,
+          "line": 347,
+          "end_line": 359,
           "label": "EditorialRepository.finish_call"
         }
       ]
@@ -93,20 +99,20 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 139,
-          "end_line": 159,
+          "line": 144,
+          "end_line": 164,
           "label": "EditorialRepository.store_input"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 292,
-          "end_line": 295,
+          "line": 418,
+          "end_line": 421,
           "label": "EditorialRepository.save_chunk"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 297,
-          "end_line": 313,
+          "line": 423,
+          "end_line": 439,
           "label": "EditorialRepository.commit_revision"
         }
       ]
@@ -118,15 +124,21 @@
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 95,
-          "end_line": 131,
+          "line": 98,
+          "end_line": 128,
           "label": "DeepSeekClient.complete"
         },
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 134,
-          "end_line": 178,
+          "line": 131,
+          "end_line": 167,
           "label": "parse_response"
+        },
+        {
+          "path": "src/bili_asr/deepseek.py",
+          "line": 23,
+          "end_line": 44,
+          "label": "request_body"
         }
       ],
       "sublabel": "DeepSeek / OpenCode Go"
@@ -182,9 +194,9 @@
       "id": "m6",
       "to": "db",
       "y": 630,
-      "label": "冻结转录、metadata、配置、system pr…",
+      "label": "冻结来源与请求 policy",
       "variant": "default",
-      "note": "冻结转录、metadata、配置、system prompt、引用和块；canonical_json 计算固定 digest；条件：else plan --proofread 自动链",
+      "note": "冻结转录、metadata、system prompt、引用、块及 request_policy / max_chunk_regenerations；历史缺字段按 legacy-v1 / 0 读取，旧 input 字节不变；条件：else plan --proofread 自动链",
       "from": "guard"
     },
     {
@@ -218,27 +230,27 @@
       "id": "m10",
       "to": "repo",
       "y": 1154,
-      "label": "renew 至 API timeout+300",
+      "label": "读取调用与可重放响应",
       "variant": "default",
-      "note": "renew 至 API timeout+300；begin_call 在共享提交保护下绑定准确 running attempt；条件：loop 每个冻结块 / else 未完成块",
+      "note": "renew 至 API timeout+300；按 input/chunk 读取跨 attempt 物理调用，按完整请求指纹查已完成 envelope；保护事务内 begin_call 预留或登记免费重放；条件：loop 每个冻结块 / else 未完成块",
       "from": "handler"
     },
     {
       "id": "m11",
       "to": "db",
       "y": 1220,
-      "label": "保存 request_json",
+      "label": "持久物理预留与实际请求",
       "variant": "default",
-      "note": "保存 request_json；不保存密钥；条件：loop 每个冻结块 / else 未完成块",
+      "note": "request envelope 保存实际 request、指纹、provider/replay/local 类别、恢复策略和诊断；物理预算 1+max_chunk_regenerations，失败和未完成预留均计入；不保存密钥；条件：loop 每个冻结块 / else 未完成块",
       "from": "repo"
     },
     {
       "id": "m12",
       "to": "deepseek",
       "y": 1286,
-      "label": "锁外发送冻结配置",
+      "label": "预算允许后锁外发送",
       "variant": "default",
-      "note": "锁外发送冻结配置；thinking/top_p/max_tokens；无隐式 HTTP 重试；条件：loop 每个冻结块 / else 未完成块",
+      "note": "deepseek-v2 enabled 发送顶层 reasoning_effort；disabled 不发送 effort，top_p=1 与可选 temperature；legacy 形状保持。缓存重放跳过 HTTP且不占物理额度；无隐式 HTTP 重试；条件：loop 每个冻结块 / else 未完成块",
       "from": "handler"
     },
     {
@@ -254,9 +266,9 @@
       "id": "m14",
       "to": "repo",
       "y": 1418,
-      "label": "finish_call 保留真实 envelope …",
+      "label": "保存响应与校验诊断",
       "variant": "default",
-      "note": "finish_call 保留真实 envelope 或有界错误；取消后审计仍可落库；条件：loop 每个冻结块 / else 未完成块",
+      "note": "finish_call 保留真实 envelope、usage 或有界错误与诊断；坏缓存校验失败后标为失败，不无限重放；取消后审计仍可落库；条件：loop 每个冻结块 / else 未完成块；保存稳定 error_code、stage/reason、位置计数，不回显原模型正文",
       "from": "handler"
     },
     {
@@ -281,9 +293,9 @@
       "id": "m17",
       "to": "repo",
       "y": 1681,
-      "label": "安全诊断与已完成块保留",
+      "label": "有界再生成或保留失败",
       "variant": "default",
-      "note": "stage/reason、位置和计数随稳定错误码保存；已完成块保留；executor fail；原冻结输入 retry 或新输入 repair；条件：loop 每个冻结块 / else 未完成块 / opt 请求或结构校验失败",
+      "note": "deepseek-v2 对 cross_paragraph_reference 加持久诊断再生整个块，全部严格 validator 保持；其他失败或预算耗尽则 executor fail；已完成块与失败调用保留，重启/job retry 不重置额度；条件：loop 每个冻结块 / else 未完成块 / opt 请求或结构校验失败；job 重排按统一 policy、hold、预算和退避准入，不能重置 input/chunk 物理额度",
       "from": "handler"
     },
     {
@@ -375,7 +387,26 @@
       "dot": "emerald",
       "title": "内部动作",
       "items": [
-        "校对 handler：严格 JSON；恰好一次连续有序覆盖；拒绝未知/只读来源和非段落正文（loop 每个冻结块 / else 未完成块）"
+        "校对 handler：严格 JSON；恰好一次连续有序覆盖；拒绝未知/只读来源、跨段非法引用和非段落正文，再生成不放宽规则。",
+        "本地预检查与已完成 envelope 重放分别审计，不计物理预算；重放仍需校验，坏缓存标为失败。",
+        "物理预留绑定 input/chunk 跨 attempt 累计；未完成发送占额度，不因重启归还，不承诺外部调用恰好一次。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "冻结策略与费用边界",
+      "items": [
+        "新配置 deepseek-v2 / 默认两次再生成（范围 0–4）；物理调用上限 1+max_chunk_regenerations。恢复策略 paragraph-reference-v1 只允许 cross_paragraph_reference。",
+        "enabled 顶层 reasoning_effort；disabled top_p=1 + 可选 temperature；代理实际效果仍需实测。历史缺字段按 legacy-v1 / 零再生成，旧 shape / input 保留，新语义显式新身份。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "身份与阅读边界",
+      "items": [
+        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
+        "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
+        "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
     },
     {

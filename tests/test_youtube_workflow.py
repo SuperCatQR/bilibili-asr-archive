@@ -79,9 +79,9 @@ def test_youtube_caption_real_process_to_bundle_fts_export_and_snapshot(tmp_path
     assert hit.bvid is None and hit.to_dict()["platform"] == "youtube"
     assert hit.to_dict()["url"].endswith(REF.external_video_id)
     assert len(search_archive(root,"English",scope="all").hits) == 2
-    exported = json.loads(export_records(root,"json",with_text=True))
+    exported = json.loads(export_records(root,"json",with_text=True,private=True))
     assert exported[0]["platform"] == "youtube" and exported[0]["external_video_id"] == REF.external_video_id
-    rows = list(csv.DictReader(io.StringIO(export_records(root,"csv",with_text=True))))
+    rows = list(csv.DictReader(io.StringIO(export_records(root,"csv",with_text=True,private=True))))
     assert rows[0]["bvid"] == "" and rows[0]["platform"] == "youtube"
     assert (root / "archive.db").read_bytes() == before
     snapshot = tmp_path / "archive.zip"

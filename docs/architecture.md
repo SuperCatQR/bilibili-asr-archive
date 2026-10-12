@@ -1,6 +1,6 @@
 # 当前架构
 
-本页、[全景图](architecture.html)与[AI/出版专题图](ai-proofreading-architecture.html)核对独立修复分支的固定源码 **`813982215dab490ca462f991a5b440bd2ef19621`**，日期为 2026-10-12（Asia/Hong_Kong）。本轮修复 Issue #365–367 的失败观测、重试政策与安全诊断；[32 个时序流程](architecture-sequences.md)中受影响图绑定该提交，未受影响图保留原源码与验收身份。源码身份不会随分支后续提交自动变化。图的 JSON、HTML、SHA-256 与逐项检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
+本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[32 个时序流程](architecture-sequences.md)核对独立分支 `codex/issue-reliability-metadata` 的固定源码 **`3ed823c961736378d8408bba5f0535b03e0046e0`**，日期为 2026-10-12（Asia/Hong_Kong）。本轮实现 Issue #349/#350/#361，并配合阅读站独立分支完成 #348 消费者支持；该身份表示分支实现，不能推断远端 main 已合并或生产已部署。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
 
 ## 执行模型与责任
 
@@ -8,13 +8,14 @@
 
 | 所有者 | 入口 | 责任 |
 | --- | --- | --- |
-| CLI 与访问生命周期 | cli/registry.py、parser.py、archive_session.py | 20 个顶层命令、86 条实际叶命令；文件/数据库模式与维护锁 |
+| CLI 与访问生命周期 | cli/registry.py、parser.py、archive_session.py | 21 个顶层命令、88 条实际叶命令；文件/数据库模式与维护锁 |
 | 来源适配 | sources/、source_registry.py、services/source_workflow.py | ContentRef、Bilibili 与 YouTube；访问、字幕候选、下载与观察证据 |
 | 用例与控制 | services/workflow_application.py、workflow.py、storage/workflow.py | 纯依赖规划、冻结 profile、claim、heartbeat、attempt、cancel/retry、角色 worker |
 | 推理执行 | workflow_runtime.py、asr/session.py、runner.py、backend.py | 父进程准确输入与提交；子进程模型和 HF 推理；准备、分块、真实对齐 |
 | 编辑与出版 | editorial_runtime.py、storage/editorial.py、publication.py、publication_export.py | 固定输入、块检查点、完整 revision、双稿、edition/review/release 与三类出口 |
 | 产物副本 | services/artifact_*、storage/artifact_catalog.py | 对象/完整组、包与副本、核验历史、保留条件、pin、容量预留与恢复 |
 | 契约与维护 | contracts/、services/archive_upgrade.py、archive_snapshot.py、reference_backup.py | 版本/能力登记、离线 Schema、显式新目标升级、完整与引用备份、独立恢复 |
+| 有界失败维护 | cli/maintenance.py、services/retry_maintenance.py、storage/retry_maintenance.py | opt-in 周期 tick、独立健康、hold/ledger/backoff、准确失败 attempt CAS；不推进选择范围 |
 
 ## 来源与生产链
 
@@ -72,9 +73,11 @@ worker 不新增内存重试循环；控制器调用统一 guarded_retry_failed 
 实际重排在 JobCommitGuard 的短写事务中复验 job、attempt 与控制摘要，hold/ledger 所有者仍须串行化文件更新。
 精准人工 override 要求一个 job 与理由，不解除 hold。旧库级手动 requeue 能力保留，
 部署控制脚本须显式迁移到新用例。源质量、余额/配置、模型契约和出版数据错误分别指向修复或人工检查。
-三个新政策/投影契约不改基础 SQL、历史错误或冻结输入，见 [操作手册](operations/workflow-failures.md) 与 [32](32-workflow-failure-recovery.md)。
+三个新政策/投影契约不改基础 SQL、历史错误或冻结输入，见 [操作手册](operations/workflow-failures.md) 与 [33](33-workflow-failure-recovery.md)。
 
-edition 保存完整读者内容；准确 content SHA 审核，显式 publish 才切公开 release head。source tags 刷新不会改旧 edition。保留旧正文导入不调用 ASR/AI，固定旧 body/review 原字节，产生 pending-review 的 content v2 与 immutable origin；来源标题和简介补充使用各自的证据/政策。`supplement-source plan --field description` 只为已保留旧正文的 v2 文章计划补充；apply 在同一事务复验正文身份、草稿头、发布头和采集证据，创建 pending-review 子版，原正文 UTF-8 字节及编辑摘要保留。已补标题的文章不支持再串接简介，原生 v2 跳过；真实空简介可以补入，未知 null 会阻止计划。简介采集时间仅来自匹配值的逐字段成功观察，缺失则为 null。公开、从未发布预览、私有审阅分别核验身份与布局，简介补充稿要求 `universal-origin-v2`（catalog v3/origins v2/manifest v3）；旧 `universal-origin-v1` 的冻结 schema 保留并拒绝新简介证据。当前阅读站仍只支持旧 profile，消费新稿需另行升级。系列是另行人工确认的编辑元数据，按文件 SHA CAS，不推断关联。见 [11](11-publication-lifecycle.md)、[12](12-reader-private-export.md)、[28](28-preserved-body.md)、[29](29-publication-series.md)。
+独立 `retry-maintenance` 周期维护保留其显式范围、allowlist、累计 ledger 和派发前扣减规则，见[流程32](32-retry-maintenance.md)。工作流观察/人工或自动重排接口与周期维护是两个入口；部署接管仍须停用旧 retry writer 并保留库外 controls。
+
+edition 保存完整读者内容；准确 content SHA 审核，显式 publish 才切公开 release head。source tags 刷新不会改旧 edition。保留旧正文导入不调用 ASR/AI，固定旧 body/review 原字节，产生 pending-review 的 content v2 与 immutable origin；来源标题和简介补充使用各自的证据/政策。`supplement-source plan --field description` 只为已保留旧正文的 v2 文章计划补充；apply 在同一事务复验正文身份、草稿头、发布头和采集证据，创建 pending-review 子版，原正文 UTF-8 字节及编辑摘要保留。已补标题的文章不支持再串接简介，原生 v2 跳过；真实空简介可以补入，未知 null 会阻止计划。简介采集时间仅来自匹配值的逐字段成功观察，缺失则为 null。公开、从未发布预览、私有审阅分别核验身份与布局，简介补充稿要求 `universal-origin-v2`（catalog v3/origins v2/manifest v3）；旧 `universal-origin-v1` 的冻结 schema 保留并拒绝新简介证据。配套阅读站分支已支持 v1/v2；导入前须完成独立部署交接。系列是另行人工确认的编辑元数据，按文件 SHA CAS，不推断关联。见 [11](11-publication-lifecycle.md)、[12](12-reader-private-export.md)、[28](28-preserved-body.md)、[29](29-publication-series.md)。
 
 ## 产物身份、驻留和副本
 
@@ -84,8 +87,22 @@ edition 保存完整读者内容；准确 content SHA 审核，显式 publish �
 
 ## 契约、快照和恢复
 
-contracts 注册 53 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](25-contract-upgrade.md)。
+contracts 注册 50 项稳定边界，wheel 发布 25 份离线 JSON Schema；docs/contracts 是原字节镜像。运行基础库、可选扩展和动态 FTS 分开登记。READ/WRITE 校验已有契约且不 DDL；archive init 仅空目标显式 bootstrap。upgrade-paths/plan/apply/check 使用精确组合和转换器摘要，在新目录保留 typed rows、rowid、冻结 JSON、全部历史文件及遮蔽证据，逐边核验后原子安装，保留源；不自动恢复任务、启动 worker 或解除 hold。库外控制状态需要单独交接。见 [25](25-contract-upgrade.md)。
 
 完整 archive-snapshot/v1 从本地或准确外部包流式收集全部受支持文件、数据库和历史组，可显式无损压缩；恢复后不依赖旧 target。archive-reference-backup/v1 始终 self_contained=false，离线检查只验证嵌入数据和引用，online 才核验外部依赖。引用恢复保留原状态与 holds，始终要求执行权交接。SSH 目录上传必须核验 host key/instance 并完整读回 SHA，当前远程路径保留本地源。见 [15](15-archive-snapshot.md)、[20](20-recovery-plan.md)、[27](27-reference-backup.md)。
 
 SQLite 与文件系统没有跨介质原子事务；marker、不可变 hash、journal 与显式 verify/recovery 识别失败。自动图检查不代替真实 API、GPU、付费 AI、生产升级或人工语义审核，历史测试记录保留原提交和日期。
+
+## 请求策略与有界恢复
+
+新输入冻结 `deepseek-v2` 请求策略及逐块恢复预算。thinking 启用时 reasoning_effort 在请求顶层；关闭时 top_p 固定为 1，可显式指定 temperature。缺少策略的历史输入按 `legacy-v1` 读取，仍发送原请求形状，不在普通 retry 中改提示词或输入身份。OpenCode Go 使用兼容请求形状，其服务端参数生效情况仍需单独实测。
+
+`paragraph-reference-v1` 只对已知的跨段 evidence_refs 结构错误重新生成整块；严格校验继续拒绝未知引用、漏段、重复、乱序和只读来源。物理调用发送前在准确租约事务中记账，未完成发送也消耗冻结预算；有效响应重放与本地格式整理不消耗物理预算。成功块复用，耗尽后停止并保留原响应与诊断，见 [09](09-ai-proofread.md)。
+
+`retry-maintenance tick` 由独立定时器显式调用，supervise 的 worker 存活不代表失败维护成功。维护器要求准确 jobs/parts、kind 和安全错误 allowlist，先读取已有 holds/累计 ledger，再检查 backoff 与模型预算。跨 JSON/SQLite 无共同事务，先持久化扣减重试额，再用准确失败 attempt CAS 入队；不确定派发不返还额度。部署交接须停用旧重试 writer 并保留原状态，见 [32](32-retry-maintenance.md)和[维护手册](operations/retry-maintenance.md)。
+
+阅读站配套提交 `4a5933c743a05d067ce719b63c04cb9dfbc5ab6c` 已支持准确的 universal-origin-v1/v2 组合，并在来源面板以转义纯文本展示简介。现有生产者补充政策保持；原生 v2 回填、单篇多字段补充与历史数据批量回填须另行规划。Issue #302 的 FP8 仍属后续实机量化工作，见[当前精度边界](asr/asr-runtime-strategies.md)。
+
+## 内容合规开关
+
+合规流程默认关闭；普通访问、导出和发布继续执行已有审核、质量、哈希、并发与路径检查。仅显式设置 BILI_COMPLIANCE_ENABLED=1 后执行权限台账/访问限制；合规模式公开入口还需 BILI_PUBLICATION_ENABLED=1。开关不产生授权，也不改写旧权限事实，见[内容权限与公开发布](content-compliance.md)。

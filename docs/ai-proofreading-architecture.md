@@ -1,6 +1,6 @@
 # AI、完整版本与出版架构
 
-当前核对源码 `813982215dab490ca462f991a5b440bd2ef19621`；2026-10-12（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[32 个时序](architecture-sequences.md)。
+当前核对源码 `3ed823c961736378d8408bba5f0535b03e0046e0`；2026-10-12（Asia/Hong_Kong）。[交互图](ai-proofreading-architecture.html) · [JSON](ai-proofreading-architecture.json)。完整版本与来源政策见[当前架构](architecture.md)，调用过程见[32 个时序](architecture-sequences.md)。
 
 当前输入/content v1/v2 与模板按保存版本分派；导出先校验 wheel 内 Schema，再核验真实来源、revision、引用、文件集合与 hash。冻结输入重用和显式失败修复见 [30](30-editorial-repair.md)；保留旧正文、immutable origin 和来源补充见 [28](28-preserved-body.md)；bundle 回填与文章简介补充的两条操作链见 [31](31-source-metadata-migration.md)；编辑确认系列见 [29](29-publication-series.md)。artifact catalog 使准确历史双稿可保留/恢复，生产状态与驻留分开。
 
@@ -13,8 +13,8 @@
 2. 两路转录分别保存来源明确的不可变版本。原始归档发布独立进行，不等待校对；新 bundle v3 独立冻结来源 sidecar。旧包回填用 `--preserve-transcript` 锁定原发布版本，保留原 ASR 证据。
 3. 校对默认以 ASR 为基础，将当时可用的 CC / AI 字幕作为可选参考；固定实际版本、内容、视频元数据、提示词和配置。
 4. 纯输入准备模块按时间交集关联字幕，按上下文和输出预算尽量使用大块；邻块上下文只读。
-5. 按冻结 endpoint 调用校对 API：默认 DeepSeek 官方 Flash，也支持 OpenCode Go；使用冻结的模型、thinking 和 top_p 参数，生成带连续来源 ID 的完整阅读段落和单独疑点。
-6. 校验来源恰好覆盖一次且顺序不变、引用有效、正文结构正确；取得任务所有权写锁后保存块检查点，全部成功后受保护地提交完整修订。
+5. 按冻结 endpoint 与 request_policy 调用校对 API：新配置 deepseek-v2 在 enabled 下发送顶层 reasoning_effort，在 disabled 下发送 top_p=1 和可选 temperature；保留历史 legacy-v1 请求语义。远端调用前在租约保护短事务内持久预留物理调用预算。
+6. 校验来源恰好覆盖一次且顺序不变、引用有效、正文结构正确；白名单跨段引用错误可在累计预算内重新生成整个块，全部严格规则继续执行。已完成响应可免费重放但仍须校验；取得任务所有权写锁后保存有效块，全部成功后受保护地提交完整修订。
 7. 独立渲染任务生成纯正文 `ai-draft.md` 与原文对照 `review.md`，同 revision、按固定版本选择 `ai-draft-v1` 或 `ai-draft-v2`。重渲染不调用模型。
 8. 明确创建完整 edition，冻结标题、正文、摘要、标签、来源、整理归属和编辑说明；任何读者可见变化产生新 edition。
 9. 审核指定 edition、完整 SHA-256、预期状态和操作者；批准仍不公开，显式 publish 才生成 release 并切换公开指针。
@@ -25,20 +25,14 @@
 | 模块 | 输入 | 输出与责任 |
 | --- | --- | --- |
 | 工作流控制 | 范围、策略、配置、持久化结果 | 计划、依赖、认领、租约、尝试与重试 |
-| 失败政策与安全状态 | 原错误码、最新 attempt、库外控制证据 | 纯分类、统一重试决定、分页诊断与恢复指引；历史 jobs/attempts 保留 |
 | 字幕 / 音频 / ASR handler | 视频部分 ID、配置 | 独立来源的音频或转录；不调用校对 handler |
 | 固定输入与分块 | 数据库转录版本、可选字幕、配置 | 不可变快照、稳定块 ID、参考引用、只读上下文；不依赖原始归档文件 |
 | 兼容 Chat Completions 适配器 | 块、冻结提示词和参数 | JSON 段落候选；不写文档或调度任务 |
-| 校验与提交 | 候选、固定基础片段 | 阅读段落、程序取得的原文与时间、来源列表、疑点、独立修订 |
+| 校验与提交 | 候选、固定基础片段、持久物理调用与诊断 | 严格校验、白名单有界再生成、有效块检查点与独立修订；重放不重新付费 |
 | Markdown 渲染 | 已保存修订、模板 | ai-draft.md / review.md；纯排版、字节稳定 |
 
 无状态指业务进度、输入选择和结果不依赖进程内存。客户端实例可以短期存在，重启后仍从 SQLite 恢复。
 控制、原始转录、派生结果是同一数据库的逻辑分区，不是独立部署服务。
-
-编辑失败的响应解析与结构校验保存有界 stage/reason、位置和计数；状态不读取原响应正文。
-配置、余额、源质量和模型输出错误不自动重试。重试仍用原冻结输入，修复创建新输入与
-任务链；旧失败和 hold 保留，成功替代任务在报告中关联。明确外部控制、预算和事务复验
-见 [失败恢复时序](32-workflow-failure-recovery.md) 和 [操作说明](operations/workflow-failures.md)。
 
 ## 输入与修订契约
 
@@ -57,13 +51,24 @@ JSON 字段为 chunk_id、paragraphs；段落字段为 segment_ids、text、issu
 相同快照和配置命中同一输入；参数或提示词改变生成新输入及任务。保存模型实际响应与最终修订，
 已保存结果可确定性渲染，重新推理不能承诺文字一致。
 
+新冻结配置记录 `request_policy=deepseek-v2` 和 `max_chunk_regenerations`（默认 2、范围 0–4）。
+enabled 的 thinking 只含 type、reasoning_effort 位于请求顶层，temperature 不发送；
+disabled 不发送 reasoning_effort，top_p=1，可显式 temperature（0–2）。OpenCode Go
+使用同样的兼容形状，实际代理参数效果需另行实测。历史 snapshot 缺少新字段时按
+legacy-v1/零再生成读取，不改变既有 input 身份或旧嵌套请求；新语义须显式创建新身份。
+
+`paragraph-reference-v1` 仅恢复 `cross_paragraph_reference`：把有界诊断、前次 call
+和恢复序号加入实际新请求，模型重生整个块后执行全部原校验。冻结 input 与来源保持
+原字节，不能靠删疑点、换引用或放宽 validator 使块成功。额度绑定 input/chunk，
+最多 `1 + max_chunk_regenerations` 个 provider 预留，跨进程和 job attempt 累计。
+
 ## 数据模型与文档
 
 | 表 | 持久化内容 |
 | --- | --- |
 | workflow_jobs / workflow_attempts | 依赖、租约、尝试、结果与终态；复用现有调度器 |
 | editorial_inputs / editorial_job_inputs | 不可变输入、分块、来源、配置、提示词及任务绑定 |
-| editorial_model_calls | 所属尝试、请求、实际响应（含思考返回）、用量、时间与错误；不存密钥 |
+| editorial_model_calls | 所属尝试、实际请求及指纹、provider/replay/local 类别、物理预留、恢复策略与诊断、原响应、用量和错误；不存密钥 |
 | editorial_chunk_results | 每块验证后的段落、source IDs、原文、时间与疑点 JSON |
 | editorial_revisions | 完整派生修订、内容标识、ai-unreviewed / needs-review 状态 |
 | document_artifacts | 修订、模板、路径和 SHA-256 |
@@ -96,12 +101,14 @@ flowchart LR
   supplemented -->|显式导出 universal-origin-v2| origin[origins v2 / manifest v3]
 ```
 
-简介补充只读取本地 `video_details.desc`，复制旧正文、标题、摘要和文章标签，生成新的待审版本；不触发 AI 校对或重渲染旧双稿。`legacy-description-supplement-v1` 使用 version 2 证据和 `archive-video-details-projection` sourceKind。逐字段 `last_success_at` 必须与保存值匹配，缺少逐字段证据时采集时间为 null；详情整行时间不能代替简介时间。计划和 apply 均核验准确草稿头、发布头和来源身份，重复执行同一计划返回原回执，后续人工编辑继承证据。原生 v2 和已知简介不补，已有 partTitle 补充链明确阻止再补简介。当前阅读站只消费旧 profile；新 profile 的外部消费者实现不在本次架构内。
+简介补充只读取本地 `video_details.desc`，复制旧正文、标题、摘要和文章标签，生成新的待审版本；不触发 AI 校对或重渲染旧双稿。`legacy-description-supplement-v1` 使用 version 2 证据和 `archive-video-details-projection` sourceKind。逐字段 `last_success_at` 必须与保存值匹配，缺少逐字段证据时采集时间为 null；详情整行时间不能代替简介时间。计划和 apply 均核验准确草稿头、发布头和来源身份，重复执行同一计划返回原回执，后续人工编辑继承证据。原生 v2 和已知简介不补，已有 partTitle 补充链明确阻止再补简介。阅读站配套分支 `codex/source-description-contract` 提交 `4a5933c743a05d067ce719b63c04cb9dfbc5ab6c` 已实现并验证 v1/v2 消费与安全简介展示；独立分支交付不代表已合并或部署，历史内容回填与重新审核发布仍须显式执行。
 
 原始字幕和 ASR 不被覆写。通过来源 ID 追溯，不额外建立第二套调度或稀疏编辑表。
 旧工作流类型约束不自动迁移，不删除现有数据库；需要支持新类型的归档库。
 块结果立即保存，失败重试复用完成块。租约与尝试编号防止失效工作器提交。
-供应商收到请求但本地未保存时退出，重试可能再次计费，不承诺外部调用恰好一次。
+供应商收到请求但本地未保存时退出，重试可能再次计费；未完成预留仍占累计物理额度。
+完成但尚未提交块的响应按完整请求指纹重放、重新严格校验，不重复消耗物理预算。
+坏缓存标记为失败防止重复重放，local_precheck 同样不占预算；不承诺外部调用恰好一次。
 
 产物位于 documents/part-<ID>/<修订ID>/<固定模板版本>/。
 ai-draft.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
@@ -131,3 +138,8 @@ A 发布后创建、请求修改、拒绝或批准 B 都保持 A；显式发布 
 ## 提交边界
 
 CLI 经 WorkflowApplication 编排；显式校对的固定 input 与两个任务同一事务提交。自动校对先纯准备，再将 input 与 job binding 放入租约保护事务。双稿先在事务外编码、暂存、fsync，事务内仅安装、复验和登记。失败后已安装的不可变文件可作为未登记字节安全重试；数据库事务不能回滚文件。出版内容、来源身份、canonical JSON 使用独立纯契约模块，存储与快照不会反向调用出版用例。
+
+编辑失败的响应解析与结构校验保存有界 stage/reason、位置和计数；状态不读取原响应正文。
+配置、余额、源质量和模型输出错误不自动重试。重试仍用原冻结输入，修复创建新输入与
+任务链；旧失败和 hold 保留，成功替代任务在报告中关联。明确外部控制、预算和事务复验
+见 [失败恢复时序](32-workflow-failure-recovery.md) 和 [操作说明](operations/workflow-failures.md)。

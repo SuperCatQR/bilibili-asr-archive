@@ -236,6 +236,19 @@ jobs:
       - name: Verify installed command and packaged resources
         run: |
           .ci-venv/bin/bili-asr --help
+          .ci-venv/bin/python - <<'PY'
+          from importlib.metadata import metadata
+          from pathlib import Path
+
+          project = metadata("bili-asr")
+          license_expression = project.get("License-Expression") or project.get("License")
+          if license_expression != "GPL-3.0-only":
+              raise SystemExit(f"unexpected software license metadata: {license_expression!r}")
+          if "GPL-3.0-only" not in Path("pyproject.toml").read_text(encoding="utf-8"):
+              raise SystemExit("pyproject.toml does not declare GPL-3.0-only")
+          if not Path("LICENSE").is_file() or not Path("CONTENT-LICENSE.md").is_file():
+              raise SystemExit("release license files are incomplete")
+          PY
           .ci-venv/bin/python -m bili_asr.contracts --check-docs docs/contracts
           .ci-venv/bin/python - <<'PY'
           import hashlib

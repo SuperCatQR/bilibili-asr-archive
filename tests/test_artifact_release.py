@@ -136,4 +136,3 @@ def test_callback_replacing_source_generation_keeps_replacement_and_quarantine(a
         _release(audio, isolated=replace_original_name)
     assert source.read_bytes() == replacement
     assert quarantine.read_bytes() == content
-

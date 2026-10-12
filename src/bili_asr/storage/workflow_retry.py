@@ -46,3 +46,59 @@ def requeue_decided_job(connection, snapshot, *, now):
         "last_error_code=NULL,updated_at=? WHERE job_id=? AND status='failed' AND attempt_count=? AND last_error_code IS ?",
         (now, now, snapshot["job_id"], snapshot["attempt_count"], snapshot["last_error_code"]))
     return int(cursor.rowcount)
+
+
+def editorial_retry_facts(connection, jobs):
+    """Scalar frozen physical-budget projection, never model request/response text.
+
+    Historical inputs did not have a physical budget. For current inputs every
+    provider reservation (including unfinished calls) counts, while replay and
+    local-precheck rows do not. A stored successful envelope may be replayed
+    without sending a new request after the budget has been spent.
+    """
+    selected = {job['job_id'] for job in jobs if job.get('kind') == 'proofread'}
+    if not selected:
+        return {}
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+        "('editorial_inputs','editorial_job_inputs','editorial_model_calls','editorial_chunk_results')")}
+    if len(tables) != 4:
+        return {job_id: {'eligible': True, 'exhausted': False, 'reason': 'physical_budget_not_available'}
+                for job_id in selected}
+    result = {}
+    for offset in range(0, len(selected), 500):
+        ids = tuple(sorted(selected))[offset:offset + 500]
+        marks = ','.join('?' for _ in ids)
+        rows = connection.execute(f"""WITH selected AS (
+            SELECT j.job_id,coalesce(b.input_id,json_extract(j.payload_json,'$.input_id')) AS input_id
+            FROM workflow_jobs j LEFT JOIN editorial_job_inputs b ON b.job_id=j.job_id
+            WHERE j.job_id IN ({marks})
+        ), chunks AS (
+            SELECT s.job_id,s.input_id,json_extract(i.prepared_json,'$.snapshot.config.request_policy') AS request_policy,
+                coalesce(json_extract(i.prepared_json,'$.snapshot.config.max_chunk_regenerations'),0)+1 AS maximum,
+                json_extract(c.value,'$.chunk_id') AS chunk_id
+            FROM selected s JOIN editorial_inputs i ON i.input_id=s.input_id
+            JOIN json_each(i.prepared_json,'$.chunks') c
+        ), provider_calls AS (
+            SELECT m.rowid AS call_rowid,m.input_id,m.chunk_id,m.error_code,m.response_json IS NOT NULL AS has_response
+            FROM editorial_model_calls m JOIN (SELECT DISTINCT input_id FROM selected) s ON s.input_id=m.input_id
+            WHERE coalesce(json_extract(m.request_json,'$.invocation_kind'),'provider')='provider'
+                AND coalesce(json_extract(m.response_json,'$.id'),'')<>'local-precheck'
+        ), budgets AS (
+            SELECT input_id,chunk_id,count(*) AS consumed,max(call_rowid) AS latest_rowid
+            FROM provider_calls GROUP BY input_id,chunk_id
+        ) SELECT c.job_id,c.request_policy,c.maximum,c.chunk_id,coalesce(b.consumed,0) AS consumed,
+            p.has_response,p.error_code,r.chunk_id IS NOT NULL AS complete
+            FROM chunks c LEFT JOIN budgets b ON b.input_id=c.input_id AND b.chunk_id=c.chunk_id
+            LEFT JOIN provider_calls p ON p.call_rowid=b.latest_rowid
+            LEFT JOIN editorial_chunk_results r ON r.input_id=c.input_id AND r.chunk_id=c.chunk_id""", ids)
+        for row in rows:
+            gate = result.setdefault(row['job_id'], {'eligible': True, 'exhausted': False,
+                                                    'reason': 'remaining_physical_budget'})
+            if (not row['complete'] and row['request_policy'] == 'deepseek-v2'
+                    and row['consumed'] >= row['maximum']
+                    and not (row['has_response'] and row['error_code'] is None)):
+                gate.update(eligible=False, exhausted=True, reason='physical_budget_exhausted')
+        for job_id in ids:
+            result.setdefault(job_id, {'eligible': True, 'exhausted': False, 'reason': 'unfrozen_or_legacy_input'})
+    return result

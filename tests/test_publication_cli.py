@@ -40,6 +40,9 @@ from tests.test_ai_editorial import FakeClient, insert_record, record, runtime
 from tests.test_workflow_control_plane import _seed_part
 
 
+pytestmark = pytest.mark.usefixtures('enable_content_publication_for_tests')
+
+
 @pytest.fixture
 def rendered_archive(tmp_path):
     archive = tmp_path / "archive"
@@ -66,6 +69,9 @@ def invoke(capsys, archive, action, *arguments, actor=True):
 
 
 def approve(capsys, archive, edition):
+    from tests.support.content_permissions import grant_test_permission
+    with archive_connection(str(archive), readonly=False) as connection:
+        grant_test_permission(connection, edition)
     invoke(capsys, archive, "review", "--edition-id", edition["edition_id"],
            "--content-sha256", edition["content_sha256"], "--expected-status", "pending-review",
            "--status", "in-review", "--note", "test review started")

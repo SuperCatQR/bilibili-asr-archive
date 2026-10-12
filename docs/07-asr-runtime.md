@@ -1,6 +1,6 @@
 # ASR 执行分派、冻结输入与受保护结果
 
-源码基线：`813982215dab490ca462f991a5b440bd2ef19621`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互图](07-asr-runtime.html) · [JSON 规格](07-asr-runtime.json) · [时序索引](architecture-sequences.md)
 

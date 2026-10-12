@@ -15,6 +15,7 @@ from bili_asr.publication_export import export_publications, export_publication_
 from bili_asr.publication_series import (edit_series, editorial_version, project_series, read_series,
                                          validate_editorial_series, validate_public_series)
 from tests.test_publication_export import publish, tree_bytes
+from tests.support.content_permissions import grant_test_permission
 from tests.test_ai_editorial import FakeClient, insert_record, record, runtime
 
 
@@ -33,6 +34,7 @@ def manuscript(tmp_path):
     assert executor.run().succeeded == 2
     revision_id = repository.revision_for_job(jobs[0])
     edition = create_edition(connection, revision_id=revision_id, artifact_roots=(root,), actor="synthetic-editor")
+    grant_test_permission(connection, edition, (root,))
     try:
         yield connection, root, revision_id, edition
     finally:

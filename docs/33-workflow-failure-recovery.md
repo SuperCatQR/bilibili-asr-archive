@@ -1,7 +1,7 @@
 # 失败状态、政策决策与受保护重排
 
 本流程补齐 #365–367 的观测与恢复边界；源码提交及图表 gate 见 [验证记录](architecture-validation.md)。
-[交互图](32-workflow-failure-recovery.html) · [JSON](32-workflow-failure-recovery.json) · [操作手册](operations/workflow-failures.md)
+[交互图](33-workflow-failure-recovery.html) · [JSON](33-workflow-failure-recovery.json) · [操作手册](operations/workflow-failures.md)
 
 ```mermaid
 sequenceDiagram

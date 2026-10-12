@@ -94,6 +94,8 @@ bili-asr workflow run --archive-root /srv/bili-archive
 | `--context-segments` | 2 | 每块前后各保留的只读基础片段数 |
 | `--api-timeout` | 1,800 秒 | HTTP 读取超时；每次请求前续租任务 |
 | `--thinking-mode` | `enabled` | `enabled` / `disabled`；关闭时不发送 reasoning effort |
+| `--temperature` | 不发送 | 仅 `disabled` 模式允许，范围 0–2；enabled 模式显式提供会在本地拒绝 |
+| `--max-chunk-regenerations` | 2 | 每块额外物理调用预算，范围 0–4；新任务默认最多 3 次物理调用 |
 
 另预留 16,384 token 的安全空间。当前没有依赖供应商 tokenizer，使用 UTF-8 字节数作为保守
 输入估算，同时预留思考、完整段落、来源 ID 和疑点输出长度。它通常会高估文本 token 数，不代表实际计费用量。
@@ -115,9 +117,10 @@ bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101 \
 
 服务返回 `finish_reason=length`、空内容、无效 JSON、重复 JSON 字段、未知片段、漏段、乱序、
 正文混入标题或时间戳、非相邻来源或未知引用时，任务失败并保留调用证据，不提交完整修订或阅读稿。
-请求采用 JSON object 模式，默认 `thinking={"type":"enabled","reasoning_effort":"high"}`；
+新输入冻结 `request_policy=deepseek-v2`。请求采用 JSON object 模式，默认 `thinking={"type":"enabled"}`、顶层 `reasoning_effort="high"`；
 可用 `--thinking-mode disabled` 关闭思考，启用思考时 `high` 仍是默认 effort。
-`top_p=0.95`，不发送 temperature，无隐式 HTTP 自动重试。
+enabled 模式 `top_p=0.95`，不发送 temperature；disabled 模式显式发送有效 `top_p=1`，
+可用 `--temperature 0.2` 设置 temperature，不发送 reasoning effort。无隐式 HTTP 自动重试。
 官方接口在 high 思考模式下将小于 0.95 的 top_p 按 0.95 处理；本地配置直接拒绝无效范围。
 
 官方参考：[模型规格](https://api-docs.deepseek.com/quick_start/pricing/)、
@@ -138,7 +141,8 @@ OpenCode Go 的完整端点是 `https://opencode.ai/zen/go/v1/chat/completions`�
 随后执行 `bili-asr workflow run --archive-root C:\path\to\archive --only-editorial`。
 计划时会冻结 API 地址、模型和预算；改变 CLI 参数只影响新任务，不会修改已冻结任务。
 Go 官方文档将该服务定位于编程代理及类似请求，字幕阅读稿校对的适用性需要向供应商确认。
-此接入使用兼容协议；OpenCode Go 对 JSON 模式、thinking 和最大输出预算的实际支持需通过小样本验证，不能直接视为已经验证的官方 DeepSeek 规格。
+此接入发送相同的版本化兼容请求格式；OpenCode Go 对 JSON 模式、thinking、顶层 reasoning_effort、
+temperature、top_p 和最大输出预算的实际支持尚未通过本次修复验证，不能直接视为已经验证的官方 DeepSeek 规格。
 参考：[OpenCode Go 文档](https://opencode.ai/docs/en/go/)、[模型目录](https://opencode.ai/zen/go/v1/models)。
 
 ## 修订与文档
@@ -205,6 +209,25 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 再执行正常 JSON、来源和结构校验，从而覆盖“响应已落库但检查点尚未提交”的常见崩溃窗口。
 租约续期和尝试编号校验阻止过期工作器提交新块或覆盖新的任务尝试。
 `workflow retry` 只重排 `failed`，不会恢复 `cancelled`；重复相同输入的校对请求也不会复活已取消任务。
+
+新冻结输入包含 `max_chunk_regenerations` 和请求 policy；每块所有物理调用（首次、再生成、失败后的显式重试）
+共用 `1 + max_chunk_regenerations` 的持久化上限。默认 2 表示总共最多 3 次，不是每个 job attempt 再获得 3 次。
+`--max-chunk-regenerations 0` 表示该输入每块最多一次物理调用，仍可免费复用已保存响应或已通过的检查点。
+worker 在拥有任务租约的短事务内、HTTP 前写入 `editorial_model_calls` 调用预留；未完成或传输失败的调用
+也消耗预算。供应商是否收到请求不明时不自动返还额度；进程重启、重排、升级不会重置额度。
+本地格式预检和已保存响应的 replay 使用独立 invocation kind，不消耗物理额度；实际 usage 仍保留于原响应。
+
+自动再生成首批只允许 `cross_paragraph_reference`：引用是当前 editable chunk 中存在、但不属于本段的
+基础来源或参考字幕 ID。未知、格式错误或只读上下文 ID，以及漏段、乱序、截断、无效 JSON 等错误维持严格失败。
+已确认的跨段错误会记录结构化诊断，下一次实际请求在原系统提示词和原 frozen chunk 之后加入明确的诊断反馈，
+要求重新生成整个块；不删除疑点、不替换引用、不放宽验证。调用 envelope 记录 `paragraph-reference-v1`、再生成序号、
+前一个 `call_id`、诊断和完整实际请求。每次新响应仍须通过完整原始校验才能保存检查点。
+耗尽后以 `EditorialRecoveryExhausted` 失败，依赖 render 继续阻塞，人工复核后可显式 repair 创建新身份。
+
+没有 request policy 的历史 snapshot 按 `legacy-v1` 读取，保持旧嵌套 reasoning_effort 请求格式和原始输入身份，
+不自动启用诊断再生成。普通默认 replanning 继续复用历史输入和终态；需要修正参数契约或启用新预算时，使用
+`--refresh-input` 或 `repair-proofread` 显式生成新输入。生产维护对已证明跨段引用的历史失败可按其有界 job 重试政策
+重新请求原 frozen 输入，不改变原请求语义。维护先检查新输入的物理预算，不会以 job 重排乘出另一份块预算。
 
 更新提示词后，旧 job 仍使用自己的冻结输入。需要采用当前提示词、调整分块或更换
 经过复核的转录版本时，使用显式恢复入口：

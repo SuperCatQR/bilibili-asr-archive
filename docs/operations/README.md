@@ -18,5 +18,6 @@
 | 内容升级 | [历史证据与内容政策](content-upgrade-policies.md) | 数据库与内容升级边界、旧时间证据生成 VTT |
 | 成本 | [升级结果复用](upgrade-result-reuse.md) | 计划证据、已成功结果和昂贵补算边界 |
 | 失败恢复 | [工作流失败与重试](workflow-failures.md) | jobs/attempts 口径、外部 holds、错误政策、安全诊断和显式修复 |
+| 重试接管 | [有界重试维护](retry-maintenance.md) | 显式范围、既有 holds/ledger、最新失败尝试与独立健康 |
 
 做过的验收与局限见 [历史证据](../evidence/README.md)；日常采集和出版见 [使用指南](../guides/README.md)。

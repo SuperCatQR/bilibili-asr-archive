@@ -1,8 +1,6 @@
 # 当前源码、命令与契约覆盖
 
-固定源码 `813982215dab490ca462f991a5b440bd2ef19621`；2026-10-12（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 20 个顶层命令、86 条实际叶命令、209 个 Python 模块、11 份 SQL 资源、53 项稳定契约和 25 份 JSON Schema。
-
-当前文档共有 32 张时序图、35 张交互图。本轮 20 张受影响图的规范绑定上述新提交；其余 15 张保留 `378f415ac5bf2a47de9137ee593f201e86827d43`。产物身份、哈希与逐项校验见[验证清单](architecture-validation.json)，不能据源码清单的更新推断全部图已重新生成。
+固定源码 `3ed823c961736378d8408bba5f0535b03e0046e0`；2026-10-12（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 21 个顶层命令、88 条实际叶命令、209 个 Python 模块、11 份 SQL 资源、50 项稳定契约和 25 份 JSON Schema。
 
 ## 全部实际命令路径
 
@@ -22,6 +20,8 @@
 | `workflow asr-performance` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
 | `workflow retry` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
 | `workflow repair-dependencies` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
+| `retry-maintenance tick` | _cmd_retry_maintenance；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
+| `retry-maintenance health` | _cmd_retry_maintenance；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
 | `publication create` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
 | `publication edit` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
 | `publication sync-source-tags` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
@@ -142,6 +142,7 @@
 | [src/bili_asr/cli/dedup.py](../src/bili_asr/cli/dedup.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/editorial.py](../src/bili_asr/cli/editorial.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/main.py](../src/bili_asr/cli/main.py) | src/bili_asr/cli |
+| [src/bili_asr/cli/maintenance.py](../src/bili_asr/cli/maintenance.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/meta.py](../src/bili_asr/cli/meta.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/ops.py](../src/bili_asr/cli/ops.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/parser.py](../src/bili_asr/cli/parser.py) | src/bili_asr/cli |
@@ -171,6 +172,7 @@
 | [src/bili_asr/diagnostics.py](../src/bili_asr/diagnostics.py) | src/bili_asr |
 | [src/bili_asr/editorial.py](../src/bili_asr/editorial.py) | src/bili_asr |
 | [src/bili_asr/editorial_quality.py](../src/bili_asr/editorial_quality.py) | src/bili_asr |
+| [src/bili_asr/editorial_recovery.py](../src/bili_asr/editorial_recovery.py) | src/bili_asr |
 | [src/bili_asr/editorial_runtime.py](../src/bili_asr/editorial_runtime.py) | src/bili_asr |
 | [src/bili_asr/error_codes.py](../src/bili_asr/error_codes.py) | src/bili_asr |
 | [src/bili_asr/export.py](../src/bili_asr/export.py) | src/bili_asr |
@@ -245,6 +247,8 @@
 | [src/bili_asr/services/publication_supervisor.py](../src/bili_asr/services/publication_supervisor.py) | src/bili_asr/services |
 | [src/bili_asr/services/reference_backup.py](../src/bili_asr/services/reference_backup.py) | src/bili_asr/services |
 | [src/bili_asr/services/remote_artifacts.py](../src/bili_asr/services/remote_artifacts.py) | src/bili_asr/services |
+| [src/bili_asr/services/retry_maintenance.py](../src/bili_asr/services/retry_maintenance.py) | src/bili_asr/services |
+| [src/bili_asr/services/retry_maintenance_io.py](../src/bili_asr/services/retry_maintenance_io.py) | src/bili_asr/services |
 | [src/bili_asr/services/source_supplement.py](../src/bili_asr/services/source_supplement.py) | src/bili_asr/services |
 | [src/bili_asr/services/source_workflow.py](../src/bili_asr/services/source_workflow.py) | src/bili_asr/services |
 | [src/bili_asr/services/subtitle_ingest.py](../src/bili_asr/services/subtitle_ingest.py) | src/bili_asr/services |
@@ -255,8 +259,6 @@
 | [src/bili_asr/services/workflow_application.py](../src/bili_asr/services/workflow_application.py) | src/bili_asr/services |
 | [src/bili_asr/services/workflow_audio_access.py](../src/bili_asr/services/workflow_audio_access.py) | src/bili_asr/services |
 | [src/bili_asr/services/workflow_projection.py](../src/bili_asr/services/workflow_projection.py) | src/bili_asr/services |
-| [src/bili_asr/services/workflow_retry.py](../src/bili_asr/services/workflow_retry.py) | src/bili_asr/services |
-| [src/bili_asr/services/workflow_status.py](../src/bili_asr/services/workflow_status.py) | src/bili_asr/services |
 | [src/bili_asr/source_identity.py](../src/bili_asr/source_identity.py) | src/bili_asr |
 | [src/bili_asr/source_metadata.py](../src/bili_asr/source_metadata.py) | src/bili_asr |
 | [src/bili_asr/source_supplements.py](../src/bili_asr/source_supplements.py) | src/bili_asr |
@@ -285,6 +287,7 @@
 | [src/bili_asr/storage/migration_source.py](../src/bili_asr/storage/migration_source.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/models.py](../src/bili_asr/storage/models.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/publication.py](../src/bili_asr/storage/publication.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/retry_maintenance.py](../src/bili_asr/storage/retry_maintenance.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/snapshots.py](../src/bili_asr/storage/snapshots.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/source_supplements.py](../src/bili_asr/storage/source_supplements.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/sources.py](../src/bili_asr/storage/sources.py) | src/bili_asr/storage |
@@ -292,15 +295,12 @@
 | [src/bili_asr/storage/upgrade_evidence.py](../src/bili_asr/storage/upgrade_evidence.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow.py](../src/bili_asr/storage/workflow.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow_dependency_repair.py](../src/bili_asr/storage/workflow_dependency_repair.py) | src/bili_asr/storage |
-| [src/bili_asr/storage/workflow_retry.py](../src/bili_asr/storage/workflow_retry.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow_selection.py](../src/bili_asr/storage/workflow_selection.py) | src/bili_asr/storage |
-| [src/bili_asr/storage/workflow_status.py](../src/bili_asr/storage/workflow_status.py) | src/bili_asr/storage |
 | [src/bili_asr/storage_targets.py](../src/bili_asr/storage_targets.py) | src/bili_asr |
 | [src/bili_asr/subtitle_policy.py](../src/bili_asr/subtitle_policy.py) | src/bili_asr |
 | [src/bili_asr/transcript_selection.py](../src/bili_asr/transcript_selection.py) | src/bili_asr |
 | [src/bili_asr/workflow.py](../src/bili_asr/workflow.py) | src/bili_asr |
 | [src/bili_asr/workflow_errors.py](../src/bili_asr/workflow_errors.py) | src/bili_asr |
-| [src/bili_asr/workflow_failure_policy.py](../src/bili_asr/workflow_failure_policy.py) | src/bili_asr |
 | [src/bili_asr/workflow_models.py](../src/bili_asr/workflow_models.py) | src/bili_asr |
 | [src/bili_asr/workflow_payloads.py](../src/bili_asr/workflow_payloads.py) | src/bili_asr |
 | [src/bili_asr/workflow_planning.py](../src/bili_asr/workflow_planning.py) | src/bili_asr |
@@ -308,16 +308,6 @@
 | [src/bili_asr/workflow_runtime_ports.py](../src/bili_asr/workflow_runtime_ports.py) | src/bili_asr |
 | [src/bili_asr/workflow_shutdown.py](../src/bili_asr/workflow_shutdown.py) | src/bili_asr |
 | [src/bili_asr/workflow_supervisor.py](../src/bili_asr/workflow_supervisor.py) | src/bili_asr |
-
-### 本轮新增模块职责
-
-| 模块 | 职责 |
-| --- | --- |
-| [src/bili_asr/workflow_failure_policy.py](../src/bili_asr/workflow_failure_policy.py) | 纯失败分类与 workflow-failure-policy/v1；登记错误码、unknown 回退、恢复动作、预算与退避。 |
-| [src/bili_asr/services/workflow_retry.py](../src/bili_asr/services/workflow_retry.py) | 受保护重试用例；有界读取外部 controls，生成决定并在 writer fence 内复验数据库快照与 controls 摘要。 |
-| [src/bili_asr/services/workflow_status.py](../src/bili_asr/services/workflow_status.py) | 统一安全状态投影；区分 jobs/attempts/窗口计数，输出重试资格、诊断与恢复模板。 |
-| [src/bili_asr/storage/workflow_retry.py](../src/bili_asr/storage/workflow_retry.py) | 标量候选/attempt 快照、批量替代任务事实与事务内重排；保留历史 attempts。 |
-| [src/bili_asr/storage/workflow_status.py](../src/bili_asr/storage/workflow_status.py) | 只读 SQL 状态事实；统一快照、失败分组、有界分页和替代任务/依赖查询。 |
 
 ## 基础库与可选扩展
 
