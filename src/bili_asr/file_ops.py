@@ -159,4 +159,3 @@ def exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
                 else:
                     if (current.st_dev, current.st_ino) == (incomplete.st_dev, incomplete.st_ino):
                         path.unlink()
-

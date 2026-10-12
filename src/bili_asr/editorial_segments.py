@@ -25,4 +25,3 @@ def language_key(value: str) -> str:
     if code in {"zh-tw", "zh-hk", "zh-mo", "zh-hant"}:
         return "zh-hant"
     return code.split("-", 1)[0]
-

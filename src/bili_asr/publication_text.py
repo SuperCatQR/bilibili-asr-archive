@@ -27,4 +27,3 @@ def normalize_text(value: Any, name: str, *, nonempty: bool = False, multiline: 
 
 def normalize_actor(actor: str) -> str:
     return normalize_text(actor, "actor", nonempty=True, multiline=False)
-

@@ -108,4 +108,3 @@ def validate_origins(value: object, articles: list[dict], manuscript_type: str) 
     if seen != sorted(indexed) or len(set(seen)) != len(seen):
         fail("origins are duplicated, missing or unsorted")
     return value
-

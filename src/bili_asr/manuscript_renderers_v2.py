@@ -68,4 +68,3 @@ def render_ai_v2(metadata: dict, prepared: dict, blocks: list[dict], revision_id
             if segment["segment_id"] in ids:
                 review.extend([f"- `{segment['segment_id']}` ({segment['start_ms']}–{segment['end_ms']} ms): {_literal(segment['text'])}", ""])
     return {"ai-draft.md": draft, "review.md": "\n".join(review).rstrip() + "\n"}
-

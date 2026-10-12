@@ -153,4 +153,3 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
         raise TypeError("connection must use the sqlite3.Row row_factory")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise ValueError("connection must have PRAGMA foreign_keys enabled")
-

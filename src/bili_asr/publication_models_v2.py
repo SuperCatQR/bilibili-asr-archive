@@ -55,4 +55,3 @@ def content_from_ai_v2(prepared: dict, markdown_text: str) -> dict:
                    "url": source_url(ref), "metadata": metadata.to_dict()},
         "attribution": "Prepared from the source transcript with AI assistance.", "editorNote": "",
     })
-

@@ -35,4 +35,3 @@ def freeze_job_input(repository, workflow, job: WorkflowJob) -> dict[str, Any]:
         repository.bind_job_input(job.job_id, prepared["input_id"])
         workflow.bind_editorial_render(job.job_id, template_for_input(repository.connection, prepared["input_id"]))
     return prepared
-

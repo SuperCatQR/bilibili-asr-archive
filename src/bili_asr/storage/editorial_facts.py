@@ -47,4 +47,3 @@ def revision(connection, revision_id: str) -> tuple[dict[str, Any], list[dict[st
     except json.JSONDecodeError as exc:
         raise ValueError("invalid frozen editorial revision") from exc
     return prepared, blocks
-

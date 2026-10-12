@@ -217,4 +217,3 @@ def require_supplement_extension(connection, *, required=False) -> bool:
     if [tuple(row) for row in connection.execute("SELECT singleton,policy FROM source_supplement_contract")] != [(1, SUPPLEMENT_POLICY)]:
         raise SchemaContractError("source-supplement: altered policy marker")
     return True
-

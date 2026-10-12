@@ -86,4 +86,3 @@ def prepare_input_v2(base, reference, config, *, source_metadata) -> dict[str, A
         chunks.append(chosen)
         start += len(chosen["editable_segments"])
     return {"input_id": identity, "snapshot": snapshot, "chunks": chunks}
-

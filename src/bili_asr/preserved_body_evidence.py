@@ -84,4 +84,3 @@ def check_preserved_body_import(connection, *, edition_id: str, artifact_roots) 
     return {"valid": True, "importId": origin["import_id"], "editionId": edition_id,
             "bodyPreserved": origin["relation"] == "preserved", "baselineBodySha256": stored["body_sha256"],
             "currentBodySha256": body_digest(edition["content"]["markdown"]), "reviewArtifactSha256": stored["review_sha256"]}
-

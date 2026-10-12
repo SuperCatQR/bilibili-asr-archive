@@ -66,4 +66,3 @@ def render_publish_v1(content: dict[str, Any]) -> bytes:
     if content["tags"]:
         parts.append("\u6807\u7b7e\uff1a" + "\u3001".join(_markdown_inline(tag) for tag in content["tags"]))
     return ("\n\n".join(parts) + "\n").encode("utf-8")
-

@@ -93,7 +93,7 @@ documentation check pass.
 The final Linux/WSL Python 3.12 suite completed with 3310 passed, 11 skipped,
 zero failures/errors and one expected duplicate-ZIP-member warning in 989.03
 seconds. Its source and tests match the rebased branch after normalizing Windows
-line endings. The CI shard tests added by the latest main were collected after
+line endings and trailing blank lines. The CI shard tests added by the latest main were collected after
 the full run started and were verified separately: 11 passed in 2.77 seconds.
 The full-suite JUnit and text logs are retained outside tracked source at
 .tmp/coupling-linux-full.xml and .tmp/coupling-linux-full.log in the primary
