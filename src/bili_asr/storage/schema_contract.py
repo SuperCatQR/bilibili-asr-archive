@@ -1,5 +1,6 @@
 """Schema comparison primitives, independent of archive business extensions."""
 from __future__ import annotations
+from functools import lru_cache
 from importlib import resources
 import re
 import sqlite3
@@ -74,6 +75,9 @@ def _strip_sql_comments(statement: str) -> str:
     return "".join(out)
 
 
+# Cache only immutable SQL text. Callers still read sqlite_master on every
+# validation, so schema changes on either connection remain visible.
+@lru_cache(maxsize=2048)
 def _normalize_view_sql(statement: str) -> str:
     """Collapse a view body to the shape SQLite stores, for comparison only.
 
@@ -135,6 +139,7 @@ def _normalize_view_sql(statement: str) -> str:
     return " ".join(piece for piece in out if piece)
 
 
+@lru_cache(maxsize=2048)
 def normalize_schema_sql(sql: str) -> str:
     sql = re.sub(r"(?i)\bIF\s+NOT\s+EXISTS\s+", "", sql)
     return _normalize_view_sql(sql)
