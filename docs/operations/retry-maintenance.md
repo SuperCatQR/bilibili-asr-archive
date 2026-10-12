@@ -125,3 +125,40 @@ reviewed exact jobs or parts before enabling it. `RevisionValidationError`,
 `lease_expired`, HTTP 402 and generic `DeepSeekError` remain denied. The template
 correction is an independent deployment change; it does not rewrite product
 source, retained attempts or production state.
+
+## Containers without systemd
+
+When PID 1 is a container init, install
+`scripts/deployment/bili-asr-retry-maintenance.supervisor.conf` in the existing
+Supervisor include directory after replacing its absolute paths. The command
+uses `run_retry_maintenance.py`, which invokes the installed CLI for each pass
+and waits the policy's `interval_seconds` after completion. A failed pass or
+lock skip continues at the configured interval; it does not reset control state
+or retry a workflow job by itself. Each pass has a 120-second timeout. SIGTERM
+stops further scheduling and terminates any running tick; an interrupted ledger
+reservation remains charged and requires review. Configure Supervisor with
+`stopasgroup=true` and `killasgroup=true` to stop the process group as well.
+
+Run `supervisorctl reread` and `supervisorctl update` after installing the
+reviewed configuration, then inspect `supervisorctl status
+bili-asr-retry-maintenance`. A RUNNING supervisor status only establishes process
+liveness. Require two distinct `last_succeeded_at` values from scheduled passes,
+check the retained ledger, and run the separate `retry-maintenance health`
+command. Use `supervisorctl stop bili-asr-retry-maintenance` to stop scheduling;
+after the configured stale threshold health must report `stale` even while
+workers remain alive. Restart the existing process with `supervisorctl start`
+and verify another scheduled success without clearing the ledger or holds.
+
+The scheduler falls back to a 60-second interval if the policy cannot be read;
+the CLI still validates that policy and records a failure where the health path
+can safely be written. An invalid binary/path or unavailable health file must
+also alert through Supervisor logs and the monitoring command's nonzero exit;
+never interpret a missing health snapshot as success.
+
+A new isolated deployment may initialize empty holds and ledger only after
+confirming it contains no historical retry owner. Deploying into a new test
+container proves that container's lifecycle and recovery behavior. It does
+not establish migration of a different production database, its external
+`production_ops.py`, or its prior retry owner. Retain that boundary in
+acceptance evidence; the four-step production handoff above still applies
+when those existing production resources become available.

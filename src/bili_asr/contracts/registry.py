@@ -44,7 +44,13 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
-    Contract("archive-maintenance-package/v1", "archive", ("src/bili_asr/services/maintenance_package.py", "src/bili_asr/storage/maintenance_selection.py"),
+    Contract("archive-task-state-backup/v1", "archive", ("src/bili_asr/services/maintenance_task_state.py",),
+             ("services.maintenance_state_reader", "services.maintenance_backup"), ("validate", "save", "read"),
+             (BILIBILI_V1, UNIVERSAL_V2), "archive-task-state-backup-v1.schema.json"),
+    Contract("archive-maintenance-package/v2", "archive", ("src/bili_asr/services/maintenance_package_core.py", "src/bili_asr/storage/maintenance_scope.py"),
+             ("cli.maintenance_package", "services.maintenance_import"), ("validate", "export", "inspect", "verify", "import-plan", "import-apply", "import-check"),
+             ("archive-maintenance-package/v1",), "archive-maintenance-package-v2.schema.json"),
+    Contract("archive-maintenance-package/v1", "archive", ("src/bili_asr/services/maintenance_package_core.py", "src/bili_asr/storage/maintenance_selection.py"),
              ("cli.maintenance_package", "services.maintenance_package"), ("validate", "export", "inspect", "verify", "import-plan", "import-apply", "import-check"),
              (BILIBILI_V1, UNIVERSAL_V2), "archive-maintenance-package-v1.schema.json"),
     Contract("archive-reference-backup/v1", "archive", ("src/bili_asr/services/reference_backup.py",),
@@ -135,7 +141,7 @@ _CONTRACTS = (
              ("publication_identity", "storage.migration_artifacts"), ("render", "historical-read"), ("publication-content/v1",)),
     Contract("publish-v2", "publication", ("src/bili_asr/publication_content_v2.py",),
              ("publication", "publication_export"), ("render",), ("publication-content/v2",)),
-    Contract("archive-snapshot/v1", "archive", ("src/bili_asr/services/archive_snapshot.py",),
+    Contract("archive-snapshot/v1", "archive", ("src/bili_asr/services/snapshot_protocol.py", "src/bili_asr/services/archive_snapshot.py"),
              ("services.archive_snapshot", "services.archive_recovery"), ("save", "check", "restore")),
     _json("source-metadata/v1", "source-metadata-v1.schema.json", "sources"),
     _json("publication-catalog/v2", "publication-catalog.schema.json", dependencies=("publish-v1",)),

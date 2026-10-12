@@ -61,6 +61,7 @@ def add_archive_parser(subparsers: argparse._SubParsersAction) -> None:
     upgraded = actions.add_parser("upgrade-check", help="Verify an unchanged upgrade installation baseline")
     upgraded.add_argument("--target-root", required=True)
     upgraded.add_argument("--plan-id", required=True)
+    upgraded.add_argument("--audit", action="store_true", help="Report history, current-fact and external-control drift without permitting baseline reuse")
     upgraded.set_defaults(database_policy=None)
 
 
@@ -119,6 +120,9 @@ def _cmd_upgrade(args: argparse.Namespace) -> dict:
     if args.archive_action == "upgrade-paths":
         return {"format_version": 1, "upgrades": [asdict(edge) for edge in UPGRADE_EDGES]}
     if args.archive_action == "upgrade-check":
+        if args.audit:
+            from bili_asr.services.archive_upgrade import audit_upgrade
+            return audit_upgrade(Path(args.target_root), expected_plan_id=args.plan_id)
         return check_upgrade(Path(args.target_root), expected_plan_id=args.plan_id)
     if args.archive_action == "upgrade-apply":
         return apply_upgrade(json.loads(args.plan.read_text(encoding="utf-8")))

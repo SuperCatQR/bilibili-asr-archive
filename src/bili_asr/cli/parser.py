@@ -22,6 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_maintenance_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.maintenance_package import add_maintenance_package_parser
     add_maintenance_package_parser(subparsers)
+    from bili_asr.cli.task_state import add_task_state_parser
+    add_task_state_parser(subparsers)
     from bili_asr.cli.publication import add_publication_parser
     from bili_asr.cli.editorial import add_editorial_parser
     add_publication_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
