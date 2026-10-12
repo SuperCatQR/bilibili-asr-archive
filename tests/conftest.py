@@ -263,6 +263,12 @@ def enable_content_publication_for_tests(monkeypatch):
     monkeypatch.setenv("BILI_PUBLICATION_ENABLED", "1")
 
 
+@pytest.fixture(autouse=True)
+def enable_content_publication_for_legacy_flows(monkeypatch):
+    """Keep legacy public-flow tests explicit while production remains opt-in."""
+    monkeypatch.setenv("BILI_PUBLICATION_ENABLED", "1")
+
+
 # --- opt-in gates (plan 008-pytest-markers) ----------------------------------
 # One central env-var -> marker mapping for the whole suite. Each opt-in test
 # takes the ``opt_in_gate`` fixture and supplies its existing skip reason in

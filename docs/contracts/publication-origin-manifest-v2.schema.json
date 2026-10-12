@@ -28,10 +28,10 @@
   "allOf": [{
     "if": {"properties": {"manuscriptType": {"const": "publication-export"}}},
     "then": {"properties": {"files": {"items": {"properties": {
-      "path": {"pattern": "^(catalog\\.json|origins\\.json|series\\.json|articles/part-[1-9][0-9]*/(publish|review)\\.md)$"}
+              "path": {"pattern": "^(catalog\\.json|origins\\.json|content-rights\\.json|series\\.json|articles/part-[1-9][0-9]*/(publish|review)\\.md)$"}
     }}}}},
     "else": {"properties": {"files": {"items": {"properties": {
-      "path": {"pattern": "^(catalog\\.json|origins\\.json|series\\.json|drafts/edition-[0-9a-f]{32}/(preview|review)\\.md)$"}
+              "path": {"pattern": "^(catalog\\.json|origins\\.json|content-rights\\.json|series\\.json|drafts/edition-[0-9a-f]{32}/(preview|review)\\.md)$"}
     }}}}}
   }]
 }

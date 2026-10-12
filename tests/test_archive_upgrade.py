@@ -28,8 +28,10 @@ from bili_asr.services.archive_snapshot import (
     restore_snapshot,
     save_snapshot,
 )
+from bili_asr.publication import get_edition
 from bili_asr.storage.database import connect_database
 from tests.fixtures.frozen_migration_archive import frozen_archive
+from tests.support.content_permissions import grant_test_permission
 
 CURRENT = (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY)
 
@@ -64,6 +66,10 @@ def test_frozen_legacy_upgrades_all_registered_combinations_and_snapshots(tmp_pa
     assert check_snapshot(archive)["valid"]
     restored = tmp_path / "restored"
     restore_snapshot(archive, restored)
+    with closing(connect_database(restored / "archive.db")) as writable:
+        editions = [row[0] for row in writable.execute("SELECT edition_id FROM publication_editions")]
+        for edition_id in editions:
+            grant_test_permission(writable, get_edition(writable, edition_id), (restored,))
     from bili_asr.publication import verify_release
     from bili_asr.publication_export import (
         export_publication_drafts,
