@@ -58,3 +58,61 @@ validation failures, latency and actual token usage. Suggested comparisons are
 context 2 versus 4, high versus max for complex terminology, and top_p .95 versus
 1.0; change one setting at a time. Structural acceptance cannot supply those
 semantic ratings. This replay report supports no production default changes.
+
+## Opt-in provider comparison
+
+The CLI defaults to offline replay. A provider comparison requires
+`--allow-paid-calls`, exactly one saved call, and a dedicated private SQLite
+`--ledger`. It compares disabled thinking with temperature .2, then enabled
+thinking with effort low, retaining the exact historic chunk and system prompt.
+These are explicitly new request configurations; they do not update the frozen
+source input or production jobs. The two modes change several controls together,
+so this comparison is an endpoint smoke check, not an isolated causal estimate
+of temperature or effort.
+
+```bash
+PYTHONPATH=src python scripts/evaluate_editorial.py \
+  --database /path/to/private/archive.db --call-id SAVED_CALL_ID \
+  --allow-paid-calls --ledger /path/to/private/experiment.db \
+  --endpoint https://opencode.ai/zen/go/v1 --model deepseek-v4.1-flash \
+  > /path/to/sanitized-report.json
+```
+
+The existing `DeepSeekClient` obtains only the endpoint's API key environment
+variable (`DEEPSEEK_API_KEY` or `OPENCODE_API_KEY`). Keys never enter request
+evidence. The ledger includes full model requests and responses, including
+source prose, so keep it private and outside published artifacts. Standard
+output contains only the sanitized report.
+
+Each experiment permits **four physical reservations total**, **two per
+variant**, **8192 output tokens per call**, and a **180-second response timeout**.
+The output cap includes reasoning tokens. Larger historic chunks may fail with
+`finish_reason=length`; report that real failure rather than shrinking the
+original sample or weakening validation. A strict cross-paragraph failure alone
+allows the second call with the existing canonical feedback policy. Truncation,
+HTTP failures and unknown sends are not automatically retried.
+
+SQLite `BEGIN IMMEDIATE` commits the reservation before HTTP, outside the
+network transaction. Failed and unfinished sends remain consumed. Restart
+reuses completed evidence, never resends an uncertain reservation, and refuses
+changed sample/config/budget identity. It checks the canonical manifest body,
+table schema, contiguous reservation ordinals, known variants and both call
+caps before sending, and refuses a corrupted ledger without resetting it.
+Reusing the same ledger preserves the
+cap; creating another ledger is a separately authorized experiment. Token
+limits bound output volume, not a monetary price: historical input length and
+current provider pricing still affect cost.
+
+As checked on 2026-10-12, the official DeepSeek reference documents top-level
+`reasoning_effort`, temperature effective only without thinking, and top_p
+effective only with thinking in .95–1.0. Disabled thinking fixes effective top_p
+to 1. These documented official semantics support the request adapter's shape;
+they do not establish OpenCode Go enforcement.
+[DeepSeek Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion/).
+
+No paid provider calls were performed for this implementation. Accordingly,
+OpenCode Go HTTP compatibility, control enforcement and semantic quality remain
+unverified. The harness records observed HTTP response acceptance separately
+from strict validation and keeps `provider_parameter_enforcement=not_verified`
+and `semantic_quality=not_reviewed`. Populate human-reviewed quality ratings
+before using any results to change defaults.
