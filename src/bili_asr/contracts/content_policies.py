@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
 
-from bili_asr.contracts.registry import DESCRIPTION_SUPPLEMENT_POLICY, LEGACY_FACTS_POLICY, SOURCE_SUPPLEMENT_POLICY
+from bili_asr.contracts.identities import DESCRIPTION_SUPPLEMENT_POLICY, LEGACY_FACTS_POLICY, SOURCE_SUPPLEMENT_POLICY
 
 
 @dataclass(frozen=True)

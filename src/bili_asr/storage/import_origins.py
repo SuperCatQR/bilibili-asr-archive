@@ -1,13 +1,13 @@
 """Registered immutable evidence for a v2 edition backed by a real v1 input."""
 from __future__ import annotations
+from bili_asr.storage.extension_contracts import require_import_extension, import_objects as extension_objects
 
-from functools import lru_cache
 import hashlib
 import json
 import sqlite3
 
 from bili_asr.canonical_json import canonical, digest
-from bili_asr.storage.archive_contracts import _resource, frozen_version
+from bili_asr.storage.archive_contracts import frozen_version
 from bili_asr.contracts.registry import IMPORT_EXTENSION as EXTENSION, LEGACY_FACTS_POLICY as POLICY
 from bili_asr.contracts.content_policies import content_policy
 
@@ -16,32 +16,8 @@ def body_digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-@lru_cache(maxsize=1)
-def extension_objects() -> dict:
-    with sqlite3.connect(":memory:") as reference:
-        reference.executescript(_resource("schema-preserved-body-import.sql"))
-        return {row[0]: (row[1], row[2]) for row in reference.execute(
-            "SELECT name,type,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'")}
 
 
-def require_import_extension(connection: sqlite3.Connection, *, required: bool = False) -> bool:
-    from bili_asr.storage.database import SchemaContractError, _normalize_manuscript_sql
-    actual = {row[0]: (row[1], row[2]) for row in connection.execute(
-        "SELECT name,type,sql FROM sqlite_master WHERE sql IS NOT NULL")}
-    expected = extension_objects()
-    from bili_asr.storage.source_supplements import require_supplement_extension
-    require_supplement_extension(connection)
-    if not expected.keys() & actual.keys():
-        if required:
-            raise SchemaContractError("install preserved-body-import-v1 on an offline archive copy first")
-        return False
-    for name, (kind, sql) in expected.items():
-        current = actual.get(name)
-        if current is None or current[0] != kind or _normalize_manuscript_sql(current[1]) != _normalize_manuscript_sql(sql):
-            raise SchemaContractError(f"missing or altered import extension object: {name}")
-    if [tuple(row) for row in connection.execute("SELECT name,version FROM archive_contract_extensions")] != [(EXTENSION, 1)]:
-        raise SchemaContractError("unknown archive contract extension")
-    return True
 
 
 def import_origin(connection: sqlite3.Connection, edition_id: str) -> dict | None:
@@ -89,7 +65,7 @@ def frozen_legacy_source(connection, prepared: dict) -> tuple[dict, dict]:
 
 def validate_baseline(connection, baseline: dict) -> None:
     from bili_asr.storage.publication import read_revision, read_edition, PublicationRepository
-    from bili_asr.publication_content_v2 import normalize_content_v2
+    from bili_asr.publication_models_v2 import normalize_content_v2
     fields = {"policyVersion", "selector", "videoPartId", "revisionId", "inputId", "legacyEditionId",
         "legacyReleaseId", "sourceFingerprint", "bodySha256", "reviewSha256", "content",
         "metadataEvidence", "legacyAttribution", "legacyEditorNote"}
@@ -143,7 +119,7 @@ def validate_edition_origin(connection: sqlite3.Connection, edition: dict, revis
     if current != origin["expected_markdown_sha256"] or origin["relation"] != expected_relation:
         raise ValueError("import-integrity: body or preservation claim mismatch")
     from bili_asr.storage.publication import PublicationRepository
-    from bili_asr.publication_content_v2 import normalize_content_v2
+    from bili_asr.publication_models_v2 import normalize_content_v2
     repository = PublicationRepository(connection)
     root = repository.edition(origin["root_edition_id"])
     root_origin = import_origin(connection, root["edition_id"])

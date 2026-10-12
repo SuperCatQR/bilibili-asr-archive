@@ -37,7 +37,7 @@ def install_source_supplement_extension(archive_root: Path) -> dict:
 
 
 def check_source_supplement(connection, *, edition_id: str, artifact_roots) -> dict:
-    from bili_asr.services.preserved_body_import import check_preserved_body_import
+    from bili_asr.preserved_body_evidence import check_preserved_body_import
     from bili_asr.storage.source_supplements import stored_supplement
     checked = check_preserved_body_import(connection, edition_id=edition_id, artifact_roots=artifact_roots)
     edition = read_edition(connection, edition_id)
@@ -51,7 +51,7 @@ def check_source_supplement(connection, *, edition_id: str, artifact_roots) -> d
 
 
 def plan_source_supplement(connection, *, edition_ids: list[str], artifact_roots, field: str = "partTitle") -> dict:
-    from bili_asr.services.preserved_body_import import check_preserved_body_import
+    from bili_asr.preserved_body_evidence import check_preserved_body_import
     require_universal_contract(connection)
     if field not in {"partTitle", "description"}:
         raise ValueError("source-supplement: unsupported field")
@@ -167,7 +167,7 @@ def _receipt(connection, plan, artifact_roots) -> dict | None:
 
 
 def apply_source_supplement(connection, *, plan: dict, artifact_roots, actor: str) -> dict:
-    from bili_asr.services.preserved_body_import import check_preserved_body_import
+    from bili_asr.preserved_body_evidence import check_preserved_body_import
     _validate_plan(plan)
     actor = normalize_actor(actor)
     require_universal_contract(connection)

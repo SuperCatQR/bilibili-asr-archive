@@ -245,9 +245,9 @@ def test_explicit_timeout_is_validated_before_connection_creation(tmp_path, valu
 
 def test_command_registration_requires_explicit_database_policy():
     with pytest.raises(TypeError):
-        CommandSpec("_handler", ArtifactPolicy.NONE)
+        CommandSpec("_handler", "bili_asr.cli.ops", ArtifactPolicy.NONE)
     with pytest.raises(TypeError, match="database policy"):
-        CommandSpec("_handler", ArtifactPolicy.NONE, "read")
+        CommandSpec("_handler", "bili_asr.cli.ops", ArtifactPolicy.NONE, "read")
 
 
 @pytest.mark.parametrize("argv,expected", [

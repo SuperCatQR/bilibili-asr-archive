@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
-import tempfile
 from urllib.parse import urlsplit
 
-from bili_asr.export_snapshot import ExportSnapshotError, checked_path, json_bytes, _exclusive_lock
-from bili_asr.storage_targets import sync_directory
+from bili_asr.file_ops import (
+    FileOperationError as ExportSnapshotError, atomic_replace_file, checked_path, json_bytes,
+    exclusive_lock as _exclusive_lock, fsync_directory as sync_directory,
+)
 
 
 def _object(value, fields, name):
@@ -148,18 +148,7 @@ def edit_series(input_path: Path, output: Path, *, actor: str, expected_sha256: 
             current = "new"
         if current != expected_sha256:
             raise ExportSnapshotError("series edit version conflict; reload the current file")
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="wb", dir=output.parent, prefix=f".{output.name}.", delete=False) as stream:
-                temporary = Path(stream.name)
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, output)
-            sync_directory(output.parent)
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+        atomic_replace_file(output, content, sync_parent=sync_directory)
     return {"sha256": hashlib.sha256(content).hexdigest(), "editorialVersion": editorial_version(value),
             "seriesCount": len(value["series"]), "output": str(output)}
 

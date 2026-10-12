@@ -27,6 +27,7 @@ from bili_asr.services.artifact_inventory_service import (
     validate_offload_plan,
 )
 from bili_asr.services.artifact_release import release_copy
+from bili_asr.storage.artifact_releases import ArtifactReleaseRepository
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 from bili_asr.storage_targets import open_directory_target
 
@@ -219,7 +220,7 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
 
         def isolated(copy_id=intent["copy_id"], identity=intent["object_id"]):
             with catalog.connection:
-                catalog.connection.execute("UPDATE artifact_release_intents SET state='isolated',updated_at=? WHERE transfer_id=? AND copy_id=?", (int(time.time()), operation_id, copy_id))
+                ArtifactReleaseRepository(catalog.connection).isolate(operation_id, copy_id)
 
         verified_target = []
         def before_delete(identity=intent["object_id"], evidence=verified_target):
@@ -248,15 +249,11 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
                                isolated=isolated, before_delete=before_delete, deletion_guard=deletion_guard)
         released_bytes += outcome["released_bytes"]
         with catalog.connection:
-            catalog.connection.execute("UPDATE artifact_release_intents SET state=?,updated_at=? WHERE transfer_id=? AND copy_id=?",
-                                       (outcome["state"], int(time.time()), operation_id, intent["copy_id"]))
+            ArtifactReleaseRepository(catalog.connection).record_outcome(operation_id, intent["copy_id"], outcome["state"])
             if outcome["state"] == "released":
                 catalog.observe_replica(intent["source_replica_id"], presence="released")
     with catalog.connection:
-        for identity, in catalog.connection.execute("SELECT object_id FROM artifact_transfer_items WHERE transfer_id=?", (operation_id,)):
-            pending = catalog.connection.execute("SELECT 1 FROM artifact_release_intents WHERE transfer_id=? AND object_id=? AND state!='released'", (operation_id, identity)).fetchone()
-            if pending is None:
-                catalog.connection.execute("UPDATE artifact_transfer_items SET state='released',updated_at=? WHERE transfer_id=? AND object_id=?", (int(time.time()), operation_id, identity))
+        ArtifactReleaseRepository(catalog.connection).complete_released_items(operation_id)
         cancelled = catalog.connection.execute("SELECT 1 FROM artifact_release_intents WHERE transfer_id=? AND state='cancelled'", (operation_id,)).fetchone()
         catalog.set_transfer_state(operation_id, "failed" if cancelled else "complete", error_code="retention_guard" if cancelled else None)
     return _result(catalog.connection, operation_id, released_bytes=released_bytes)
@@ -349,11 +346,12 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                 with connection:
                     for item in plan["items"]:
                         source_id = _local_replica(catalog, roots, item)
-                        now = int(time.time())
-                        connection.execute("INSERT INTO artifact_release_intents VALUES (?,?,?,?,?,?,?,?, 'planned',?,?)",
-                                           (operation_id, item["copy_id"], item["sha256"], _local_target(roots, Path(item["root"])),
-                                            item["path"], _quarantine_key(item["path"], operation_id, item["copy_id"]), source_id,
-                                            json.dumps(capture_source_generation(Path(item["root"]) / item["path"]), sort_keys=True), now, now))
+                        ArtifactReleaseRepository(connection).plan(transfer_id=operation_id,
+                            copy_id=item["copy_id"], object_id=item["sha256"],
+                            source_target_id=_local_target(roots, Path(item["root"])), source_key=item["path"],
+                            quarantine_key=_quarantine_key(item["path"], operation_id, item["copy_id"]),
+                            source_replica_id=source_id,
+                            source_generation=capture_source_generation(Path(item["root"]) / item["path"]))
                     catalog.set_transfer_state(operation_id, "releasing")
                 return _release_intents(catalog, roots, target, plan, operation_id, external_holds, current_inventory=current, policy_guard=_policy_guard)
             except (ValueError, OSError, sqlite3.Error):

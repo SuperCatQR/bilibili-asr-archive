@@ -24,6 +24,7 @@ from bili_asr.services.artifact_inventory_service import (
 )
 from bili_asr.services.artifact_io import artifact_io_budget
 from bili_asr.services.artifact_transfer import transfer_artifacts
+from bili_asr.storage.artifact_policies import ArtifactPolicyRepository
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 from bili_asr.storage.artifact_online import require_artifact_online
 
@@ -65,8 +66,7 @@ def configure_policy(connection, policy_id: str, configuration: dict):
     with connection:
         if config["target_id"] is not None:
             catalog.register_target(config["target_id"])
-        connection.execute("INSERT INTO artifact_policies VALUES (?,?,?,?,?) ON CONFLICT(policy_id) DO UPDATE SET mode=excluded.mode,target_id=excluded.target_id,config_json=excluded.config_json,updated_at=excluded.updated_at",
-                           (policy_id, config["mode"], config["target_id"], json.dumps(config, sort_keys=True), int(time.time())))
+        ArtifactPolicyRepository(connection).configure(policy_id, config, now=int(time.time()))
     return {"policy_id": policy_id, "policy_sha256": digest(config), "configuration": config}
 
 
@@ -173,8 +173,8 @@ def run_policy_once(roots, *, policy_id="default", target_root=None, external_ho
                 return {"state": "watermark_satisfied", "policy_id": policy_id, "free_bytes": free, "released_bytes": 0}
             frozen_hash, run_id = digest(config), uuid.uuid4().hex
             with connection:
-                connection.execute("INSERT INTO artifact_policy_runs VALUES (?,?,?,?,NULL,NULL,'running',?,?,?)",
-                    (run_id, policy_id, frozen_hash, json.dumps(config, sort_keys=True), now + config["scan_interval_seconds"], now, now))
+                ArtifactPolicyRepository(connection).begin_run(run_id, policy_id, frozen_hash, config,
+                    retry_after=now + config["scan_interval_seconds"], now=now)
             def guard():
                 current = connection.execute("SELECT config_json FROM artifact_policies WHERE policy_id=?", (policy_id,)).fetchone()
                 if current is None or digest(validate_policy(json.loads(current[0]))) != frozen_hash:
@@ -196,7 +196,7 @@ def run_policy_once(roots, *, policy_id="default", target_root=None, external_ho
                     plan = json.loads(prior["plan_json"])  # Resume the exact journaled operation.
                 report["scan"] = {"bytes_read": measured["bytes_read"], "elapsed_seconds": time.monotonic() - started}
                 with connection:
-                    connection.execute("UPDATE artifact_policy_runs SET plan_json=? WHERE run_id=?", (json.dumps(plan, sort_keys=True), run_id))
+                    ArtifactPolicyRepository(connection).freeze_plan(run_id, plan)
                 if not plan["items"]:
                     report.update(state="blocked", reason="no_eligible_complete_group")
                 else:
@@ -216,6 +216,5 @@ def run_policy_once(roots, *, policy_id="default", target_root=None, external_ho
             retry_after = int(time.time()) + config["scan_interval_seconds" if report["state"] == "complete" else "backoff_seconds"]
             report["retry_after"] = retry_after
             with connection:
-                connection.execute("UPDATE artifact_policy_runs SET state=?,result_json=?,retry_after=?,updated_at=? WHERE run_id=?",
-                    (report["state"], json.dumps(report, sort_keys=True), retry_after, int(time.time()), run_id))
+                ArtifactPolicyRepository(connection).finish_run(run_id, report, retry_after=retry_after, now=int(time.time()))
             return report

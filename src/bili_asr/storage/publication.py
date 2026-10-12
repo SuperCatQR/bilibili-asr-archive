@@ -304,7 +304,7 @@ def read_edition(connection: sqlite3.Connection, edition_id: str) -> dict:
     revision, prepared = read_revision(connection, edition["revision_id"])
     version = edition["content_version"]
     if version == 2:
-        from bili_asr.publication_content_v2 import normalize_content_v2
+        from bili_asr.publication_models_v2 import normalize_content_v2
         normalized = normalize_content_v2(edition["content"])
     else:
         normalized = normalize_content(edition["content"])

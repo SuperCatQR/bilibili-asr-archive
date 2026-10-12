@@ -82,7 +82,7 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
     assert entry["reviewFile"] == f"drafts/{entry['slug']}/review.md"
     assert review == (root / f"documents/part-1/{revision}/ai-draft-v1/review.md").read_bytes()
     assert entry["reviewArtifactSha256"] == hashlib.sha256(review).hexdigest()
-    schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-catalog.schema.json").read_text())
+    schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-catalog.schema.json").read_text(encoding="utf-8"))
     assert set(entry) == set(schema["$defs"]["article"]["required"])
     for key, rule in schema["$defs"]["article"]["properties"].items():
         if "$ref" in rule:
@@ -90,8 +90,8 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
         if "pattern" in rule:
             assert re.fullmatch(rule["pattern"], entry[key]), key
     assert set(tree_bytes(output)) == {"catalog.json", "content-rights.json", entry["file"], entry["reviewFile"], "publication-draft-export-manifest.json"}
-    manifest = json.loads((output / "publication-draft-export-manifest.json").read_text())
-    manifest_schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-export-manifest.schema.json").read_text())
+    manifest = json.loads((output / "publication-draft-export-manifest.json").read_text(encoding="utf-8"))
+    manifest_schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-export-manifest.schema.json").read_text(encoding="utf-8"))
     assert set(manifest) == set(manifest_schema["required"])
     assert manifest["manuscriptType"] == "publication-draft-export"
     assert re.fullmatch(manifest_schema["properties"]["snapshotId"]["pattern"], manifest["snapshotId"])
@@ -201,7 +201,7 @@ def test_linked_draft_output_is_rejected_without_touching_the_target(draft_archi
     connection, root, _, _ = draft_archive
     target = tmp_path / "target"
     target.mkdir()
-    (target / "personal.md").write_text("Keep this file.")
+    (target / "personal.md").write_text("Keep this file.", encoding="utf-8")
     output = tmp_path / "linked"
     try:
         output.symlink_to(target, target_is_directory=True)
@@ -223,7 +223,7 @@ def test_draft_output_never_reuses_other_snapshot_kinds_or_user_files(draft_arch
         export_editorial(connection, revision_id=revision, edition_id=edition["edition_id"], artifact_roots=(root,), output=output)
     else:
         output.mkdir()
-        (output / "personal.md").write_text("Keep this file.")
+        (output / "personal.md").write_text("Keep this file.", encoding="utf-8")
     before = tree_bytes(output)
     with pytest.raises(ExportSnapshotError, match="managed publication-draft-export"):
         export_publication_drafts(connection, artifact_roots=(root,), output=output)

@@ -1,42 +1,16 @@
 """Immutable archive evidence and its inheritance through imported editions."""
 from __future__ import annotations
+from bili_asr.storage.extension_contracts import require_supplement_extension, supplement_objects as supplement_objects
 
 import json
-import sqlite3
 from copy import deepcopy
-from functools import lru_cache
 
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.source_supplements import DESCRIPTION_KIND, KIND, POLICY, validate_supplement
-from bili_asr.storage.archive_contracts import _resource
 
 
-@lru_cache(maxsize=1)
-def supplement_objects() -> dict:
-    with sqlite3.connect(":memory:") as reference:
-        reference.executescript(_resource("schema-source-supplements.sql"))
-        return {row[0]: (row[1], row[2]) for row in reference.execute(
-            "SELECT name,type,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'")}
 
 
-def require_supplement_extension(connection, *, required=False) -> bool:
-    from bili_asr.storage.database import SchemaContractError, _normalize_manuscript_sql
-    actual = {row[0]: (row[1], row[2]) for row in connection.execute(
-        "SELECT name,type,sql FROM sqlite_master WHERE sql IS NOT NULL")}
-    expected = supplement_objects()
-    if not expected.keys() & actual.keys():
-        if required:
-            raise SchemaContractError("source-supplement: install on an offline archive copy first")
-        return False
-    if "publication_import_origins" not in actual:
-        raise SchemaContractError("source-supplement: preservation extension is required")
-    for name, (kind, sql) in expected.items():
-        current = actual.get(name)
-        if current is None or current[0] != kind or _normalize_manuscript_sql(current[1]) != _normalize_manuscript_sql(sql):
-            raise SchemaContractError(f"source-supplement: missing or altered extension object: {name}")
-    if [tuple(row) for row in connection.execute("SELECT singleton,policy FROM source_supplement_contract")] != [(1, POLICY)]:
-        raise SchemaContractError("source-supplement: altered policy marker")
-    return True
 
 
 def edition_supplement(connection, edition_id: str) -> dict | None:

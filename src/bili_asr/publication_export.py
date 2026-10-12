@@ -14,7 +14,8 @@ from typing import Iterator
 from bili_asr.export_snapshot import ExportSnapshotError, checked_path, guard_output, json_bytes, replace_snapshot
 from bili_asr.publication import content_from_ai, get_ai_artifacts, get_edition, render_publication, verify_release
 from bili_asr.storage.database import require_manuscript_schema
-from bili_asr.publication_content_v2 import content_from_ai_v2, render_publish_v2
+from bili_asr.publication_models_v2 import content_from_ai_v2
+from bili_asr.manuscript_renderers_v2 import render_publish_v2
 from bili_asr.publication_origins import PROFILE, public_origin
 from bili_asr.storage.import_origins import import_origin, read_baseline
 from bili_asr.content_rights import (

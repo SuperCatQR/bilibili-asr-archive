@@ -83,7 +83,7 @@ def test_import_exact_body_no_inference_or_inherited_approval(historical, tmp_pa
     assert get_edition(connection, edited["edition_id"])["current_edition_id"] == edited["edition_id"]
     private = tmp_path / "review"
     export_editorial(connection, revision_id=edited["revision_id"], edition_id=edited["edition_id"], artifact_roots=(root,), output=private)
-    assert json.loads((private / "review.json").read_text())["ai"]["templateVersion"] == "ai-draft-v1"
+    assert json.loads((private / "review.json").read_text(encoding="utf-8"))["ai"]["templateVersion"] == "ai-draft-v1"
     assert (private / "preserved-body.md").read_bytes() == baseline["content"]["markdown"].encode()
     approve(connection, edited)
     release = publish_edition(connection, edition_id=edited["edition_id"], artifact_roots=(root,), write_root=root, actor="publisher", expected_release_id=old_head["current_release_id"])
@@ -111,9 +111,9 @@ def test_new_profile_and_snapshot_restore_closed_loop(historical, tmp_path):
         output = tmp_path / kind
         export(connection, artifact_roots=(root,), output=output, contract_profile=PROFILE)
         assert _validate_snapshot(output, kind)
-        manifest = json.loads((output / f"{kind}-manifest.json").read_text())
+        manifest = json.loads((output / f"{kind}-manifest.json").read_text(encoding="utf-8"))
         assert manifest["schemaVersion"] == 2 and manifest["contractProfile"] == PROFILE
-        origins = json.loads((output / "origins.json").read_text())
+        origins = json.loads((output / "origins.json").read_text(encoding="utf-8"))
         assert origins["entries"][0]["kind"] == "preserved-legacy-body"
         assert origins["entries"][0]["aiTemplateVersion"] == "ai-draft-v1"
     connection.close()
@@ -180,7 +180,7 @@ def test_atomic_batch_failure_and_file_install_retry(historical, monkeypatch):
 def test_body_normalization_is_blocked(historical, monkeypatch):
     connection, root, ids = historical
     original = get_ai_artifacts(connection, ids["draft_revision"], (root,))
-    monkeypatch.setattr("bili_asr.services.preserved_body_import.get_ai_artifacts", lambda *args: {**original, "ai-draft.md": b"\xef\xbb\xbfbody\r\n"})
+    monkeypatch.setattr("bili_asr.preserved_body_evidence.get_ai_artifacts", lambda *args: {**original, "ai-draft.md": b"\xef\xbb\xbfbody\r\n"})
     plan = plan_for(connection, root, "ai-revision", ids["draft_revision"])
     assert "body_not_canonical" in plan["blocked"][0]["reason"]
 
@@ -190,7 +190,7 @@ def test_cli_plan_apply_check(historical, tmp_path, capsys):
     connection.close()
     from bili_asr.cli import main
     selection = tmp_path / "selection.json"
-    selection.write_text(json.dumps({"selectors": [{"kind": "ai-revision", "id": ids["draft_revision"]}]}))
+    selection.write_text(json.dumps({"selectors": [{"kind": "ai-revision", "id": ids["draft_revision"]}]}), encoding="utf-8")
     plan_path = tmp_path / "plan.json"
     common = ["publication", "import-preserved"]
     assert main([*common, "plan", "--archive-root", str(root), "--selection-file", str(selection), "--out", str(plan_path), "--format", "json"]) == 0
@@ -204,7 +204,7 @@ def test_cli_plan_apply_check(historical, tmp_path, capsys):
         assert main(["publication", command, "--archive-root", str(root), "--out", str(output),
                      "--contract-profile", PROFILE, "--empty-scope", "--format", "json"]) == 0
         capsys.readouterr()
-        assert json.loads((output / "catalog.json").read_text())["articles"] == []
+        assert json.loads((output / "catalog.json").read_text(encoding="utf-8"))["articles"] == []
         assert _validate_snapshot(output, kind)
 
 
@@ -231,7 +231,7 @@ def test_process_exit_recovery_has_one_receipt_and_no_missing_files(historical, 
     connection, root, ids = historical
     plan = plan_for(connection, root, "ai-revision", ids["draft_revision"])
     plan_file = tmp_path / "crash-plan.json"
-    plan_file.write_text(json.dumps(plan))
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
     script = '''
 import json, os, sys
 from pathlib import Path
@@ -256,7 +256,7 @@ else:
         os._exit(79)
     StagedArtifact.install = interrupted
 with ArchiveSession(root, mode=ArchiveAccessMode.WRITE) as session:
-    apply_preserved_body_import(session.connection, plan=json.loads(plan_path.read_text()), artifact_roots=(root,), write_root=root, actor="crash-probe")
+    apply_preserved_body_import(session.connection, plan=json.loads(plan_path.read_text(encoding="utf-8")), artifact_roots=(root,), write_root=root, actor="crash-probe")
 '''
     child = subprocess.run([sys.executable, "-c", script, str(root), str(plan_file), str(after_commit)], capture_output=True, timeout=30)
     assert child.returncode == 79, child.stderr.decode()
@@ -279,8 +279,8 @@ def test_origin_contract_refuses_wrong_bindings(historical, tmp_path, change):
     grant_all_current(connection, root)
     output = tmp_path / "drafts"
     export_publication_drafts(connection, artifact_roots=(root,), output=output, contract_profile=PROFILE)
-    catalog = json.loads((output / "catalog.json").read_text())
-    origins = json.loads((output / "origins.json").read_text())
+    catalog = json.loads((output / "catalog.json").read_text(encoding="utf-8"))
+    origins = json.loads((output / "origins.json").read_text(encoding="utf-8"))
     from bili_asr.publication_origins import validate_origins
     entry = origins["entries"][0]
     if change == "missing":
@@ -318,8 +318,8 @@ def test_empty_origin_profile_and_native_only(historical, tmp_path):
         native = session.connection
         empty = tmp_path / "empty"
         export_publications(native, artifact_roots=(native_root,), output=empty, contract_profile=PROFILE)
-        assert json.loads((empty / "catalog.json").read_text())["schemaVersion"] == 3
-        assert json.loads((empty / "origins.json").read_text())["entries"] == []
+        assert json.loads((empty / "catalog.json").read_text(encoding="utf-8"))["schemaVersion"] == 3
+        assert json.loads((empty / "origins.json").read_text(encoding="utf-8"))["entries"] == []
         with native:
             part_id = SourceRepository(native).upsert_video(SourceVideoMetadata(ContentRef("youtube", "dQw4w9WgXcQ", 0), "Native source", 2000))
         insert_record(native, replace(record(("Native source prose.",)), video_part_id=part_id, language="en"))
@@ -331,7 +331,7 @@ def test_empty_origin_profile_and_native_only(historical, tmp_path):
         grant_all_current(native, native_root)
         output = tmp_path / "native-drafts"
         export_publication_drafts(native, artifact_roots=(native_root,), output=output, contract_profile=PROFILE)
-        assert json.loads((output / "origins.json").read_text())["entries"][0]["kind"] == "ai-generated-v2"
+        assert json.loads((output / "origins.json").read_text(encoding="utf-8"))["entries"][0]["kind"] == "ai-generated-v2"
 
 
 def test_native_and_imported_drafts_share_exact_profile(historical, tmp_path):
@@ -361,7 +361,7 @@ def test_native_and_imported_drafts_share_exact_profile(historical, tmp_path):
     output = tmp_path / "mixed-drafts"
     export_publication_drafts(connection, artifact_roots=(root,), output=output, contract_profile=PROFILE)
     assert _validate_snapshot(output, "publication-draft-export")
-    kinds = {entry["kind"] for entry in json.loads((output / "origins.json").read_text())["entries"]}
+    kinds = {entry["kind"] for entry in json.loads((output / "origins.json").read_text(encoding="utf-8"))["entries"]}
     assert kinds == {"ai-generated-v2", "preserved-legacy-body", "edited-after-preservation"}
 
 
@@ -399,7 +399,7 @@ def test_explicit_export_scope_never_silently_drops_unknown_or_stale_ids(histori
     grant_test_permission(connection, get_edition(connection, edition_id), (root,))
     output = tmp_path / "selected"
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output, contract_profile=PROFILE, edition_ids=[edition_id]) == 1
-    assert json.loads((output / "catalog.json").read_text())["articles"][0]["editionId"] == edition_id
+    assert json.loads((output / "catalog.json").read_text(encoding="utf-8"))["articles"][0]["editionId"] == edition_id
     for selected in (["f"*32], [edition_id, edition_id]):
         with pytest.raises(ExportSnapshotError, match="export-scope"):
             export_publication_drafts(connection, artifact_roots=(root,), output=tmp_path / "bad-scope", contract_profile=PROFILE, edition_ids=selected)

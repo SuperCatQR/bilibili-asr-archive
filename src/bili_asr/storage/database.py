@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import sqlite3
 from typing import Iterator, TypeAlias
+from bili_asr.storage.schema_contract import (SchemaContractError, _validate_connection, _normalize_view_sql, _strip_sql_comments, normalize_schema_sql as _normalize_manuscript_sql)
 from bili_asr.storage.models import ALLOWED_ATTEMPT_OUTCOMES, ALLOWED_RUN_OUTCOMES
 
 
@@ -58,14 +59,6 @@ _SUBTITLE_SCHEMA_OBJECTS = (
 
 
 _PUBDATE_CHUNK = 900
-
-
-class SchemaContractError(RuntimeError):
-    """Raised when a database does not carry the transcript-schema contract.
-
-    The archive database is rebuildable by policy, so there is no migration
-    path: callers report the rebuild procedure instead of upgrading in place.
-    """
 
 
 SQLITE_BUSY_TIMEOUT_ENV = "BILI_SQLITE_BUSY_TIMEOUT_MS"
@@ -245,129 +238,6 @@ def _shipped_view_bodies() -> dict[str, str]:
     return bodies
 
 
-def _strip_sql_comments(statement: str) -> str:
-    """Remove SQL comments, respecting every quoted region.
-
-    Both a whole-line comment and a trailing one are removed, because SQLite
-    stores whatever was written: a comment left in either form would make the
-    shipped and stored texts differ forever.
-
-    The scan understands all four of SQLite's quoting forms — ``'...'`` strings
-    (with ``''`` escaping), ``"..."`` and ``[...]`` identifiers, and MySQL-style
-    ``` `...` ``` identifiers — plus ``/* ... */`` block comments.  It has to:
-    ``--`` inside *any* quoted region is data, and a scan that only knew about
-    single quotes would truncate the statement at that marker, which makes two
-    views selecting *different* columns normalize equal.  That is a false
-    negative — a genuinely stale body judged current — i.e. exactly the defect
-    this refresh exists to close.
-    """
-
-    out: list[str] = []
-    index = 0
-    length = len(statement)
-    # (closing character, doubled-character escape) for each quoted form.
-    quotes: dict[str, tuple[str, bool]] = {
-        "'": ("'", True),
-        '"': ('"', True),
-        "`": ("`", True),
-        "[": ("]", False),
-    }
-    while index < length:
-        char = statement[index]
-        if char in quotes:
-            closing, doubled = quotes[char]
-            out.append(char)
-            index += 1
-            while index < length:
-                current = statement[index]
-                out.append(current)
-                if current == closing:
-                    if doubled and index + 1 < length and statement[index + 1] == closing:
-                        out.append(current)
-                        index += 2
-                        continue
-                    index += 1
-                    break
-                index += 1
-            continue
-        if char == "/" and index + 1 < length and statement[index + 1] == "*":
-            closing_block = statement.find("*/", index + 2)
-            if closing_block < 0:
-                break
-            index = closing_block + 2
-            continue
-        if char == "-" and index + 1 < length and statement[index + 1] == "-":
-            # Skip to the end of the line, keeping the newline itself so two
-            # tokens on either side of a removed comment do not fuse together.
-            newline = statement.find("\n", index)
-            if newline < 0:
-                break
-            index = newline
-            continue
-        out.append(char)
-        index += 1
-    return "".join(out)
-
-
-def _normalize_view_sql(statement: str) -> str:
-    """Collapse a view body to the shape SQLite stores, for comparison only.
-
-    SQLite keeps the original text of a view's ``SELECT`` but drops the trailing
-    semicolon and rewrites the header, so the shipped statement and the stored
-    one are never byte-equal even when the view is current.  Whitespace and case
-    are collapsed as well, which makes the comparison a statement about the body
-    rather than about formatting.
-
-    Two properties are load-bearing and were each measured:
-
-    * comments are stripped from **both** sides.  SQLite *preserves* a comment
-      that sits inside a view statement, and every shipped view carries several
-      (4 to 24 lines each), so stripping only the shipped body would make every
-      view read as stale on every open.
-    * whitespace and case are collapsed **outside string literals only**.  A body
-      differing from the shipped one only inside a literal — ``'no-subtitle'``
-      against ``'NO-SUBTITLE'`` — must still read as different, or a genuinely
-      stale view would never refresh.
-    """
-
-    text = _strip_sql_comments(statement).strip().rstrip(";").strip()
-    # SQLite also drops the IF NOT EXISTS clause when it stores a view, so the
-    # shipped form has to lose it too before the two can be compared.
-    text = re.sub(r"(?i)^create\s+(view|table)\s+if\s+not\s+exists\s+", r"CREATE \1 ", text)
-
-    out: list[str] = []
-    plain: list[str] = []
-    index = 0
-    length = len(text)
-
-    def flush_plain() -> None:
-        if plain:
-            out.append(" ".join("".join(plain).casefold().split()))
-            plain.clear()
-
-    while index < length:
-        char = text[index]
-        if char == "'":
-            flush_plain()
-            literal = ["'"]
-            index += 1
-            while index < length:
-                current = text[index]
-                literal.append(current)
-                if current == "'":
-                    if index + 1 < length and text[index + 1] == "'":
-                        literal.append("'")
-                        index += 2
-                        continue
-                    break
-                index += 1
-            out.append("".join(literal))
-            index += 1
-            continue
-        plain.append(char)
-        index += 1
-    flush_plain()
-    return " ".join(piece for piece in out if piece)
 
 
 def refresh_shipped_views(connection: sqlite3.Connection) -> int:
@@ -453,11 +323,6 @@ def _manuscript_schema_objects() -> dict[str, tuple[str, str]]:
         }
 
 
-def _normalize_manuscript_sql(sql: str) -> str:
-    sql = re.sub(r"(?i)\bIF\s+NOT\s+EXISTS\s+", "", sql)
-    return _normalize_view_sql(sql)
-
-
 def require_manuscript_schema(connection: sqlite3.Connection) -> None:
     """Reject missing, legacy or altered manuscript contracts using reads only."""
     from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
@@ -529,10 +394,8 @@ def _shipped_table_contract() -> dict[str, str]:
 
 def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     """Bootstrap fresh databases; refuse incompatible tables before any DDL."""
-    from bili_asr.storage.artifact_catalog import require_artifact_catalog
-    require_artifact_catalog(connection)
-    from bili_asr.storage.artifact_online import require_artifact_online
-    require_artifact_online(connection)
+    from bili_asr.storage.archive_validation import require_optional_extensions
+    require_optional_extensions(connection)
     from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
     if runtime_contract(connection) == UNIVERSAL_V2:
         require_universal_contract(connection)
@@ -557,10 +420,8 @@ def require_archive_schema(connection: sqlite3.Connection, *, allow_empty: bool 
     compatibility accepted by explicit bootstrap. Missing manuscript tables
     remain a separate command contract, not an implicit schema upgrade.
     """
-    from bili_asr.storage.artifact_catalog import require_artifact_catalog
-    require_artifact_catalog(connection)
-    from bili_asr.storage.artifact_online import require_artifact_online
-    require_artifact_online(connection)
+    from bili_asr.storage.archive_validation import require_optional_extensions
+    require_optional_extensions(connection)
     from bili_asr.storage.archive_contracts import runtime_contract, UNIVERSAL_V2, require_universal_contract
     if runtime_contract(connection) == UNIVERSAL_V2:
         require_universal_contract(connection)
@@ -617,19 +478,6 @@ def open_database(path: str | os.PathLike[str]) -> DatabaseConnection:
     return connection
 
 
-def _validate_connection(connection: sqlite3.Connection) -> None:
-    """Require the connection state every repository in this module is built on.
-
-    The connection must come with ``row_factory = sqlite3.Row`` and
-    ``PRAGMA foreign_keys`` enabled — exactly the state :func:`open_database`
-    establishes.
-    """
-    if not isinstance(connection, sqlite3.Connection):
-        raise TypeError("connection must be a sqlite3.Connection")
-    if connection.row_factory is not sqlite3.Row:
-        raise TypeError("connection must use the sqlite3.Row row_factory")
-    if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
-        raise ValueError("connection must have PRAGMA foreign_keys enabled")
 
 
 @contextmanager
