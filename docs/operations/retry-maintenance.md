@@ -78,6 +78,20 @@ file with absolute paths and keep the timer interval aligned with
 `interval_seconds`. Enable the copied service/timer only after the following
 handoff has been completed:
 
+Before the first dispatch, run `bili-asr retry-maintenance preflight` with the
+same `--archive-root`, `--policy`, `--state`, `--lock`, and `--health` arguments
+as `tick`. It checks policy/state contracts, file aliases (including hard links),
+the archive schema, and selector existence, then reports `would_requeue` or the
+guard excluding each failed attempt. Unknown selectors return `invalid_scope`
+and exit code 1. A valid scope with no current failures is allowed. It opens
+SQLite in read-only mode and uses ordinary archive read coordination; the archive
+coordination lock may be created, but production state, retry ledger, health,
+and retry lock remain untouched. No workflow job is requeued and no provider
+is called. The preview is a snapshot, not a reservation: a later `tick` repeats
+its guards, and changes after preflight can invalidate the preview. A passing
+preflight does not prove handoff, timer installation, permissions for later writes,
+or scheduled success; `handoff_verified` is always false.
+
 1. Stop the old retry-owning tick/timer. Preserve its planning, scope advancement,
    and worker supervision separately, removing its blanket failed-job retry
    loop. Every remaining writer of production state must use the **same existing

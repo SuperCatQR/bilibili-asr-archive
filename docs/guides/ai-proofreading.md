@@ -145,6 +145,11 @@ Go 官方文档将该服务定位于编程代理及类似请求，字幕阅读�
 temperature、top_p 和最大输出预算的实际支持尚未通过本次修复验证，不能直接视为已经验证的官方 DeepSeek 规格。
 参考：[OpenCode Go 文档](https://opencode.ai/docs/en/go/)、[模型目录](https://opencode.ai/zen/go/v1/models)。
 
+可复核的真实保存调用回放、显式付费的小样本参数检查和持久调用上限见
+[校对恢复与参数评估](../operations/editorial-evaluation.md)。离线回放不访问模型；
+在线检查要求显式 `--allow-paid-calls`，最多四次物理调用，每次输出最多 8192 tokens。
+HTTP 接受请求、严格结构通过、参数确实生效与人工核验语义质量必须分别记录。
+
 ## 修订与文档
 
 当前规则 `readable-prose-v2` 的目标是让转录可阅读，语句和局部论述关系通顺。

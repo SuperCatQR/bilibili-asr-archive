@@ -44,6 +44,9 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("archive-maintenance-package/v1", "archive", ("src/bili_asr/services/maintenance_package.py", "src/bili_asr/storage/maintenance_selection.py"),
+             ("cli.maintenance_package", "services.maintenance_package"), ("validate", "export", "inspect", "verify", "import-plan", "import-apply", "import-check"),
+             (BILIBILI_V1, UNIVERSAL_V2), "archive-maintenance-package-v1.schema.json"),
     Contract("archive-reference-backup/v1", "archive", ("src/bili_asr/services/reference_backup.py",),
              ("cli.remote_storage", "services.archive_recovery"), ("validate", "save", "check", "plan", "restore"),
              ("artifact-storage-v1", "artifact-package-v1"), "archive-reference-backup-v1.schema.json"),
