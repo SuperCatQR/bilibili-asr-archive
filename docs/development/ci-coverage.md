@@ -9,7 +9,9 @@ PR 和 main CI 都在四个 Linux 分片中运行完整的默认测试集，另�
 
 CI 使用固定版本 uv 0.11.14，并按 `uv.lock` 缓存下载与构建产物。
 测试环境用 `uv sync --locked --extra dev` 安装；安全审计使用锁文件导出的默认、
-dev 和 remote 依赖；Ruff、mypy、pip-audit 和 coverage 版本也从锁文件读取。
+ASR、dev 和 remote 依赖；Ruff、mypy、pip-audit 和 coverage 版本也从锁文件读取。
+部署 requirements 的版本、平台标记与哈希须与锁定 ASR/dev 导出一致。
+审计直接检查锁中精确版本，不安装 GPU runtime 或额外解析 torch。
 pip、setuptools 和 wheel 是隔离安装测试需要的构建工具，单独安装在测试环境中。
 离线 jsonschema wheelhouse 下载使用锁文件导出的 runtime constraints，避免出现
 主环境与隔离环境解析到不同版本的情况。产品 wheel 在独立环境中安装并按锁文件

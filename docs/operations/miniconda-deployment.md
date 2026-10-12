@@ -19,9 +19,10 @@ tested NVIDIA support.
 Regenerate the application export after changing dependencies:
 
 ```bash
-uv lock
-uv export --locked --extra asr --extra dev --no-emit-project \
+uv lock --default-index https://pypi.org/simple
+uv export --locked --default-index https://pypi.org/simple --extra asr --extra dev --no-emit-project \
   --output-file deployment/application-requirements.txt
+python scripts/check_dependency_export.py
 ```
 
 The same lock resolves developer uv and deployment pip packages. Conda does
@@ -29,6 +30,16 @@ not consume uv.lock: pip consumes its exported requirements. Do not run an
 exact uv sync inside a deployment environment: torch is excluded from the
 application lock and could be removed. `librosa` is required by Transformers'
 Qwen processor even though container decoding uses the project's ffmpeg path.
+
+CI rejects stale deployment versions, markers or hashes. Its security audit
+checks the exact ASR, development and remote package versions applicable to
+the Ubuntu runner according to their platform markers,
+without installing model runtimes or resolving an unrecorded torch build.
+Refreshing this file changes the deployment recipe; it does not upgrade an
+already running production environment. Validate a separate environment and
+follow the release/backup procedure before deployment. Packages limited to
+other platforms need an audit on that platform; host GPU wheels supplied
+outside this lock need their own advisory/version review.
 
 ## Provision the environment
 
