@@ -50,8 +50,8 @@ sequenceDiagram
 
 实现证据：
 
-- [回填请求与 dry-run](../src/bili_asr/services/workflow_application.py#L52)、[publication 围栏](../src/bili_asr/services/publication_refresh.py#L28)。
-- [publish worker](../src/bili_asr/workflow_runtime.py#L419)、[保留旧完整组](../src/bili_asr/services/artifact_groups.py#L120)、[批量来源投影](../src/bili_asr/storage/metadata.py#L175)。
-- [文章补充 plan](../src/bili_asr/services/source_supplement.py#L53)、[事务 apply](../src/bili_asr/services/source_supplement.py#L169)、[简介采集证据](../src/bili_asr/storage/source_supplements.py#L70)。
-- [导出 origin 校验](../src/bili_asr/publication_export.py#L343)、[新 profile origin 文件](../src/bili_asr/publication_export.py#L357)。
+- [回填请求与 dry-run](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_application.py#L52)、[publication 围栏](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/publication_refresh.py#L28)。
+- [publish worker](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime.py#L419)、[保留旧完整组](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/artifact_groups.py#L120)、[批量来源投影](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/metadata.py#L175)。
+- [文章补充 plan](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/source_supplement.py#L53)、[事务 apply](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/source_supplement.py#L169)、[简介采集证据](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/source_supplements.py#L70)。
+- [导出 origin 校验](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L343)、[新 profile origin 文件](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L357)。
 - [旧包回填操作](guides/source-metadata.md)、[旧文章补简介操作与支持范围](guides/source-description-supplement.md)。

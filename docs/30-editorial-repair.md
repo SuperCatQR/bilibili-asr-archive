@@ -41,9 +41,9 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:1](../src/bili_asr/cli/workflow.py#L1)：模块定义。
-- [src/bili_asr/services/editorial_repair.py:12](../src/bili_asr/services/editorial_repair.py#L12)：repair_proofread。
-- [src/bili_asr/storage/editorial.py:36](../src/bili_asr/storage/editorial.py#L36)：EditorialRepository。
-- [src/bili_asr/storage/workflow.py:39](../src/bili_asr/storage/workflow.py#L39)：WorkflowRepository。
-- [src/bili_asr/editorial_runtime.py:1](../src/bili_asr/editorial_runtime.py#L1)：模块定义。
-- [src/bili_asr/deepseek.py:1](../src/bili_asr/deepseek.py#L1)：模块定义。
+- [src/bili_asr/cli/workflow.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/workflow.py#L1)：模块定义。
+- [src/bili_asr/services/editorial_repair.py:12](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/editorial_repair.py#L12)：repair_proofread。
+- [src/bili_asr/storage/editorial.py:36](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L36)：EditorialRepository。
+- [src/bili_asr/storage/workflow.py:39](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L39)：WorkflowRepository。
+- [src/bili_asr/editorial_runtime.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/editorial_runtime.py#L1)：模块定义。
+- [src/bili_asr/deepseek.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/deepseek.py#L1)：模块定义。

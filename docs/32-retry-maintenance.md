@@ -1,6 +1,6 @@
 # 失败重试维护：周期接管、持久预算与独立健康
 
-源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。本页描述该固定分支提交中的机制，部署交接另行执行。
+源码基线：`96c5502119829119abce42a59804b79431895a98`；核对日期：2026-10-12（Asia/Hong_Kong）。本页描述该固定分支提交中的机制，部署交接另行执行。
 
 [交互时序图](32-retry-maintenance.html) · [Archify 规格](32-retry-maintenance.json) · [运维交接手册](operations/retry-maintenance.md) · [全部时序图](architecture-sequences.md)
 
@@ -77,7 +77,7 @@ sequenceDiagram
 ## 源码证据
 
 - [scripts/deployment/bili-asr-retry-maintenance.timer](../scripts/deployment/bili-asr-retry-maintenance.timer)：可选一分钟周期服务。
-- [src/bili_asr/cli/maintenance.py:11](../src/bili_asr/cli/maintenance.py#L11)：add_maintenance_parser/_cmd_retry_maintenance，健康先于数据库前置检查。
+- [src/bili_asr/cli/maintenance.py:10](../src/bili_asr/cli/maintenance.py#L10)：add_maintenance_parser/_cmd_retry_maintenance，健康先于数据库前置检查。
 - [src/bili_asr/services/retry_maintenance.py:38](../src/bili_asr/services/retry_maintenance.py#L38)：RetryPolicy.load，严格范围与允许错误。
 - [src/bili_asr/services/retry_maintenance.py:116](../src/bili_asr/services/retry_maintenance.py#L116)：maintain_failed_jobs，holds/预算/退避与 charge-before-CAS。
 - [src/bili_asr/services/retry_maintenance.py:164](../src/bili_asr/services/retry_maintenance.py#L164)：tick，锁、开始/失败/成功健康、独立 ArchiveSession。

@@ -66,14 +66,14 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/archive.py:67](../src/bili_asr/cli/archive.py#L67)：_cmd_archive。
-- [src/bili_asr/cli/registry.py:1](../src/bili_asr/cli/registry.py#L1)：模块定义。
-- [src/bili_asr/services/migration_preflight.py:119](../src/bili_asr/services/migration_preflight.py#L119)：migration_preflight。
-- [src/bili_asr/archive_session.py:95](../src/bili_asr/archive_session.py#L95)：ArchiveSession.access。
-- [src/bili_asr/archive_maintenance.py:84](../src/bili_asr/archive_maintenance.py#L84)：archive_access。
-- [src/bili_asr/storage/migration_source.py:176](../src/bili_asr/storage/migration_source.py#L176)：inspect_migration_source。
-- [src/bili_asr/storage/migration_artifacts.py:147](../src/bili_asr/storage/migration_artifacts.py#L147)：_legacy_editorial_checks。
-- [src/bili_asr/storage/migration_artifacts.py:88](../src/bili_asr/storage/migration_artifacts.py#L88)：_legacy_publication_checks。
-- [src/bili_asr/artifact_inventory.py:89](../src/bili_asr/artifact_inventory.py#L89)：collect_artifacts。
-- [src/bili_asr/artifact_inventory.py:122](../src/bili_asr/artifact_inventory.py#L122)：stream_hash。
-- [src/bili_asr/services/migration_preflight.py:45](../src/bili_asr/services/migration_preflight.py#L45)：_hash_file。
+- [src/bili_asr/cli/archive.py:67](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/archive.py#L67)：_cmd_archive。
+- [src/bili_asr/cli/registry.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/registry.py#L1)：模块定义。
+- [src/bili_asr/services/migration_preflight.py:119](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/migration_preflight.py#L119)：migration_preflight。
+- [src/bili_asr/archive_session.py:95](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/archive_session.py#L95)：ArchiveSession.access。
+- [src/bili_asr/archive_maintenance.py:84](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/archive_maintenance.py#L84)：archive_access。
+- [src/bili_asr/storage/migration_source.py:176](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/migration_source.py#L176)：inspect_migration_source。
+- [src/bili_asr/storage/migration_artifacts.py:147](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/migration_artifacts.py#L147)：_legacy_editorial_checks。
+- [src/bili_asr/storage/migration_artifacts.py:88](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/migration_artifacts.py#L88)：_legacy_publication_checks。
+- [src/bili_asr/artifact_inventory.py:89](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/artifact_inventory.py#L89)：collect_artifacts。
+- [src/bili_asr/artifact_inventory.py:122](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/artifact_inventory.py#L122)：stream_hash。
+- [src/bili_asr/services/migration_preflight.py:45](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/migration_preflight.py#L45)：_hash_file。

@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "revision": "96c5502119829119abce42a59804b79431895a98",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -43,11 +43,15 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/maintenance.py",
-          "label": "_cmd_retry_maintenance"
+          "label": "_cmd_retry_maintenance",
+          "line": 26,
+          "end_line": 42
         },
         {
           "path": "src/bili_asr/services/retry_maintenance.py",
-          "label": "tick"
+          "label": "tick",
+          "line": 164,
+          "end_line": 200
         },
         {
           "path": "src/bili_asr/services/workflow_retry.py",
@@ -65,15 +69,21 @@
       "sources": [
         {
           "path": "src/bili_asr/services/retry_maintenance_io.py",
-          "label": "maintenance_lock"
+          "label": "maintenance_lock",
+          "line": 15,
+          "end_line": 40
         },
         {
           "path": "src/bili_asr/services/retry_maintenance_io.py",
-          "label": "write_json"
+          "label": "write_json",
+          "line": 57,
+          "end_line": 85
         },
         {
           "path": "src/bili_asr/services/retry_maintenance.py",
-          "label": "RetryPolicy.load"
+          "label": "RetryPolicy.load",
+          "line": 47,
+          "end_line": 80
         }
       ]
     },
@@ -85,7 +95,9 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/retry_maintenance.py",
-          "label": "failed_candidates"
+          "label": "failed_candidates",
+          "line": 6,
+          "end_line": 16
         },
         {
           "path": "src/bili_asr/storage/workflow_retry.py",
@@ -103,15 +115,21 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/retry_maintenance.py",
-          "label": "requeue_exact_failure"
+          "label": "requeue_exact_failure",
+          "line": 19,
+          "end_line": 32
         },
         {
           "path": "src/bili_asr/archive_session.py",
-          "label": "ArchiveSession.open"
+          "label": "ArchiveSession.open",
+          "line": 95,
+          "end_line": 121
         },
         {
           "path": "src/bili_asr/services/retry_maintenance.py",
-          "label": "validate_state"
+          "label": "validate_state",
+          "line": 83,
+          "end_line": 93
         }
       ]
     },
@@ -123,11 +141,15 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "label": "WorkflowRepository.claim"
+          "label": "WorkflowRepository.claim",
+          "line": 262,
+          "end_line": 316
         },
         {
           "path": "src/bili_asr/services/retry_maintenance.py",
-          "label": "health"
+          "label": "health",
+          "line": 203,
+          "end_line": 225
         }
       ]
     }

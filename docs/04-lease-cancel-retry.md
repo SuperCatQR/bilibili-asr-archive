@@ -68,19 +68,19 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:285](../src/bili_asr/cli/workflow.py#L285)：_execute_workflow。
-- [src/bili_asr/archive_session.py:106](../src/bili_asr/archive_session.py#L106)：ArchiveSession.open。
-- [src/bili_asr/archive_maintenance.py:83](../src/bili_asr/archive_maintenance.py#L83)：archive_access。
-- [src/bili_asr/workflow.py:128](../src/bili_asr/workflow.py#L128)：WorkflowExecutor.run。
-- [src/bili_asr/services/workflow_application.py:137](../src/bili_asr/services/workflow_application.py#L137)：WorkflowApplication.run。
-- [src/bili_asr/workflow.py:285](../src/bili_asr/workflow.py#L285)：_LeaseHeartbeat._run。
-- [src/bili_asr/storage/workflow.py:54](../src/bili_asr/storage/workflow.py#L54)：WorkflowRepository.open_lease_repository。
-- [src/bili_asr/workflow_runtime.py:411](../src/bili_asr/workflow_runtime.py#L411)：ArchiveWorkflowHandlers.publish。
-- [src/bili_asr/editorial_runtime.py:111](../src/bili_asr/editorial_runtime.py#L111)：EditorialWorkflowHandlers.render。
-- [src/bili_asr/storage/job_commit.py:13](../src/bili_asr/storage/job_commit.py#L13)：JobCommitGuard。
-- [src/bili_asr/storage/workflow.py:262](../src/bili_asr/storage/workflow.py#L262)：WorkflowRepository.claim。
-- [src/bili_asr/storage/workflow.py:364](../src/bili_asr/storage/workflow.py#L364)：WorkflowRepository.cancel。
-- [src/bili_asr/storage/workflow.py:827](../src/bili_asr/storage/workflow.py#L827)：WorkflowRepository._terminal。
+- [src/bili_asr/cli/workflow.py:285](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/workflow.py#L285)：_execute_workflow。
+- [src/bili_asr/archive_session.py:106](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/archive_session.py#L106)：ArchiveSession.open。
+- [src/bili_asr/archive_maintenance.py:83](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/archive_maintenance.py#L83)：archive_access。
+- [src/bili_asr/workflow.py:128](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow.py#L128)：WorkflowExecutor.run。
+- [src/bili_asr/services/workflow_application.py:137](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_application.py#L137)：WorkflowApplication.run。
+- [src/bili_asr/workflow.py:285](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow.py#L285)：_LeaseHeartbeat._run。
+- [src/bili_asr/storage/workflow.py:54](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L54)：WorkflowRepository.open_lease_repository。
+- [src/bili_asr/workflow_runtime.py:411](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime.py#L411)：ArchiveWorkflowHandlers.publish。
+- [src/bili_asr/editorial_runtime.py:111](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/editorial_runtime.py#L111)：EditorialWorkflowHandlers.render。
+- [src/bili_asr/storage/job_commit.py:13](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/job_commit.py#L13)：JobCommitGuard。
+- [src/bili_asr/storage/workflow.py:262](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L262)：WorkflowRepository.claim。
+- [src/bili_asr/storage/workflow.py:364](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L364)：WorkflowRepository.cancel。
+- [src/bili_asr/storage/workflow.py:827](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L827)：WorkflowRepository._terminal。
 
 ## 提交期限补充
 

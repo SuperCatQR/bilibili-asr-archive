@@ -66,13 +66,13 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:285](../src/bili_asr/cli/workflow.py#L285)：_execute_workflow。
-- [src/bili_asr/services/workflow_application.py:42](../src/bili_asr/services/workflow_application.py#L42)：WorkflowApplication.plan。
-- [src/bili_asr/services/workflow_application.py:52](../src/bili_asr/services/workflow_application.py#L52)：WorkflowApplication.publish。
-- [src/bili_asr/storage/workflow_selection.py:56](../src/bili_asr/storage/workflow_selection.py#L56)：resolve_workflow_selection。
-- [src/bili_asr/storage/workflow.py:135](../src/bili_asr/storage/workflow.py#L135)：WorkflowRepository.plan_with_profile。
-- [src/bili_asr/storage/workflow.py:181](../src/bili_asr/storage/workflow.py#L181)：WorkflowRepository._enqueue_specs。
-- [src/bili_asr/workflow_planning.py:60](../src/bili_asr/workflow_planning.py#L60)：plan_producers。
-- [src/bili_asr/workflow_planning.py:34](../src/bili_asr/workflow_planning.py#L34)：JobSpec.materialize。
-- [src/bili_asr/storage/workflow.py:159](../src/bili_asr/storage/workflow.py#L159)：WorkflowRepository._planning_parts。
-- [src/bili_asr/storage/workflow.py:77](../src/bili_asr/storage/workflow.py#L77)：WorkflowRepository._register_profile。
+- [src/bili_asr/cli/workflow.py:285](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/workflow.py#L285)：_execute_workflow。
+- [src/bili_asr/services/workflow_application.py:42](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_application.py#L42)：WorkflowApplication.plan。
+- [src/bili_asr/services/workflow_application.py:52](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/workflow_application.py#L52)：WorkflowApplication.publish。
+- [src/bili_asr/storage/workflow_selection.py:56](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow_selection.py#L56)：resolve_workflow_selection。
+- [src/bili_asr/storage/workflow.py:135](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L135)：WorkflowRepository.plan_with_profile。
+- [src/bili_asr/storage/workflow.py:181](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L181)：WorkflowRepository._enqueue_specs。
+- [src/bili_asr/workflow_planning.py:60](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_planning.py#L60)：plan_producers。
+- [src/bili_asr/workflow_planning.py:34](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_planning.py#L34)：JobSpec.materialize。
+- [src/bili_asr/storage/workflow.py:159](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L159)：WorkflowRepository._planning_parts。
+- [src/bili_asr/storage/workflow.py:77](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L77)：WorkflowRepository._register_profile。

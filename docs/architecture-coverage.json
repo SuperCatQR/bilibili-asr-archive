@@ -2,7 +2,7 @@
   "schema_version": 3,
   "checked_on": "2026-10-12",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+  "repository_revision": "96c5502119829119abce42a59804b79431895a98",
   "top_level_commands": 21,
   "command_paths": [
     "workflow plan",
@@ -105,7 +105,10 @@
     "src/bili_asr/__main__.py",
     "src/bili_asr/archive.py",
     "src/bili_asr/archive_maintenance.py",
+    "src/bili_asr/archive_modes.py",
     "src/bili_asr/archive_session.py",
+    "src/bili_asr/artifact_child.py",
+    "src/bili_asr/artifact_fences.py",
     "src/bili_asr/artifact_inventory.py",
     "src/bili_asr/artifact_packages.py",
     "src/bili_asr/artifact_root.py",
@@ -138,11 +141,13 @@
     "src/bili_asr/canonical_json.py",
     "src/bili_asr/check_asr_env.py",
     "src/bili_asr/cli/__init__.py",
+    "src/bili_asr/cli/__main__.py",
     "src/bili_asr/cli/_shared.py",
     "src/bili_asr/cli/archive.py",
     "src/bili_asr/cli/artifacts.py",
     "src/bili_asr/cli/dedup.py",
     "src/bili_asr/cli/editorial.py",
+    "src/bili_asr/cli/json_input.py",
     "src/bili_asr/cli/main.py",
     "src/bili_asr/cli/maintenance.py",
     "src/bili_asr/cli/meta.py",
@@ -165,6 +170,7 @@
     "src/bili_asr/contracts/__main__.py",
     "src/bili_asr/contracts/content_policies.py",
     "src/bili_asr/contracts/fingerprints.py",
+    "src/bili_asr/contracts/identities.py",
     "src/bili_asr/contracts/json_schema.py",
     "src/bili_asr/contracts/registry.py",
     "src/bili_asr/contracts/release_gate.py",
@@ -176,17 +182,22 @@
     "src/bili_asr/deepseek.py",
     "src/bili_asr/diagnostics.py",
     "src/bili_asr/editorial.py",
+    "src/bili_asr/editorial_input_v2.py",
     "src/bili_asr/editorial_quality.py",
     "src/bili_asr/editorial_recovery.py",
     "src/bili_asr/editorial_runtime.py",
+    "src/bili_asr/editorial_segments.py",
     "src/bili_asr/error_codes.py",
     "src/bili_asr/export.py",
     "src/bili_asr/export_snapshot.py",
+    "src/bili_asr/file_ops.py",
     "src/bili_asr/formatting.py",
     "src/bili_asr/integrity.py",
     "src/bili_asr/long_live.py",
     "src/bili_asr/manuscript_artifacts.py",
     "src/bili_asr/manuscript_files.py",
+    "src/bili_asr/manuscript_renderers_v1.py",
+    "src/bili_asr/manuscript_renderers_v2.py",
     "src/bili_asr/manuscript_templates.py",
     "src/bili_asr/meta_cursor.py",
     "src/bili_asr/metadata_policy.py",
@@ -195,16 +206,21 @@
     "src/bili_asr/persistence.py",
     "src/bili_asr/platform_access.py",
     "src/bili_asr/platform_identity.py",
+    "src/bili_asr/preserved_body_evidence.py",
     "src/bili_asr/process_environment.py",
+    "src/bili_asr/profile_codec.py",
     "src/bili_asr/proofread.py",
     "src/bili_asr/publication.py",
     "src/bili_asr/publication_content.py",
     "src/bili_asr/publication_content_v2.py",
     "src/bili_asr/publication_export.py",
     "src/bili_asr/publication_identity.py",
+    "src/bili_asr/publication_models_v2.py",
+    "src/bili_asr/publication_origin_contract.py",
     "src/bili_asr/publication_origins.py",
     "src/bili_asr/publication_series.py",
     "src/bili_asr/publication_tags.py",
+    "src/bili_asr/publication_text.py",
     "src/bili_asr/publication_worker.py",
     "src/bili_asr/quality.py",
     "src/bili_asr/remote_storage.py",
@@ -243,6 +259,7 @@
     "src/bili_asr/services/asr_performance.py",
     "src/bili_asr/services/audio_inventory.py",
     "src/bili_asr/services/bundle_verification.py",
+    "src/bili_asr/services/editorial_application.py",
     "src/bili_asr/services/editorial_repair.py",
     "src/bili_asr/services/import_staging.py",
     "src/bili_asr/services/metadata_ingest.py",
@@ -275,6 +292,7 @@
     "src/bili_asr/sources/bilibili_api_gateway.py",
     "src/bili_asr/sources/bilibili_identity.py",
     "src/bili_asr/sources/bilibili_source.py",
+    "src/bili_asr/sources/caption_policy.py",
     "src/bili_asr/sources/models.py",
     "src/bili_asr/sources/protocols.py",
     "src/bili_asr/sources/registry.py",
@@ -283,11 +301,16 @@
     "src/bili_asr/ssh_storage_agent.py",
     "src/bili_asr/storage/__init__.py",
     "src/bili_asr/storage/archive_contracts.py",
+    "src/bili_asr/storage/archive_validation.py",
     "src/bili_asr/storage/artifact_catalog.py",
     "src/bili_asr/storage/artifact_online.py",
+    "src/bili_asr/storage/artifact_policies.py",
+    "src/bili_asr/storage/artifact_releases.py",
     "src/bili_asr/storage/asr_performance.py",
     "src/bili_asr/storage/database.py",
     "src/bili_asr/storage/editorial.py",
+    "src/bili_asr/storage/editorial_facts.py",
+    "src/bili_asr/storage/extension_contracts.py",
     "src/bili_asr/storage/import_origins.py",
     "src/bili_asr/storage/job_commit.py",
     "src/bili_asr/storage/metadata.py",
@@ -296,6 +319,7 @@
     "src/bili_asr/storage/models.py",
     "src/bili_asr/storage/publication.py",
     "src/bili_asr/storage/retry_maintenance.py",
+    "src/bili_asr/storage/schema_contract.py",
     "src/bili_asr/storage/snapshots.py",
     "src/bili_asr/storage/source_supplements.py",
     "src/bili_asr/storage/sources.py",
@@ -303,6 +327,7 @@
     "src/bili_asr/storage/upgrade_evidence.py",
     "src/bili_asr/storage/workflow.py",
     "src/bili_asr/storage/workflow_dependency_repair.py",
+    "src/bili_asr/storage/workflow_outputs.py",
     "src/bili_asr/storage/workflow_retry.py",
     "src/bili_asr/storage/workflow_selection.py",
     "src/bili_asr/storage/workflow_status.py",
@@ -315,6 +340,7 @@
     "src/bili_asr/workflow_models.py",
     "src/bili_asr/workflow_payloads.py",
     "src/bili_asr/workflow_planning.py",
+    "src/bili_asr/workflow_roles.py",
     "src/bili_asr/workflow_runtime.py",
     "src/bili_asr/workflow_runtime_ports.py",
     "src/bili_asr/workflow_shutdown.py",
@@ -1606,5 +1632,119 @@
   "limitations": [
     "Base contracts and optional extensions are counted separately. Optional SQL resources are not automatically installed. FTS virtual/shadow objects are derived and excluded from base table counts.",
     "Optional rights grants/holds are append-only and explicitly initialized; default workflows remain disabled until reviewed policy is enabled."
-  ]
+  ],
+  "command_registry": {
+    "retry-maintenance": {
+      "handler": "_cmd_retry_maintenance",
+      "handler_module": "bili_asr.cli.maintenance",
+      "database": "None"
+    },
+    "workflow": {
+      "handler": "_cmd_workflow",
+      "handler_module": "bili_asr.cli.workflow",
+      "database": "ArchiveAccessMode.WRITE"
+    },
+    "snapshot": {
+      "handler": "_cmd_snapshot",
+      "handler_module": "bili_asr.cli.snapshot",
+      "database": "ArchiveAccessMode.MAINTENANCE"
+    },
+    "archive": {
+      "handler": "_cmd_archive",
+      "handler_module": "bili_asr.cli.archive",
+      "database": "ArchiveAccessMode.MAINTENANCE"
+    },
+    "artifacts": {
+      "handler": "_cmd_artifacts",
+      "handler_module": "bili_asr.cli.artifacts",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "remote": {
+      "handler": "_cmd_remote",
+      "handler_module": "bili_asr.cli.remote_storage",
+      "database": "None"
+    },
+    "reference": {
+      "handler": "_cmd_reference",
+      "handler_module": "bili_asr.cli.remote_storage",
+      "database": "None"
+    },
+    "source": {
+      "handler": "_cmd_source",
+      "handler_module": "bili_asr.cli.source",
+      "database": "ArchiveAccessMode.WRITE"
+    },
+    "fetch-tags": {
+      "handler": "_cmd_fetch_tags",
+      "handler_module": "bili_asr.cli.meta",
+      "database": "ArchiveAccessMode.BOOTSTRAP"
+    },
+    "fetch-meta": {
+      "handler": "_cmd_fetch_meta",
+      "handler_module": "bili_asr.cli.meta",
+      "database": "ArchiveAccessMode.BOOTSTRAP"
+    },
+    "status": {
+      "handler": "_cmd_status",
+      "handler_module": "bili_asr.cli.status_cmd",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "runs": {
+      "handler": "_cmd_runs",
+      "handler_module": "bili_asr.cli.status_cmd",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "coverage": {
+      "handler": "_cmd_coverage",
+      "handler_module": "bili_asr.cli.status_cmd",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "verify": {
+      "handler": "_cmd_verify",
+      "handler_module": "bili_asr.cli.ops",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "search": {
+      "handler": "_cmd_search",
+      "handler_module": "bili_asr.cli.search",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "search-index": {
+      "handler": "_cmd_search_index",
+      "handler_module": "bili_asr.cli.search",
+      "database": "ArchiveAccessMode.WRITE"
+    },
+    "check-asr-env": {
+      "handler": "_cmd_check_asr_env",
+      "handler_module": "bili_asr.cli.ops",
+      "database": "None"
+    },
+    "export": {
+      "handler": "_cmd_export",
+      "handler_module": "bili_asr.cli.ops",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "publication": {
+      "handler": "_cmd_publication",
+      "handler_module": "bili_asr.cli.publication",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "editorial": {
+      "handler": "_cmd_editorial",
+      "handler_module": "bili_asr.cli.editorial",
+      "database": "ArchiveAccessMode.READ"
+    },
+    "dedup": {
+      "handler": "_cmd_dedup",
+      "handler_module": "bili_asr.cli.dedup",
+      "database": "ArchiveAccessMode.READ"
+    }
+  },
+  "diagram_source_revisions": {
+    "current_integration": "96c5502119829119abce42a59804b79431895a98",
+    "failure_recovery_snapshot": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+    "main_snapshot": "3ed823c961736378d8408bba5f0535b03e0046e0"
+  },
+  "current_integration_diagrams": 5,
+  "retained_snapshot_diagrams": 31
 }

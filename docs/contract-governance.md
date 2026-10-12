@@ -1,6 +1,6 @@
 # 契约治理与兼容边界
 
-当前源码核对基线为 `0c62a0f511880e9d07bbf9505771ec15657995e7`。
+当前源码核对基线为 `96c5502119829119abce42a59804b79431895a98`。
 [交互架构图](contract-governance.html)（[规格](contract-governance.json)）描述契约登记、校验、
 历史保真与文档发布边界；现行图表检查见[架构验证记录](architecture-validation.md)。
 
@@ -160,3 +160,6 @@ acceptance 证据。声明本身不能跳过矩阵：无路径、不连续路径
 ## 失败观测与受保护恢复
 
 workflow-failure-policy/v1 定义纯错误类别、准入、恢复动作和有限预算；workflow-failure-status/v1 定义 jobs/attempts/窗口与安全诊断投影；workflow-retry-control/v1 定义显式库外 controls 读取。三项均不安装基础数据库表、不改写旧错误码和冻结输入。周期 retry-maintenance 继续持久消耗自己的 ledger，模型再生成继续遵守 input/chunk 物理预算；不同预算不可相互重置。
+
+
+当前 schema 原语归 storage/schema_contract；archive_validation 组合基础与独立 extension_contracts 的验证，运行读取不安装 DDL。contracts/identities、profile_codec 和版本化 renderer 固定历史身份与出版字节；owner 重构没有改变 54 项稳定契约及 26 份 JSON Schema。原始修复范围见 [模块边界报告](development/module-coupling-fixes.md)。

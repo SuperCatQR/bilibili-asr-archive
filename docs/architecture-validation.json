@@ -2,16 +2,16 @@
   "schema_version": 4,
   "checked_on": "2026-10-12",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+  "repository_revision": "96c5502119829119abce42a59804b79431895a98",
   "archify_version": "3.0.1",
   "coverage": {
     "sequence_flows": 33,
     "interactive_diagrams": 36,
-    "refreshed_artifacts": 31,
-    "retained_artifacts": 5,
+    "refreshed_artifacts": 5,
+    "retained_artifacts": 31,
     "top_level_commands": 21,
     "leaf_commands": 94,
-    "python_modules": 218,
+    "python_modules": 244,
     "sql_resources": 12,
     "stable_contracts": 54,
     "json_schemas": 26
@@ -22,10 +22,10 @@
     "contract_resources": "pass",
     "mermaid_branch_balance": "pass",
     "artifact_receipt_hashes": "pass",
-    "pinned_source_references_checked": 441,
-    "pinned_source_ranges_checked": 430,
-    "local_markdown_links_checked": 1096,
-    "local_source_line_links_checked": 289,
+    "pinned_source_references_checked": 446,
+    "pinned_source_ranges_checked": 446,
+    "local_markdown_links_checked": 854,
+    "local_source_line_links_checked": 10,
     "mermaid_flows_checked": 33,
     "git_diff_check": "pass"
   },
@@ -123,10 +123,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/01-cli-bootstrap",
       "delivery_receipt_id": "c94d97e6-d56f-4124-aa86-5ede946861b7",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -221,10 +222,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/02-metadata-tags",
       "delivery_receipt_id": "4046ad67-f6d4-484a-b2f7-24135d56240d",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -319,10 +321,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/03-workflow-plan",
       "delivery_receipt_id": "29edfc93-9bc8-4bb4-b664-34cedb688908",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -417,10 +420,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/04-lease-cancel-retry",
       "delivery_receipt_id": "cbbb4352-7f15-41fa-97e4-b218cc2ff650",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -515,10 +519,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/05-subtitle-ingest",
       "delivery_receipt_id": "27350fdc-c525-4000-a942-77409c6665f9",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -613,10 +618,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/06-audio-download",
       "delivery_receipt_id": "d9593224-a2d1-415c-aa46-6982a691b073",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -711,10 +717,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/07-asr-runtime",
       "delivery_receipt_id": "28af1fa1-151e-42c0-a2b4-4a73805cf7c0",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -809,10 +816,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/08-transcript-bundle",
       "delivery_receipt_id": "fa8832ff-32ea-4cf0-8def-7065b026f4f6",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -907,10 +915,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/09-ai-proofread",
       "delivery_receipt_id": "e57ece9c-c0b8-4ddf-ae7b-3d7efa20b46a",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1005,10 +1014,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/10-document-render",
       "delivery_receipt_id": "e06d0659-d738-4178-8a1d-6769e1c46d78",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1103,10 +1113,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/11-publication-lifecycle",
       "delivery_receipt_id": "1983c3f0-8f88-42c2-8a74-17e911febd8c",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1201,10 +1212,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/12-reader-private-export",
       "delivery_receipt_id": "63b9a1c7-7c05-47f2-a431-8e6f56b1a2ba",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1299,10 +1311,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/13-projection-verify",
       "delivery_receipt_id": "541b39a9-661a-41df-9287-4ec5bf4a58b4",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1351,7 +1364,7 @@
         }
       ],
       "correction_rounds": 0,
-      "receipt_origin": "historical_main_receipt_reused",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
@@ -1447,10 +1460,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/15-archive-snapshot",
       "delivery_receipt_id": "68b09c75-6305-447d-8926-c5aafa184c21",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1545,10 +1559,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/16-library-and-operations",
       "delivery_receipt_id": "b9f9c8b5-37e7-43cd-9544-1c2ba89f5fed",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1597,7 +1612,7 @@
         }
       ],
       "correction_rounds": 0,
-      "receipt_origin": "historical_main_receipt_reused",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
@@ -1693,10 +1708,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/18-universal-migration",
       "delivery_receipt_id": "69c2b413-2ae6-4a2c-a01d-9c7e6ef839dd",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1791,10 +1807,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/19-persistent-asr",
       "delivery_receipt_id": "d1b3ffeb-3483-4fb2-9e97-e181ff49bc58",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1889,10 +1906,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/20-recovery-plan",
       "delivery_receipt_id": "1bd41172-4d42-4353-aebc-3d5d3de7d7fa",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1987,10 +2005,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/21-youtube-workflow",
       "delivery_receipt_id": "e12cbf68-2716-4a1b-a2bf-c43ee87aa79b",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -2085,10 +2104,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/22-subtitle-candidates",
       "delivery_receipt_id": "c1f27cbc-fe1e-4a57-bc2f-0309da83e19f",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -2183,10 +2203,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/23-metadata-refresh",
       "delivery_receipt_id": "02bacb84-0d31-4159-b4a9-132be453d1d7",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -2235,7 +2256,7 @@
         }
       ],
       "correction_rounds": 0,
-      "receipt_origin": "historical_main_receipt_reused",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
@@ -2331,10 +2352,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/25-contract-upgrade",
       "delivery_receipt_id": "d5c4645f-a4d7-4e42-8be1-2883da81937e",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -2383,7 +2405,7 @@
         }
       ],
       "correction_rounds": 0,
-      "receipt_origin": "historical_main_receipt_reused",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
@@ -2433,7 +2455,7 @@
         }
       ],
       "correction_rounds": 0,
-      "receipt_origin": "historical_main_receipt_reused",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
@@ -2529,10 +2551,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/28-preserved-body",
       "delivery_receipt_id": "39cf801a-f29b-494e-a1ae-6f6341c12a9d",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -2627,10 +2650,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/29-publication-series",
       "delivery_receipt_id": "1074e0e2-898f-4bee-9ec2-c65217c3df3c",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -2725,10 +2749,11 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/30-editorial-repair",
       "delivery_receipt_id": "fb6938be-c77f-4f3d-9f02-967f629f0d1c",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -2823,18 +2848,19 @@
           }
         ]
       },
-      "receipt_origin": "current_finalize",
+      "receipt_origin": "retained_source_snapshot_receipt",
       "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/31-source-metadata-migration",
       "delivery_receipt_id": "d1b2233b-7c5d-464f-ab58-31a6bd7fe72b",
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/32-retry-maintenance.json",
       "output": "docs/32-retry-maintenance.html",
-      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
-      "specification_sha256": "b0e3a84536ebdfa9c96d3a1b4d2c84e78be8a5ebb3b3495d82024760f06767a8",
-      "artifact_sha256": "58b55ec5d884031f6e60a7f4870bc2478c9c62e2651c8650a4e913110c021d09",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "6f7ce1469823607a320c03667a7397e79d14490b392b45ffa160c1643fa129a2",
+      "artifact_sha256": "6e4325d91009d1823c112455aebbb51bf6d36e252c73c77c3f5e24b5fe32ad20",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -2922,17 +2948,17 @@
         ]
       },
       "receipt_origin": "current_finalize",
-      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/semantic-final-2/32-retry-maintenance",
-      "delivery_receipt_id": "ecea3453-5b12-4f9d-a0a5-60ce5645e986",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/32-retry-maintenance",
+      "delivery_receipt_id": "17202124-22c4-4bb2-8905-034ca091bb11",
       "correction_rounds": 1
     },
     {
       "type": "sequence",
       "specification": "docs/33-workflow-failure-recovery.json",
       "output": "docs/33-workflow-failure-recovery.html",
-      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
-      "specification_sha256": "ab3b84e0a9fc3512ba54d90b29601cfba457e8120b3fe0d2ee5514dcd255324d",
-      "artifact_sha256": "cdae509b19a3f959c2035555f015aac9f15f51d598cd21be17b93bb61f8e0204",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "bb7295e6284999d2fd14ee63f929cbdda73ae5029b0babcc8aac3212305dc87b",
+      "artifact_sha256": "98ef02d460b76327a22b09be15ddffbebe99ffd7bbc125d8397e1d2279969248",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -3020,17 +3046,17 @@
         ]
       },
       "receipt_origin": "current_finalize",
-      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/33-workflow-failure-recovery",
-      "delivery_receipt_id": "ecefd746-e7f7-4285-884b-8ad1ad59869d",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/33-workflow-failure-recovery",
+      "delivery_receipt_id": "9f1dcf7a-5782-41e1-a3ff-aa15a3791c32",
       "correction_rounds": 0
     },
     {
       "type": "architecture",
       "specification": "docs/ai-proofreading-architecture.json",
       "output": "docs/ai-proofreading-architecture.html",
-      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
-      "specification_sha256": "f45da3c420bca1ec36fbf3a2507be36838be15eef8fddbd5737c05cc89201841",
-      "artifact_sha256": "f6e99661f264d567df1007b0b07b68de03c582fbd5b0ef8d7b3b04f95e18c753",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "8da44e48add62ff838c8a3dd78bfe990678ea95ad3bf82fa8944bbdf9831ac84",
+      "artifact_sha256": "ae09c94b31466c4150f5643f7383edab17134168810a84a11a39fab57e5507d6",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -3118,8 +3144,8 @@
         ]
       },
       "receipt_origin": "current_finalize",
-      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/ai-proofreading-architecture",
-      "delivery_receipt_id": "e87d6ccf-ffe0-4a7d-94e8-a1ac2470e37c",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/ai-proofreading-architecture",
+      "delivery_receipt_id": "4c6fa37e-8135-48b9-b68d-4c5256f3fef3",
       "correction_rounds": 0,
       "layout_advisory": {
         "routesOverSuggestedBends": 6
@@ -3129,9 +3155,9 @@
       "type": "architecture",
       "specification": "docs/architecture.json",
       "output": "docs/architecture.html",
-      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
-      "specification_sha256": "4f79852c738af577a1ae24674d2ce2d958114742c27077e5e3f9ba347e2f2f18",
-      "artifact_sha256": "b3201bfe398077e456fece52d94e4abace8dcf23e9704793f69d4163add72088",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "2dc3e90e39b89845f04e82415d7e921df3c673ee5a2590223641097cb97b23c0",
+      "artifact_sha256": "b12425065e3f5675f91c5c162aa40a5dbbc7e2d9b7c52f6967ae7521a962693e",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -3219,8 +3245,8 @@
         ]
       },
       "receipt_origin": "current_finalize",
-      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/review-3/architecture",
-      "delivery_receipt_id": "e354cb69-103e-4c0f-b726-2d8851c66946",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-review-3/architecture",
+      "delivery_receipt_id": "c749a408-53f6-43a9-9199-41627d01fd14",
       "correction_rounds": 1,
       "layout_advisory": {
         "resolvedCrossovers": 22,
@@ -3240,9 +3266,9 @@
       "type": "architecture",
       "specification": "docs/contract-governance.json",
       "output": "docs/contract-governance.html",
-      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
-      "specification_sha256": "4f46e3b2edad9143e53a6b93fa9e8aacf98f17ae5846898d65dc4914479c05a9",
-      "artifact_sha256": "3ae73f0ae8cdf6d8655b918cf106dfd054aa7d1f80020a65eec2e7dbaa22beaf",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "556548885e9eec50b4162148ff88391b8b89a7907235ab37021ade38ee1102ab",
+      "artifact_sha256": "0b5113e6bfe2565cb0c6d432d402cc50d0f3c246a8ec1e58074c925c5b88ef84",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -3330,8 +3356,8 @@
         ]
       },
       "receipt_origin": "current_finalize",
-      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/contract-governance",
-      "delivery_receipt_id": "3454ebbe-c499-44ca-a155-021668e11aa4",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/contract-governance",
+      "delivery_receipt_id": "f027680d-34ef-40b7-a880-df8a447e0b0d",
       "correction_rounds": 0
     }
   ],
@@ -3365,7 +3391,7 @@
   },
   "limitations": [
     "No production timer enablement, requeue, historical backfill, paid provider requests or FP8 hardware validation.",
-    "31 current finalize receipts and 5 byte-identical artifacts with historical receipts; no new browser run claimed for retained artifacts.",
+    "5 current integration finalize receipts and 31 byte-identical source snapshots with retained receipts; no new browser run claimed for retained artifacts.",
     "Overview retains 22 crossings: one positions-only trial passed all gates but increased crossings to 27, so original layout was restored and finalized.",
     "Automated browser evidence only; perceptual visual review not requested."
   ],
@@ -3373,5 +3399,18 @@
     "installed_version": "3.0.1",
     "available_version": "3.0.1",
     "notice_required": false
+  },
+  "pre_coupling_validation": "docs/evidence/architecture-pre-coupling-validation-2026-10-12.json",
+  "integration_validation": {
+    "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+    "source": "parent agent verified grouped targeted runs",
+    "policy_status_maintenance_architecture_couplings": "122 passed",
+    "publication_cancel_control_source_ports_utf8": "75 passed",
+    "editorial_and_architecture": "146 passed, 1 skipped",
+    "frozen_compatibility": "3 passed",
+    "counting_note": "groups overlap in architecture cases; counts are not summed as unique tests",
+    "contract_mirrors": "54 contracts, 26 schemas",
+    "ruff_E9": "pass",
+    "compileall": "pass"
   }
 }

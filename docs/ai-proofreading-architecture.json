@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "revision": "96c5502119829119abce42a59804b79431895a98",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -30,8 +30,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 55,
-          "end_line": 61,
+          "line": 43,
+          "end_line": 49,
           "label": "EditorialRepository.latest_sources"
         }
       ]
@@ -51,15 +51,15 @@
       ],
       "sources": [
         {
-          "path": "src/bili_asr/storage/editorial.py",
-          "line": 180,
-          "end_line": 208,
-          "label": "EditorialRepository.freeze_job_input"
+          "path": "src/bili_asr/services/editorial_application.py",
+          "line": 9,
+          "end_line": 37,
+          "label": "freeze_job_input"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 292,
-          "end_line": 371,
+          "line": 271,
+          "end_line": 350,
           "label": "prepare_input"
         }
       ]
@@ -136,13 +136,13 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 46,
-          "end_line": 59,
+          "end_line": 60,
           "label": "EditorialWorkflowHandlers.proofread"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 403,
-          "end_line": 473,
+          "line": 382,
+          "end_line": 452,
           "label": "validate_revision"
         },
         {
@@ -169,14 +169,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 418,
-          "end_line": 421,
+          "line": 367,
+          "end_line": 370,
           "label": "EditorialRepository.save_chunk"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 423,
-          "end_line": 439,
+          "line": 372,
+          "end_line": 388,
           "label": "EditorialRepository.commit_revision"
         }
       ]
@@ -197,8 +197,8 @@
       "sources": [
         {
           "path": "src/bili_asr/manuscript_templates.py",
-          "line": 84,
-          "end_line": 88,
+          "line": 17,
+          "end_line": 21,
           "label": "renderer_for"
         }
       ]
@@ -219,8 +219,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 111,
-          "end_line": 146,
+          "line": 112,
+          "end_line": 147,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -263,8 +263,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 240,
-          "end_line": 348,
+          "line": 226,
+          "end_line": 334,
           "label": "add_publication_parser"
         }
       ]
@@ -363,20 +363,20 @@
       "sources": [
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 160,
-          "end_line": 238,
+          "line": 161,
+          "end_line": 239,
           "label": "export_publications"
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 241,
-          "end_line": 340,
+          "line": 242,
+          "end_line": 341,
           "label": "export_publication_drafts"
         },
         {
           "path": "src/bili_asr/publication_export.py",
-          "line": 391,
-          "end_line": 480,
+          "line": 392,
+          "end_line": 481,
           "label": "export_editorial"
         }
       ]
@@ -397,8 +397,8 @@
       "sources": [
         {
           "path": "src/bili_asr/export_snapshot.py",
-          "line": 472,
-          "end_line": 557,
+          "line": 364,
+          "end_line": 449,
           "label": "replace_snapshot"
         }
       ]
@@ -599,6 +599,15 @@
         "供应商请求、响应解析、结构校验保存稳定错误码和有界位置/计数；状态不输出正文。",
         "普通 retry 使用原冻结输入；repair 新建输入与任务链，旧失败与 hold 保留。",
         "库外控制须显式读取；余额、配置、源质量和契约错误阻止自动重试。"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "模块所有者",
+      "items": [
+        "editorial_application 在同一 owned transaction 冻结输入、关联 job 与 render binding；editorial_facts 共享只读投影。",
+        "editorial_input_v2 / editorial_segments、publication_content(_v2) 与 manuscript_renderers_v1/v2 分别负责输入、规范化和版本字节。",
+        "file_ops 负责锁、fsync 与原子替换；origin contract 和 preserved_body_evidence 独立验证来源证据。"
       ]
     }
   ]

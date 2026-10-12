@@ -91,6 +91,6 @@ JSON Schema 的权威源在 `src/bili_asr/contracts/schemas/`；运行
 
 ## 2026-10-12 当前身份
 
-当前产品源码固定 `0c62a0f511880e9d07bbf9505771ec15657995e7`，覆盖清单来自该提交实际 parser、registry 和文件树。36 张图采用逐图来源：31 张受影响图重新绑定该产品源码并执行完整 finalize；14/17/24/26/27 保留 `3ed823c961736378d8408bba5f0535b03e0046e0` 的原规范、HTML 和已验证收据。两组哈希均重新与磁盘核对，不能将旧收据冒充新提交验收。
+当前整合源码固定 `96c5502119829119abce42a59804b79431895a98`，覆盖清单来自该提交的实际 parser、registry 和文件树。3 架构图与流程 32/33 共 5 张新 finalize；其他 31 张保留各自源码快照和原规范/HTML/验收收据，26 张来源 `0c62a0f511880e9d07bbf9505771ec15657995e7`，5 张来源 `3ed823c961736378d8408bba5f0535b03e0046e0`。保留图说明对应快照行为，当前模块 ownership 以当前架构和清单为准；所有图哈希重新核对，不把旧收据当作新来源的门禁。
 
 本次保留主分支流程 32（周期 retry-maintenance）、有界块再生成与持久 physical budget；失败恢复流程使用 33。状态、解释、CLI retry 与 maintenance 共享 failure_policy、decide_retry 和 editorial_retry_facts。AST 符号范围、Markdown 本地链接、Mermaid 分支、规格/HTML 哈希及真实浏览器结果见 architecture-validation.json。新的候选与 gate 收据保留在忽略目录 `.archify/failure-recovery-merge-20261012/`，原历史行为验证保留在 evidence/ 下。

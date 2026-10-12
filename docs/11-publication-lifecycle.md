@@ -54,16 +54,16 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/publication.py:240](../src/bili_asr/cli/publication.py#L240)：add_publication_parser。
-- [src/bili_asr/publication.py:46](../src/bili_asr/publication.py#L46)：create_edition。
-- [src/bili_asr/publication.py:123](../src/bili_asr/publication.py#L123)：publish_edition。
-- [src/bili_asr/publication_tags.py:26](../src/bili_asr/publication_tags.py#L26)：sync_source_tags。
-- [src/bili_asr/storage/publication.py:131](../src/bili_asr/storage/publication.py#L131)：PublicationRepository.insert_edition。
-- [src/bili_asr/storage/publication.py:170](../src/bili_asr/storage/publication.py#L170)：PublicationRepository.set_review。
-- [src/bili_asr/publication.py:1](../src/bili_asr/publication.py#L1)：模块定义。
-- [src/bili_asr/manuscript_files.py:130](../src/bili_asr/manuscript_files.py#L130)：atomic_write_artifact。
-- [src/bili_asr/storage/publication.py:195](../src/bili_asr/storage/publication.py#L195)：PublicationRepository.register_release。
-- [src/bili_asr/storage/publication.py:224](../src/bili_asr/storage/publication.py#L224)：PublicationRepository.withdraw。
+- [src/bili_asr/cli/publication.py:240](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/publication.py#L240)：add_publication_parser。
+- [src/bili_asr/publication.py:46](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication.py#L46)：create_edition。
+- [src/bili_asr/publication.py:123](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication.py#L123)：publish_edition。
+- [src/bili_asr/publication_tags.py:26](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_tags.py#L26)：sync_source_tags。
+- [src/bili_asr/storage/publication.py:131](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/publication.py#L131)：PublicationRepository.insert_edition。
+- [src/bili_asr/storage/publication.py:170](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/publication.py#L170)：PublicationRepository.set_review。
+- [src/bili_asr/publication.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication.py#L1)：模块定义。
+- [src/bili_asr/manuscript_files.py:130](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/manuscript_files.py#L130)：atomic_write_artifact。
+- [src/bili_asr/storage/publication.py:195](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/publication.py#L195)：PublicationRepository.register_release。
+- [src/bili_asr/storage/publication.py:224](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/publication.py#L224)：PublicationRepository.withdraw。
 
 ## 本次边界修复
 

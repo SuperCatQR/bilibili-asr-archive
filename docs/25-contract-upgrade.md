@@ -46,10 +46,10 @@ op->>upgrade: 停写、checkpoint 后 upgrade-plan；源/产物/目标互不包�
 
 ## 源码证据
 
-- [src/bili_asr/cli/archive.py:1](../src/bili_asr/cli/archive.py#L1)：模块定义。
-- [src/bili_asr/services/archive_upgrade.py:140](../src/bili_asr/services/archive_upgrade.py#L140)：plan_upgrade。
-- [src/bili_asr/services/archive_upgrade.py:255](../src/bili_asr/services/archive_upgrade.py#L255)：apply_upgrade。
-- [src/bili_asr/contracts/registry.py:336](../src/bili_asr/contracts/registry.py#L336)：upgrade_path。
-- [src/bili_asr/services/archive_upgrade.py:73](../src/bili_asr/services/archive_upgrade.py#L73)：_inventory。
-- [src/bili_asr/services/archive_upgrade.py:217](../src/bili_asr/services/archive_upgrade.py#L217)：_convert。
-- [src/bili_asr/services/archive_upgrade.py:334](../src/bili_asr/services/archive_upgrade.py#L334)：check_upgrade。
+- [src/bili_asr/cli/archive.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/archive.py#L1)：模块定义。
+- [src/bili_asr/services/archive_upgrade.py:140](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_upgrade.py#L140)：plan_upgrade。
+- [src/bili_asr/services/archive_upgrade.py:255](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_upgrade.py#L255)：apply_upgrade。
+- [src/bili_asr/contracts/registry.py:336](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/contracts/registry.py#L336)：upgrade_path。
+- [src/bili_asr/services/archive_upgrade.py:73](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_upgrade.py#L73)：_inventory。
+- [src/bili_asr/services/archive_upgrade.py:217](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_upgrade.py#L217)：_convert。
+- [src/bili_asr/services/archive_upgrade.py:334](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/archive_upgrade.py#L334)：check_upgrade。

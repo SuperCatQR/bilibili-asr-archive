@@ -1,6 +1,6 @@
 # 当前架构
 
-本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[33 个时序流程](architecture-sequences.md)核对合并分支 `codex/workflow-failure-recovery` 的固定源码 **`0c62a0f511880e9d07bbf9505771ec15657995e7`**，日期为 2026-10-12（Asia/Hong_Kong）。本轮保留 Issue #349/#350/#361 实现并合并 #365/#366/#367 的失败恢复边界，并配合阅读站独立分支完成 #348 消费者支持；该身份表示分支实现，不能推断远端 main 已合并或生产已部署。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
+本页与[全景图](architecture.html)、[AI/出版专题图](ai-proofreading-architecture.html)、[33 个时序流程](architecture-sequences.md)核对合并分支 `codex/workflow-failure-recovery` 的固定源码 **`96c5502119829119abce42a59804b79431895a98`**，日期为 2026-10-12（Asia/Hong_Kong）。本轮保留 Issue #349/#350/#361 实现并合并 #365/#366/#367 的失败恢复边界，并配合阅读站独立分支完成 #348 消费者支持；该身份表示分支实现，不能推断远端 main 已合并或生产已部署。图的 JSON、HTML、SHA-256 与实际检查范围见[验证记录](architecture-validation.md)，完整命令/模块/数据库契约见[源码清单](architecture-sources.md)。
 
 ## 执行模型与责任
 
@@ -110,3 +110,21 @@ SQLite 与文件系统没有跨介质原子事务；marker、不可变 hash、jo
 ## 统一失败恢复准入
 
 状态、解释、CLI retry 与周期 maintenance 共享 failure_policy、decide_retry 和 editorial_retry_facts。维护 allowlist 只收窄共享自动政策；数据库 attempts 是累计预算下限，外部 ledger、holds、替代任务和冻结物理调用预算可以继续阻止重排。失败诊断只输出安全字段，旧 attempt、原响应与冻结输入保留。完整路径见 [流程 33](33-workflow-failure-recovery.md)与 [流程 32](32-retry-maintenance.md)。
+
+
+## 模块责任整合
+
+本次合并纳入 main 的 [模块边界修复 #372–#383](development/module-coupling-fixes.md)。该修复报告保留其原始源码与测试口径；当前整合源码、模块清单和图件身份以本页及当前验收记录为准。
+
+| 所有者 | 当前职责 |
+| --- | --- |
+| storage/schema_contract、archive_validation、extension_contracts | schema 原语、运行验证和独立可选扩展组合；读取不安装 DDL |
+| storage/workflow_outputs、artifact_policies、artifact_releases | 音频/出版结果、策略和 release 的持久写入；service 保留围栏和文件安装顺序 |
+| services/editorial_application、storage/editorial_facts | freeze、job association、render binding 在同一 owned transaction 完成；共享只读事实投影 |
+| editorial_input_v2、editorial_segments、publication_content(_v2)、manuscript_renderers_v1/v2 | 输入准备、内容规范化和版本化字节渲染分别负责，历史身份/出版字节保持 |
+| file_ops、publication_origin_contract、preserved_body_evidence | 锁/fsync/原子文件替换与来源证据验证分离 |
+| sources/protocols、caption_policy、services/source_workflow | typed source/acquisition/caption ports 和提供方策略；不依赖完整 archive handler |
+| artifact_child、artifact_fences、profile_codec | 子进程访问内核、围栏和历史 profile 编码；ASR 不导入业务 service |
+| cli/registry、各 command owner、延迟 facade | registry 明确 handler_module，help 先解析后开启持久能力；历史 facade alias 按需加载 |
+
+这些 ownership 变化不迁移生产库、不重排任务、不改变已保存 schema/profile/input/出版字节；调用方事务与恢复政策继续生效。共享 failure_policy/decide_retry/editorial_retry_facts 仍是 status、explain、CLI retry 与 maintenance 的共同入口。

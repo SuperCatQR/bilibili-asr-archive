@@ -53,11 +53,11 @@ op->>service: inventory/deep 与冻结 plan；显式 holds 声明
 
 ## 源码证据
 
-- [src/bili_asr/cli/artifacts.py:1](../src/bili_asr/cli/artifacts.py#L1)：模块定义。
-- [src/bili_asr/services/artifact_transfer.py:286](../src/bili_asr/services/artifact_transfer.py#L286)：transfer_artifacts。
-- [src/bili_asr/services/artifact_consumer.py:42](../src/bili_asr/services/artifact_consumer.py#L42)：candidate_artifact_access。
-- [src/bili_asr/storage/artifact_catalog.py:186](../src/bili_asr/storage/artifact_catalog.py#L186)：ArtifactCatalog。
-- [src/bili_asr/services/artifact_release.py:1](../src/bili_asr/services/artifact_release.py#L1)：模块定义。
-- [src/bili_asr/services/artifact_groups.py:169](../src/bili_asr/services/artifact_groups.py#L169)：restore_artifact_group。
-- [src/bili_asr/artifact_packages.py:1](../src/bili_asr/artifact_packages.py#L1)：模块定义。
-- [src/bili_asr/storage_targets.py:1](../src/bili_asr/storage_targets.py#L1)：模块定义。
+- [src/bili_asr/cli/artifacts.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/artifacts.py#L1)：模块定义。
+- [src/bili_asr/services/artifact_transfer.py:286](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/artifact_transfer.py#L286)：transfer_artifacts。
+- [src/bili_asr/services/artifact_consumer.py:42](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/artifact_consumer.py#L42)：candidate_artifact_access。
+- [src/bili_asr/storage/artifact_catalog.py:186](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/artifact_catalog.py#L186)：ArtifactCatalog。
+- [src/bili_asr/services/artifact_release.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/artifact_release.py#L1)：模块定义。
+- [src/bili_asr/services/artifact_groups.py:169](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/artifact_groups.py#L169)：restore_artifact_group。
+- [src/bili_asr/artifact_packages.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/artifact_packages.py#L1)：模块定义。
+- [src/bili_asr/storage_targets.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage_targets.py#L1)：模块定义。

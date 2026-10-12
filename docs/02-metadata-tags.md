@@ -70,17 +70,17 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/meta.py:14](../src/bili_asr/cli/meta.py#L14)：_cmd_fetch_meta。
-- [src/bili_asr/cli/meta.py:152](../src/bili_asr/cli/meta.py#L152)：_cmd_fetch_tags。
-- [src/bili_asr/services/metadata_ingest.py:338](../src/bili_asr/services/metadata_ingest.py#L338)：MetadataIngestor._collect。
-- [src/bili_asr/services/video_tags.py:32](../src/bili_asr/services/video_tags.py#L32)：refresh_video_tags。
-- [src/bili_asr/sources/bilibili_source.py:37](../src/bili_asr/sources/bilibili_source.py#L37)：BilibiliMetadataSource.get_parts。
-- [src/bili_asr/platform_identity.py:17](../src/bili_asr/platform_identity.py#L17)：ContentRef。
-- [src/bili_asr/sources/bilibili_api_gateway.py:727](../src/bili_asr/sources/bilibili_api_gateway.py#L727)：BilibiliApiGateway。
-- [src/bili_asr/sources/bilibili_api_gateway.py:802](../src/bili_asr/sources/bilibili_api_gateway.py#L802)：BilibiliApiGateway.get_user_video_page。
-- [src/bili_asr/sources/bilibili_api_gateway.py:881](../src/bili_asr/sources/bilibili_api_gateway.py#L881)：BilibiliApiGateway.get_video_parts。
-- [src/bili_asr/sources/bilibili_api_gateway.py:950](../src/bili_asr/sources/bilibili_api_gateway.py#L950)：BilibiliApiGateway.get_video_tags。
-- [src/bili_asr/storage/metadata.py:19](../src/bili_asr/storage/metadata.py#L19)：MetadataRepository。
+- [src/bili_asr/cli/meta.py:14](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/meta.py#L14)：_cmd_fetch_meta。
+- [src/bili_asr/cli/meta.py:152](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/meta.py#L152)：_cmd_fetch_tags。
+- [src/bili_asr/services/metadata_ingest.py:338](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/metadata_ingest.py#L338)：MetadataIngestor._collect。
+- [src/bili_asr/services/video_tags.py:32](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/video_tags.py#L32)：refresh_video_tags。
+- [src/bili_asr/sources/bilibili_source.py:37](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_source.py#L37)：BilibiliMetadataSource.get_parts。
+- [src/bili_asr/platform_identity.py:17](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/platform_identity.py#L17)：ContentRef。
+- [src/bili_asr/sources/bilibili_api_gateway.py:727](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_api_gateway.py#L727)：BilibiliApiGateway。
+- [src/bili_asr/sources/bilibili_api_gateway.py:802](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_api_gateway.py#L802)：BilibiliApiGateway.get_user_video_page。
+- [src/bili_asr/sources/bilibili_api_gateway.py:881](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_api_gateway.py#L881)：BilibiliApiGateway.get_video_parts。
+- [src/bili_asr/sources/bilibili_api_gateway.py:950](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_api_gateway.py#L950)：BilibiliApiGateway.get_video_tags。
+- [src/bili_asr/storage/metadata.py:19](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/metadata.py#L19)：MetadataRepository。
 
 ## 当前来源刷新分派
 

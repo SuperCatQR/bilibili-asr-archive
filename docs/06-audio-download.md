@@ -56,18 +56,18 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/workflow_runtime.py:181](../src/bili_asr/workflow_runtime.py#L181)：ArchiveWorkflowHandlers.audio。
-- [src/bili_asr/workflow_runtime.py:211](../src/bili_asr/workflow_runtime.py#L211)：ArchiveWorkflowHandlers._download_audio。
-- [src/bili_asr/workflow_runtime.py:1](../src/bili_asr/workflow_runtime.py#L1)：模块定义。
-- [src/bili_asr/artifact_root.py:369](../src/bili_asr/artifact_root.py#L369)：usable_audio_path。
-- [src/bili_asr/path_policy.py:101](../src/bili_asr/path_policy.py#L101)：confined_audio_path。
-- [src/bili_asr/artifact_inventory.py:122](../src/bili_asr/artifact_inventory.py#L122)：stream_hash。
-- [src/bili_asr/sources/bilibili_source.py:103](../src/bili_asr/sources/bilibili_source.py#L103)：BilibiliAudioSource。
-- [src/bili_asr/sources/protocols.py:81](../src/bili_asr/sources/protocols.py#L81)：AudioSource。
-- [src/bili_asr/audio.py:222](../src/bili_asr/audio.py#L222)：download_audio。
-- [src/bili_asr/bili_client.py:609](../src/bili_asr/bili_client.py#L609)：BiliClient.fetch_playurl_audio。
-- [src/bili_asr/bili_client.py:639](../src/bili_asr/bili_client.py#L639)：BiliClient.download_audio_stream。
-- [src/bili_asr/storage/workflow.py:342](../src/bili_asr/storage/workflow.py#L342)：WorkflowRepository.owned_transaction。
+- [src/bili_asr/workflow_runtime.py:181](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime.py#L181)：ArchiveWorkflowHandlers.audio。
+- [src/bili_asr/workflow_runtime.py:211](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime.py#L211)：ArchiveWorkflowHandlers._download_audio。
+- [src/bili_asr/workflow_runtime.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/workflow_runtime.py#L1)：模块定义。
+- [src/bili_asr/artifact_root.py:369](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/artifact_root.py#L369)：usable_audio_path。
+- [src/bili_asr/path_policy.py:101](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/path_policy.py#L101)：confined_audio_path。
+- [src/bili_asr/artifact_inventory.py:122](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/artifact_inventory.py#L122)：stream_hash。
+- [src/bili_asr/sources/bilibili_source.py:103](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/bilibili_source.py#L103)：BilibiliAudioSource。
+- [src/bili_asr/sources/protocols.py:81](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/sources/protocols.py#L81)：AudioSource。
+- [src/bili_asr/audio.py:222](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/audio.py#L222)：download_audio。
+- [src/bili_asr/bili_client.py:609](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/bili_client.py#L609)：BiliClient.fetch_playurl_audio。
+- [src/bili_asr/bili_client.py:639](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/bili_client.py#L639)：BiliClient.download_audio_stream。
+- [src/bili_asr/storage/workflow.py:342](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L342)：WorkflowRepository.owned_transaction。
 
 ## 平台与准确输入
 

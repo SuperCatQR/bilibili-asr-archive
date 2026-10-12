@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "revision": "96c5502119829119abce42a59804b79431895a98",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -21,8 +21,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 285,
-          "end_line": 482,
+          "line": 286,
+          "end_line": 488,
           "label": "_execute_workflow"
         }
       ],
