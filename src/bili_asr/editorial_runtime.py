@@ -6,18 +6,18 @@ import hashlib
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
-from bili_asr.artifact_root import ArtifactRoots
-from bili_asr.editorial_quality import check_source_quality
-from bili_asr.workflow_errors import JobExecutionError
 
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
 from bili_asr.editorial import EditorialConfig, local_revision, validate_revision
+from bili_asr.editorial_quality import check_source_quality
 from bili_asr.manuscript_files import stage_artifact
+from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
 from bili_asr.storage.editorial import EditorialRepository, template_for_input
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
-from bili_asr.workflow_payloads import decode_job_payload
 from bili_asr.workflow import attempt_checkpoint
-from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
+from bili_asr.workflow_errors import JobExecutionError
+from bili_asr.workflow_payloads import decode_job_payload
 
 
 class EditorialWorkflowHandlers:

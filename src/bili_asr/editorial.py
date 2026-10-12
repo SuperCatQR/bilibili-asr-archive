@@ -7,10 +7,11 @@ usage remains the source of truth for final cost accounting.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import math
 import re
-from typing import Any, TYPE_CHECKING
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Any
+
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.workflow_errors import safe_job_details
 
@@ -219,8 +220,7 @@ def segments(record: TranscriptRecord) -> list[dict[str, Any]]:
 def language_key(value: str) -> str:
     """Compare Qwen language names with Bilibili caption codes without changing provenance."""
     code = value.strip().casefold().replace("_", "-")
-    if code.startswith("ai-"):
-        code = code[3:]
+    code = code.removeprefix("ai-")
     code = {"chinese": "zh", "english": "en", "japanese": "ja", "korean": "ko",
             "french": "fr", "german": "de", "spanish": "es", "russian": "ru",
             "portuguese": "pt", "italian": "it"}.get(code, code)

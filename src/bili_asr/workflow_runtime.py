@@ -436,8 +436,11 @@ class ArchiveWorkflowHandlers:
         preserved_raw = None
         preserved_publication = None
         if refresh is not None:
+            from bili_asr.services.artifact_groups import (
+                object_storage_key,
+                preserve_existing_publication,
+            )
             from bili_asr.services.publication_refresh import assert_publication_fence
-            from bili_asr.services.artifact_groups import preserve_existing_publication, object_storage_key
             from bili_asr.storage.artifact_catalog import require_artifact_catalog
             require_artifact_catalog(self.connection, required=True)
             with self.repository.owned_transaction(job):
@@ -547,7 +550,9 @@ class ArchiveWorkflowHandlers:
                 )
                 from bili_asr.storage.artifact_catalog import require_artifact_catalog
                 if require_artifact_catalog(self.connection):
-                    from bili_asr.services.artifact_groups import preserve_transcript_bundle
+                    from bili_asr.services.artifact_groups import (
+                        preserve_transcript_bundle,
+                    )
                     publication_id = self.connection.execute("SELECT publication_id FROM workflow_publications WHERE video_part_id=? AND transcript_id=?",
                                                              (int(part["video_part_id"]), transcript_id)).fetchone()[0]
                     preserve_transcript_bundle(self.connection, self.artifact_roots, publication_id, paths)

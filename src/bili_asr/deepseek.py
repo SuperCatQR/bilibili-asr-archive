@@ -9,7 +9,7 @@ from typing import Any
 
 import requests
 
-from bili_asr.editorial import EditorialConfig, SYSTEM_PROMPT, canonical
+from bili_asr.editorial import SYSTEM_PROMPT, EditorialConfig, canonical
 from bili_asr.workflow_errors import JobExecutionError
 
 

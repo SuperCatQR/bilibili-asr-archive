@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import re
+from collections import Counter
 
 from bili_asr.workflow_errors import JobExecutionError
 
