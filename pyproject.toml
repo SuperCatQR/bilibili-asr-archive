@@ -122,3 +122,6 @@ source = ["src/bili_asr", "*/site-packages/bili_asr", "*/src/bili_asr"]
 python_version = "3.12"
 files = ["src/bili_asr/file_ops.py", "src/bili_asr/storage/schema_contract.py"]
 strict = true
+# Check the listed boundaries strictly; imported legacy modules retain types
+# but are not silently promoted into this incremental rollout's error scope.
+follow_imports = "silent"
