@@ -26,7 +26,7 @@ from bili_asr.publication_content import (
 )
 from bili_asr.publication_tags import source_tags
 from bili_asr.storage.archive_contracts import frozen_version
-from bili_asr.publication_content_v2 import content_from_ai_v2, normalize_content_v2
+from bili_asr.publication_models_v2 import content_from_ai_v2, normalize_content_v2
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -113,7 +113,7 @@ def verify_release(connection: sqlite3.Connection, release_id: str,
     edition = _verify_release_identity(connection, release)
     from bili_asr.storage.import_origins import import_origin
     if import_origin(connection, edition["edition_id"]) is not None:
-        from bili_asr.services.preserved_body_import import check_preserved_body_import
+        from bili_asr.preserved_body_evidence import check_preserved_body_import
         check_preserved_body_import(connection, edition_id=edition["edition_id"], artifact_roots=artifact_roots)
     from bili_asr.services.artifact_readers import read_retained_text
     data = read_retained_text(connection, release["relative_path"], release["artifact_sha256"], _roots(artifact_roots))
@@ -136,7 +136,7 @@ def publish_edition(connection: sqlite3.Connection, *, edition_id: str,
     edition = get_edition(connection, edition_id)
     from bili_asr.storage.import_origins import import_origin
     if import_origin(connection, edition_id) is not None:
-        from bili_asr.services.preserved_body_import import check_preserved_body_import
+        from bili_asr.preserved_body_evidence import check_preserved_body_import
         check_preserved_body_import(connection, edition_id=edition_id, artifact_roots=roots)
     if edition["review_status"] != "approved":
         raise ValueError("publication-approval: edition has not been approved")

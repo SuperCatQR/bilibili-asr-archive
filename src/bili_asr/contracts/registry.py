@@ -4,24 +4,26 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
 
-BILIBILI_V1 = "bilibili-v1"
-UNIVERSAL_V2 = "universal-v2"
-RUNTIME_CONTRACTS = (BILIBILI_V1, UNIVERSAL_V2)
-WORKFLOW_PAYLOAD_VERSION = 1
-ASR_PROFILE_VERSION = 2
-ASR_EVIDENCE_VERSION = 1
-BUNDLE_SCHEMA = "archive-bundle-v2"
-BUNDLE_SCHEMA_V3 = "archive-bundle-v3"
-ORIGIN_PROFILE = "universal-origin-v1"
-ORIGIN_PROFILE_V2 = "universal-origin-v2"
-DESCRIPTION_SUPPLEMENT_POLICY = "legacy-description-supplement-v1"
-IMPORT_EXTENSION = "preserved-body-import-v1"
-LEGACY_FACTS_POLICY = "legacy-frozen-facts-v1"
-STORED_VTT_POLICY = "stored-segments-webvtt/v1"
-SOURCE_SUPPLEMENT_POLICY = "legacy-part-title-supplement-v1"
-ARTIFACT_STORAGE = "artifact-storage-v1"
-ARTIFACT_ONLINE = "artifact-online-v1"
-SCHEMA_BASE_URI = "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/"
+from bili_asr.contracts.identities import (
+    BILIBILI_V1 as BILIBILI_V1,
+    UNIVERSAL_V2 as UNIVERSAL_V2,
+    RUNTIME_CONTRACTS as RUNTIME_CONTRACTS,
+    WORKFLOW_PAYLOAD_VERSION as WORKFLOW_PAYLOAD_VERSION,
+    ASR_PROFILE_VERSION as ASR_PROFILE_VERSION,
+    ASR_EVIDENCE_VERSION as ASR_EVIDENCE_VERSION,
+    BUNDLE_SCHEMA as BUNDLE_SCHEMA,
+    BUNDLE_SCHEMA_V3 as BUNDLE_SCHEMA_V3,
+    ORIGIN_PROFILE as ORIGIN_PROFILE,
+    ORIGIN_PROFILE_V2 as ORIGIN_PROFILE_V2,
+    DESCRIPTION_SUPPLEMENT_POLICY as DESCRIPTION_SUPPLEMENT_POLICY,
+    IMPORT_EXTENSION as IMPORT_EXTENSION,
+    LEGACY_FACTS_POLICY as LEGACY_FACTS_POLICY,
+    STORED_VTT_POLICY as STORED_VTT_POLICY,
+    SOURCE_SUPPLEMENT_POLICY as SOURCE_SUPPLEMENT_POLICY,
+    ARTIFACT_STORAGE as ARTIFACT_STORAGE,
+    ARTIFACT_ONLINE as ARTIFACT_ONLINE,
+    SCHEMA_BASE_URI as SCHEMA_BASE_URI,
+)
 
 
 @dataclass(frozen=True)

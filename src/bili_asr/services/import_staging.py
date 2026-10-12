@@ -1,13 +1,14 @@
 """Owned import staging outside the physical archive artifact inventory."""
 from contextlib import contextmanager
 import json
-import os
 from pathlib import Path
 import re
-import tempfile
 from uuid import uuid4
 
-from bili_asr.export_snapshot import checked_path, _exclusive_lock, _fsync_directory, json_bytes
+from bili_asr.file_ops import (
+    atomic_replace_file, checked_path, exclusive_lock as _exclusive_lock,
+    fsync_directory as _fsync_directory, json_bytes,
+)
 
 
 def _recover(root: Path, journal: Path) -> None:
@@ -44,16 +45,8 @@ def import_staging(write_root: Path):
         _recover(root, journal)
         # Publish ownership before creating the directory or any staged bytes.
         name = f".import-stage-{uuid4().hex}"
-        descriptor, temporary = tempfile.mkstemp(prefix=".import-journal-", dir=root)
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(json_bytes({"version": 1, "directory": name}))
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, journal)
-            _fsync_directory(root)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        atomic_replace_file(journal, json_bytes({"version": 1, "directory": name}),
+                            prefix=".import-journal-")
         directory = root / name
         directory.mkdir()
         try:

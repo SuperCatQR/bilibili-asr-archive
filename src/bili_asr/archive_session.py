@@ -9,7 +9,6 @@ session, so closing it also releases maintenance coordination.
 from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
-from enum import Enum
 import os
 from pathlib import Path
 import sqlite3
@@ -23,17 +22,7 @@ from bili_asr.storage.database import (
 )
 
 
-class ArchiveAccessMode(Enum):
-    READ = "read"
-    WRITE = "write"
-    BOOTSTRAP = "bootstrap"
-    MAINTENANCE = "maintenance"
-
-
-class ArchiveContract(Enum):
-    RUNTIME = "runtime"
-    MANUSCRIPT = "manuscript"
-    NONE = "none"
+from bili_asr.archive_modes import ArchiveAccessMode, ArchiveContract
 
 
 def _checked_path(path: Path) -> None:

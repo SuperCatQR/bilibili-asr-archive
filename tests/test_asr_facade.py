@@ -25,6 +25,26 @@ def test_asr_boundaries_are_ordinary_modules():
     assert type(import_module("bili_asr.asr.provenance")) is ModuleType
 
 
+def test_public_function_annotations_resolve_without_loading_runtime():
+    from typing import Any, get_type_hints
+
+    assert get_type_hints(asr.transcribe)["return"] == list[dict[str, Any]]
+    assert "runner_factory" in get_type_hints(asr.provenance)
+
+
+def test_falsey_callable_boundary_factory_is_honored(monkeypatch):
+    class Factory:
+        def __bool__(self):
+            return False
+
+        def __call__(self, config):
+            return _Runner()
+
+    monkeypatch.setattr(asr, "ASRRunner", Factory())
+    assert asr.provenance()["model_name"] == "injected"
+    assert asr.transcribe("audio.flac")[0]["text"] == "audio.flac"
+
+
 def test_package_runner_substitution_applies_to_one_shot_calls(monkeypatch):
     seen = []
     original = runner.ASRRunner

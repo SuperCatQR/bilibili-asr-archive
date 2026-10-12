@@ -40,7 +40,7 @@ def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_te
 
     try:
         runner = ASRRunner(config)
-        from bili_asr.services.artifact_child import child_artifact_access
+        from bili_asr.artifact_child import child_artifact_access
         with child_artifact_access(artifact_context, audio_path):
             segments = two_pass_transcribe(
                 runner, audio_path, paired_subtitle_text=paired_subtitle_text

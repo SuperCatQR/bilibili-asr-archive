@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from bili_asr.canonical_json import canonical, digest
+from bili_asr.editorial_segments import language_key, segments
 from bili_asr.workflow_errors import safe_job_details
 
 if TYPE_CHECKING:
@@ -229,28 +230,6 @@ def local_revision(chunk: dict[str, Any]) -> list[dict[str, Any]] | None:
             "issues": [],
         })
     return blocks
-
-
-def segments(record: TranscriptRecord) -> list[dict[str, Any]]:
-    return [
-        {"segment_id": f"t{record.transcript_id}:s{i}", "start_ms": s.start_ms,
-         "end_ms": s.end_ms, "text": s.text}
-        for i, s in enumerate(record.segments)
-    ]
-
-
-def language_key(value: str) -> str:
-    """Compare Qwen language names with Bilibili caption codes without changing provenance."""
-    code = value.strip().casefold().replace("_", "-")
-    code = code.removeprefix("ai-")
-    code = {"chinese": "zh", "english": "en", "japanese": "ja", "korean": "ko",
-            "french": "fr", "german": "de", "spanish": "es", "russian": "ru",
-            "portuguese": "pt", "italian": "it"}.get(code, code)
-    if code in {"zh", "zh-cn", "zh-hans"}:
-        return "zh-hans"
-    if code in {"zh-tw", "zh-hk", "zh-mo", "zh-hant"}:
-        return "zh-hant"
-    return code.split("-", 1)[0]
 
 
 def estimate_chunk_budget(chunk: dict[str, Any], *, system_prompt: str = SYSTEM_PROMPT,

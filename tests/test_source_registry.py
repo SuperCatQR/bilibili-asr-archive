@@ -5,7 +5,7 @@ import sys
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
 from bili_asr.services.archive_migration import initialize_archive
-from bili_asr.services.source_workflow import compose_source_handlers
+from bili_asr.services.source_workflow import SourceWorkflowPorts, compose_source_handlers
 from bili_asr.sources.registry import SourceRegistry
 from bili_asr.sources.youtube_source import YoutubeSource
 from bili_asr.storage.sources import SourceRepository
@@ -54,7 +54,7 @@ def test_runtime_cookie_path_and_secret_do_not_enter_source_or_workflow_database
         runtime = ArchiveWorkflowHandlers(connection, workflow, archive_root=root, sessdata=None)
         try:
             handlers = dict(runtime.handlers())
-            handlers.update(compose_source_handlers(runtime, registry))
+            handlers.update(compose_source_handlers(SourceWorkflowPorts(runtime.connection, runtime.repository, runtime.artifact_roots, runtime.subtitle, runtime.audio, runtime.store_audio), registry))
             summary = WorkflowExecutor(workflow, worker_id="cookie-runtime", handlers=handlers).run()
             assert summary.failed == 0 and summary.succeeded == 2
             context = connection.execute("SELECT access_context FROM source_caption_observations").fetchone()[0]

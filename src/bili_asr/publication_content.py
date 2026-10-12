@@ -3,34 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from bili_asr.manuscript_templates import PUBLISH_RENDERERS, renderer_for
+from bili_asr.manuscript_renderers_v1 import render_publish_v1
+from bili_asr.publication_text import (
+    CONTENT_KEYS, EDITABLE_METADATA as EDITABLE_METADATA,
+    normalize_actor as normalize_actor, normalize_text,
+)
 from bili_asr.bilibili_identity import bilibili_source_url, legacy_bilibili_source_ref
 
 PUBLISH_TEMPLATE_VERSION = "publish-v1"
-CONTENT_KEYS = frozenset({"title", "markdown", "summary", "tags", "source", "attribution", "editorNote"})
-EDITABLE_METADATA = CONTENT_KEYS - {"markdown", "source"}
-
-
-def normalize_text(value: Any, name: str, *, nonempty: bool = False, multiline: bool = True) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"publication-content: {name} must be text")
-    value = value.replace("\r\n", "\n").replace("\r", "\n")
-    try:
-        value.encode("utf-8", errors="strict")
-    except UnicodeEncodeError as exc:
-        raise ValueError(f"publication-content: {name} must be valid UTF-8 text") from exc
-    if "\x00" in value or any(ord(c) < 32 and c not in "\n\t" for c in value):
-        raise ValueError(f"publication-content: {name} contains control characters")
-    if not multiline and ("\n" in value or "\t" in value):
-        raise ValueError(f"publication-content: {name} must be one line")
-    value = value.strip()
-    if nonempty and not value:
-        raise ValueError(f"publication-content: {name} must not be empty")
-    return value
-
-
-def normalize_actor(actor: str) -> str:
-    return normalize_text(actor, "actor", nonempty=True, multiline=False)
 
 
 def normalize_content(content: dict[str, Any]) -> dict[str, Any]:
@@ -81,4 +61,4 @@ def content_from_ai(prepared: dict, markdown_text: str) -> dict:
 
 def render_publication(content: dict[str, Any]) -> bytes:
     """Render the current writer template from normalized reader content."""
-    return renderer_for(PUBLISH_RENDERERS, PUBLISH_TEMPLATE_VERSION)(normalize_content(content))
+    return render_publish_v1(normalize_content(content))

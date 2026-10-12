@@ -8,7 +8,7 @@ import os
 from dataclasses import asdict
 from uuid import uuid4
 
-from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.archive_modes import ArchiveAccessMode
 from bili_asr.artifact_root import roots_for
 from bili_asr.asr import default_config
 from bili_asr.asr.runner import ASRInferenceTimeoutError
@@ -16,8 +16,7 @@ from bili_asr.asr.session import InferenceSessionError
 from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
 from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
-from bili_asr.services.workflow_application import WORKER_ROLES, WorkflowApplication
-from bili_asr.storage.database import SchemaContractError
+from bili_asr.workflow_roles import WORKER_ROLES
 from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind
 
 
@@ -275,6 +274,8 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
 
 
 def _cmd_workflow(args: argparse.Namespace) -> int:
+    from bili_asr.storage.database import SchemaContractError
+
     try:
         return _execute_workflow(args)
     except (SchemaContractError, ValueError, OSError) as exc:
@@ -283,6 +284,11 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
 
 
 def _execute_workflow(args: argparse.Namespace) -> int:
+    from bili_asr.archive_session import ArchiveSession
+    from bili_asr.services.workflow_application import WorkflowApplication
+    from bili_asr.asr.session import InferenceSessionError
+    from bili_asr.asr.runner import ASRInferenceTimeoutError
+
     if args.workflow_action == "supervise":
         from bili_asr.workflow_supervisor import WorkerSupervisor
         supervisor = WorkerSupervisor(archive_root=args.archive_root, artifact_root=args.artifact_root,

@@ -7,18 +7,14 @@ facts, while neutral source tables carry all providers.
 from __future__ import annotations
 
 from functools import lru_cache
-from importlib import resources
 import re
 import sqlite3
 
+from bili_asr.storage.schema_contract import SchemaContractError, normalize_schema_sql as _normalize_manuscript_sql, schema_resource as _resource
 from bili_asr.contracts.registry import BILIBILI_V1, UNIVERSAL_V2, RUNTIME_CONTRACTS
 
 SUPPORTED_RUNTIME_CONTRACTS = RUNTIME_CONTRACTS
 _BASE = ("schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql")
-
-
-def _resource(name: str) -> str:
-    return resources.files("bili_asr.storage").joinpath(name).read_text(encoding="utf-8")
 
 
 @lru_cache(maxsize=2)
@@ -89,12 +85,8 @@ def bootstrap_contract(connection: sqlite3.Connection, contract: str = UNIVERSAL
 
 
 def require_universal_contract(connection: sqlite3.Connection) -> None:
-    from bili_asr.storage.database import SchemaContractError, _normalize_manuscript_sql
-    from bili_asr.storage.artifact_catalog import require_artifact_catalog
-    require_artifact_catalog(connection)
-    from bili_asr.storage.artifact_online import require_artifact_online
-    require_artifact_online(connection)
-
+    from bili_asr.storage.archive_validation import require_optional_extensions
+    require_optional_extensions(connection)
     if runtime_contract(connection) != UNIVERSAL_V2:
         raise SchemaContractError("universal-v2 requires an explicitly initialized or migrated target")
     actual = {row[0]: (row[1], row[2]) for row in connection.execute(
@@ -105,8 +97,6 @@ def require_universal_contract(connection: sqlite3.Connection) -> None:
             raise SchemaContractError(f"universal-v2 schema missing or altered object: {name}")
     if connection.execute("SELECT 1 FROM video_parts WHERE source_video_id IS NULL LIMIT 1").fetchone():
         raise SchemaContractError("universal-v2 part is missing its neutral source identity")
-    from bili_asr.storage.import_origins import require_import_extension
-    require_import_extension(connection)
 
 
 def frozen_version(connection: sqlite3.Connection, entity: str, identity: str) -> int:
