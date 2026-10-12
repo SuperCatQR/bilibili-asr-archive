@@ -62,3 +62,20 @@ CI 配置参考 [uv 官方 GitHub Actions 指南](https://docs.astral.sh/uv/guid
 整合保留远端定时回归、UTF-8 环境、包许可证检查、JUnit 汇总和节点参数文件 helper。JUnit 汇总移到覆盖率生成之后，使失败报告不会阻止覆盖率诊断生成；删除 download-artifact 不支持的 `if-no-artifact-found` 参数。
 
 新基线上的分片、契约、覆盖率和依赖锁专项测试共 **45 passed**。最终 actionlint、全部 19 段 Bash 语法、`uv lock --check`、Git diff whitespace 检查通过；JUnit 汇总用此前四片真实报告运行，输出 3154 passed、0 failed、0 errors、11 skipped。远端完整 CI 尚待分支 PR 或手动触发后验证。
+
+## PR #384 远端验收与工作区后续整理
+
+2026-10-12 17:24（Asia/Hong_Kong），[PR #384](https://github.com/SuperCatQR/bilibili-asr-archive/pull/384) 已合并为 `85d5795d8cc739fe81bfdee8a67eda17466b736d`。[远端 CI 38228504283](https://github.com/SuperCatQR/bilibili-asr-archive/actions/runs/38228504283) 测试源码为 `a61b8e191c723a11560f7f6a5f1deac242b510e2`；全部八项必需检查成功。
+
+| 分片 | 通过 | 跳过 | pytest 耗时 |
+| --- | --- | --- | --- |
+| 1 | 749 | 3 | 403.29 秒 |
+| 2 | 945 | 4 | 374.34 秒 |
+| 3 | 835 | 1 | 382.98 秒 |
+| 4 | 727 | 3 | 506.19 秒 |
+
+合计 **3256 passed、11 skipped、0 failed**；质量、安全、打包及原有 75% 行 / 63% 分支覆盖率门禁均通过。这组结果补充了前文当时尚未触发远端 CI 的状态，前文 WSL 数字仍属于原记录版本，不作替换或混算。
+
+原工作区 11 个未提交文件已保存为本地快照 `eea90ad`。其中八个与合并后的 main 内容一致，另外三个保留整合前的工作流、分片实现和验收说明。后续 PR 基于最新 main，保留已合并的定时、安全和报告检查，仅将本地 TemporaryDirectory 清理方式融入已有 `_write_node_ids()`，并记录本次远端验收。
+
+后续变更验证全部在 WSL 进行：分片 / 契约 / 覆盖率 / 依赖锁专项 **46 passed**，actionlint、Ruff E9、Git whitespace 检查通过。临时模块中禁用目录清理后，新异常路径测试如预期失败，确认回归测试能发现该问题；生产文件未被变异修改。这次后续变更的全量 CI 应以对应 PR 的新运行结果为准。

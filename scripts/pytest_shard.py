@@ -104,11 +104,11 @@ def _previous_catalog(ref: str | None) -> dict | None:
     return json.loads(result.stdout)
 
 
-def _write_node_ids(node_ids: list[str]) -> Path:
+def _write_node_ids(node_ids: list[str], directory: str | None = None) -> Path:
     """Write one pytest node id per line for an argv-length-safe invocation."""
     handle = tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", newline="\n", prefix="bili-asr-pytest-", suffix=".args",
-        delete=False,
+        delete=False, dir=directory,
     )
     try:
         with handle:
@@ -160,12 +160,10 @@ def main(argv: list[str] | None = None) -> int:
         command.extend(["-m"])
     # pytest >=8.2 reads one argument per line. Keep thousands of parameterized
     # nodes out of the OS command line and preserve exact collected selections.
-    selection = _write_node_ids(selected)
-    try:
+    with tempfile.TemporaryDirectory(prefix="bili-asr-pytest-shard-") as directory:
+        selection = _write_node_ids(selected, directory)
         command.extend(["pytest", *pytest_args, f"@{selection}"])
         return subprocess.run(command, check=False).returncode
-    finally:
-        selection.unlink(missing_ok=True)
 
 
 
