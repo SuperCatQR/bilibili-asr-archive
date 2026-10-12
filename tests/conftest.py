@@ -259,13 +259,15 @@ def mock_torch(monkeypatch):
 
 @pytest.fixture
 def enable_content_publication_for_tests(monkeypatch):
-    """Opt the test archive into public-flow tests; production defaults off."""
+    """Exercise the optional compliance policy and its publication opt-in."""
+    monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
     monkeypatch.setenv("BILI_PUBLICATION_ENABLED", "1")
 
 
 @pytest.fixture(autouse=True)
 def enable_content_publication_for_legacy_flows(monkeypatch):
-    """Keep legacy public-flow tests explicit while production remains opt-in."""
+    """Keep existing compliance regressions running in strict mode."""
+    monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
     monkeypatch.setenv("BILI_PUBLICATION_ENABLED", "1")
 
 

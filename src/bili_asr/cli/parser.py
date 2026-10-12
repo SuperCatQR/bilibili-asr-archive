@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--out", default=None)
     export.add_argument("--status", action="append", default=None)
     export.add_argument("--with-text", action="store_true")
-    export.add_argument("--private", action="store_true", help="Acknowledge text export is private operator material")
+    export.add_argument("--private", action="store_true", help="Acknowledge private text export when compliance mode is enabled")
     export.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
     environment = subparsers.add_parser("check-asr-env", help="Inspect ASR deployment or verify the AMD WSL recipe")

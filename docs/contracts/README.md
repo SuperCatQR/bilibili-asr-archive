@@ -191,8 +191,9 @@ invalid legacy and private catalogs for consumer contract tests. They are
 illustrative metadata fixtures; their Markdown byte hashes are not a deployable
 export.
 
-Content-rights registration and public reader exports are disabled unless the
-deployment explicitly sets `BILI_PUBLICATION_ENABLED=1`. Even when enabled,
+Compliance restrictions are disabled by default. With `BILI_COMPLIANCE_ENABLED=1`,
+content-rights registration and public reader exports require
+`BILI_PUBLICATION_ENABLED=1`. Under that policy,
 each edition must carry an independent permission record before its article or
 review bytes enter a public snapshot; software licensing does not grant rights
 to source media or transcripts.

@@ -56,6 +56,45 @@ def editorial_approve(connection, edition):
                        content_sha256=edition['content_sha256'], expected_status=expected, actor='reviewer')
 
 
+@pytest.mark.parametrize('value', [None, '', '0', 'true', ' 1'])
+def test_default_policy_publishes_and_exports_without_inventing_permission(manuscript, monkeypatch, value):
+    connection, edition, root, roots, output = manuscript
+    if value is None:
+        monkeypatch.delenv('BILI_COMPLIANCE_ENABLED', raising=False)
+    else:
+        monkeypatch.setenv('BILI_COMPLIANCE_ENABLED', value)
+    monkeypatch.delenv('BILI_PUBLICATION_ENABLED', raising=False)
+    require_publication_enabled()
+    drafts = output.parent / 'default-drafts'
+    assert export_publication_drafts(connection, artifact_roots=roots, output=drafts) == 1
+    assert not (drafts / 'content-rights.json').exists()
+    assert rights_status(connection, edition) == {'status': 'unknown', 'public': False}
+    editorial_approve(connection, edition)
+    publish_edition(connection, edition_id=edition['edition_id'], artifact_roots=roots,
+                    write_root=root, actor='publisher')
+    assert export_publications(connection, artifact_roots=roots, output=output) == 1
+    assert not (output / 'content-rights.json').exists()
+    initialize_rights(connection)
+    record_rights(connection, action='hold', video_part_id=edition['video_part_id'],
+                  actor='operator', note='Recorded while checks are optional')
+    assert rights_status(connection, edition)['status'] == 'held'
+    assert export_publications(connection, artifact_roots=roots, output=output) == 1
+    monkeypatch.setenv('BILI_COMPLIANCE_ENABLED', '1')
+    monkeypatch.setenv('BILI_PUBLICATION_ENABLED', '1')
+    assert export_publications(connection, artifact_roots=roots, output=output) == 0
+
+
+def test_default_cli_allows_registration_and_text_export_without_private_flag(manuscript, monkeypatch, capsys):
+    connection, _edition, root, _roots, _output = manuscript
+    connection.close()
+    monkeypatch.delenv('BILI_COMPLIANCE_ENABLED', raising=False)
+    monkeypatch.delenv('BILI_PUBLICATION_ENABLED', raising=False)
+    assert cli.main(['publication', 'rights', 'init', '--archive-root', str(root)]) == 0
+    capsys.readouterr()
+    assert cli.main(['export', '--archive-root', str(root), '--format', 'json', '--with-text']) == 0
+    assert isinstance(json.loads(capsys.readouterr().out), list)
+
+
 def test_content_permission_and_publication_are_disabled_without_explicit_opt_in(manuscript, monkeypatch):
     connection, edition, _root, roots, output = manuscript
     monkeypatch.delenv('BILI_PUBLICATION_ENABLED', raising=False)
