@@ -29,6 +29,7 @@ youtube = [
     "yt-dlp-ejs==0.8.0",
 ]
 dev = [
+    "mypy>=1.19,<2",
     # The light members of the ASR stack.  The test double exercises the real audio path,
     # which calls numpy/soundfile/soxr directly; of the three, only soundfile and soxr are
     # declared in the [asr] extra — numpy arrives transitively through both, and is named
@@ -74,15 +75,15 @@ asr = [
     # naming it when it is absent.
 ]
 
-[tool.uv]
-# Host-specific GPU wheels are provisioned separately (docs/wsl-rocm-gpu.md). Exact sync
-# removes packages absent from the lock, so existing GPU environments must use --inexact.
-exclude-dependencies = ["torch"]
-
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.org/simple"
 default = true
+
+[tool.uv]
+# Host-specific GPU wheels are provisioned separately (docs/wsl-rocm-gpu.md). Exact sync
+# removes packages absent from the lock, so existing GPU environments must use --inexact.
+exclude-dependencies = ["torch"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -116,3 +117,11 @@ show_missing = true
 
 [tool.coverage.paths]
 source = ["src/bili_asr", "*/site-packages/bili_asr", "*/src/bili_asr"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/bili_asr/file_ops.py", "src/bili_asr/storage/schema_contract.py"]
+strict = true
+# Check the listed boundaries strictly; imported legacy modules retain types
+# but are not silently promoted into this incremental rollout's error scope.
+follow_imports = "silent"

@@ -296,7 +296,8 @@ bili-asr snapshot doctor --archive-root restored-archive
 
 ```sh
 uv sync --locked --extra dev --inexact
-uv run --no-sync ruff check src scripts tests --select E9
+uv run --no-sync ruff check src scripts tests --select E9,F821,F822,F823
+uv run --no-sync mypy
 uv run --no-sync python -m compileall -q src tests scripts
 uv run --no-sync python -m bili_asr.contracts --check-docs docs/contracts
 uv run --no-sync pytest
@@ -313,6 +314,7 @@ uv run --no-sync pytest
 | 部署、存储、迁移、备份与恢复 | [运维手册](docs/operations/README.md) |
 | 来源简介、标签和历史产物补全 | [来源元数据](docs/guides/source-metadata.md) · [历史稿件简介补充](docs/guides/source-description-supplement.md) |
 | 开发、契约与发布维护 | [开发与维护](docs/development/README.md) · [契约镜像](docs/contracts/README.md) |
+| 质量门禁与发布验收 | [质量管理](docs/development/quality-management.md) · [运行与恢复](docs/operations/quality-and-release.md) |
 | 固定日期与环境下的实际验证 | [实测记录](docs/evidence/README.md) |
 
 ## 许可证

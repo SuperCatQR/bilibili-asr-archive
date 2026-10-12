@@ -62,6 +62,12 @@ from functools import wraps
 import sys
 import types
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bili_asr.sources.models import (
+        UserVideoPage, VideoPart, VideoSummary, VideoTag, SubtitleTrack, SubtitleSegment,
+    )
 
 import pytest
 

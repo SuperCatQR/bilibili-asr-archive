@@ -1,6 +1,7 @@
 # CI 测试覆盖率门禁
 
-PR 和 main CI 都在四个分片中运行完整的默认测试集，随后由
+PR 和 main CI 都在四个 Linux 分片中运行完整的默认测试集，另在 Windows
+实际验证进程锁、并发补充和备份恢复，随后由
 `tests / coverage report` 汇总覆盖率并执行门禁。该 job 已列入 main 的必需检查，
 门禁失败会阻止合并。
 
@@ -8,7 +9,7 @@ PR 和 main CI 都在四个分片中运行完整的默认测试集，随后由
 
 CI 使用固定版本 uv 0.11.14，并按 `uv.lock` 缓存下载与构建产物。
 测试环境用 `uv sync --locked --extra dev` 安装；安全审计使用锁文件导出的默认、
-dev 和 remote 依赖；Ruff、pip-audit 和 coverage 版本也从锁文件读取。
+dev 和 remote 依赖；Ruff、mypy、pip-audit 和 coverage 版本也从锁文件读取。
 pip、setuptools 和 wheel 是隔离安装测试需要的构建工具，单独安装在测试环境中。
 离线 jsonschema wheelhouse 下载使用锁文件导出的 runtime constraints，避免出现
 主环境与隔离环境解析到不同版本的情况。产品 wheel 在独立环境中安装并按锁文件
@@ -67,7 +68,7 @@ pytest 参数文件需要 8.2 或更新版本，当前锁定版本满足要求�
 
 使用 coverage.py 7.10.6 或更新版本，通过 `subprocess` patch 自动采集同一 Python
 环境中的子进程，通过 `_exit` patch 在调用 `os._exit()` 前保存数据。
-各进程写独立数据文件，四个分片上传后统一 combine；相对路径与路径别名避免不同
+各进程写独立数据文件，四个 Linux 分片与 Windows 上传后统一 combine；相对路径与路径别名避免不同
 工作目录产生重复条目。
 
 独立安装测试继续使用干净虚拟环境，不为测量而给产品 wheel 添加 coverage 依赖。
@@ -77,13 +78,17 @@ pytest 参数文件需要 8.2 或更新版本，当前锁定版本满足要求�
 
 ## 门禁规则
 
-工作流分别要求产品行覆盖率至少 75%，分支覆盖率至少 63%。比较使用原始计数，
+工作流分别要求产品行覆盖率至少 80%，分支覆盖率至少 70%。比较使用原始计数，
 不会因为显示时四舍五入而放过低于阈值的结果。
 检查器还核对源码文件清单：源码缺失、报告混入非产品文件或空测量均失败。
 新增未执行的模块会降低覆盖率，不能从分母中静默消失。
 
 这是固定最低门槛，不是逐提交自动递增的基线。覆盖率在门槛以上下降时不会自动阻断；
-评审仍应检查高风险分支和新增行为。后续提高门槛应以完整四分片结果为依据。
+评审仍应检查高风险分支和新增行为。PR 另逐文件要求修改的可执行行覆盖率至少
+90%，以精确 PR base SHA 比较；排除行仍计为未覆盖。缺少模块报告或不能解析的
+带引号路径明确失败，删除行、注释不要求执行证据。
+`changed-coverage.json` 提供差异门禁明细，`coverage-risks.json` 和 Markdown
+清单列出关键模块未覆盖的行与分支。完整规则见[质量管理](quality-management.md)。
 
 ## 本地复现与排查
 
@@ -95,7 +100,7 @@ python scripts/pytest_shard.py --shard-index 0 --shard-count 1 --coverage -- -q
 python -m coverage combine
 python -m coverage report
 python -m coverage json -o coverage.json
-python scripts/check_test_coverage.py coverage.json --line-min 75 --branch-min 63
+python scripts/check_test_coverage.py coverage.json --line-min 80 --branch-min 70
 ```
 
 CI 的 `coverage-<run_id>-<run_attempt>` artifact 保留 XML 和 JSON 报告 14 天，门禁失败后仍会上传。

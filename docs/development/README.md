@@ -5,6 +5,7 @@
 | 文档 | 范围 |
 | --- | --- |
 | [CI 覆盖率](ci-coverage.md) | 产品源码范围、子进程采集、阈值与本地复现 |
+| [质量与发布管理](quality-management.md) | 修改行覆盖率、风险分支、平台回归与发布验收 |
 | [发布说明模板](version-release-template.md) | 行为、契约身份、历史证明、运行交接和成本 |
 | [契约治理](../contract-governance.md) | 登记、结构与语义校验、固定历史样本和升级边界 |
 | [契约镜像](../contracts/README.md) | Schema、registry、版本矩阵及离线校验 |

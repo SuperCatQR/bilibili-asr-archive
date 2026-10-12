@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 安装 | [Miniconda 部署](miniconda-deployment.md) | 应用与独立 ASR 环境、启动前检查 |
 | 就绪 | [模型就绪与预热](asr-deployment-readiness.md) | 只读探测、领取前准备、显式预热和缓存 |
+| 质量 | [运行健康与发布恢复](quality-and-release.md) | 只读状态、实机验收、隔离恢复与交接 |
 | AMD WSL | [ROCm GPU 手册](../wsl-rocm-gpu.md) | 已记录环境组合、设备探测与故障排查 |
 | 海光 | [BW1000 验收步骤](hygon-bw1000-validation.md) | 目标硬件上的验收流程；仍需实机证据 |
 | 根目录 | [归档与产物根](artifact-root.md) | 配置优先级、写根与读取回退 |

@@ -11,6 +11,7 @@
 | 备份、迁移、升级、恢复或管理存储 | [部署与运维](operations/README.md) |
 | 了解系统边界和调用关系 | [当前架构](architecture.md)、[36 张交互图与流程入口](architecture-sequences.md) |
 | 修改实现、契约或维护文档 | [开发与维护](development/README.md)、[契约镜像](contracts/README.md) |
+| 设定质量目标、发布与实机验收 | [质量管理](development/quality-management.md)、[运行与恢复](operations/quality-and-release.md) |
 | 查阅做过哪些实测及其限制 | [实测与实验记录](evidence/README.md) |
 
 ## 架构与数据参考

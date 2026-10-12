@@ -1,0 +1,69 @@
+name: Release validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Explicit validation scope
+        type: choice
+        options: [recovery, live, scale]
+        default: recovery
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: release / ${{ inputs.mode }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+      UV_DEFAULT_INDEX: https://pypi.org/simple
+      UV_LINK_MODE: copy
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --extra dev
+      - name: Run explicit validation scope
+        shell: bash
+        env:
+          VALIDATION_MODE: ${{ inputs.mode }}
+          BILI_PLATFORM_ACCESS_REFERENCE: ${{ vars.BILI_PLATFORM_ACCESS_REFERENCE }}
+          BILI_CONTENT_PROCESSING_REFERENCE: ${{ vars.BILI_CONTENT_PROCESSING_REFERENCE }}
+          BILI_SESSDATA: ${{ secrets.BILI_SESSDATA }}
+        run: |
+          mkdir -p test-results
+          case "$VALIDATION_MODE" in
+            recovery)
+              uv run --no-sync pytest tests/test_reference_backup.py tests/test_archive_snapshot.py \
+                tests/test_migration_preservation_baseline.py -q -ra --basetemp "$RUNNER_TEMP/recovery" \
+                --junitxml=test-results/validation.xml ;;
+            live)
+              BILI_LIVE_SMOKE=1 BILI_RELEASE_VALIDATION=1 uv run --no-sync pytest -m live_smoke \
+                tests/test_live_metadata_smoke.py tests/test_live_subtitle_smoke.py \
+                -q -ra --basetemp "$RUNNER_TEMP/live" --junitxml=test-results/validation.xml ;;
+            scale)
+              BILI_SCALE=1 uv run --no-sync pytest -m scale -q -ra \
+                --basetemp "$RUNNER_TEMP/scale" --junitxml=test-results/validation.xml ;;
+          esac
+      - name: Require executed evidence without skips
+        run: python scripts/check_validation_report.py test-results/validation.xml
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-validation-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          retention-days: 30

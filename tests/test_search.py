@@ -21,6 +21,7 @@ import bili_asr.search_index.store as _module_search_index_store
 
 from dataclasses import replace
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
