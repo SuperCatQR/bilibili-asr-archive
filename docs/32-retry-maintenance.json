@@ -1,0 +1,349 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "失败重试维护：周期接管、预算与健康",
+    "locale": "zh-CN",
+    "output": "docs/32-retry-maintenance.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "provider": "github",
+      "link_mode": "local-only"
+    }
+  },
+  "participants": [
+    {
+      "id": "timer",
+      "type": "external",
+      "label": "可选周期服务",
+      "sublabel": "systemd timer",
+      "sources": [
+        {
+          "path": "scripts/deployment/bili-asr-retry-maintenance.timer",
+          "line": 1,
+          "end_line": 11,
+          "label": "显式部署 timer"
+        },
+        {
+          "path": "scripts/deployment/bili-asr-retry-maintenance.service",
+          "line": 1,
+          "end_line": 10,
+          "label": "oneshot tick"
+        }
+      ]
+    },
+    {
+      "id": "maintenance",
+      "type": "backend",
+      "label": "重试维护",
+      "sublabel": "strict scoped policy",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/maintenance.py",
+          "label": "_cmd_retry_maintenance"
+        },
+        {
+          "path": "src/bili_asr/services/retry_maintenance.py",
+          "label": "tick"
+        },
+        {
+          "path": "src/bili_asr/services/retry_maintenance.py",
+          "label": "maintain_failed_jobs"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "type": "security",
+      "label": "锁与状态文件",
+      "sublabel": "policy / holds / health",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/retry_maintenance_io.py",
+          "label": "maintenance_lock"
+        },
+        {
+          "path": "src/bili_asr/services/retry_maintenance_io.py",
+          "label": "write_json"
+        },
+        {
+          "path": "src/bili_asr/services/retry_maintenance.py",
+          "label": "RetryPolicy.load"
+        }
+      ]
+    },
+    {
+      "id": "repository",
+      "type": "backend",
+      "label": "失败尝试与预算",
+      "sublabel": "exact attempt gate",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/retry_maintenance.py",
+          "label": "failed_candidates"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "label": "EditorialRepository.recovery_status_for_job"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite 工作流",
+      "sublabel": "已有事实 / 无 DDL",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/retry_maintenance.py",
+          "label": "requeue_exact_failure"
+        },
+        {
+          "path": "src/bili_asr/archive_session.py",
+          "label": "ArchiveSession.open"
+        },
+        {
+          "path": "src/bili_asr/services/retry_maintenance.py",
+          "label": "validate_state"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "常规 worker",
+      "sublabel": "独立依赖领取",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "label": "WorkflowRepository.claim"
+        },
+        {
+          "path": "src/bili_asr/services/retry_maintenance.py",
+          "label": "health"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 430,
+      "label": "可选周期与显式准入"
+    },
+    {
+      "from": 440,
+      "to": 660,
+      "label": "失败筛选与持久预算"
+    },
+    {
+      "from": 670,
+      "to": 890,
+      "label": "先扣 allowance 再精确 CAS"
+    },
+    {
+      "from": 900,
+      "to": 1100,
+      "label": "健康与常规执行分离"
+    }
+  ],
+  "messages": [
+    {
+      "id": "scheduled-tick",
+      "from": "timer",
+      "to": "maintenance",
+      "y": 170,
+      "label": "opt-in tick + 四个显式路径",
+      "variant": "emphasis"
+    },
+    {
+      "id": "shared-lock",
+      "from": "maintenance",
+      "to": "files",
+      "y": 205,
+      "label": "现有 maintenance.lock 非阻塞独占",
+      "variant": "security"
+    },
+    {
+      "id": "lock-skip",
+      "from": "maintenance",
+      "to": "files",
+      "y": 240,
+      "label": "若占用：lock skip，不刷新成功",
+      "variant": "dashed"
+    },
+    {
+      "id": "health-start",
+      "from": "maintenance",
+      "to": "files",
+      "y": 280,
+      "label": "取得锁后：last_started_at / running",
+      "variant": "default"
+    },
+    {
+      "id": "policy-state",
+      "from": "maintenance",
+      "to": "files",
+      "y": 325,
+      "label": "严格 policy；已有 holds / ledger",
+      "variant": "security"
+    },
+    {
+      "id": "archive-open",
+      "from": "maintenance",
+      "to": "db",
+      "y": 375,
+      "label": "WRITE/RUNTIME 契约；无 DDL",
+      "variant": "default"
+    },
+    {
+      "id": "scoped-candidates",
+      "from": "maintenance",
+      "to": "repository",
+      "y": 455,
+      "label": "范围与 kinds 交集内的 failed",
+      "variant": "emphasis"
+    },
+    {
+      "id": "latest-attempt",
+      "from": "repository",
+      "to": "db",
+      "y": 495,
+      "label": "最新 failed attempt / error / count",
+      "variant": "default"
+    },
+    {
+      "id": "proofread-gate",
+      "from": "maintenance",
+      "to": "repository",
+      "y": 540,
+      "label": "proofread：冻结输入与预算 gate",
+      "variant": "security"
+    },
+    {
+      "id": "physical-calls",
+      "from": "repository",
+      "to": "db",
+      "y": 580,
+      "label": "成功块 / 物理预留；未完成也计数",
+      "variant": "default"
+    },
+    {
+      "id": "eligibility",
+      "from": "repository",
+      "to": "maintenance",
+      "y": 625,
+      "label": "耗尽阻止；旧精确错误或免费重放",
+      "variant": "return"
+    },
+    {
+      "id": "reserve-first",
+      "from": "maintenance",
+      "to": "files",
+      "y": 695,
+      "label": "allowlist/holds/backoff 后先 durable charge",
+      "variant": "security"
+    },
+    {
+      "id": "exact-requeue",
+      "from": "maintenance",
+      "to": "repository",
+      "y": 745,
+      "label": "复验预算 + requeue_exact_failure",
+      "variant": "emphasis"
+    },
+    {
+      "id": "compare-swap",
+      "from": "repository",
+      "to": "db",
+      "y": 785,
+      "label": "短事务 CAS 同一最新 failed attempt",
+      "variant": "security"
+    },
+    {
+      "id": "cas-result",
+      "from": "db",
+      "to": "repository",
+      "y": 825,
+      "label": "queued / stale；保留全部 attempts",
+      "variant": "return"
+    },
+    {
+      "id": "dispatch-record",
+      "from": "maintenance",
+      "to": "files",
+      "y": 865,
+      "label": "dispatch_outcome；不确定不退款",
+      "variant": "default"
+    },
+    {
+      "id": "health-success",
+      "from": "maintenance",
+      "to": "files",
+      "y": 930,
+      "label": "成功时间 / next_due_at；释放锁",
+      "variant": "default"
+    },
+    {
+      "id": "health-failure",
+      "from": "maintenance",
+      "to": "files",
+      "y": 970,
+      "label": "异常：失败时间与类型；旧成功保留",
+      "variant": "dashed"
+    },
+    {
+      "id": "normal-worker",
+      "from": "worker",
+      "to": "db",
+      "y": 1020,
+      "label": "独立 claim：queued + 依赖满足",
+      "variant": "default"
+    },
+    {
+      "id": "independent-health",
+      "from": "maintenance",
+      "to": "timer",
+      "y": 1065,
+      "label": "worker alive 不等于维护 healthy",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "maintenance",
+      "from": 170,
+      "to": 980,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "失败边界",
+      "items": [
+        "holds / unknown error / quality / timestamps / payment / cancelled 不重排",
+        "缺失或未知状态 fail closed，绝不新建空账本"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "跨文件与 SQLite 的保守恢复",
+      "items": [
+        "先持久扣减，崩溃只损失额度，不获得免费 retry",
+        "同 attempt 的不确定预留需人工复验；重启不重置累计预算"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "工作流与维护分离",
+      "items": [
+        "timer 需要显式启用，不推进生产 scope",
+        "常规 worker 保活、维护成功和锁竞争分别观测"
+      ]
+    }
+  ]
+}

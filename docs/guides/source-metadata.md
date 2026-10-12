@@ -39,3 +39,12 @@ bili-asr workflow run --archive-root <new-archive> --kind publish
 重新执行普通 export 会获得当前数据库元数据，不改写旧 bundle。bundle 侧保留发布时快照，两者可能不同；详情时间与 source metadata 的既有 `metadataObservedAt` 含义也不同。
 
 旧文章的简介补充生成新的待审子版本，复制原 markdown 正文和编辑摘要，旧版本与正式发布保持不变。具体操作、支持范围、严格的证据时间规则和阅读站新 profile 要求见 [历史文章简介补充](source-description-supplement.md)。文章补充不会自动通过审核或发布。
+
+## Issue #348 的交付边界
+
+归档包和通用导出的来源字段、保留原转录的历史 bundle 回填，以及保留旧正文的
+单字段文章简介补充均已实现。JSON 来源信息以受 v3 marker 保护的
+`source-metadata.json` 为权威副本，raw JSON 保留原转录证据；这不是丢失简介。
+配套阅读站分支 `codex/source-description-contract` 接入新 origin profile 和简介展示。
+各部署需要分别升级与验证；代码或测试完成不表示已经回填生产数据、更新公开快照
+或批准文章。原生 v2 文章更新和多字段连续补充仍是独立后续范围。

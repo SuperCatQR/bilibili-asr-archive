@@ -1,6 +1,6 @@
 # 公开、未发布预览与私有审阅三种导出
 
-源码基线：`378f415ac5bf2a47de9137ee593f201e86827d43`；核对日期：2026-10-11（Asia/Hong_Kong）。
+源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互时序图](12-reader-private-export.html) · [Archify 规格](12-reader-private-export.json) · [全部时序图](architecture-sequences.md)
 
@@ -47,7 +47,7 @@ sequenceDiagram
     snapshot->>snapshot: 校验旧受管快照；恢复已记录中断；完整 staging + manifest + snapshot digest
     snapshot->>snapshot: old→backup、stage→output、日志恢复；输出可短暂不可用
     snapshot-->>cli: 返回快照身份
-    consumer->>snapshot: 当前阅读站仅支持旧 profile；消费新简介证据需实现 v2；公开/预览分开、私有父目录不部署
+    consumer->>snapshot: 配套 Reader 分支已验证 v1/v2；严格版本绑定与安全简介展示；公开/预览分开、私有父目录不部署
     end
 ```
 
@@ -79,4 +79,13 @@ CLI 使用 ArchiveSession 的 READ/WRITE 与 MANUSCRIPT 契约管理连接及维
 
 ## 当前版本与消费
 
-content v1/v2、publish/ai 模板按保存身份分派，导出先做 wheel 内离线 Schema 再核验真实引用/文件/hash。普通公开/预览与迁移 origin profile 分开；`--contract-profile universal-origin-v2` 支持新的简介补充证据，catalog v3/origins v2/manifest v3；旧 profile 仍按原严格 schema 验证，拒绝简介补充。新版来源信息不重写编辑摘要或正文，公开前仍需准确哈希审核和显式 publish；当前阅读站的 profile 升级另行实施。保留旧正文和来源补充见 [28](28-preserved-body.md)、[31](31-source-metadata-migration.md)，可选编辑系列见 [29](29-publication-series.md)。启用 catalog 后准确历史组可以显式恢复，不能用当前文件槽位代替旧版本。
+content v1/v2、publish/ai 模板按保存身份分派，导出先做 wheel 内离线 Schema 再核验真实引用/文件/hash。普通公开/预览与迁移 origin profile 分开；`--contract-profile universal-origin-v2` 支持新的简介补充证据，catalog v3/origins v2/manifest v3；旧 profile 仍按原严格 schema 验证，拒绝简介补充。新版来源信息不重写编辑摘要或正文，公开前仍需准确哈希审核和显式 publish。保留旧正文和来源补充见 [28](28-preserved-body.md)、[31](31-source-metadata-migration.md)，可选编辑系列见 [29](29-publication-series.md)。启用 catalog 后准确历史组可以显式恢复，不能用当前文件槽位代替旧版本。
+
+阅读站配套独立分支 `codex/source-description-contract` 的提交
+`4a5933c743a05d067ce719b63c04cb9dfbc5ab6c` 已实现并验证两组明确版本：
+catalog 3/content 2/metadata 1 加 origins 1/manifest 2（v1）或 origins 2/manifest 3（v2）。
+每份快照的 profile 与版本完整绑定；description 值、来源身份、hash 与 observedAt
+交叉校验，拒绝混搭和降级。来源简介以转义的普通文本按需展示并保留换行，
+与编辑摘要分开，null 和已知空字符串分别表达。184 个阅读站测试、真实生产者
+v2 fixture 构建及 320/390/1440 像素浏览器检查通过；这是已验证的分支能力，
+不表示已合并、上线或完成生产回填。

@@ -1,6 +1,6 @@
 # YouTube 单视频：统一任务、租约与归档消费链
 
-源码固定于提交 `378f415ac5bf2a47de9137ee593f201e86827d43`。Mermaid 保留条件、循环与内部动作；HTML 展开跨参与者消息，完整说明见卡片。
+源码固定于提交 `3ed823c961736378d8408bba5f0535b03e0046e0`。Mermaid 保留条件、循环与内部动作；HTML 展开跨参与者消息，完整说明见卡片。
 
 [交互时序图](21-youtube-workflow.html) · [完整 Archify 规格](21-youtube-workflow.json) · [本轮实现说明](architecture.md)
 
@@ -74,14 +74,14 @@ neutral FTS 使用真实源身份并可重建，metadata 搜索可在转录或�
 
 | 责任 | 证据 |
 | --- | --- |
-| 单视频导入与明确运行环境检查 | [cli/source.py:20–45](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/cli/source.py#L20-L45) |
-| 有界extractor、元数据精度与字幕/音频 | [youtube_source.py:149–344](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/sources/youtube_source.py#L149-L344) |
-| 平台身份与数据库part | [storage/sources.py:17–66](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/storage/sources.py#L17-L66) |
-| 独立producer规划与质量未知分支 | [workflow_planning.py:60–90](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/workflow_planning.py#L60-L90) |
-| source handler复用现有控制面 | [source_workflow.py:32–175](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/services/source_workflow.py#L32-L175) |
-| claim、lease、attempt及短写事务 | [storage/workflow.py:262–350](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/storage/workflow.py#L262-L350) |
-| 现有ASR输入与产物/出版事实提交 | [workflow_runtime.py:279–581](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/workflow_runtime.py#L279-L581) |
-| neutral索引与当前发布日期过滤 | [source_store.py:95–167](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/src/bili_asr/search_index/source_store.py#L95-L167) |
-| 实际子进程到bundle/search/export/snapshot回归 | [test_youtube_workflow.py:30–91](https://github.com/SuperCatQR/bilibili-asr-archive/blob/378f415ac5bf2a47de9137ee593f201e86827d43/tests/test_youtube_workflow.py#L30-L91) |
+| 单视频导入与明确运行环境检查 | [cli/source.py:20–45](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/source.py#L20-L45) |
+| 有界extractor、元数据精度与字幕/音频 | [youtube_source.py:149–344](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/sources/youtube_source.py#L149-L344) |
+| 平台身份与数据库part | [storage/sources.py:17–66](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/sources.py#L17-L66) |
+| 独立producer规划与质量未知分支 | [workflow_planning.py:60–90](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/workflow_planning.py#L60-L90) |
+| source handler复用现有控制面 | [source_workflow.py:32–175](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/services/source_workflow.py#L32-L175) |
+| claim、lease、attempt及短写事务 | [storage/workflow.py:262–350](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/storage/workflow.py#L262-L350) |
+| 现有ASR输入与产物/出版事实提交 | [workflow_runtime.py:279–581](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/workflow_runtime.py#L279-L581) |
+| neutral索引与当前发布日期过滤 | [source_store.py:95–167](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/source_store.py#L95-L167) |
+| 实际子进程到bundle/search/export/snapshot回归 | [test_youtube_workflow.py:30–91](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/tests/test_youtube_workflow.py#L30-L91) |
 
 图的验证状态见 [本轮图表验证凭据](architecture-validation.md)。自动化 browser-check 与视觉人工审阅分开记录。

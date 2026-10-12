@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43"
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0"
     }
   },
   "components": [
@@ -29,7 +29,8 @@
         {
           "path": "src/bili_asr/export_snapshot.py",
           "line": 188,
-          "end_line": 273
+          "end_line": 273,
+          "label": "_validate_snapshot"
         }
       ]
     },
@@ -50,12 +51,14 @@
         {
           "path": "src/bili_asr/contracts/json_schema.py",
           "line": 27,
-          "end_line": 37
+          "end_line": 37,
+          "label": "schema_registry"
         },
         {
           "path": "src/bili_asr/contracts/json_schema.py",
           "line": 49,
-          "end_line": 54
+          "end_line": 54,
+          "label": "validate_json"
         }
       ]
     },
@@ -102,12 +105,14 @@
         {
           "path": "src/bili_asr/export_snapshot.py",
           "line": 101,
-          "end_line": 151
+          "end_line": 151,
+          "label": "_validate_article_semantics"
         },
         {
           "path": "src/bili_asr/export_snapshot.py",
           "line": 188,
-          "end_line": 273
+          "end_line": 273,
+          "label": "_validate_snapshot"
         }
       ]
     },
@@ -154,12 +159,14 @@
         {
           "path": "src/bili_asr/contracts/__main__.py",
           "line": 13,
-          "end_line": 18
+          "end_line": 18,
+          "label": "documentation_files"
         },
         {
           "path": "src/bili_asr/contracts/__main__.py",
           "line": 21,
-          "end_line": 43
+          "end_line": 43,
+          "label": "main"
         }
       ]
     },
@@ -206,7 +213,8 @@
         {
           "path": "src/bili_asr/contracts/fingerprints.py",
           "line": 6,
-          "end_line": 20
+          "end_line": 22,
+          "label": "database_fingerprint"
         },
         {
           "path": "src/bili_asr/contracts/database-fingerprints.json",
@@ -263,7 +271,8 @@
         {
           "path": "tests/fixtures/migration_archive.py",
           "line": 61,
-          "end_line": 95
+          "end_line": 95,
+          "label": "build_migration_archive"
         },
         {
           "path": "tests/test_contract_registry.py",
