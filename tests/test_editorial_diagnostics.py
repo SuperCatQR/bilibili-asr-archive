@@ -1,13 +1,18 @@
 """Actionable editorial failures expose positions and counts, never source text."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 import pytest
 import requests
 
 from bili_asr.deepseek import DeepSeekClient, DeepSeekError, parse_response
-from bili_asr.editorial import EditorialConfig, RevisionValidationError, prepare_input, validate_revision
+from bili_asr.editorial import (
+    EditorialConfig,
+    RevisionValidationError,
+    prepare_input,
+    validate_revision,
+)
 from bili_asr.workflow_errors import safe_job_details
 from tests import test_ai_editorial as editorial_tests
 from tests.test_ai_editorial import FakeClient, envelope, no_changes, record, runtime
