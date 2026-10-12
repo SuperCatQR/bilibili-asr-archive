@@ -21,11 +21,34 @@ pip、setuptools 和 wheel 是隔离安装测试需要的构建工具，单独�
 新增文件使用每节点 1 秒的默认估计，新增节点按实际收集数计算；历史记录中的
 已删除文件不参与分配。耗时记录缺失时仍执行完整默认集，格式错误则明确失败。
 
-耗时记录只影响测试归属，不决定哪些测试被执行。初始记录来自 2026-10-12 的
-WSL 全量 JUnit，记录提交和原日志 SHA-256；与 GitHub runner 的耗时不能等同。
-最近样本按旧轮询策略估算四片约 429～533 秒，新策略约 485 秒/片；这只是历史
-负载估算，不能作为实际 CI 提速百分比。后续可根据 CI JUnit 更新每文件平均值，
+耗时记录只影响测试归属，不决定哪些测试被执行。记录来自完整 Linux 四分片的
+JUnit，包含环境、源码起点和各输入日志 SHA-256；WSL 与 GitHub runner 的耗时
+不能等同。优化 SQL 规范化或 fixture 后需要重新测量，不能继续沿用旧权重。
 更新耗时记录后须确认分片互斥且并集等于实际收集节点。
+
+成功 CI 会在 coverage artifact 中提供 `pytest-shard-durations.json` 候选，
+供人工检查后更新仓库中的同名文件。`scripts/update_pytest_durations.py` 按
+每片的最新运行尝试选择报告：重跑失败 job 时保留其余成功分片的旧尝试，最新
+artifact 缺少 XML 则拒绝沿用旧报告。脚本检查失败/错误、完整 testcase 数、
+实际模块路径、合法耗时以及 JUnit 与 shard plan 的数量对应关系。
+失败或中断的测试不能覆盖已有调度权重。下载同一 run 的 pytest diagnostics
+并保留 artifact 目录名称后，在对应源码 checkout 中执行：
+
+```bash
+python scripts/update_pytest_durations.py pytest-diagnostics --shard-count 4 \
+  --source-ref <tested-commit> --output scripts/pytest-shard-durations.json
+```
+
+保留四个分片和完整默认测试集。两个昂贵 fixture 通过 session 模板准备已经
+迁移的档案，每个测试复制到独立目录并重新打开自己的数据库；权限仍在各自
+副本中设置。复制拒绝 SQLite WAL、SHM 和 journal sidecar。迁移验收测试继续
+直接执行实际迁移。契约校验只缓存有界的纯 SQL 文本规范化，每次仍读取实时
+`sqlite_master`，并检查同连接或其他连接执行的 schema 修改。
+
+测试 checkout 使用浅克隆，随后仅获取 PR base SHA 或 push before SHA，继续
+运行同一契约发布门禁。ffmpeg 前置同时检查 ffmpeg 与 ffprobe；需要安装时
+只访问签名验证的 Ubuntu 官方源，每次更新和安装均有超时，并提供另一个官方
+镜像的有限回退。不会因为 runner 上其他无关 apt 源更新失败而阻塞整个安装。
 
 每片将完整归属计划写入 `test-results/shard-plan.json`，并用 pytest 参数文件
 传递选定节点，避免把长参数化列表拼进系统命令行。空片直接退出，不会误跑全库。

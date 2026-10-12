@@ -1,0 +1,277 @@
+{
+  "date": "2026-10-12",
+  "branch": "codex/ci-performance-20261012",
+  "base_commit": "84426f01451255ab81080715aa1b2f284c1c586f",
+  "environment": {
+    "system": "WSL Ubuntu 24.04",
+    "python": "3.12.3",
+    "logical_cpus": 16,
+    "dependency_preparation": "Reused venv and offline wheelhouse; 65 Linux requirements verified against uv.lock",
+    "coverage_enabled": true,
+    "independent_checkouts": 4
+  },
+  "github_baseline": {
+    "run_id": 38241838619,
+    "elapsed_seconds": 789,
+    "pytest_step_seconds": [
+      666,
+      623,
+      706,
+      467
+    ],
+    "url": "https://github.com/SuperCatQR/bilibili-asr-archive/actions/runs/38241838619"
+  },
+  "benchmark": {
+    "tests": "tests/test_description_supplement.py",
+    "test_count": 8,
+    "runs": [
+      {
+        "label": "baseline",
+        "seconds": 113.62670033799998,
+        "exit": 0
+      },
+      {
+        "label": "optimized",
+        "seconds": 7.154099811000037,
+        "exit": 0
+      }
+    ],
+    "wall_time_reduction_percent": 93.70385676102617,
+    "same_environment_sequential": true,
+    "not_a_whole_ci_speedup": true
+  },
+  "final_weight_validation": {
+    "processes": [
+      {
+        "index": 0,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-performance-20261012-yyc735zn/four-shards-8000kga4/shard-0",
+        "exit": 0,
+        "wall_seconds": 250.45143572799998
+      },
+      {
+        "index": 1,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-performance-20261012-yyc735zn/four-shards-8000kga4/shard-1",
+        "exit": 0,
+        "wall_seconds": 243.92302985100002
+      },
+      {
+        "index": 2,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-performance-20261012-yyc735zn/four-shards-8000kga4/shard-2",
+        "exit": 0,
+        "wall_seconds": 243.85320687799992
+      },
+      {
+        "index": 3,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-performance-20261012-yyc735zn/four-shards-8000kga4/shard-3",
+        "exit": 0,
+        "wall_seconds": 240.38410669799998
+      }
+    ],
+    "collected": 3354,
+    "shards": [
+      {
+        "shard": 1,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "2",
+        "tests": "544",
+        "time": "244.966",
+        "timestamp": "2026-10-12T20:26:29.530046+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "98c6da9e8276797c6a424e50e039d3d6184b7957785e004a301fa206642415c0",
+        "log_sha256": "484238e2698c340f228770b6c37bc039d9090a49bc2d2c53b02bfc6952b34c87"
+      },
+      {
+        "shard": 2,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "3",
+        "tests": "806",
+        "time": "238.270",
+        "timestamp": "2026-10-12T20:26:29.617486+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "b0cc49517572097202009a49037c416beb4048ea5ea5ffca58bcff55094d5114",
+        "log_sha256": "80ab12a12a958b8564b27c9ef27baf381d657ff116b06b298420a1aaebd94e4b"
+      },
+      {
+        "shard": 3,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "4",
+        "tests": "1284",
+        "time": "238.123",
+        "timestamp": "2026-10-12T20:26:29.547752+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "26cfc0430b4f1880838e92968da6db46bdb679c89a12f0ea176939c19ed6943d",
+        "log_sha256": "ab1a88f2bdb5ae4b1c05e9b81c715c21f0f33ddfebdf0e61b0e76fd037f47041"
+      },
+      {
+        "shard": 4,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "2",
+        "tests": "720",
+        "time": "234.814",
+        "timestamp": "2026-10-12T20:26:29.546052+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "2c6f244d1e68e193c519a024377d5a74eaab3ae54ec86b9bd8a072cd0630ebad",
+        "log_sha256": "d61927bc843ce28bb67d579ccd8aa4eb1b5129a64699ee74af2909a3106bd397"
+      }
+    ],
+    "coverage": {
+      "covered_lines": 22152,
+      "num_statements": 26127,
+      "percent_covered": 82.00693016311237,
+      "percent_covered_display": "82.01",
+      "missing_lines": 3975,
+      "excluded_lines": 168,
+      "percent_statements_covered": 84.78585371454817,
+      "percent_statements_covered_display": "84.79",
+      "num_branches": 9370,
+      "num_partial_branches": 1610,
+      "covered_branches": 6958,
+      "missing_branches": 2412,
+      "percent_branches_covered": 74.25827107790822,
+      "percent_branches_covered_display": "74.26"
+    },
+    "unique_disjoint_union_verified": true
+  },
+  "prior_validation": {
+    "collected": 3354,
+    "shards": [
+      {
+        "shard": 1,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "5",
+        "tests": "939",
+        "time": "245.848",
+        "timestamp": "2026-10-12T20:17:30.238011+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "ae2346c9c01ad8685b1711e41995498604598bc99d16763255d95eff4b1ae047",
+        "log_sha256": "edbf9040a95082f821e379d44a498a7e2ec9f2c6594ad5c47f768c72fd75051d"
+      },
+      {
+        "shard": 2,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "3",
+        "tests": "759",
+        "time": "221.882",
+        "timestamp": "2026-10-12T20:17:30.080198+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "436a05c46b2481141ea97d8ccdc76e5bd104e927141c72c04f04f5e7dd8a42e9",
+        "log_sha256": "fd713120cc42f969a3fa61cfbabb38b99590bf8463cc99a1d70c10835b913e4c"
+      },
+      {
+        "shard": 3,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "3",
+        "tests": "842",
+        "time": "231.468",
+        "timestamp": "2026-10-12T20:17:30.084446+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "164d398c7fc24d64d97171133cddb10300bb3defac6fd505cfca15c3828c3258",
+        "log_sha256": "01d588e5a9ce95ee04c2eb5f1e4578bc50b52d7f7747ebc3745bd844c3908220"
+      },
+      {
+        "shard": 4,
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "814",
+        "time": "242.670",
+        "timestamp": "2026-10-12T20:17:29.918981+08:00",
+        "hostname": "DESKTOP-KQ1R9JA",
+        "junit_sha256": "c02e384f0c56d4d405b95c55056fdaa4ee2138eaf1ca31793dcd26b39df1b707",
+        "log_sha256": "09f2968d99ff576821b6779dbc2e455af8c217d1b35fdd7109602408732e6991"
+      }
+    ],
+    "coverage": {
+      "covered_lines": 22159,
+      "num_statements": 26127,
+      "percent_covered": 82.02383299997183,
+      "percent_covered_display": "82.02",
+      "missing_lines": 3968,
+      "excluded_lines": 168,
+      "percent_statements_covered": 84.8126459218433,
+      "percent_statements_covered_display": "84.81",
+      "num_branches": 9370,
+      "num_partial_branches": 1611,
+      "covered_branches": 6957,
+      "missing_branches": 2413,
+      "percent_branches_covered": 74.24759871931697,
+      "percent_branches_covered_display": "74.25"
+    }
+  },
+  "mutations": [
+    {
+      "mutation": "heartbeat",
+      "exit": 1
+    },
+    {
+      "mutation": "timing-plan",
+      "exit": 1
+    }
+  ],
+  "checks": [
+    "Ruff E9 for src/scripts/tests",
+    "Ruff E9,F for new Python files",
+    "compileall",
+    "actionlint",
+    "git diff --check",
+    "Product line >= 75%, branch >= 63%",
+    "Independent gpt-6-astra review: no Critical or Required findings"
+  ],
+  "windows_limitation": {
+    "focused_passed": 114,
+    "focused_failed": 1,
+    "test": "tests/test_source_supplement.py::test_concurrent_identical_batches_share_the_same_editions",
+    "unchanged_main_reproduction": true,
+    "error": "FileOperationError: another export holds the output lock"
+  },
+  "remote_optimized_ci_run": null,
+  "evidence": [
+    {
+      "path": ".tmp/ci-opt-20261012/baseline-main-benchmark.log",
+      "sha256": "aa74c6d736ec0b315953b555495189e59dfba0aefdcbac25f715125ed333cd0d"
+    },
+    {
+      "path": ".tmp/ci-opt-20261012/baseline-main-benchmark.xml",
+      "sha256": "f66858c0fb5a96c2407dd4b0f6ebdd64d06bb0528968a87e709c237796f12e6d"
+    },
+    {
+      "path": ".tmp/ci-opt-20261012/optimized-main-benchmark.log",
+      "sha256": "e9f5e8635649b836f256fab87b860b4ff20c722b46aaa595750b062311f6aa1c"
+    },
+    {
+      "path": ".tmp/ci-opt-20261012/optimized-main-benchmark.xml",
+      "sha256": "e639522c2c54b776f9874b83691adc6b2e757caff163a0d83ffed8becc71af10"
+    },
+    {
+      "path": ".tmp/ci-opt-20261012/windows-main-baseline.log",
+      "sha256": "bc9010c97f9432c22171255ee95f1365d061b5b3e3f4a75d1bd50a873f406abf"
+    },
+    {
+      "path": ".tmp/ci-opt-20261012/offline-preparation-failure.log",
+      "sha256": "501c01027c2fb7c8eddfb9456052a6fd36a34a242489191d5b4976c943e5eb1c"
+    },
+    {
+      "path": ".tmp/ci-opt-20261012/heartbeat-mutation.log",
+      "sha256": "5b3d5d385ac96a7c8f5f4ab3d5128f76686114738baebf6caae3ad566463dc5b"
+    },
+    {
+      "path": ".tmp/ci-opt-20261012/timing-plan-mutation.log",
+      "sha256": "ddfe3d8c77008af201ca6b56e9994dfce0a9f08bc31cf983ac0808cf3c96a32f"
+    }
+  ]
+}
