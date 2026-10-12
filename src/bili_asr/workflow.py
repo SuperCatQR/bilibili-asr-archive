@@ -247,6 +247,7 @@ class _LeaseHeartbeat:
         self.interval_seconds = interval_seconds
         self._stop = threading.Event()
         self.cancelled = threading.Event()
+        self._ownership_error: LeaseLostError | None = None
         self.drain_requested = drain_requested
         self.drain_timeout_seconds = drain_timeout_seconds
         self.drain_checkpoint = drain_checkpoint
@@ -277,6 +278,8 @@ class _LeaseHeartbeat:
         if self.failed.is_set():
             raise LeaseRenewalFailed("lease renewal failed before its recovery deadline")
         if self.cancelled.is_set():
+            if self._ownership_error is not None:
+                raise self._ownership_error
             raise LeaseLostError("attempt ownership was lost during execution")
 
     def stop(self) -> None:
@@ -308,7 +311,10 @@ class _LeaseHeartbeat:
                         if lease_repository is None:
                             return  # In-memory repositories deliberately have no second connection.
                     lease_repository.renew_lease(self.job, lease_seconds=self.lease_seconds)
-                except LeaseLostError:
+                except LeaseLostError as error:
+                    # Preserve authoritative cancellation when the heartbeat
+                    # observes it before the handler's next database check.
+                    self._ownership_error = error
                     self.cancelled.set()
                     # The terminal write will be fenced by the same attempt tuple.
                     return
