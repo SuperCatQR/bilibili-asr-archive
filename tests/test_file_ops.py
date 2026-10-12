@@ -1,9 +1,96 @@
 """Durable single-file replacement handles incomplete writes and ownership failures."""
 import os
+import subprocess
+import sys
+import time
 
 import pytest
 
 from bili_asr import file_ops
+
+
+def test_blocking_process_lock_waits_then_checks_marker(tmp_path):
+    output = tmp_path / "output"
+    ready = tmp_path / "ready"
+    child = None
+    try:
+        # Start the contender only after the parent owns the actual OS lock.
+        with file_ops.exclusive_lock(output):
+            child = subprocess.Popen([sys.executable, "-c", """
+import sys
+from pathlib import Path
+from bili_asr.file_ops import exclusive_lock
+output, ready = map(Path, sys.argv[1:])
+ready.write_text('ready')
+with exclusive_lock(output, blocking=True):
+    (output.parent / 'acquired').write_text('acquired')
+""", str(output), str(ready)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            deadline = time.monotonic() + 5
+            while not ready.exists() and child.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert ready.exists(), "contender did not start"
+            time.sleep(0.2)
+            assert child.poll() is None, "blocking contender exited before release"
+            assert not (tmp_path / 'acquired').exists()
+        _, errors = child.communicate(timeout=15)
+        assert child.returncode == 0, errors.decode(errors='replace')
+        assert (tmp_path / 'acquired').read_text() == 'acquired'
+    finally:
+        if child is not None and child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+def test_first_use_concurrency_never_exposes_an_uninitialized_lock(tmp_path):
+    output = tmp_path / 'output'
+    ready = tmp_path / 'initializing'
+    resume = tmp_path / 'resume'
+    child = subprocess.Popen([sys.executable, '-c', """
+import os, sys, time
+from pathlib import Path
+from bili_asr.file_ops import exclusive_lock
+output, ready, resume = map(Path, sys.argv[1:])
+original_write = os.write
+def pause_first_write(descriptor, data):
+    os.write = original_write
+    ready.write_text('initializing')
+    deadline = time.monotonic() + 10
+    while not resume.exists():
+        if time.monotonic() > deadline:
+            raise TimeoutError('initializer was not resumed')
+        time.sleep(0.01)
+    return original_write(descriptor, data)
+os.write = pause_first_write
+with exclusive_lock(output, blocking=True):
+    (output.parent / 'acquired').write_text('acquired')
+""", str(output), str(ready), str(resume)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.exists() and child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), 'initializer did not start'
+        # The other creator is paused before writing its marker. A new owner
+        # must still acquire a fully initialized public lock and finish safely.
+        with file_ops.exclusive_lock(output):
+            resume.write_text('resume')
+            time.sleep(0.2)
+            assert child.poll() is None
+            assert not (tmp_path / 'acquired').exists()
+        _, errors = child.communicate(timeout=15)
+        assert child.returncode == 0, errors.decode(errors='replace')
+        assert (tmp_path / 'acquired').exists()
+        assert not list(tmp_path.glob('*.init-*'))
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+def test_damaged_marker_never_admits_a_writer(tmp_path):
+    (tmp_path / '.output.export.lock').write_bytes(b'not our lock')
+    with pytest.raises(file_ops.FileOperationError, match='unmanaged or damaged'):
+        with file_ops.exclusive_lock(tmp_path / 'output', blocking=True):
+            pytest.fail('damaged lock admitted a writer')
 
 
 class PartialWriter:

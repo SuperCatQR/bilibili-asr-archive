@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 from typing import BinaryIO, Iterator
 
@@ -95,21 +96,18 @@ def atomic_replace_file(path: Path, content: bytes, *, prefix: str | None = None
         temporary.unlink(missing_ok=True)
 
 
-@contextmanager
-def exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
-    path = output.parent / f".{output.name}.export.lock"
-    checked_path(path)
-    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
-    marker = b"bili-asr-export-lock-v1\n"
-    descriptor = None
-    created = initialized = False
+def _open_initialized_lock(path: Path, flags: int, marker: bytes) -> int:
+    try:
+        return os.open(path, flags)
+    except FileNotFoundError:
+        pass
+    # Publish a complete inode without overwriting an existing lock. Writing
+    # directly to the public name lets a Windows contender lock the empty file
+    # and prohibit its creator from writing the marker.
+    descriptor, name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.init-")
+    temporary = Path(name)
     try:
         try:
-            descriptor = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o600)
-            created = True
-        except FileExistsError:
-            descriptor = os.open(path, flags)
-        if created:
             written = 0
             while written < len(marker):
                 count = os.write(descriptor, marker[written:])
@@ -117,19 +115,30 @@ def exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
                     raise OSError("cannot initialize export lock")
                 written += count
             os.fsync(descriptor)
-        initialized = True
+        finally:
+            os.close(descriptor)
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            # Another initializer published first; everyone locks its inode.
+            pass
+    finally:
+        temporary.unlink()
+    return os.open(path, flags)
+
+
+@contextmanager
+def exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
+    path = output.parent / f".{output.name}.export.lock"
+    checked_path(path)
+    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    marker = b"bili-asr-export-lock-v1\n"
+    descriptor = _open_initialized_lock(path, flags, marker)
+    try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise FileOperationError("export lock is not a regular file")
-        os.lseek(descriptor, 0, os.SEEK_SET)
         try:
-            actual_marker = os.read(descriptor, len(marker) + 1)
-        except PermissionError as exc:
-            # Windows byte-range locks reject even reading the locked marker.
-            raise FileOperationError("another export holds the output lock") from exc
-        if actual_marker != marker:
-            raise FileOperationError("export lock file is unmanaged or damaged")
-        try:
-            if os.name == "nt":
+            if sys.platform == "win32":
                 import msvcrt
 
                 os.lseek(descriptor, 0, os.SEEK_SET)
@@ -142,20 +151,12 @@ def exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
                 fcntl.flock(descriptor, flags)
         except OSError as exc:
             raise FileOperationError("another export holds the output lock") from exc
+        # Windows byte-range locks also prohibit reads. Acquire the lock before
+        # inspecting its marker so blocking callers can wait for the owner.
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        actual_marker = os.read(descriptor, len(marker) + 1)
+        if actual_marker != marker:
+            raise FileOperationError("export lock file is unmanaged or damaged")
         yield
     finally:
-        if descriptor is not None:
-            # Initialization can fail before lock acquisition. Close even then,
-            # and remove only the incomplete file created by this attempt.
-            try:
-                incomplete = os.fstat(descriptor) if created and not initialized else None
-            finally:
-                os.close(descriptor)
-            if incomplete is not None:
-                try:
-                    current = path.lstat()
-                except FileNotFoundError:
-                    pass
-                else:
-                    if (current.st_dev, current.st_ino) == (incomplete.st_dev, incomplete.st_ino):
-                        path.unlink()
+        os.close(descriptor)

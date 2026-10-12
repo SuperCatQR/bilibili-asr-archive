@@ -19,7 +19,7 @@ def test_lock_initialization_failure_closes_descriptor_and_allows_retry(tmp_path
 
     def track_open(path, flags, *args, **kwargs):
         descriptor = real_open(path, flags, *args, **kwargs)
-        if Path(path) == lock:
+        if Path(path).name.startswith(f"{lock.name}.init-"):
             opened.append(descriptor)
         return descriptor
 
@@ -40,6 +40,7 @@ def test_lock_initialization_failure_closes_descriptor_and_allows_retry(tmp_path
     with pytest.raises(OSError):
         os.fstat(opened[0])
     assert not lock.exists()
+    assert not list(tmp_path.glob("*.init-*"))
     with export_snapshot._exclusive_lock(output):
         pass
     assert lock.read_bytes() == b"bili-asr-export-lock-v1\n"
