@@ -11,8 +11,6 @@ from uuid import uuid4
 from bili_asr.archive_modes import ArchiveAccessMode
 from bili_asr.artifact_root import roots_for
 from bili_asr.asr import default_config
-from bili_asr.asr.runner import ASRInferenceTimeoutError
-from bili_asr.asr.session import InferenceSessionError
 from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
 from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
