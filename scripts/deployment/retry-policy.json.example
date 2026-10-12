@@ -3,8 +3,8 @@
   "job_ids": [],
   "part_ids": [],
   "kinds": ["proofread"],
-  "retryable_errors": {"proofread": ["RevisionValidationError"]},
-  "max_retries": 3,
-  "delays_seconds": [0, 600, 1800],
+  "retryable_errors": {"proofread": ["deepseek_transport_failed", "DeepSeekTransportError"]},
+  "max_retries": 2,
+  "delays_seconds": [0, 600],
   "interval_seconds": 60
 }

@@ -9,11 +9,23 @@ from typing import Any
 
 import requests
 
-from bili_asr.editorial import EditorialConfig, SYSTEM_PROMPT, canonical
+from bili_asr.editorial import SYSTEM_PROMPT, EditorialConfig, canonical
+from bili_asr.workflow_errors import JobExecutionError
 
 
 class DeepSeekError(RuntimeError):
-    pass
+    """Provider failure with a stable code and bounded, reviewed diagnostics.
+
+    The default code preserves compatibility for external adapters that raise
+    this exception without an explicit classification.
+    """
+
+    def __init__(self, message: str, *, error_code: str = "DeepSeekError",
+                 stage: str = "provider_request", reason_code: str = "unclassified_provider_error",
+                 **details: Any):
+        classified = JobExecutionError(error_code, dict(stage=stage, reason_code=reason_code, **details))
+        self.error_code, self.safe_details = classified.error_code, classified.safe_details
+        super().__init__(message)
 
 
 class DeepSeekTransportError(DeepSeekError):
@@ -100,7 +112,8 @@ class DeepSeekClient:
         env_name = "OPENCODE_API_KEY" if is_opencode else "DEEPSEEK_API_KEY"
         api_key = self.api_key if self.api_key is not None else os.environ.get(env_name, "")
         if not api_key.strip():
-            raise DeepSeekError(f"{env_name} is not configured")
+            raise DeepSeekError(f"{env_name} is not configured", error_code="deepseek_missing_api_key",
+                                reason_code="missing_api_key")
         headers = {
             "Authorization": "Bearer " + api_key,
             "User-Agent": "bilibili-asr-archive/1.0",
@@ -116,23 +129,29 @@ class DeepSeekClient:
         except requests.RequestException:
             # Exception strings can include request details. Keep them out of
             # logs, durable attempt records and CLI diagnostics.
-            raise DeepSeekTransportError("DeepSeek transport failed") from None
+            raise DeepSeekTransportError("DeepSeek transport failed", error_code="deepseek_transport_failed",
+                                         reason_code="transport_failure") from None
         if response.status_code != 200:
-            raise DeepSeekError(f"DeepSeek HTTP {response.status_code}")
+            raise DeepSeekError(f"DeepSeek HTTP {response.status_code}",
+                                error_code=f"deepseek_http_{response.status_code}",
+                                reason_code="http_status", http_status=response.status_code)
         try:
             value = response.json()
         except ValueError:
-            raise DeepSeekError("DeepSeek returned non-JSON HTTP content") from None
+            raise DeepSeekError("DeepSeek returned non-JSON HTTP content", error_code="deepseek_non_json_response",
+                                reason_code="non_json_response") from None
         if not isinstance(value, dict):
-            raise DeepSeekError("DeepSeek returned an invalid envelope")
+            raise DeepSeekError("DeepSeek returned an invalid envelope", error_code="deepseek_invalid_envelope",
+                                reason_code="invalid_envelope")
         return value
 
 
 def parse_response(envelope: dict[str, Any]) -> Any:
     try:
         choice = envelope["choices"][0]
+        if not isinstance(choice, dict) or "finish_reason" not in choice:
+            raise ValueError("invalid choice")
         if choice["finish_reason"] != "stop":
-            error = DeepSeekError("DeepSeek output is truncated or unfinished")
             usage = envelope.get("usage")
             usage = usage if isinstance(usage, dict) else {}
             details = usage.get("completion_tokens_details")
@@ -140,19 +159,25 @@ def parse_response(envelope: dict[str, Any]) -> Any:
             numbers = {"prompt_tokens": usage.get("prompt_tokens"),
                        "completion_tokens": usage.get("completion_tokens"),
                        "reasoning_tokens": details.get("reasoning_tokens")}
-            error.safe_details = {key: value for key, value in numbers.items()
-                                  if type(value) is int and 0 <= value < 2**63}
-            error.safe_details["length_exceeded"] = choice["finish_reason"] == "length"
+            diagnosis = {key: value for key, value in numbers.items()
+                         if type(value) is int and 0 <= value < 2**63}
+            diagnosis["length_exceeded"] = choice["finish_reason"] == "length"
             message = choice.get("message")
             message = message if isinstance(message, dict) else {}
             for name, field in (("output_chars", "content"), ("reasoning_chars", "reasoning_content")):
                 value = message.get(field)
-                error.safe_details[name] = len(value) if isinstance(value, str) else 0
-            raise error
+                diagnosis[name] = len(value) if isinstance(value, str) else 0
+            raise DeepSeekError("DeepSeek output is truncated or unfinished", error_code="deepseek_output_truncated",
+                                stage="response_parse", reason_code="unfinished_output", **diagnosis)
         content = choice["message"]["content"]
         if not isinstance(content, str) or not content.strip():
-            raise DeepSeekError("DeepSeek output is empty")
+            raise DeepSeekError("DeepSeek output is empty", error_code="deepseek_empty_output",
+                                stage="response_parse", reason_code="empty_output")
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise DeepSeekError("DeepSeek output is not a valid JSON revision", error_code="deepseek_invalid_envelope",
+                            stage="response_parse", reason_code="invalid_envelope") from None
 
+    try:
         def object_pairs(pairs):
             result = {}
             for key, value in pairs:
@@ -163,5 +188,6 @@ def parse_response(envelope: dict[str, Any]) -> Any:
 
         return json.loads(content, object_pairs_hook=object_pairs,
                           parse_constant=lambda _value: (_ for _ in ()).throw(ValueError("nonfinite JSON")))
-    except (KeyError, IndexError, TypeError, ValueError):
-        raise DeepSeekError("DeepSeek output is not a valid JSON revision") from None
+    except ValueError:
+        raise DeepSeekError("DeepSeek output is not a valid JSON revision", error_code="deepseek_invalid_revision_json",
+                            stage="response_parse", reason_code="invalid_revision_json") from None

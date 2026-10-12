@@ -69,17 +69,17 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/search.py:80](../src/bili_asr/cli/search.py#L80)：_cmd_search。
-- [src/bili_asr/cli/search.py:48](../src/bili_asr/cli/search.py#L48)：_cmd_search_index。
-- [src/bili_asr/search_index/store.py:437](../src/bili_asr/search_index/store.py#L437)：TranscriptSearchIndex.build。
-- [src/bili_asr/search_index/store.py:331](../src/bili_asr/search_index/store.py#L331)：TranscriptSearchIndex._new_store_rows。
-- [src/bili_asr/search_index/store.py:559](../src/bili_asr/search_index/store.py#L559)：TranscriptSearchIndex.search_blocks。
-- [src/bili_asr/archive_session.py:64](../src/bili_asr/archive_session.py#L64)：ArchiveSession。
-- [src/bili_asr/search_index/store.py:294](../src/bili_asr/search_index/store.py#L294)：TranscriptSearchIndex._store_progress。
-- [src/bili_asr/search_index/store.py:375](../src/bili_asr/search_index/store.py#L375)：TranscriptSearchIndex._published_md_candidates。
-- [src/bili_asr/search_index/metadata.py:1](../src/bili_asr/search_index/metadata.py#L1)：模块定义。
-- [src/bili_asr/search_index/store.py:423](../src/bili_asr/search_index/store.py#L423)：TranscriptSearchIndex._published_md_text_for。
-- [src/bili_asr/search_index/query.py:21](../src/bili_asr/search_index/query.py#L21)：search_archive。
+- [src/bili_asr/cli/search.py:80](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/search.py#L80)：_cmd_search。
+- [src/bili_asr/cli/search.py:48](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/cli/search.py#L48)：_cmd_search_index。
+- [src/bili_asr/search_index/store.py:437](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/store.py#L437)：TranscriptSearchIndex.build。
+- [src/bili_asr/search_index/store.py:331](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/store.py#L331)：TranscriptSearchIndex._new_store_rows。
+- [src/bili_asr/search_index/store.py:559](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/store.py#L559)：TranscriptSearchIndex.search_blocks。
+- [src/bili_asr/archive_session.py:64](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/archive_session.py#L64)：ArchiveSession。
+- [src/bili_asr/search_index/store.py:294](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/store.py#L294)：TranscriptSearchIndex._store_progress。
+- [src/bili_asr/search_index/store.py:375](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/store.py#L375)：TranscriptSearchIndex._published_md_candidates。
+- [src/bili_asr/search_index/metadata.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/metadata.py#L1)：模块定义。
+- [src/bili_asr/search_index/store.py:423](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/store.py#L423)：TranscriptSearchIndex._published_md_text_for。
+- [src/bili_asr/search_index/query.py:21](https://github.com/SuperCatQR/bilibili-asr-archive/blob/3ed823c961736378d8408bba5f0535b03e0046e0/src/bili_asr/search_index/query.py#L21)：search_archive。
 
 ## 当前通用来源与驻留
 

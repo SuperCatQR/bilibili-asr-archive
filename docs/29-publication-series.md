@@ -1,6 +1,6 @@
 # 编辑系列 CAS、导出绑定与静态消费
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互图](29-publication-series.html) · [JSON 规格](29-publication-series.json) · [时序索引](architecture-sequences.md)
 
@@ -32,9 +32,9 @@ op->>series: validate/show；明确系列成员、顺序、证据与 knownMissin
 
 ## 源码证据
 
-- [src/bili_asr/cli/publication.py:1](../src/bili_asr/cli/publication.py#L1)：模块定义。
-- [src/bili_asr/publication_series.py:133](../src/bili_asr/publication_series.py#L133)：edit_series。
-- [src/bili_asr/publication_series.py:174](../src/bili_asr/publication_series.py#L174)：project_series。
-- [src/bili_asr/publication_series.py:48](../src/bili_asr/publication_series.py#L48)：read_series_with_sha256。
-- [src/bili_asr/publication_export.py:1](../src/bili_asr/publication_export.py#L1)：模块定义。
-- [src/bili_asr/contracts/schemas/publication-series.schema.json:1](../src/bili_asr/contracts/schemas/publication-series.schema.json#L1)：模块定义。
+- [src/bili_asr/cli/publication.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/publication.py#L1)：模块定义。
+- [src/bili_asr/publication_series.py:133](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_series.py#L133)：edit_series。
+- [src/bili_asr/publication_series.py:174](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_series.py#L174)：project_series。
+- [src/bili_asr/publication_series.py:48](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_series.py#L48)：read_series_with_sha256。
+- [src/bili_asr/publication_export.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/publication_export.py#L1)：模块定义。
+- [src/bili_asr/contracts/schemas/publication-series.schema.json:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/contracts/schemas/publication-series.schema.json#L1)：模块定义。

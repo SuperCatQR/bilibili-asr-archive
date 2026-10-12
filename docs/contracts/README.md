@@ -5,9 +5,16 @@
 The executable JSON Schemas live in `src/bili_asr/contracts/schemas/` and ship
 inside the wheel. This directory is their byte-identical publication mirror.
 The [contract registry](registry.json) records versioned identities, their owners,
-definition paths, consumers, capabilities and dependencies; 50 contracts are
+definition paths, consumers, capabilities and dependencies; 53 contracts are
 registered and 25 entries have
 JSON Schemas. See [governance and compatibility](../contract-governance.md).
+
+`workflow-failure-policy/v1`, `workflow-failure-status/v1`, and
+`workflow-retry-control/v1` register the pure failure taxonomy, safe status
+projection, and explicitly supplied external retry controls. Their authorities
+are Python modules; they add no database DDL or packaged JSON Schema. Historical
+error codes and attempt evidence remain readable. See
+[failure and recovery operations](../operations/workflow-failures.md).
 
 ```powershell
 python -m bili_asr.contracts --write-docs docs/contracts

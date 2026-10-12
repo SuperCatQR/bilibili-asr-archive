@@ -1,99 +1,105 @@
 # 当前源码、命令与契约覆盖
 
-固定源码 `3ed823c961736378d8408bba5f0535b03e0046e0`；2026-10-12（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 21 个顶层命令、88 条实际叶命令、209 个 Python 模块、11 份 SQL 资源、50 项稳定契约和 25 份 JSON Schema。
+固定源码 `96c5502119829119abce42a59804b79431895a98`；2026-10-12（Asia/Hong_Kong）。本清单重新从实际 parser/registry、提交文件树和契约资源核对；[机器清单](architecture-coverage.json)。当前有 21 个顶层命令、94 条实际叶命令、244 个 Python 模块、12 份 SQL 资源、54 项稳定契约和 26 份 JSON Schema。
 
 ## 全部实际命令路径
 
 | 命令 | 登记入口 |
 | --- | --- |
-| `workflow plan` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow proofread` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow repair-proofread` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow render` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow run` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow supervise` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow status` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow cancel` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow publish` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow explain` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow asr-evidence` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow asr-performance` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow retry` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `workflow repair-dependencies` | _cmd_workflow；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `retry-maintenance tick` | _cmd_retry_maintenance；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `retry-maintenance health` | _cmd_retry_maintenance；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `publication create` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication edit` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication sync-source-tags` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication review` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication publish` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication withdraw` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication show` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication export` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication export-drafts` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved install` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved plan` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved apply` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication import-preserved check` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source install` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source plan` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source apply` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication supplement-source check` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication series validate` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication series show` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `publication series edit` | _cmd_publication；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `editorial export` | _cmd_editorial；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `snapshot save` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot check` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot inspect` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot plan` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot doctor` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `snapshot restore` | _cmd_snapshot；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive migration-preflight` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive init` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive migrate` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive migration-check` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-paths` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive derive-vtt` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-plan` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-apply` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `archive upgrade-check` | _cmd_archive；registry 的默认数据库模式为 maintenance，子命令/flag 可覆盖 |
-| `artifacts inventory` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts plan` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts upgrade` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts capture-groups` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts restore-group` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts status` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts policy-show` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts policy-set` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts policy-run` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts bind-target` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts transfer` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts restore` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts reconcile` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `artifacts check` | _cmd_artifacts；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `remote prepare` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `remote probe` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `remote push` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `remote restore` | _cmd_remote；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference save` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference inspect` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference check` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference plan` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `reference restore` | _cmd_reference；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
-| `source doctor` | _cmd_source；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `source import` | _cmd_source；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `dedup report` | _cmd_dedup；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `fetch-meta` | _cmd_fetch_meta；registry 的默认数据库模式为 bootstrap，子命令/flag 可覆盖 |
-| `fetch-tags` | _cmd_fetch_tags；registry 的默认数据库模式为 bootstrap，子命令/flag 可覆盖 |
-| `status` | _cmd_status；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `runs` | _cmd_runs；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `search` | _cmd_search；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `search-index` | _cmd_search_index；registry 的默认数据库模式为 write，子命令/flag 可覆盖 |
-| `coverage` | _cmd_coverage；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `verify` | _cmd_verify；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `export` | _cmd_export；registry 的默认数据库模式为 read，子命令/flag 可覆盖 |
-| `check-asr-env` | _cmd_check_asr_env；registry 的默认数据库模式为 无，子命令/flag 可覆盖 |
+| `workflow plan` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow proofread` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow repair-proofread` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow render` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow run` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow supervise` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow status` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow cancel` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow publish` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow explain` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow asr-evidence` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow asr-performance` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow retry` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `workflow repair-dependencies` | bili_asr.cli.workflow._cmd_workflow；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `retry-maintenance tick` | bili_asr.cli.maintenance._cmd_retry_maintenance；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `retry-maintenance health` | bili_asr.cli.maintenance._cmd_retry_maintenance；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `publication rights init` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights show` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights grant` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights revoke` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights hold` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication rights clear` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication create` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication edit` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication sync-source-tags` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication review` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication publish` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication withdraw` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication show` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication export` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication export-drafts` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved install` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved plan` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved apply` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication import-preserved check` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source install` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source plan` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source apply` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication supplement-source check` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication series validate` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication series show` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `publication series edit` | bili_asr.cli.publication._cmd_publication；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `editorial export` | bili_asr.cli.editorial._cmd_editorial；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `snapshot save` | bili_asr.cli.snapshot._cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot check` | bili_asr.cli.snapshot._cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot inspect` | bili_asr.cli.snapshot._cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot plan` | bili_asr.cli.snapshot._cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot doctor` | bili_asr.cli.snapshot._cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `snapshot restore` | bili_asr.cli.snapshot._cmd_snapshot；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive migration-preflight` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive init` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive migrate` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive migration-check` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-paths` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive derive-vtt` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-plan` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-apply` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `archive upgrade-check` | bili_asr.cli.archive._cmd_archive；registry 默认数据库模式为 ArchiveAccessMode.MAINTENANCE，子命令/flag 可覆盖 |
+| `artifacts inventory` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts plan` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts upgrade` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts capture-groups` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts restore-group` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts status` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts policy-show` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts policy-set` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts policy-run` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts bind-target` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts transfer` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts restore` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts reconcile` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `artifacts check` | bili_asr.cli.artifacts._cmd_artifacts；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `remote prepare` | bili_asr.cli.remote_storage._cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `remote probe` | bili_asr.cli.remote_storage._cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `remote push` | bili_asr.cli.remote_storage._cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `remote restore` | bili_asr.cli.remote_storage._cmd_remote；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference save` | bili_asr.cli.remote_storage._cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference inspect` | bili_asr.cli.remote_storage._cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference check` | bili_asr.cli.remote_storage._cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference plan` | bili_asr.cli.remote_storage._cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `reference restore` | bili_asr.cli.remote_storage._cmd_reference；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
+| `source doctor` | bili_asr.cli.source._cmd_source；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `source import` | bili_asr.cli.source._cmd_source；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `dedup report` | bili_asr.cli.dedup._cmd_dedup；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `fetch-meta` | bili_asr.cli.meta._cmd_fetch_meta；registry 默认数据库模式为 ArchiveAccessMode.BOOTSTRAP，子命令/flag 可覆盖 |
+| `fetch-tags` | bili_asr.cli.meta._cmd_fetch_tags；registry 默认数据库模式为 ArchiveAccessMode.BOOTSTRAP，子命令/flag 可覆盖 |
+| `status` | bili_asr.cli.status_cmd._cmd_status；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `runs` | bili_asr.cli.status_cmd._cmd_runs；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `search` | bili_asr.cli.search._cmd_search；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `search-index` | bili_asr.cli.search._cmd_search_index；registry 默认数据库模式为 ArchiveAccessMode.WRITE，子命令/flag 可覆盖 |
+| `coverage` | bili_asr.cli.status_cmd._cmd_coverage；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `verify` | bili_asr.cli.ops._cmd_verify；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `export` | bili_asr.cli.ops._cmd_export；registry 默认数据库模式为 ArchiveAccessMode.READ，子命令/flag 可覆盖 |
+| `check-asr-env` | bili_asr.cli.ops._cmd_check_asr_env；registry 默认数据库模式为 None，子命令/flag 可覆盖 |
 
 ## 完整 Python 模块
 
@@ -103,7 +109,10 @@
 | [src/bili_asr/__main__.py](../src/bili_asr/__main__.py) | src/bili_asr |
 | [src/bili_asr/archive.py](../src/bili_asr/archive.py) | src/bili_asr |
 | [src/bili_asr/archive_maintenance.py](../src/bili_asr/archive_maintenance.py) | src/bili_asr |
+| [src/bili_asr/archive_modes.py](../src/bili_asr/archive_modes.py) | src/bili_asr |
 | [src/bili_asr/archive_session.py](../src/bili_asr/archive_session.py) | src/bili_asr |
+| [src/bili_asr/artifact_child.py](../src/bili_asr/artifact_child.py) | src/bili_asr |
+| [src/bili_asr/artifact_fences.py](../src/bili_asr/artifact_fences.py) | src/bili_asr |
 | [src/bili_asr/artifact_inventory.py](../src/bili_asr/artifact_inventory.py) | src/bili_asr |
 | [src/bili_asr/artifact_packages.py](../src/bili_asr/artifact_packages.py) | src/bili_asr |
 | [src/bili_asr/artifact_root.py](../src/bili_asr/artifact_root.py) | src/bili_asr |
@@ -136,11 +145,13 @@
 | [src/bili_asr/canonical_json.py](../src/bili_asr/canonical_json.py) | src/bili_asr |
 | [src/bili_asr/check_asr_env.py](../src/bili_asr/check_asr_env.py) | src/bili_asr |
 | [src/bili_asr/cli/__init__.py](../src/bili_asr/cli/__init__.py) | src/bili_asr/cli |
+| [src/bili_asr/cli/__main__.py](../src/bili_asr/cli/__main__.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/_shared.py](../src/bili_asr/cli/_shared.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/archive.py](../src/bili_asr/cli/archive.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/artifacts.py](../src/bili_asr/cli/artifacts.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/dedup.py](../src/bili_asr/cli/dedup.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/editorial.py](../src/bili_asr/cli/editorial.py) | src/bili_asr/cli |
+| [src/bili_asr/cli/json_input.py](../src/bili_asr/cli/json_input.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/main.py](../src/bili_asr/cli/main.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/maintenance.py](../src/bili_asr/cli/maintenance.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/meta.py](../src/bili_asr/cli/meta.py) | src/bili_asr/cli |
@@ -149,17 +160,21 @@
 | [src/bili_asr/cli/publication.py](../src/bili_asr/cli/publication.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/registry.py](../src/bili_asr/cli/registry.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/remote_storage.py](../src/bili_asr/cli/remote_storage.py) | src/bili_asr/cli |
+| [src/bili_asr/cli/rights.py](../src/bili_asr/cli/rights.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/search.py](../src/bili_asr/cli/search.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/snapshot.py](../src/bili_asr/cli/snapshot.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/source.py](../src/bili_asr/cli/source.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/status_cmd.py](../src/bili_asr/cli/status_cmd.py) | src/bili_asr/cli |
 | [src/bili_asr/cli/workflow.py](../src/bili_asr/cli/workflow.py) | src/bili_asr/cli |
+| [src/bili_asr/compliance.py](../src/bili_asr/compliance.py) | src/bili_asr |
 | [src/bili_asr/concurrency_gate.py](../src/bili_asr/concurrency_gate.py) | src/bili_asr |
 | [src/bili_asr/config.py](../src/bili_asr/config.py) | src/bili_asr |
+| [src/bili_asr/content_rights.py](../src/bili_asr/content_rights.py) | src/bili_asr |
 | [src/bili_asr/contracts/__init__.py](../src/bili_asr/contracts/__init__.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/__main__.py](../src/bili_asr/contracts/__main__.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/content_policies.py](../src/bili_asr/contracts/content_policies.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/fingerprints.py](../src/bili_asr/contracts/fingerprints.py) | src/bili_asr/contracts |
+| [src/bili_asr/contracts/identities.py](../src/bili_asr/contracts/identities.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/json_schema.py](../src/bili_asr/contracts/json_schema.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/registry.py](../src/bili_asr/contracts/registry.py) | src/bili_asr/contracts |
 | [src/bili_asr/contracts/release_gate.py](../src/bili_asr/contracts/release_gate.py) | src/bili_asr/contracts |
@@ -171,34 +186,45 @@
 | [src/bili_asr/deepseek.py](../src/bili_asr/deepseek.py) | src/bili_asr |
 | [src/bili_asr/diagnostics.py](../src/bili_asr/diagnostics.py) | src/bili_asr |
 | [src/bili_asr/editorial.py](../src/bili_asr/editorial.py) | src/bili_asr |
+| [src/bili_asr/editorial_input_v2.py](../src/bili_asr/editorial_input_v2.py) | src/bili_asr |
 | [src/bili_asr/editorial_quality.py](../src/bili_asr/editorial_quality.py) | src/bili_asr |
 | [src/bili_asr/editorial_recovery.py](../src/bili_asr/editorial_recovery.py) | src/bili_asr |
 | [src/bili_asr/editorial_runtime.py](../src/bili_asr/editorial_runtime.py) | src/bili_asr |
+| [src/bili_asr/editorial_segments.py](../src/bili_asr/editorial_segments.py) | src/bili_asr |
 | [src/bili_asr/error_codes.py](../src/bili_asr/error_codes.py) | src/bili_asr |
 | [src/bili_asr/export.py](../src/bili_asr/export.py) | src/bili_asr |
 | [src/bili_asr/export_snapshot.py](../src/bili_asr/export_snapshot.py) | src/bili_asr |
+| [src/bili_asr/file_ops.py](../src/bili_asr/file_ops.py) | src/bili_asr |
 | [src/bili_asr/formatting.py](../src/bili_asr/formatting.py) | src/bili_asr |
 | [src/bili_asr/integrity.py](../src/bili_asr/integrity.py) | src/bili_asr |
 | [src/bili_asr/long_live.py](../src/bili_asr/long_live.py) | src/bili_asr |
 | [src/bili_asr/manuscript_artifacts.py](../src/bili_asr/manuscript_artifacts.py) | src/bili_asr |
 | [src/bili_asr/manuscript_files.py](../src/bili_asr/manuscript_files.py) | src/bili_asr |
+| [src/bili_asr/manuscript_renderers_v1.py](../src/bili_asr/manuscript_renderers_v1.py) | src/bili_asr |
+| [src/bili_asr/manuscript_renderers_v2.py](../src/bili_asr/manuscript_renderers_v2.py) | src/bili_asr |
 | [src/bili_asr/manuscript_templates.py](../src/bili_asr/manuscript_templates.py) | src/bili_asr |
 | [src/bili_asr/meta_cursor.py](../src/bili_asr/meta_cursor.py) | src/bili_asr |
 | [src/bili_asr/metadata_policy.py](../src/bili_asr/metadata_policy.py) | src/bili_asr |
 | [src/bili_asr/page_identity.py](../src/bili_asr/page_identity.py) | src/bili_asr |
 | [src/bili_asr/path_policy.py](../src/bili_asr/path_policy.py) | src/bili_asr |
 | [src/bili_asr/persistence.py](../src/bili_asr/persistence.py) | src/bili_asr |
+| [src/bili_asr/platform_access.py](../src/bili_asr/platform_access.py) | src/bili_asr |
 | [src/bili_asr/platform_identity.py](../src/bili_asr/platform_identity.py) | src/bili_asr |
+| [src/bili_asr/preserved_body_evidence.py](../src/bili_asr/preserved_body_evidence.py) | src/bili_asr |
 | [src/bili_asr/process_environment.py](../src/bili_asr/process_environment.py) | src/bili_asr |
+| [src/bili_asr/profile_codec.py](../src/bili_asr/profile_codec.py) | src/bili_asr |
 | [src/bili_asr/proofread.py](../src/bili_asr/proofread.py) | src/bili_asr |
 | [src/bili_asr/publication.py](../src/bili_asr/publication.py) | src/bili_asr |
 | [src/bili_asr/publication_content.py](../src/bili_asr/publication_content.py) | src/bili_asr |
 | [src/bili_asr/publication_content_v2.py](../src/bili_asr/publication_content_v2.py) | src/bili_asr |
 | [src/bili_asr/publication_export.py](../src/bili_asr/publication_export.py) | src/bili_asr |
 | [src/bili_asr/publication_identity.py](../src/bili_asr/publication_identity.py) | src/bili_asr |
+| [src/bili_asr/publication_models_v2.py](../src/bili_asr/publication_models_v2.py) | src/bili_asr |
+| [src/bili_asr/publication_origin_contract.py](../src/bili_asr/publication_origin_contract.py) | src/bili_asr |
 | [src/bili_asr/publication_origins.py](../src/bili_asr/publication_origins.py) | src/bili_asr |
 | [src/bili_asr/publication_series.py](../src/bili_asr/publication_series.py) | src/bili_asr |
 | [src/bili_asr/publication_tags.py](../src/bili_asr/publication_tags.py) | src/bili_asr |
+| [src/bili_asr/publication_text.py](../src/bili_asr/publication_text.py) | src/bili_asr |
 | [src/bili_asr/publication_worker.py](../src/bili_asr/publication_worker.py) | src/bili_asr |
 | [src/bili_asr/quality.py](../src/bili_asr/quality.py) | src/bili_asr |
 | [src/bili_asr/remote_storage.py](../src/bili_asr/remote_storage.py) | src/bili_asr |
@@ -237,6 +263,7 @@
 | [src/bili_asr/services/asr_performance.py](../src/bili_asr/services/asr_performance.py) | src/bili_asr/services |
 | [src/bili_asr/services/audio_inventory.py](../src/bili_asr/services/audio_inventory.py) | src/bili_asr/services |
 | [src/bili_asr/services/bundle_verification.py](../src/bili_asr/services/bundle_verification.py) | src/bili_asr/services |
+| [src/bili_asr/services/editorial_application.py](../src/bili_asr/services/editorial_application.py) | src/bili_asr/services |
 | [src/bili_asr/services/editorial_repair.py](../src/bili_asr/services/editorial_repair.py) | src/bili_asr/services |
 | [src/bili_asr/services/import_staging.py](../src/bili_asr/services/import_staging.py) | src/bili_asr/services |
 | [src/bili_asr/services/metadata_ingest.py](../src/bili_asr/services/metadata_ingest.py) | src/bili_asr/services |
@@ -259,6 +286,8 @@
 | [src/bili_asr/services/workflow_application.py](../src/bili_asr/services/workflow_application.py) | src/bili_asr/services |
 | [src/bili_asr/services/workflow_audio_access.py](../src/bili_asr/services/workflow_audio_access.py) | src/bili_asr/services |
 | [src/bili_asr/services/workflow_projection.py](../src/bili_asr/services/workflow_projection.py) | src/bili_asr/services |
+| [src/bili_asr/services/workflow_retry.py](../src/bili_asr/services/workflow_retry.py) | src/bili_asr/services |
+| [src/bili_asr/services/workflow_status.py](../src/bili_asr/services/workflow_status.py) | src/bili_asr/services |
 | [src/bili_asr/source_identity.py](../src/bili_asr/source_identity.py) | src/bili_asr |
 | [src/bili_asr/source_metadata.py](../src/bili_asr/source_metadata.py) | src/bili_asr |
 | [src/bili_asr/source_supplements.py](../src/bili_asr/source_supplements.py) | src/bili_asr |
@@ -267,6 +296,7 @@
 | [src/bili_asr/sources/bilibili_api_gateway.py](../src/bili_asr/sources/bilibili_api_gateway.py) | src/bili_asr/sources |
 | [src/bili_asr/sources/bilibili_identity.py](../src/bili_asr/sources/bilibili_identity.py) | src/bili_asr/sources |
 | [src/bili_asr/sources/bilibili_source.py](../src/bili_asr/sources/bilibili_source.py) | src/bili_asr/sources |
+| [src/bili_asr/sources/caption_policy.py](../src/bili_asr/sources/caption_policy.py) | src/bili_asr/sources |
 | [src/bili_asr/sources/models.py](../src/bili_asr/sources/models.py) | src/bili_asr/sources |
 | [src/bili_asr/sources/protocols.py](../src/bili_asr/sources/protocols.py) | src/bili_asr/sources |
 | [src/bili_asr/sources/registry.py](../src/bili_asr/sources/registry.py) | src/bili_asr/sources |
@@ -275,11 +305,16 @@
 | [src/bili_asr/ssh_storage_agent.py](../src/bili_asr/ssh_storage_agent.py) | src/bili_asr |
 | [src/bili_asr/storage/__init__.py](../src/bili_asr/storage/__init__.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/archive_contracts.py](../src/bili_asr/storage/archive_contracts.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/archive_validation.py](../src/bili_asr/storage/archive_validation.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/artifact_catalog.py](../src/bili_asr/storage/artifact_catalog.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/artifact_online.py](../src/bili_asr/storage/artifact_online.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/artifact_policies.py](../src/bili_asr/storage/artifact_policies.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/artifact_releases.py](../src/bili_asr/storage/artifact_releases.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/asr_performance.py](../src/bili_asr/storage/asr_performance.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/database.py](../src/bili_asr/storage/database.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/editorial.py](../src/bili_asr/storage/editorial.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/editorial_facts.py](../src/bili_asr/storage/editorial_facts.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/extension_contracts.py](../src/bili_asr/storage/extension_contracts.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/import_origins.py](../src/bili_asr/storage/import_origins.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/job_commit.py](../src/bili_asr/storage/job_commit.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/metadata.py](../src/bili_asr/storage/metadata.py) | src/bili_asr/storage |
@@ -288,6 +323,7 @@
 | [src/bili_asr/storage/models.py](../src/bili_asr/storage/models.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/publication.py](../src/bili_asr/storage/publication.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/retry_maintenance.py](../src/bili_asr/storage/retry_maintenance.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/schema_contract.py](../src/bili_asr/storage/schema_contract.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/snapshots.py](../src/bili_asr/storage/snapshots.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/source_supplements.py](../src/bili_asr/storage/source_supplements.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/sources.py](../src/bili_asr/storage/sources.py) | src/bili_asr/storage |
@@ -295,15 +331,20 @@
 | [src/bili_asr/storage/upgrade_evidence.py](../src/bili_asr/storage/upgrade_evidence.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow.py](../src/bili_asr/storage/workflow.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow_dependency_repair.py](../src/bili_asr/storage/workflow_dependency_repair.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/workflow_outputs.py](../src/bili_asr/storage/workflow_outputs.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/workflow_retry.py](../src/bili_asr/storage/workflow_retry.py) | src/bili_asr/storage |
 | [src/bili_asr/storage/workflow_selection.py](../src/bili_asr/storage/workflow_selection.py) | src/bili_asr/storage |
+| [src/bili_asr/storage/workflow_status.py](../src/bili_asr/storage/workflow_status.py) | src/bili_asr/storage |
 | [src/bili_asr/storage_targets.py](../src/bili_asr/storage_targets.py) | src/bili_asr |
 | [src/bili_asr/subtitle_policy.py](../src/bili_asr/subtitle_policy.py) | src/bili_asr |
 | [src/bili_asr/transcript_selection.py](../src/bili_asr/transcript_selection.py) | src/bili_asr |
 | [src/bili_asr/workflow.py](../src/bili_asr/workflow.py) | src/bili_asr |
 | [src/bili_asr/workflow_errors.py](../src/bili_asr/workflow_errors.py) | src/bili_asr |
+| [src/bili_asr/workflow_failure_policy.py](../src/bili_asr/workflow_failure_policy.py) | src/bili_asr |
 | [src/bili_asr/workflow_models.py](../src/bili_asr/workflow_models.py) | src/bili_asr |
 | [src/bili_asr/workflow_payloads.py](../src/bili_asr/workflow_payloads.py) | src/bili_asr |
 | [src/bili_asr/workflow_planning.py](../src/bili_asr/workflow_planning.py) | src/bili_asr |
+| [src/bili_asr/workflow_roles.py](../src/bili_asr/workflow_roles.py) | src/bili_asr |
 | [src/bili_asr/workflow_runtime.py](../src/bili_asr/workflow_runtime.py) | src/bili_asr |
 | [src/bili_asr/workflow_runtime_ports.py](../src/bili_asr/workflow_runtime_ports.py) | src/bili_asr |
 | [src/bili_asr/workflow_shutdown.py](../src/bili_asr/workflow_shutdown.py) | src/bili_asr |
@@ -438,6 +479,9 @@
 - [src/bili_asr/storage/schema-source-sync.sql](../src/bili_asr/storage/schema-source-sync.sql)
 - [src/bili_asr/storage/schema-transcripts.sql](../src/bili_asr/storage/schema-transcripts.sql)
 - [src/bili_asr/storage/schema-workflow.sql](../src/bili_asr/storage/schema-workflow.sql)
+- [src/bili_asr/storage/schema-rights.sql](../src/bili_asr/storage/schema-rights.sql)
 - [src/bili_asr/storage/schema.sql](../src/bili_asr/storage/schema.sql)
 
-可选 preserved-body、来源补充、artifact-storage 和 artifact-online 必须按已登记精确组合显式安装；不代表所有归档都有全部表。动态 FTS transcript_fts 与 metadata 表是可重建消费对象。完整 PK/FK/CHECK、版本指纹及升级边以安装包 contracts 与 storage/archive_contracts 为准。
+可选 preserved-body、来源补充、artifact-storage、artifact-online 和 rights 必须按已登记精确组合显式安装；不代表所有归档都有全部表。动态 FTS transcript_fts 与 metadata 表是可重建消费对象。完整 PK/FK/CHECK、版本指纹及升级边以安装包 contracts 与 storage/archive_contracts 为准。
+
+rights 扩展保存 content_rights_events 的 append-only grant/revoke/hold/clear 证据，明确安装后才能使用；默认关闭的策略不会因合并自动启用。其版本和消费者见 [契约登记](contracts/registry.json)。

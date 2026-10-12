@@ -1,185 +1,42 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "checked_on": "2026-10-12",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+  "repository_revision": "96c5502119829119abce42a59804b79431895a98",
   "archify_version": "3.0.1",
   "coverage": {
-    "sequence_flows": 32,
-    "interactive_diagrams": 35
+    "sequence_flows": 33,
+    "interactive_diagrams": 36,
+    "refreshed_artifacts": 5,
+    "retained_artifacts": 31,
+    "top_level_commands": 21,
+    "leaf_commands": 94,
+    "python_modules": 244,
+    "sql_resources": 12,
+    "stable_contracts": 54,
+    "json_schemas": 26
   },
   "content_checks": {
     "command_registry_and_parser": "pass",
     "source_module_inventory": "pass",
     "contract_resources": "pass",
     "mermaid_branch_balance": "pass",
-    "git_diff_check": "pass",
     "artifact_receipt_hashes": "pass",
-    "pinned_source_ranges_checked": 409,
-    "local_markdown_links_checked": 896,
-    "local_source_line_links_checked": 287,
-    "mermaid_flows_checked": 32
+    "pinned_source_references_checked": 446,
+    "pinned_source_ranges_checked": 446,
+    "local_markdown_links_checked": 854,
+    "local_source_line_links_checked": 10,
+    "mermaid_flows_checked": 33,
+    "git_diff_check": "pass"
   },
   "artifacts": [
-    {
-      "type": "architecture",
-      "specification": "docs/architecture.json",
-      "output": "docs/architecture.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "987461b70642e033000c5b23122018175a33bcc1204df0cc8a130cacaa5226d7",
-      "artifact_sha256": "345be4da7e95a60609ed5b81d3b655fc538624d2334a67fe237da61250581c03",
-      "validation": "pass",
-      "showcase_checks": {
-        "checksPassed": 9,
-        "checkCount": 9,
-        "compositionProfile": "showcase",
-        "compositionStatus": "pass",
-        "errors": 0,
-        "warnings": 0
-      },
-      "gates": {
-        "validate": "pass",
-        "deliver": "pass",
-        "check": "pass",
-        "browser-check": "pass"
-      },
-      "browser_evidence": "passed",
-      "visual_review": "not_requested",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light"
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light"
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light"
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light"
-        }
-      ],
-      "correction_rounds": 1,
-      "layout_advisory": {
-        "resolvedCrossovers": 22,
-        "routesOverSuggestedBends": 11,
-        "routesOverSuggestedStretch": 1
-      }
-    },
-    {
-      "type": "architecture",
-      "specification": "docs/ai-proofreading-architecture.json",
-      "output": "docs/ai-proofreading-architecture.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "758adbfc3d33445f0e26d78f5e17e06d93973516b3314e6e2c2d139fa8996e8b",
-      "artifact_sha256": "2708b4b63f5cb2f0c121426f29b0c5b11f3037eaee3877a86b7e6ead29e02f3a",
-      "validation": "pass",
-      "showcase_checks": {
-        "checksPassed": 9,
-        "checkCount": 9,
-        "compositionProfile": "showcase",
-        "compositionStatus": "pass",
-        "errors": 0,
-        "warnings": 0
-      },
-      "gates": {
-        "validate": "pass",
-        "deliver": "pass",
-        "check": "pass",
-        "browser-check": "pass"
-      },
-      "browser_evidence": "passed",
-      "visual_review": "not_requested",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light"
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light"
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light"
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light"
-        }
-      ],
-      "correction_rounds": 0,
-      "layout_advisory": {
-        "routesOverSuggestedBends": 6
-      }
-    },
-    {
-      "type": "architecture",
-      "specification": "docs/contract-governance.json",
-      "output": "docs/contract-governance.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "84f2398f14578e7a895d030456c2e045738f12b7f8a14590b9edfa50ddcd34be",
-      "artifact_sha256": "1c4eb905c67046afcf177ce53d6a4fc19c21010dd3c8bf6ff9f89cf1e355a13b",
-      "validation": "pass",
-      "showcase_checks": {
-        "checksPassed": 9,
-        "checkCount": 9,
-        "compositionProfile": "showcase",
-        "compositionStatus": "pass",
-        "errors": 0,
-        "warnings": 0
-      },
-      "gates": {
-        "validate": "pass",
-        "deliver": "pass",
-        "check": "pass",
-        "browser-check": "pass"
-      },
-      "browser_evidence": "passed",
-      "visual_review": "not_requested",
-      "browser_viewports": [
-        {
-          "width": 1440,
-          "height": 900,
-          "theme": "light"
-        },
-        {
-          "width": 1600,
-          "height": 1000,
-          "theme": "light"
-        },
-        {
-          "width": 1920,
-          "height": 1080,
-          "theme": "light"
-        },
-        {
-          "width": 2048,
-          "height": 1320,
-          "theme": "light"
-        }
-      ],
-      "correction_rounds": 0
-    },
     {
       "type": "sequence",
       "specification": "docs/01-cli-bootstrap.json",
       "output": "docs/01-cli-bootstrap.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "fe4bf415188a0d703cb9a6c04fa0bb0a49ede7ee0586d1336b389f2cba01b0df",
-      "artifact_sha256": "fb30d3daffcddd8b63f393c5c7163845dbc50b825d6bb2a88db6ba11cf3ce773",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "dfc87a2c67d4708cf50b1c1796072e122f9f2ee2c538533845e315ef109a7b0d",
+      "artifact_sha256": "980900ed1e42b51eee2291ea63771cf05ff67433e13e4cba872b096db17d2e6c",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -219,15 +76,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/01-cli-bootstrap",
+      "delivery_receipt_id": "c94d97e6-d56f-4124-aa86-5ede946861b7",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/02-metadata-tags.json",
       "output": "docs/02-metadata-tags.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "bbaebdff7224512f79cbfeeced94fe87d859ae89d90197676672b0d894a76cdb",
-      "artifact_sha256": "90f4509aade79ebeef35c9ed5e8c452f1e75ad949e0c3cf41feffbeef5c266b0",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "9276dee5429823f61ac17c4dc86d55fa99f979db9ce159449a1a1a3abbe51f2e",
+      "artifact_sha256": "600ba79d10569442c1b3206229d70bd5f23cb820f6c2f37cfa512e87b5cf2b5a",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -267,15 +175,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/02-metadata-tags",
+      "delivery_receipt_id": "4046ad67-f6d4-484a-b2f7-24135d56240d",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/03-workflow-plan.json",
       "output": "docs/03-workflow-plan.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "adc8bbe77d6faee910564915160e58467e5b3f1b042a27ec7a491a864439cc4a",
-      "artifact_sha256": "ab9d824f25d02247bfd3c9da102e0a26b883e49877d084b5a8bf33e7c7c06946",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "a815e550434e2a563408d7b48c16d62bd07d8f9c142b577549f756e2de1d97e5",
+      "artifact_sha256": "f7372006dd5b5547b99af9c83ff163904f278fb33e75a5989c50abaaa8283a22",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -315,15 +274,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/03-workflow-plan",
+      "delivery_receipt_id": "29edfc93-9bc8-4bb4-b664-34cedb688908",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/04-lease-cancel-retry.json",
       "output": "docs/04-lease-cancel-retry.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "e7394ab9f35daf6a0b6212ffbb53cba7b3751723538dac1ae1306a5ef98ab53a",
-      "artifact_sha256": "de8af1479cc15c67fa9eac104b189e8b04c1a82c43b77cb0ed430f62c6d563f7",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "fd5b0ddbcc3050d698884bf7e8274fa5aea6c74e065ba8dd44450f310801c9f3",
+      "artifact_sha256": "03126a8bd73f437e1e1241b9a7a44e3e4eeb0ec9ac776e9002bff91e2b154766",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -363,15 +373,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/04-lease-cancel-retry",
+      "delivery_receipt_id": "cbbb4352-7f15-41fa-97e4-b218cc2ff650",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/05-subtitle-ingest.json",
       "output": "docs/05-subtitle-ingest.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "793cd38b8679fed985e70ed3562fef5ac4fe91bc716098e47267e92d08a9d0c3",
-      "artifact_sha256": "9353f54a9c5c8584264f1243b49c8d68963d1126ecb7508a5800eab590f75fab",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "b7fcad49154cfb6005bb52b72f632dad2efd4a39000954a95e5116eb1ec73fc4",
+      "artifact_sha256": "24d2c6ad6583f39a7b9d5ddc156e6b7ef8cdef116681150f45345e7b6c48e9e2",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -411,15 +472,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/05-subtitle-ingest",
+      "delivery_receipt_id": "27350fdc-c525-4000-a942-77409c6665f9",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/06-audio-download.json",
       "output": "docs/06-audio-download.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "547c7c3af5ced309c6f0b717f4f46cb8a5418bcd4b3c47b1ce039e5bee72dc91",
-      "artifact_sha256": "16aba32dda63681b330427307ce62ecda62ea11a6a08cd32da2d5779d83f3daa",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "0c5303a2cf212a9919c13c70bd031a0b01dc972d7fd8fa502dd45625832cef44",
+      "artifact_sha256": "c560f75b9b3df6c1deb87c481ae4df1b8d98ea9ced4c0e95548b0fbaa0cbb030",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -459,15 +571,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/06-audio-download",
+      "delivery_receipt_id": "d9593224-a2d1-415c-aa46-6982a691b073",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/07-asr-runtime.json",
       "output": "docs/07-asr-runtime.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "cb52f4fd5e14cc8c70f9ec37ac0ed8d0b7a1a785e10f3c3fba4d264c8f82e606",
-      "artifact_sha256": "5e44a87cd5c69ea28e9b8cdc220097336e047a2647e27e41d075993517a811ba",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "7b00168305d92b3b82f6543f3ec5680972d2ffc1fea84433ba31e1849da6c527",
+      "artifact_sha256": "19bac25f3983c107ceb402cdccfaa73de731d29b97e57381b26ae076af2927ea",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -507,15 +670,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/07-asr-runtime",
+      "delivery_receipt_id": "28af1fa1-151e-42c0-a2b4-4a73805cf7c0",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/08-transcript-bundle.json",
       "output": "docs/08-transcript-bundle.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "0a3c96948eda0efcdaad39134174d04c792751310ea4c1567bb268a200c6fd26",
-      "artifact_sha256": "7768c2814161e876e46c01e494d2cdc574de96bf0b4dec4b8310f01295bc91ca",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "666316ed1ef51869ac709dfc8c2ff54a42720dc8c26fc93b2ad1af07637bf9a2",
+      "artifact_sha256": "cb3b38a7807aad6cb68f7e5875a1a2392082321dcb330b5e8c661af830402feb",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -555,15 +769,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/08-transcript-bundle",
+      "delivery_receipt_id": "fa8832ff-32ea-4cf0-8def-7065b026f4f6",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/09-ai-proofread.json",
       "output": "docs/09-ai-proofread.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "7ec57d502e3ce766ee4a5adf41a6ae678f1432c88f3f280c2cc81d733d05d453",
-      "artifact_sha256": "8b6dce6f123b5e046935730aee87c1b17aaeeba508175877f2d233be7ed75957",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "5f1e75d4b04ffca117a3298f7975f9efe8078d98065b1fd4a9d39847f999f5e8",
+      "artifact_sha256": "b066192aa1d931104e48e05fbc11d7336ab1e92ecfabc565568b99802ab0cb4e",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -603,15 +868,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/09-ai-proofread",
+      "delivery_receipt_id": "e57ece9c-c0b8-4ddf-ae7b-3d7efa20b46a",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/10-document-render.json",
       "output": "docs/10-document-render.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "d5ebcc4ead0eebc621264c91701d640830d9e9ee97b927452d3fb809fcdd6b62",
-      "artifact_sha256": "dac3ecffe2681682340d78f5e5645e01ef493ffec777c5e92fffc5927465741c",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "3ab44b20cdcf3d13db2c8e5650f61f886f751c1862aa34a695983cee43882a53",
+      "artifact_sha256": "9c8f5860a86ecf5e575098eff0c9d8fda0ac53eef0fd2382b314a8a22ef38268",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -651,15 +967,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/10-document-render",
+      "delivery_receipt_id": "e06d0659-d738-4178-8a1d-6769e1c46d78",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/11-publication-lifecycle.json",
       "output": "docs/11-publication-lifecycle.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "5e424f5c8d70ddbb5dd6883698790cac563f618b653dc9d4156b155dbc51004a",
-      "artifact_sha256": "a2e32f4b9f0aa6613651abfacf7ff36197cbd16c58e75826f64f90c016015a84",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "0d10bf4e3ee394c74cb25a3070cfa55c6e2101fd7224373f9664ba05a561c5cd",
+      "artifact_sha256": "84ac1d20d1f36b507e0a09e4b04e975867e4abb4d06e1a07772e6c0667fdb37b",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -699,15 +1066,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/11-publication-lifecycle",
+      "delivery_receipt_id": "1983c3f0-8f88-42c2-8a74-17e911febd8c",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/12-reader-private-export.json",
       "output": "docs/12-reader-private-export.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "ef91f396a480d268a767168ee0cd45d686ad9152e7c7b05e7bbab73201966ced",
-      "artifact_sha256": "1fa72ed7ecfe36ff58e69723be6560ee4e11153d85e9ec6654f3cefdf87b1ba1",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "36c8dc4e3308e4b297cda0e1a49e485f082c5bd87109f664a56d73f9422d7597",
+      "artifact_sha256": "6ff842f4ba002e8a0faffea18ced6605ff6ae9d486465e601cf34beae4abbb10",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -747,15 +1165,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/12-reader-private-export",
+      "delivery_receipt_id": "63b9a1c7-7c05-47f2-a431-8e6f56b1a2ba",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/13-projection-verify.json",
       "output": "docs/13-projection-verify.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "e657d0cdf632d84ec72aa43487728199826157ed1556dfb1e220a8fc0e1caab9",
-      "artifact_sha256": "9d6fed5027266af29ba224ab077b2593b65e5d0e74e81c3cdebdb23d223e3de3",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "606b432149519b038ff42e8980830cf9e76b83ab5af96a78afade5b12237b3ed",
+      "artifact_sha256": "ce39e5095cac37aeb54423ed158222cc6620d96ecb4bb6ef056ad6f5aa3279e1",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -795,7 +1264,58 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/13-projection-verify",
+      "delivery_receipt_id": "541b39a9-661a-41df-9287-4ec5bf4a58b4",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -843,15 +1363,17 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/15-archive-snapshot.json",
       "output": "docs/15-archive-snapshot.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "610b8038173dd6ae1b8cbc1c1ec13cd4432937376450d253ce8f12b853fd0350",
-      "artifact_sha256": "ac5b1839a6677914fe775c573f4d8d322f856b478b976025b77808998941547e",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "cd01f888006006cf7e9ba7fa45bc1818448ffbfddcb1a4b52b1a7b961d6b143a",
+      "artifact_sha256": "928e032c1ce364516e3d9e881983e5bb9f563bf6f335b415087c26b1fb2c1790",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -891,15 +1413,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/15-archive-snapshot",
+      "delivery_receipt_id": "68b09c75-6305-447d-8926-c5aafa184c21",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/16-library-and-operations.json",
       "output": "docs/16-library-and-operations.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "92c7d49fad62883fdb12a11e70b1766ecea66013fb61046a37741998734a8a2d",
-      "artifact_sha256": "660eaa71a49ba62f3f2e2a8ac4f043b750698807fdab3a889e7299e8e9a0861e",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "aa57a0ba14fafeac4c1bfb7b950d366ed32f87794f7dea463472ce60439c9cb8",
+      "artifact_sha256": "4c579654aa3a73e869b16b65f99d897ad9a6009981406fac505d20d4b44772af",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -939,7 +1512,58 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/16-library-and-operations",
+      "delivery_receipt_id": "b9f9c8b5-37e7-43cd-9544-1c2ba89f5fed",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -987,15 +1611,17 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/18-universal-migration.json",
       "output": "docs/18-universal-migration.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "6804de52e4af165b5b5d354c4402025fe66f774edb86dbad9f7cedc496329fd8",
-      "artifact_sha256": "0f54f605ea0ad1da3741b2b193fcca4f43ac4c96d4400117cfb4c8decb71a186",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "271f167f9631389f7f845044063da01cd52839cb49f9c77d756602c4973bb3d7",
+      "artifact_sha256": "1569d609514ab26a5c114ceb035c3aaa7e9d09184be84b0c4092379df2b36103",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1035,15 +1661,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/18-universal-migration",
+      "delivery_receipt_id": "69c2b413-2ae6-4a2c-a01d-9c7e6ef839dd",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/19-persistent-asr.json",
       "output": "docs/19-persistent-asr.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "ab7854ea19a5289bbb272dcec6cb0ad351f05a37cb78d7088652f0a71ae0d922",
-      "artifact_sha256": "70ec809ae42f02912c780f916ce2dc8dd9224ff42018666fd6979bba2bdf0c6a",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "97d4c78b4ea0211b334669d2d9bf2cae4681d28d72ca9ca52f4d96865cb9be08",
+      "artifact_sha256": "df47ebe93cdc384dee0ff4ed10dd5a1407fd5d44ae6396b0df4dd07adcfdec4a",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1083,15 +1760,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/19-persistent-asr",
+      "delivery_receipt_id": "d1b3ffeb-3483-4fb2-9e97-e181ff49bc58",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/20-recovery-plan.json",
       "output": "docs/20-recovery-plan.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "1148efd55f5d57292f8820ecac10a0e5d9abbe4db8675724d7fef841ceb71edd",
-      "artifact_sha256": "ed6b36ae620b389382dc23919b846c608c23d69581fc6403de22e141ba32f563",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "91452a5a677dead4c8539f2aacaf1ff40464f82b4b06158291374ffaf448009a",
+      "artifact_sha256": "050be489265e0e82f16d4c462695d51485608e9a71b7a6835601dacd26e21376",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1131,15 +1859,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/20-recovery-plan",
+      "delivery_receipt_id": "1bd41172-4d42-4353-aebc-3d5d3de7d7fa",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/21-youtube-workflow.json",
       "output": "docs/21-youtube-workflow.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "13b5d79c4667f2ada46e204cce58eb7ffd2efbc5de1466aefc047ffd6e8d9316",
-      "artifact_sha256": "6cacefacfbe1577ae0bb7cd27afa335322e6f35682a1def7e0b62845e29e1a5b",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "3a62353b5552976b494438719a33f553ee2383e6581c321a03566f72598299af",
+      "artifact_sha256": "24676ce0e1056045b16e2bd8af2cc1062b103b6f432dbfec9f9a1d21a3514010",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1179,15 +1958,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/21-youtube-workflow",
+      "delivery_receipt_id": "e12cbf68-2716-4a1b-a2bf-c43ee87aa79b",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/22-subtitle-candidates.json",
       "output": "docs/22-subtitle-candidates.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "491362f3663eae7b304526f64c8a7578dc11c5d3d8f6c4d042945c9d6889036d",
-      "artifact_sha256": "7b6c882168485a17c9c01fef684adc563b00e756222c838d23b055520bfa321f",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "425efff187932ea6fe2bb1494833dfdce71f8e9d3a238f40e6e3e6ba12137559",
+      "artifact_sha256": "da03d4d20edd1529cd8d15bac034337708f3fb5a9518a4d464b5094bfc745d20",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1227,15 +2057,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/22-subtitle-candidates",
+      "delivery_receipt_id": "c1f27cbc-fe1e-4a57-bc2f-0309da83e19f",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/23-metadata-refresh.json",
       "output": "docs/23-metadata-refresh.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "eb0c392a7053d09e192b323ddea98a241c04060218c79bc012a823c1b566ec0a",
-      "artifact_sha256": "622c20101d941d2fd3fc3da0afd6b6b555f8a40fc0292ba095db4ade44128071",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "9ecddc00533dfe3b3c4b007c8b723d1aebfa0be6bc0dd1e271fe8caaffed9ba0",
+      "artifact_sha256": "4e83b4a6774a9fc39be3566e630e56b1b12dbf681062163340dc4fbee3ec3348",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1275,7 +2156,58 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/23-metadata-refresh",
+      "delivery_receipt_id": "02bacb84-0d31-4159-b4a9-132be453d1d7",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1323,15 +2255,17 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/25-contract-upgrade.json",
       "output": "docs/25-contract-upgrade.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "8da9c1b7ea9f807eebcf2f91ea054aaf85b834f64ccbc15d3011e8843da34b0d",
-      "artifact_sha256": "5955e96e41d1ac27e01dad3fb8b20976462a7af972b4b4057e0c6cf661abcc38",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "230c786a29fee8778921349657fee414c88efacb3cece9da4b804ee030024435",
+      "artifact_sha256": "babca0d7a0abe7ca1487c4d302a210275f1900ca6037bb350262d46c8c2f5bf0",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1371,7 +2305,58 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/25-contract-upgrade",
+      "delivery_receipt_id": "d5c4645f-a4d7-4e42-8be1-2883da81937e",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1419,7 +2404,9 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
@@ -1467,15 +2454,17 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "correction_rounds": 0,
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/28-preserved-body.json",
       "output": "docs/28-preserved-body.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "2c07f4cd5a9a8111ea05c87e2be1d27b7b40a7454d03693112b6c12422c32da5",
-      "artifact_sha256": "8193491a7f9a1bee4cc78629d39c6a52b6fe16f7ddcfc80d6fa1b9cc9499ba72",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "61d089c53fcd9c23c4fc6f0f78afe0496b7a1987e3c4c339ea2fe9716e5cf844",
+      "artifact_sha256": "48dc98580d690c6f5a5c18a20ec0c1a96628f05626e41199de81f79328c18c28",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1515,15 +2504,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/28-preserved-body",
+      "delivery_receipt_id": "39cf801a-f29b-494e-a1ae-6f6341c12a9d",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/29-publication-series.json",
       "output": "docs/29-publication-series.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "91547f69d4a0c06f1384fb7942819158b48673c2d19f569e4557975af366cc7e",
-      "artifact_sha256": "e38c23c2bd8e65db7a10c33146e8d20d038ff5651b10ca14b1ee6b632f9fd014",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "c72669996d759c93fa4b273ee33d3f40e34bdc9fe8e608f0dd6d5c531100d6de",
+      "artifact_sha256": "d97c2aba3998867bef052bd4c0309ddee9ff910a1c0c15dbea294e474de9f80d",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1563,15 +2603,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/29-publication-series",
+      "delivery_receipt_id": "1074e0e2-898f-4bee-9ec2-c65217c3df3c",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/30-editorial-repair.json",
       "output": "docs/30-editorial-repair.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "6f8ae8082c08c8222fe58829f02b347e8e61367f66fceeee19ceac216a7fc7bd",
-      "artifact_sha256": "e3cf8b7251e4b55722ccb605c6dae99560b58e12fc5354d6ae7a1cd75654a9d1",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "4b1d27b4a30cac3578c0573c58f781fc46d8df02189a97507b4d71de480a266a",
+      "artifact_sha256": "7f59e0d49179c7d20d4262fb0bd1d49338492eecc88f96fa3680e57f63500dd2",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1611,15 +2702,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/30-editorial-repair",
+      "delivery_receipt_id": "fb6938be-c77f-4f3d-9f02-967f629f0d1c",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/31-source-metadata-migration.json",
       "output": "docs/31-source-metadata-migration.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "0f08a49f82a3b3d9cbc86ff37415c7ceaae58ac89082afde9934d6b03f726a42",
-      "artifact_sha256": "29b7496a2a327aa3905cc71d06a597bd2a8e924349d0e7b26a104b52a0972dc6",
+      "repository_revision": "0c62a0f511880e9d07bbf9505771ec15657995e7",
+      "specification_sha256": "dd8c1938555aa3a4b65f20743e9d1d79a9b6e7101905d77539ef8fd0007ce216",
+      "artifact_sha256": "d4d45d34573e35f544a004e927754b41a10609afdd264d76de1892a7f1898fd1",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1659,15 +2801,66 @@
           "theme": "light"
         }
       ],
-      "correction_rounds": 0
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "retained_source_snapshot_receipt",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/final/31-source-metadata-migration",
+      "delivery_receipt_id": "d1b2233b-7c5d-464f-ab58-31a6bd7fe72b",
+      "correction_rounds": 0,
+      "retained_bytes_rechecked_on": "2026-10-12"
     },
     {
       "type": "sequence",
       "specification": "docs/32-retry-maintenance.json",
       "output": "docs/32-retry-maintenance.html",
-      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
-      "specification_sha256": "14734e7b9b4d00db60bbdf69ae2db000dfdcaf87aa35bad896b5baf2859d662c",
-      "artifact_sha256": "de061ba60c476fa205c636eb5547ae5f8667b207615219fc6205261f94fac2b2",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "6f7ce1469823607a320c03667a7397e79d14490b392b45ffa160c1643fa129a2",
+      "artifact_sha256": "6e4325d91009d1823c112455aebbb51bf6d36e252c73c77c3f5e24b5fe32ad20",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -1707,29 +2900,517 @@
           "theme": "light"
         }
       ],
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "current_finalize",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/32-retry-maintenance",
+      "delivery_receipt_id": "17202124-22c4-4bb2-8905-034ca091bb11",
+      "correction_rounds": 1
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/33-workflow-failure-recovery.json",
+      "output": "docs/33-workflow-failure-recovery.html",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "bb7295e6284999d2fd14ee63f929cbdda73ae5029b0babcc8aac3212305dc87b",
+      "artifact_sha256": "98ef02d460b76327a22b09be15ddffbebe99ffd7bbc125d8397e1d2279969248",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "current_finalize",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/33-workflow-failure-recovery",
+      "delivery_receipt_id": "9f1dcf7a-5782-41e1-a3ff-aa15a3791c32",
+      "correction_rounds": 0
+    },
+    {
+      "type": "architecture",
+      "specification": "docs/ai-proofreading-architecture.json",
+      "output": "docs/ai-proofreading-architecture.html",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "8da44e48add62ff838c8a3dd78bfe990678ea95ad3bf82fa8944bbdf9831ac84",
+      "artifact_sha256": "ae09c94b31466c4150f5643f7383edab17134168810a84a11a39fab57e5507d6",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "current_finalize",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/ai-proofreading-architecture",
+      "delivery_receipt_id": "4c6fa37e-8135-48b9-b68d-4c5256f3fef3",
+      "correction_rounds": 0,
+      "layout_advisory": {
+        "routesOverSuggestedBends": 6
+      }
+    },
+    {
+      "type": "architecture",
+      "specification": "docs/architecture.json",
+      "output": "docs/architecture.html",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "2dc3e90e39b89845f04e82415d7e921df3c673ee5a2590223641097cb97b23c0",
+      "artifact_sha256": "b12425065e3f5675f91c5c162aa40a5dbbc7e2d9b7c52f6967ae7521a962693e",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "current_finalize",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-review-3/architecture",
+      "delivery_receipt_id": "c749a408-53f6-43a9-9199-41627d01fd14",
+      "correction_rounds": 1,
+      "layout_advisory": {
+        "resolvedCrossovers": 22,
+        "routesOverSuggestedBends": 11,
+        "routesOverSuggestedStretch": 1
+      },
+      "placement_trial": {
+        "changes": "positions only: exchanged db and gpu rows; all nodes, edges, labels and sources preserved",
+        "initial_crossovers": 22,
+        "trial_crossovers": 27,
+        "trial_gates": "all four pass",
+        "disposition": "restored original candidate and finalized again",
+        "final_crossovers": 22
+      }
+    },
+    {
+      "type": "architecture",
+      "specification": "docs/contract-governance.json",
+      "output": "docs/contract-governance.html",
+      "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+      "specification_sha256": "556548885e9eec50b4162148ff88391b8b89a7907235ab37021ade38ee1102ab",
+      "artifact_sha256": "0b5113e6bfe2565cb0c6d432d402cc50d0f3c246a8ec1e58074c925c5b88ef84",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
+      "theme_states": {
+        "status": "pass",
+        "viewports": [
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1600,
+            "height": 1000,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1920,
+            "height": 1080,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "light",
+            "resolvedTheme": "light",
+            "ok": true
+          },
+          {
+            "width": 1440,
+            "height": 900,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          },
+          {
+            "width": 2048,
+            "height": 1320,
+            "requestedTheme": "dark",
+            "resolvedTheme": "dark",
+            "ok": true
+          }
+        ]
+      },
+      "receipt_origin": "current_finalize",
+      "raw_receipt_directory": ".archify/failure-recovery-merge-20261012/coupling-final/contract-governance",
+      "delivery_receipt_id": "f027680d-34ef-40b7-a880-df8a447e0b0d",
       "correction_rounds": 0
     }
   ],
+  "historical_main_validation": "docs/evidence/architecture-main-validation-2026-10-12.json",
   "implementation_validation": {
-    "archive_targeted": "238 passed, 3 skipped",
-    "maintenance_final": "23 passed",
-    "contract_release_gate": "26 passed",
-    "workflow_and_reuse": "45 passed, 1 skipped; two Windows default-encoding failures rechecked with PYTHONUTF8=1",
-    "reader": "184 passed; producer fixture build and 320/390/1440 Chromium checks",
-    "reader_revision": "4a5933c743a05d067ce719b63c04cb9dfbc5ab6c",
+    "source": "parent agent integration verification",
+    "integration_revision": "08a56ecfe79cebf16b1eda7680233acd6d454bf2",
+    "archive_targeted": "315 passed, 2 skipped",
+    "additional_regression": "63 passed",
     "ruff_E9": "pass",
-    "compileall": "pass with external PYTHONPYCACHEPREFIX",
-    "contract_mirrors": "50 contracts, 25 schemas",
-    "mutation_checks": [
-      "physical call fence",
-      "maintenance holds",
-      "reader observedAt evidence binding"
-    ]
+    "compileall": "pass",
+    "contract_mirrors": "54 contracts, 26 schemas",
+    "mutation_checks": "regressions killed tested policy/physical-budget mutations; original implementation restored",
+    "linux_ci": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive/actions/runs/38230792994",
+      "checks_passed": 8,
+      "tests_passed": 3357,
+      "tests_skipped": 11,
+      "failed": 0,
+      "errors": 0,
+      "warnings": 1,
+      "line_coverage_percent": 84.89,
+      "line_coverage_covered": 22413,
+      "line_coverage_total": 26401,
+      "branch_coverage_percent": 74.5,
+      "branch_coverage_covered": 7089,
+      "branch_coverage_total": 9516,
+      "line_threshold": 75,
+      "branch_threshold": 63
+    }
   },
   "limitations": [
-    "Local independent branches; no production deployment, timer enablement, requeue or historical backfill.",
-    "No paid provider requests, proxy parameter acceptance or FP8 hardware validation.",
-    "Overview retains 22 route crossovers after one placement attempt failed; original clearer layout restored.",
+    "No production timer enablement, requeue, historical backfill, paid provider requests or FP8 hardware validation.",
+    "5 current integration finalize receipts and 31 byte-identical source snapshots with retained receipts; no new browser run claimed for retained artifacts.",
+    "Overview retains 22 crossings: one positions-only trial passed all gates but increased crossings to 27, so original layout was restored and finalized.",
     "Automated browser evidence only; perceptual visual review not requested."
-  ]
+  ],
+  "archify_update": {
+    "installed_version": "3.0.1",
+    "available_version": "3.0.1",
+    "notice_required": false
+  },
+  "pre_coupling_validation": "docs/evidence/architecture-pre-coupling-validation-2026-10-12.json",
+  "integration_validation": {
+    "repository_revision": "96c5502119829119abce42a59804b79431895a98",
+    "source": "parent agent verified grouped targeted runs",
+    "policy_status_maintenance_architecture_couplings": "122 passed",
+    "publication_cancel_control_source_ports_utf8": "75 passed",
+    "editorial_and_architecture": "146 passed, 1 skipped",
+    "frozen_compatibility": "3 passed",
+    "counting_note": "groups overlap in architecture cases; counts are not summed as unique tests",
+    "contract_mirrors": "54 contracts, 26 schemas",
+    "ruff_E9": "pass",
+    "compileall": "pass"
+  }
 }

@@ -101,7 +101,7 @@ bili-asr publication review --archive-root /srv/bili-archive \
 
 合规流程限制默认关闭；设置 `BILI_COMPLIANCE_ENABLED=1` 后，内容权限登记、发布和读者快照导出才默认关闭，需另设 `BILI_PUBLICATION_ENABLED=1` 并登记有效授权。
 启用合规模式后，发布必须具备独立内容授权。初始化和逐版本登记参见
-[内容权限与公开发布](content-compliance.md)。旧稿件默认不获授权；编辑 approved 不等于
+[内容权限与公开发布](../content-compliance.md)。旧稿件默认不获授权；编辑 approved 不等于
 权利许可。授权须涵盖完整稿件与公开 review.md，绑定两者的确切哈希。
 
 ```bash

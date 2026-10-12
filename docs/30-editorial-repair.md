@@ -1,6 +1,6 @@
 # 冻结失败诊断、显式修复与输入重用
 
-源码基线：`3ed823c961736378d8408bba5f0535b03e0046e0`；核对日期：2026-10-12（Asia/Hong_Kong）。
+源码基线：`0c62a0f511880e9d07bbf9505771ec15657995e7`；核对日期：2026-10-12（Asia/Hong_Kong）。
 
 [交互图](30-editorial-repair.html) · [JSON 规格](30-editorial-repair.json) · [时序索引](architecture-sequences.md)
 
@@ -8,11 +8,14 @@
 sequenceDiagram
     autonumber
     participant op as 操作员
+    participant status as 状态与安全恢复投影
     participant repair as 修复用例
     participant db as 输入与任务
     participant handler as 校对 Handler
     participant ai as 校对 API（DeepSeek / OpenCode Go）
-op->>db: explain 失败任务与 input/chunk/call 原始证据
+    op->>status: workflow status --failed 或 explain；显式控制状态
+    status->>db: 一致只读快照查询 jobs/attempts、安全诊断和替代任务
+    status-->>op: stage/reason、位置计数、政策、hold/预算与恢复命令模板
     op->>repair: 显式 repair-proofread；使用新配置，不修改旧冻结输入
     repair->>db: 验证 failed proofread、准确 part/base/reference；重建新输入身份
     repair->>db: 同事务保存新 input/proofread/render 与依赖；旧 attempt 保留
@@ -33,12 +36,14 @@ op->>db: explain 失败任务与 input/chunk/call 原始证据
 
 - 旧 failed attempt、请求与冻结身份保留；修复不是偷偷改旧配置再 retry。
 - 冻结输入的合法重用保持来源哈希与版本，升级后不应重复 ASR/AI 来制造新身份。
+- 结构校验失败可人工检查后用原冻结输入重试，或明确改变配置建立修复任务；源重复需要先复核/纠正转录。
+- 状态不回显原响应；旧错误码与缺失诊断保持可读/未知。完整状态和重排决定见 [失败恢复](operations/workflow-failures.md)。
 
 ## 源码证据
 
-- [src/bili_asr/cli/workflow.py:1](../src/bili_asr/cli/workflow.py#L1)：模块定义。
-- [src/bili_asr/services/editorial_repair.py:12](../src/bili_asr/services/editorial_repair.py#L12)：repair_proofread。
-- [src/bili_asr/storage/editorial.py:36](../src/bili_asr/storage/editorial.py#L36)：EditorialRepository。
-- [src/bili_asr/storage/workflow.py:39](../src/bili_asr/storage/workflow.py#L39)：WorkflowRepository。
-- [src/bili_asr/editorial_runtime.py:1](../src/bili_asr/editorial_runtime.py#L1)：模块定义。
-- [src/bili_asr/deepseek.py:1](../src/bili_asr/deepseek.py#L1)：模块定义。
+- [src/bili_asr/cli/workflow.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/cli/workflow.py#L1)：模块定义。
+- [src/bili_asr/services/editorial_repair.py:12](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/services/editorial_repair.py#L12)：repair_proofread。
+- [src/bili_asr/storage/editorial.py:36](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/editorial.py#L36)：EditorialRepository。
+- [src/bili_asr/storage/workflow.py:39](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/storage/workflow.py#L39)：WorkflowRepository。
+- [src/bili_asr/editorial_runtime.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/editorial_runtime.py#L1)：模块定义。
+- [src/bili_asr/deepseek.py:1](https://github.com/SuperCatQR/bilibili-asr-archive/blob/0c62a0f511880e9d07bbf9505771ec15657995e7/src/bili_asr/deepseek.py#L1)：模块定义。
