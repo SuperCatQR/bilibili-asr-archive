@@ -2,6 +2,32 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "archive-maintenance-package/v1",
+      "owner": "archive",
+      "authority": [
+        "src/bili_asr/services/maintenance_package.py",
+        "src/bili_asr/storage/maintenance_selection.py"
+      ],
+      "consumers": [
+        "cli.maintenance_package",
+        "services.maintenance_package"
+      ],
+      "capabilities": [
+        "validate",
+        "export",
+        "inspect",
+        "verify",
+        "import-plan",
+        "import-apply",
+        "import-check"
+      ],
+      "dependencies": [
+        "bilibili-v1",
+        "universal-v2"
+      ],
+      "schema": "archive-maintenance-package-v1.schema.json"
+    },
+    {
       "identity": "archive-reference-backup/v1",
       "owner": "archive",
       "authority": [
