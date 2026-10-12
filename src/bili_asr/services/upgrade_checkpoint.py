@@ -49,7 +49,7 @@ class UpgradeCheckpoint:
     def __init__(self, target: Path, plan_id: str):
         self.root = target.parent / ("." + target.name + ".upgrade-" + plan_id)
         require_no_links(self.root)
-        self.root.mkdir(exist_ok=True)
+        self.root.mkdir(mode=0o700, exist_ok=True)
         self.path = self.root / "checkpoint.json"
         self.plan_id = plan_id
         pending = self.path.with_name(self.path.name + ".pending")
@@ -58,7 +58,7 @@ class UpgradeCheckpoint:
             if pending.stat().st_nlink != 1 or pending.stat().st_size > 16 * 1024**2:
                 raise ValueError("invalid pending upgrade checkpoint")
             value = json.loads(pending.read_bytes())
-            if (value.get("format") != "archive-upgrade-checkpoint/v1" or value.get("plan_id") != plan_id
+            if (not isinstance(value, dict) or value.get("format") != "archive-upgrade-checkpoint/v1" or value.get("plan_id") != plan_id
                     or value.get("checkpoint_id") != digest({k: v for k, v in value.items() if k != "checkpoint_id"})):
                 raise ValueError("pending upgrade checkpoint identity changed")
             pending.replace(self.path)
@@ -68,7 +68,7 @@ class UpgradeCheckpoint:
             if self.path.stat().st_size > 16 * 1024**2:
                 raise ValueError("oversized upgrade checkpoint")
             self.value = json.loads(self.path.read_bytes())
-            if (self.value.get("format") != "archive-upgrade-checkpoint/v1"
+            if (not isinstance(self.value, dict) or self.value.get("format") != "archive-upgrade-checkpoint/v1"
                     or self.value.get("plan_id") != plan_id
                     or self.value.get("checkpoint_id") != digest({k: v for k, v in self.value.items() if k != "checkpoint_id"})):
                 raise ValueError("upgrade checkpoint identity changed")
@@ -80,6 +80,10 @@ class UpgradeCheckpoint:
             self.value = {"format": "archive-upgrade-checkpoint/v1", "plan_id": plan_id, "phases": []}
             self._save()
         for index, phase in enumerate(self.value["phases"]):
+            if (not isinstance(phase, dict) or set(phase) != {"index", "label", "files"}
+                    or phase["index"] != index or not isinstance(phase["label"], str)
+                    or not isinstance(phase["files"], list)):
+                raise ValueError("invalid completed upgrade phase")
             if not self.phase(index).exists():
                 pending = self.pending(index, rebuild=False)
                 if inventory(pending) != phase["files"]:

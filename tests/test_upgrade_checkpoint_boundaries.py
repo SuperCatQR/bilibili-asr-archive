@@ -47,6 +47,28 @@ def test_invalid_phase_ledger_is_rejected_before_processing(tmp_path, phases):
 
 
 @pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("shape", [None, [], "invalid journal"])
+def test_malformed_journal_reports_bounded_identity_error(tmp_path, pending, shape):
+    owner = checkpoint.UpgradeCheckpoint(tmp_path / "target", "a" * 64)
+    path = owner.path
+    if pending:
+        path.unlink()
+        path = path.with_name(path.name + ".pending")
+    path.write_text(json.dumps(shape))
+    with pytest.raises(ValueError, match="identity changed"):
+        checkpoint.UpgradeCheckpoint(tmp_path / "target", "a" * 64)
+
+
+@pytest.mark.parametrize("phase", [None, {}, {"index": 0, "label": "source", "files": "invalid"}])
+def test_malformed_phase_reports_bounded_error_before_file_access(tmp_path, phase):
+    owner = checkpoint.UpgradeCheckpoint(tmp_path / "target", "a" * 64)
+    owner.path.write_text(json.dumps(signed({"format": "archive-upgrade-checkpoint/v1",
+                                           "plan_id": "a" * 64, "phases": [phase]})))
+    with pytest.raises(ValueError, match="invalid completed upgrade phase"):
+        checkpoint.UpgradeCheckpoint(tmp_path / "target", "a" * 64)
+
+
+@pytest.mark.parametrize("pending", [False, True])
 def test_oversized_journal_is_rejected_without_loading(tmp_path, pending):
     owner = checkpoint.UpgradeCheckpoint(tmp_path / "target", "a" * 64)
     path = owner.path
