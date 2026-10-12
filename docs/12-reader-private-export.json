@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -240,9 +240,9 @@
       "id": "m14",
       "to": "snapshot",
       "y": 1483,
-      "label": "按已支持的 profile 读取",
+      "label": "按明确 v1/v2 契约读取",
       "variant": "default",
-      "note": "当前 Reader 仅支持 universal-origin-v1；简介补充的新 universal-origin-v2 等待消费者升级；公开/预览契约分开，私有父目录不部署；条件：else 全部验证通过",
+      "note": "配套 Reader 分支 codex/source-description-contract / 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已验证 v1/v2 严格版本及字段证据，安全简介与独立摘要；不代表已合并或生产部署。公开/预览契约分开，私有父目录不部署；条件：else 全部验证通过",
       "from": "consumer"
     }
   ],
@@ -312,7 +312,7 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]
@@ -322,7 +322,9 @@
       "title": "显式协议兼容",
       "items": [
         "简介补充使用 universal-origin-v2：origins schema 2、manifest 3；source-metadata-v1 保持冻结。",
-        "旧 universal-origin-v1 继续使用 origins 1 / manifest 2，并拒绝新简介补充；未升级消费者不得导入新 profile。"
+        "旧 universal-origin-v1 继续使用 origins 1 / manifest 2，并拒绝新简介补充；未升级消费者不得导入新 profile。",
+        "Reader 配套 commit 4a5933c743a05d067ce719b63c04cb9dfbc5ab6c 已实现并验证明确 v1/v2 tuple、简介值/身份/hash/observedAt，尚未合并或部署。",
+        "184 个 reader tests、真实 producer v2 fixture 构建、320/390/1440 px 浏览器通过；来源简介纯文本按需展示保留换行，与编辑摘要独立。"
       ]
     }
   ]

@@ -278,6 +278,8 @@ bili-asr snapshot doctor --archive-root restored-archive
 | 元数据恢复时发现列表顺序变化 | 使用 `--incremental` 重新发现，保留原游标与失败记录，见 [采集说明](docs/guides/source-adapters.md) |
 | 字幕轨道存在但正文不可用 | 检查候选、上游正文和规范化证据；正文不可用不能据此判断音频静音，见 [字幕候选流程](docs/22-subtitle-candidates.md) |
 | worker 空闲但仍有排队任务 | 查看 `workflow status --jobs --details` 与 `workflow explain` 的前置依赖 |
+| worker 存活但失败任务没有受限恢复 | 核对独立 `retry-maintenance health`；显式范围、holds、累计 ledger 和定时器交接见 [失败维护](docs/operations/retry-maintenance.md) |
+| 校对跨段引用错误反复失败 | 新输入按冻结逐块预算进行严格再生成；历史请求保留原格式，显式修复见 [校对指南](docs/guides/ai-proofreading.md) |
 | ASR 模型缺失或设备不可用 | 核对离线 checkpoint、宿主 PyTorch 和冻结 profile，见 [部署检查](docs/operations/asr-deployment-readiness.md) |
 | WebVTT 时间戳或转录包校验失败 | 保留原始转录和失败尝试，检查音频与对齐；修复原因后再明确重试，见 [完整性指南](docs/guides/webvtt.md) |
 | 数据库或导出契约不兼容 | 停止写入并保留源归档，预检后向独立目标显式转换，见 [归档升级](docs/operations/archive-upgrades.md) |

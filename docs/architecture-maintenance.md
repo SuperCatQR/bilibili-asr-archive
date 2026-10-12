@@ -1,6 +1,6 @@
 # 架构文档与时序图维护
 
-本套文档以 main 的一个固定源码提交为基线。文字入口是 [architecture.md](architecture.md)，三张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)、[契约治理](contract-governance.html)，31 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
+本套文档以已提交的固定源码为基线，本轮来自 codex/issue-reliability-metadata 分支。文字入口是 [architecture.md](architecture.md)，三张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)、[契约治理](contract-governance.html)，32 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
 
 JSON 是图的可编辑规格，HTML 是 Archify 生成的独立查看器，不手工修改 HTML。目录级 `.gitattributes` 对图表规格与生成 HTML 设置 `-text`，防止 Git 换行转换改变验收哈希；`.gitattributes` 仅对生成 HTML 关闭行尾空白检查，保留模板字节及 artifact SHA-256，其他空白检查继续执行。时序 Markdown 保留完整 Mermaid 的嵌套 alt/opt/loop；HTML 展开跨参与者消息，内部调用在补充卡片中说明。修改流程时同时核对 Markdown、JSON 和代码，不能只改其中一份。
 
@@ -89,6 +89,6 @@ JSON Schema 的权威源在 `src/bili_asr/contracts/schemas/`；运行
 更新相关版本矩阵和消费者后提交实现，再以完整源码 SHA 更新契约专题图和独立验证记录。
 本轮入口为 [契约治理](contract-governance.md)，旧图不因新登记自动获得新的源码身份。
 
-## 2026-10-11 当前身份
+## 2026-10-12 当前身份
 
-本轮统一绑定 378f415ac5bf2a47de9137ee593f201e86827d43；34 张图的现行凭据在 architecture-validation.json。历史行为验收归入 evidence/，保留原提交与运行日期；过时图表及重复收据已删除。本轮候选与 browser evidence 留在独立的 .archify/docs-cleanup-20261011/ 子目录；每张图的实际结果以当前验证记录为准。
+本轮统一绑定 3ed823c961736378d8408bba5f0535b03e0046e0；35 张图的现行凭据在 architecture-validation.json。历史行为验收归入 evidence/，保留原提交与运行日期；过时图表及重复收据已删除。本轮候选与 browser evidence 留在独立的 .archify/issue-reliability-20261012/ 子目录；每张图的实际结果以当前验证记录为准。

@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+      "revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -23,7 +23,7 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 1,
-          "end_line": 429,
+          "end_line": 436,
           "label": "模块定义"
         }
       ]
@@ -49,7 +49,7 @@
         {
           "path": "src/bili_asr/storage/editorial.py",
           "line": 36,
-          "end_line": 320,
+          "end_line": 504,
           "label": "EditorialRepository"
         },
         {
@@ -68,7 +68,7 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 1,
-          "end_line": 109,
+          "end_line": 141,
           "label": "模块定义"
         }
       ],
@@ -82,7 +82,7 @@
         {
           "path": "src/bili_asr/deepseek.py",
           "line": 1,
-          "end_line": 111,
+          "end_line": 167,
           "label": "模块定义"
         }
       ],
@@ -237,7 +237,7 @@
       "dot": "rose",
       "title": "身份与阅读边界",
       "items": [
-        "全部源码固定于 378f415ac5bf2a47de9137ee593f201e86827d43；2026-10-11 核对。",
+        "全部源码固定于 3ed823c961736378d8408bba5f0535b03e0046e0；2026-10-12 核对。",
         "条件分支按发生顺序展开；互斥分支不同时执行。消息注释保留完整操作，内部动作见本卡片与 Mermaid。",
         "本图描述代码，不代替网络、GPU、付费模型或生产切换验收。"
       ]

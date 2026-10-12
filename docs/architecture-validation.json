@@ -1,12 +1,12 @@
 {
   "schema_version": 3,
-  "checked_on": "2026-10-11",
+  "checked_on": "2026-10-12",
   "timezone": "Asia/Hong_Kong",
-  "repository_revision": "378f415ac5bf2a47de9137ee593f201e86827d43",
+  "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
   "archify_version": "3.0.1",
   "coverage": {
-    "sequence_flows": 31,
-    "interactive_diagrams": 34
+    "sequence_flows": 32,
+    "interactive_diagrams": 35
   },
   "content_checks": {
     "command_registry_and_parser": "pass",
@@ -15,18 +15,19 @@
     "mermaid_branch_balance": "pass",
     "git_diff_check": "pass",
     "artifact_receipt_hashes": "pass",
-    "pinned_source_ranges_checked": 402,
-    "local_markdown_links_checked": 992,
-    "local_source_line_links_checked": 274,
-    "mermaid_flows_checked": 31
+    "pinned_source_ranges_checked": 409,
+    "local_markdown_links_checked": 896,
+    "local_source_line_links_checked": 287,
+    "mermaid_flows_checked": 32
   },
   "artifacts": [
     {
       "type": "architecture",
       "specification": "docs/architecture.json",
       "output": "docs/architecture.html",
-      "specification_sha256": "fc10bddf785668987fdc7c4d68c9f6094cd9634f46ce5d4d13e6c8bb40e31e99",
-      "artifact_sha256": "bbbca8260658b7b1d22f627e089a2ea5fc8d9fa13607aec4abd803e8fa817faf",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "987461b70642e033000c5b23122018175a33bcc1204df0cc8a130cacaa5226d7",
+      "artifact_sha256": "345be4da7e95a60609ed5b81d3b655fc538624d2334a67fe237da61250581c03",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -44,7 +45,29 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
-      "correction_rounds": 0,
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
+      "correction_rounds": 1,
       "layout_advisory": {
         "resolvedCrossovers": 22,
         "routesOverSuggestedBends": 11,
@@ -55,8 +78,9 @@
       "type": "architecture",
       "specification": "docs/ai-proofreading-architecture.json",
       "output": "docs/ai-proofreading-architecture.html",
-      "specification_sha256": "d37d851fa862e9e623d12480cdf4ba89fbd98aa748e49698e29a7c41da1e2989",
-      "artifact_sha256": "528962ea58eb9e295bc7c8d1d5066604902239b8642d3fe862abaadd15aeb64e",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "758adbfc3d33445f0e26d78f5e17e06d93973516b3314e6e2c2d139fa8996e8b",
+      "artifact_sha256": "2708b4b63f5cb2f0c121426f29b0c5b11f3037eaee3877a86b7e6ead29e02f3a",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -74,6 +98,28 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0,
       "layout_advisory": {
         "routesOverSuggestedBends": 6
@@ -83,8 +129,9 @@
       "type": "architecture",
       "specification": "docs/contract-governance.json",
       "output": "docs/contract-governance.html",
-      "specification_sha256": "7e2370b8d458e859638968690554475ed1adc32c9b026ad235effdc14af7bb8d",
-      "artifact_sha256": "edca0b8cfa3c5be07b9345617bdf697800bde86a03ddd4c9c0fbd118114a113b",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "84f2398f14578e7a895d030456c2e045738f12b7f8a14590b9edfa50ddcd34be",
+      "artifact_sha256": "1c4eb905c67046afcf177ce53d6a4fc19c21010dd3c8bf6ff9f89cf1e355a13b",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -102,14 +149,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/01-cli-bootstrap.json",
       "output": "docs/01-cli-bootstrap.html",
-      "specification_sha256": "d917c4cc21ce025188991dd8aee9a104dd288e7e1f338bd567cd9cbbd131573d",
-      "artifact_sha256": "0867dc3fea134a66c38a351d8d10df8617770d4c691c77265441d3d0a6d96efa",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "fe4bf415188a0d703cb9a6c04fa0bb0a49ede7ee0586d1336b389f2cba01b0df",
+      "artifact_sha256": "fb30d3daffcddd8b63f393c5c7163845dbc50b825d6bb2a88db6ba11cf3ce773",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -127,14 +197,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/02-metadata-tags.json",
       "output": "docs/02-metadata-tags.html",
-      "specification_sha256": "7362a1faefc91986bd5141a9455ad6da1e58e9c5be461dc4e8d3b9703a4d597a",
-      "artifact_sha256": "d6ef575efb8dc15d206678bba37a2a51fe1585a7ef51b8639b2562d2b9838cc7",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "bbaebdff7224512f79cbfeeced94fe87d859ae89d90197676672b0d894a76cdb",
+      "artifact_sha256": "90f4509aade79ebeef35c9ed5e8c452f1e75ad949e0c3cf41feffbeef5c266b0",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -152,14 +245,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/03-workflow-plan.json",
       "output": "docs/03-workflow-plan.html",
-      "specification_sha256": "0f5ef889fc800ca2270e3172ca692bb80cb3a4398f51b96122df0fc3b5a7da7f",
-      "artifact_sha256": "4329d044285fbece56baa8a4f5b381bd2b57bba054c3892a12c68f11eefe17a8",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "adc8bbe77d6faee910564915160e58467e5b3f1b042a27ec7a491a864439cc4a",
+      "artifact_sha256": "ab9d824f25d02247bfd3c9da102e0a26b883e49877d084b5a8bf33e7c7c06946",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -177,14 +293,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/04-lease-cancel-retry.json",
       "output": "docs/04-lease-cancel-retry.html",
-      "specification_sha256": "e890da471e38380ec7509b5b4c942f672b1ae1709353ac8055edfbe418964a1a",
-      "artifact_sha256": "04070e652bcc645d2601626a4e785959cae0d2be80b309dbca91db448fb5da38",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "e7394ab9f35daf6a0b6212ffbb53cba7b3751723538dac1ae1306a5ef98ab53a",
+      "artifact_sha256": "de8af1479cc15c67fa9eac104b189e8b04c1a82c43b77cb0ed430f62c6d563f7",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -202,14 +341,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/05-subtitle-ingest.json",
       "output": "docs/05-subtitle-ingest.html",
-      "specification_sha256": "cc0ba64bbeeefbbb01e229054482dc0b31c29dd73bf7bd55435f4a2f6346ebd8",
-      "artifact_sha256": "f05bbb3cdfd294153741ea5ce53291097f12b4553fe3f005dc5c903e8f709463",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "793cd38b8679fed985e70ed3562fef5ac4fe91bc716098e47267e92d08a9d0c3",
+      "artifact_sha256": "9353f54a9c5c8584264f1243b49c8d68963d1126ecb7508a5800eab590f75fab",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -227,14 +389,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/06-audio-download.json",
       "output": "docs/06-audio-download.html",
-      "specification_sha256": "8624d73fde5074033f0a16ca4c1d026c6a904bfbea25161b1eecf13410fbd0d8",
-      "artifact_sha256": "aec33d5f487e1f490f51ebe7df506d7c2f59632913510f874541f454c1873568",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "547c7c3af5ced309c6f0b717f4f46cb8a5418bcd4b3c47b1ce039e5bee72dc91",
+      "artifact_sha256": "16aba32dda63681b330427307ce62ecda62ea11a6a08cd32da2d5779d83f3daa",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -252,14 +437,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/07-asr-runtime.json",
       "output": "docs/07-asr-runtime.html",
-      "specification_sha256": "0f1f62f487671354a1259ce930b1cd11febe90058b4bcdf24141939656866395",
-      "artifact_sha256": "485bde7cde8c36b7115c16b68d2b627dceefd151da736246e00f8be8bcc2d686",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "cb52f4fd5e14cc8c70f9ec37ac0ed8d0b7a1a785e10f3c3fba4d264c8f82e606",
+      "artifact_sha256": "5e44a87cd5c69ea28e9b8cdc220097336e047a2647e27e41d075993517a811ba",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -277,14 +485,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/08-transcript-bundle.json",
       "output": "docs/08-transcript-bundle.html",
-      "specification_sha256": "bd91c805750feeb439562579b6634671eca5f544929af31834655e613ea886e1",
-      "artifact_sha256": "7459a7da654fb5257ddb56e02ef916def0b28cf0b75859265498cad49c97b69d",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "0a3c96948eda0efcdaad39134174d04c792751310ea4c1567bb268a200c6fd26",
+      "artifact_sha256": "7768c2814161e876e46c01e494d2cdc574de96bf0b4dec4b8310f01295bc91ca",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -302,14 +533,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/09-ai-proofread.json",
       "output": "docs/09-ai-proofread.html",
-      "specification_sha256": "20ef1deb3b9214e6a70051fb73b61d2ed03622fc67251c457d45a0f8644eda06",
-      "artifact_sha256": "d99a085467433cac5b0fa2da4c70f4871642f12c6c4e65ba08fdc4854a969a0d",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "7ec57d502e3ce766ee4a5adf41a6ae678f1432c88f3f280c2cc81d733d05d453",
+      "artifact_sha256": "8b6dce6f123b5e046935730aee87c1b17aaeeba508175877f2d233be7ed75957",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -327,14 +581,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/10-document-render.json",
       "output": "docs/10-document-render.html",
-      "specification_sha256": "fc3ec5ce46555fd5aa28990222df831a6b2ac2edc168328c9828b7f0f9349244",
-      "artifact_sha256": "6ec3f1518108e381c0be8af9740be6e5323e902d423428c6961d6b6cd58cce5e",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "d5ebcc4ead0eebc621264c91701d640830d9e9ee97b927452d3fb809fcdd6b62",
+      "artifact_sha256": "dac3ecffe2681682340d78f5e5645e01ef493ffec777c5e92fffc5927465741c",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -352,14 +629,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/11-publication-lifecycle.json",
       "output": "docs/11-publication-lifecycle.html",
-      "specification_sha256": "77bb73d7aba1d2196a10bc72a59f0978d1ea5cfaea2922bd7b1846a309075226",
-      "artifact_sha256": "8654ddaa60f2788609b08238820e942704ab1f520d72c4727338b06eba38534e",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "5e424f5c8d70ddbb5dd6883698790cac563f618b653dc9d4156b155dbc51004a",
+      "artifact_sha256": "a2e32f4b9f0aa6613651abfacf7ff36197cbd16c58e75826f64f90c016015a84",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -377,14 +677,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/12-reader-private-export.json",
       "output": "docs/12-reader-private-export.html",
-      "specification_sha256": "4f94b0c7c6a7cd1db18dc6307765c95d21b87152e1fa64ce863e36d1979b4e37",
-      "artifact_sha256": "b3246e119b5f7c00cbaee1c97cbb6dbec7a65921ad03537f6a73473e448c9b62",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "ef91f396a480d268a767168ee0cd45d686ad9152e7c7b05e7bbab73201966ced",
+      "artifact_sha256": "1fa72ed7ecfe36ff58e69723be6560ee4e11153d85e9ec6654f3cefdf87b1ba1",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -402,14 +725,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/13-projection-verify.json",
       "output": "docs/13-projection-verify.html",
-      "specification_sha256": "ec18284d0e0bc309bfac6fccd603735703d50106321052db2afc7ffbe094af01",
-      "artifact_sha256": "dfe3b5b0fd3b359d7d7cdac3c33a2c3cae548ad33cd48ca5f1ba3f7d892976ba",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "e657d0cdf632d84ec72aa43487728199826157ed1556dfb1e220a8fc0e1caab9",
+      "artifact_sha256": "9d6fed5027266af29ba224ab077b2593b65e5d0e74e81c3cdebdb23d223e3de3",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -427,14 +773,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/14-search-index.json",
       "output": "docs/14-search-index.html",
-      "specification_sha256": "42543c8b06888ac301df192933176fc8f7274cb70d74115e49dee91eb7fba25c",
-      "artifact_sha256": "ca612410365997cb460965f738354673d954b0ba444253a571092b064095936f",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "bc7cf40c38c9e74e9771d674ad0e93c31141c61daea7d9312f6c8bb189e59f13",
+      "artifact_sha256": "c7027ba919d9cf722d8f6c3d1302a8c01937d6a4addbe31fd00d833e657bba84",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -452,14 +821,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/15-archive-snapshot.json",
       "output": "docs/15-archive-snapshot.html",
-      "specification_sha256": "7e1cf904a1237ec1163eb0f861b1071c6a2e69456feab517761f0f832749b07d",
-      "artifact_sha256": "698f7883943c8660329734c62084c4065de0d6f860531e047309cb5cba61f5ca",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "610b8038173dd6ae1b8cbc1c1ec13cd4432937376450d253ce8f12b853fd0350",
+      "artifact_sha256": "ac5b1839a6677914fe775c573f4d8d322f856b478b976025b77808998941547e",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -477,14 +869,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/16-library-and-operations.json",
       "output": "docs/16-library-and-operations.html",
-      "specification_sha256": "e2458ea037dfed6fbbaa670cb04c01d9c6642aeb4d2d5a6f0715ab337f349cb1",
-      "artifact_sha256": "e91c93f1ca858b06d68fc3146553980eee3ec9edf81aa4b607c6318ed1d53505",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "92c7d49fad62883fdb12a11e70b1766ecea66013fb61046a37741998734a8a2d",
+      "artifact_sha256": "660eaa71a49ba62f3f2e2a8ac4f043b750698807fdab3a889e7299e8e9a0861e",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -502,14 +917,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/17-migration-preflight.json",
       "output": "docs/17-migration-preflight.html",
-      "specification_sha256": "11a48f149a0036e248be6c40b750bbf40f0dedc835bcd60328801a8967808f51",
-      "artifact_sha256": "0ffbe950c54fe81bf896b0f911a6bc536fa262bb4fdd830e5b088b00cbad0212",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "d5bd8937f02fe57191eeca1cb54e407aa4e5a0c48805d5ddf601f8fe5a1dd76b",
+      "artifact_sha256": "2c8b575f6b2eb1225740053267b45cfe1dda8751f1bade19716334d70ff416f4",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -527,14 +965,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/18-universal-migration.json",
       "output": "docs/18-universal-migration.html",
-      "specification_sha256": "c7a0bce8bd9df854fddd46db45fd354f7eef68982ec12336e623607ce1dc97d1",
-      "artifact_sha256": "278dd267005bfb84cbd53a236ec0e64205bae697b47c7643f84693e34cfe0c7d",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "6804de52e4af165b5b5d354c4402025fe66f774edb86dbad9f7cedc496329fd8",
+      "artifact_sha256": "0f54f605ea0ad1da3741b2b193fcca4f43ac4c96d4400117cfb4c8decb71a186",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -552,14 +1013,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/19-persistent-asr.json",
       "output": "docs/19-persistent-asr.html",
-      "specification_sha256": "6ddf19329d3fd26037147277b7065c824a133d121ad6fa0618067ddfa0ce4103",
-      "artifact_sha256": "f57601ed75acdd554dbb6dcb5417c84ea823cd74d724a828cb7a2163ce6b2187",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "ab7854ea19a5289bbb272dcec6cb0ad351f05a37cb78d7088652f0a71ae0d922",
+      "artifact_sha256": "70ec809ae42f02912c780f916ce2dc8dd9224ff42018666fd6979bba2bdf0c6a",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -577,14 +1061,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/20-recovery-plan.json",
       "output": "docs/20-recovery-plan.html",
-      "specification_sha256": "42248effa23da9f4d53899f39403f55e41bdb2c550435d29af91c4939a4baede",
-      "artifact_sha256": "f8b2517e2f5737153a89bc464c7eed71d13ca670072f1a8d78c7f73aa5532afc",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "1148efd55f5d57292f8820ecac10a0e5d9abbe4db8675724d7fef841ceb71edd",
+      "artifact_sha256": "ed6b36ae620b389382dc23919b846c608c23d69581fc6403de22e141ba32f563",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -602,14 +1109,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/21-youtube-workflow.json",
       "output": "docs/21-youtube-workflow.html",
-      "specification_sha256": "5af1568c31025c81bc267006d6f3e95c7162f2f71c90b165b20fd1461e2205c4",
-      "artifact_sha256": "d8929e935cba98042d48399d1206f296f32f482f233f256d9ded66d7c8462e0b",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "13b5d79c4667f2ada46e204cce58eb7ffd2efbc5de1466aefc047ffd6e8d9316",
+      "artifact_sha256": "6cacefacfbe1577ae0bb7cd27afa335322e6f35682a1def7e0b62845e29e1a5b",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -627,14 +1157,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/22-subtitle-candidates.json",
       "output": "docs/22-subtitle-candidates.html",
-      "specification_sha256": "1e95ccecde717b97276aa95e33ebf99bfa9f7664a80becddffcc1ac840b3a6d7",
-      "artifact_sha256": "a92629742dda3ce2e4c13bd2c05ec146b8a841664066c50809e9ec1d0176d8b0",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "491362f3663eae7b304526f64c8a7578dc11c5d3d8f6c4d042945c9d6889036d",
+      "artifact_sha256": "7b6c882168485a17c9c01fef684adc563b00e756222c838d23b055520bfa321f",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -652,14 +1205,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/23-metadata-refresh.json",
       "output": "docs/23-metadata-refresh.html",
-      "specification_sha256": "dd2acc6c22ad8a500cb39e1112531e29296733a8547fb23af93d27fce28e1cdf",
-      "artifact_sha256": "9c63edd7c698eba965d5cb55bc0777fb4ae61bb3c2d6b337c0058116691d4efc",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "eb0c392a7053d09e192b323ddea98a241c04060218c79bc012a823c1b566ec0a",
+      "artifact_sha256": "622c20101d941d2fd3fc3da0afd6b6b555f8a40fc0292ba095db4ade44128071",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -677,14 +1253,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/24-artifact-storage.json",
       "output": "docs/24-artifact-storage.html",
-      "specification_sha256": "73646c3960a716a3cb5524bebb21aa4bc5b808ebf1e3078140169d46e9759887",
-      "artifact_sha256": "45c60d781aef60cd8c9132be85b9d75e5f0fa3dfe0960dc92bcf951d2ca04402",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "a9de28c9f209ebf4d4a9acaf175c6365e7c2dd2ebb8d414cb948476383f4e7aa",
+      "artifact_sha256": "dc845eeaea6da6a119ddfc9e0c0f538c1afe5b6c7dd67f717127053ab6212048",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -702,14 +1301,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/25-contract-upgrade.json",
       "output": "docs/25-contract-upgrade.html",
-      "specification_sha256": "a9320af59c89d6564ec7cbb71d60ffca3e51dc9d00312912b2bae9f71a75e5e0",
-      "artifact_sha256": "14d3078b20318b3c47247f3a477d0e2fb2467131a7d8401976b99a7e9590ce5a",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "8da9c1b7ea9f807eebcf2f91ea054aaf85b834f64ccbc15d3011e8843da34b0d",
+      "artifact_sha256": "5955e96e41d1ac27e01dad3fb8b20976462a7af972b4b4057e0c6cf661abcc38",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -727,14 +1349,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/26-asr-batching.json",
       "output": "docs/26-asr-batching.html",
-      "specification_sha256": "10c372fa2f1be82a4443a6af3927d0fb7da6099eb9949a1ddf569b7c7066703b",
-      "artifact_sha256": "1a9b50b00f3f569e31f42ed3742c3a2d97e7b523bf050bb99483f2fc5b432f41",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "745b1f11c3269f913279c4410e9dffb47724da491b98e069a799d487c62f5416",
+      "artifact_sha256": "dda8690f08139485888baf58d43ccd7d989ab78077b822c5f3fcef4bc08837ea",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -752,14 +1397,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/27-reference-backup.json",
       "output": "docs/27-reference-backup.html",
-      "specification_sha256": "4a0abd2bfb7845f796ee44ac68d24ffe5a15fce348b6ab26e8e3ba0d4ec46ec9",
-      "artifact_sha256": "6adff50dc6591e9039b11810dca5999823c2471696cd5733afd1a2b6f433fbcd",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "3ebea0f48944f614dbbf1b47833bd691c35a6486845b4b7f327fa46a1629d381",
+      "artifact_sha256": "5d5f70a67313ae77f3b25a4684ede05c8fc707aff9cb9e2d89354cc21b5a7fe9",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -777,14 +1445,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/28-preserved-body.json",
       "output": "docs/28-preserved-body.html",
-      "specification_sha256": "ef1f2631f733623814292a5369d64b0d8e0cba33a9b315835b85f0ea45b3829a",
-      "artifact_sha256": "d7403c4bcf955d8d1ff26f0358ae4ddda63e268ab043bdb883388a420c414761",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "2c07f4cd5a9a8111ea05c87e2be1d27b7b40a7454d03693112b6c12422c32da5",
+      "artifact_sha256": "8193491a7f9a1bee4cc78629d39c6a52b6fe16f7ddcfc80d6fa1b9cc9499ba72",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -802,14 +1493,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/29-publication-series.json",
       "output": "docs/29-publication-series.html",
-      "specification_sha256": "165ffb328c2937a655066fb68da47353aa9f9b8559e66d73e15f8d9b0be3c9d4",
-      "artifact_sha256": "6506725b0c5a3a9a46dd6e4fa0d634c62a47a573a5fa40f69d4505d6e87b53d5",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "91547f69d4a0c06f1384fb7942819158b48673c2d19f569e4557975af366cc7e",
+      "artifact_sha256": "e38c23c2bd8e65db7a10c33146e8d20d038ff5651b10ca14b1ee6b632f9fd014",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -827,14 +1541,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/30-editorial-repair.json",
       "output": "docs/30-editorial-repair.html",
-      "specification_sha256": "f33f51b3077e3d47bd56c4f12d1f5a7e4a4b970c563ff5446e8979cbed08f7b1",
-      "artifact_sha256": "623ced41108d83be64237e78f98f2bd93776726f893e24ad58454b4f08404dc7",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "6f8ae8082c08c8222fe58829f02b347e8e61367f66fceeee19ceac216a7fc7bd",
+      "artifact_sha256": "e3cf8b7251e4b55722ccb605c6dae99560b58e12fc5354d6ae7a1cd75654a9d1",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -852,14 +1589,37 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     },
     {
       "type": "sequence",
       "specification": "docs/31-source-metadata-migration.json",
       "output": "docs/31-source-metadata-migration.html",
-      "specification_sha256": "7df73665bbe61290ba7f9d23c059f80457e898991f63f665344206397d03907e",
-      "artifact_sha256": "b3e7840a45c10d6baaa5ea0fd9f93c3b0381a3d6090db093cee7a414c731fb1a",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "0f08a49f82a3b3d9cbc86ff37415c7ceaae58ac89082afde9934d6b03f726a42",
+      "artifact_sha256": "29b7496a2a327aa3905cc71d06a597bd2a8e924349d0e7b26a104b52a0972dc6",
       "validation": "pass",
       "showcase_checks": {
         "checksPassed": 9,
@@ -877,20 +1637,99 @@
       },
       "browser_evidence": "passed",
       "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
+      "correction_rounds": 0
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/32-retry-maintenance.json",
+      "output": "docs/32-retry-maintenance.html",
+      "repository_revision": "3ed823c961736378d8408bba5f0535b03e0046e0",
+      "specification_sha256": "14734e7b9b4d00db60bbdf69ae2db000dfdcaf87aa35bad896b5baf2859d662c",
+      "artifact_sha256": "de061ba60c476fa205c636eb5547ae5f8667b207615219fc6205261f94fac2b2",
+      "validation": "pass",
+      "showcase_checks": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "browser_evidence": "passed",
+      "visual_review": "not_requested",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light"
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light"
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light"
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light"
+        }
+      ],
       "correction_rounds": 0
     }
   ],
-  "placement_review": {
-    "diagram": "docs/architecture.json",
-    "attempts": 1,
-    "original_crossovers": 22,
-    "trial_crossovers": 27,
-    "result": "restored-original-placement"
+  "implementation_validation": {
+    "archive_targeted": "238 passed, 3 skipped",
+    "maintenance_final": "23 passed",
+    "contract_release_gate": "26 passed",
+    "workflow_and_reuse": "45 passed, 1 skipped; two Windows default-encoding failures rechecked with PYTHONUTF8=1",
+    "reader": "184 passed; producer fixture build and 320/390/1440 Chromium checks",
+    "reader_revision": "4a5933c743a05d067ce719b63c04cb9dfbc5ab6c",
+    "ruff_E9": "pass",
+    "compileall": "pass with external PYTHONPYCACHEPREFIX",
+    "contract_mirrors": "50 contracts, 25 schemas",
+    "mutation_checks": [
+      "physical call fence",
+      "maintenance holds",
+      "reader observedAt evidence binding"
+    ]
   },
   "limitations": [
-    "No live Bilibili/YouTube network, production GPU inference, paid AI request or external reader deployment was performed.",
-    "All 34 diagrams passed artifact-bound browser checks; no complete manual visual review was requested or claimed.",
-    "Architecture overview retains route crossing and detour advisories after one placement trial was reverted; AI topic retains bend advisories.",
-    "Historical behavior-validation records in docs/evidence remain separate from current artifact receipts; the new universal-origin-v2 reader profile remains external follow-up work."
+    "Local independent branches; no production deployment, timer enablement, requeue or historical backfill.",
+    "No paid provider requests, proxy parameter acceptance or FP8 hardware validation.",
+    "Overview retains 22 route crossovers after one placement attempt failed; original clearer layout restored.",
+    "Automated browser evidence only; perceptual visual review not requested."
   ]
 }
