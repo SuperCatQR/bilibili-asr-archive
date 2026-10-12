@@ -15,7 +15,9 @@ def rights_command(connection, args):
     action = args.rights_action
     if action == 'init':
         initialize_rights(connection)
-        return {'initialized': True, 'existing_content': 'private-only-until-authorized'}
+        from bili_asr.compliance import compliance_enabled
+        return {'initialized': True, 'existing_content': 'private-only-until-authorized'
+                if compliance_enabled() else 'permissions-not-inferred'}
     if action == 'show':
         return rights_status(connection, get_edition(connection, args.edition_id))
     permission = None

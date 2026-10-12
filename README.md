@@ -42,9 +42,11 @@ flowchart LR
 
 **转录归档包发布与阅读稿发布是两项操作。** `workflow publish` 生成转录文件；`publication publish` 发布已审核的稿件版本。AI 工作流只生成阅读稿与对照记录。
 
-内容权限台账、`publication publish` 和读者公开快照默认关闭。只有完成平台访问和内容处理审查后，显式设置
-`BILI_PUBLICATION_ENABLED=1` 才能启用这些入口；启用开关本身不授予任何视频、音频、字幕或稿件的版权，
-公开导出仍要求逐 edition 的授权证据。私有归档、内部审核和私有 review 导出不依赖该开关。
+合规流程限制默认关闭：实时访问、文本导出、`publication publish` 和读者快照不要求新增的
+授权依据登记，文本导出不强制 `--private`。稿件审核、质量检查、哈希校验和数据安全检查仍保留。
+设置 `BILI_COMPLIANCE_ENABLED=1` 可启用全部合规限制；此时还需设置 `BILI_PUBLICATION_ENABLED=1`
+开放权限登记及公开发布，并提供逐 edition 的有效授权。也可单独设置
+`BILI_PLATFORM_ACCESS_REQUIRE_EVIDENCE=1`，仅检查实时访问依据。程序开关不授予平台或内容权利。
 
 ## 快速开始
 

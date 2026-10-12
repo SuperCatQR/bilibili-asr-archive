@@ -463,7 +463,8 @@ def export_records(
     private: bool = False,
 ) -> str:
     """Export a read-only projection of workflow records to JSON or CSV."""
-    if with_text and not private:
+    from bili_asr.compliance import compliance_enabled
+    if compliance_enabled() and with_text and not private:
         raise ValueError('content-rights: text exports require --private; use publication export for public content')
     fmt_lower = fmt.lower().strip()
     if fmt_lower not in {"json", "csv"}:

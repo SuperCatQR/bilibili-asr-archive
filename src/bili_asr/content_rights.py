@@ -12,6 +12,7 @@ from importlib import resources
 from pathlib import Path
 
 from bili_asr.canonical_json import canonical, digest
+from bili_asr.compliance import compliance_enabled
 from bili_asr.publication import get_ai_artifacts, get_edition
 from bili_asr.publication_content import normalize_text
 from bili_asr.storage.publication import PublicationRepository
@@ -37,8 +38,8 @@ class ContentRightsError(ValueError):
 
 
 def require_publication_enabled() -> None:
-    """Require an explicit deployment opt-in for rights and public output."""
-    if os.environ.get(PUBLICATION_ENABLED_ENV_VAR) != '1':
+    """Apply the publication opt-in only under the compliance policy."""
+    if compliance_enabled() and os.environ.get(PUBLICATION_ENABLED_ENV_VAR) != '1':
         raise ContentRightsError(
             f'content-rights: content permission and public publication are disabled by default; '
             f'set {PUBLICATION_ENABLED_ENV_VAR}=1 only after reviewing the release and access basis'
@@ -215,10 +216,17 @@ def rights_status(connection, edition: dict, review_document: bytes | None = Non
 
 
 def require_public_rights(connection, edition: dict, review_document: bytes) -> dict:
-    status = rights_status(connection, edition, review_document)
+    status = distribution_status(connection, edition, review_document)
     if not status['public']:
         raise ContentRightsError(f"content-rights: public distribution denied ({status['status']}); record permission first")
     return status
+
+
+def distribution_status(connection, edition: dict, review_document: bytes | None = None) -> dict:
+    """Release eligibility is policy-specific; ledger facts remain independent."""
+    if not compliance_enabled():
+        return {'status': 'unchecked', 'public': True}
+    return rights_status(connection, edition, review_document)
 
 
 def public_notice(edition: dict, status: dict) -> dict:

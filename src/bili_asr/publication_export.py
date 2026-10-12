@@ -18,7 +18,7 @@ from bili_asr.publication_content_v2 import content_from_ai_v2, render_publish_v
 from bili_asr.publication_origins import PROFILE, public_origin
 from bili_asr.storage.import_origins import import_origin, read_baseline
 from bili_asr.content_rights import (
-    ContentRightsError, public_notice, require_public_rights, rights_status, serialized_distribution,
+    ContentRightsError, public_notice, require_public_rights, distribution_status, serialized_distribution,
 )
 
 
@@ -59,7 +59,7 @@ def _install_public_snapshot(
     while True:
         denied = {
             edition_id for edition_id, _ in rights_checks
-            if not rights_status(connection, get_edition(connection, edition_id))["public"]
+            if not distribution_status(connection, get_edition(connection, edition_id))["public"]
         }
         if denied:
             for article in articles:
@@ -96,7 +96,7 @@ def _install_public_snapshot(
             return len(articles)
         except ContentRightsError:
             if not any(
-                rights_status(connection, get_edition(connection, edition_id))["status"] == "expired"
+                distribution_status(connection, get_edition(connection, edition_id))["status"] == "expired"
                 for edition_id, _ in rights_checks
             ):
                 raise
@@ -198,22 +198,23 @@ def export_publications(
             ).fetchone()
             if candidate is None:
                 raise ExportSnapshotError("publication head points to an unknown release")
-            if not rights_status(connection, get_edition(connection, candidate["edition_id"]))["public"]:
+            if not distribution_status(connection, get_edition(connection, candidate["edition_id"]))["public"]:
                 continue
             release, edition, document = verify_release(connection, str(head["current_release_id"]), artifact_roots)
             if release["status"] != "published" or release["video_part_id"] != head["video_part_id"]:
                 raise ExportSnapshotError("publication head does not identify a valid current release")
-            if not rights_status(connection, edition)["public"]:
+            if not distribution_status(connection, edition)["public"]:
                 continue
             artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
             _collect_origin(connection, edition, artifact_roots, contract_profile, origins)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
-            permission = rights_status(connection, edition, review_document)
+            permission = distribution_status(connection, edition, review_document)
             if not permission["public"]:
                 continue
-            notices.append(public_notice(edition, permission))
-            rights_checks.append((edition["edition_id"], review_document))
+            if permission["status"] == "granted":
+                notices.append(public_notice(edition, permission))
+                rights_checks.append((edition["edition_id"], review_document))
             entry = _public_entry(release, edition, review_document)
             if entry["file"] in files:
                 raise ExportSnapshotError("duplicate public article identity")
@@ -290,7 +291,7 @@ def export_publication_drafts(
                 if edition_ids is not None:
                     raise ExportSnapshotError("export-scope: selected draft edition has already had a release")
                 continue
-            if not rights_status(connection, edition)["public"]:
+            if not distribution_status(connection, edition)["public"]:
                 continue
             # Verify both immutable AI artifacts before exporting the original
             # review reference. Model-call audits remain outside the snapshot.
@@ -298,11 +299,12 @@ def export_publication_drafts(
             _collect_origin(connection, edition, artifact_roots, contract_profile, origins)
             review_document = artifacts["review.md"]
             review_document.decode("utf-8")
-            permission = rights_status(connection, edition, review_document)
+            permission = distribution_status(connection, edition, review_document)
             if not permission["public"]:
                 continue
-            notices.append(public_notice(edition, permission))
-            rights_checks.append((edition["edition_id"], review_document))
+            if permission["status"] == "granted":
+                notices.append(public_notice(edition, permission))
+                rights_checks.append((edition["edition_id"], review_document))
             content = edition["content"]
             document = _render_edition(edition)
             slug = f"edition-{edition['edition_id']}"

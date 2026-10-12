@@ -6,8 +6,11 @@
 
 ## 结论
 
-内容权限与公开发布模块默认不启用；部署必须显式设置 `BILI_PUBLICATION_ENABLED=1`
-才能登记权利或公开发布。开关不替代内容授权，启用后仍遵循未知权利禁止公开全文的规则。
+2026-10-12 行为更新：新增的合规流程限制默认关闭，实时访问、文本导出、稿件发布与
+读者快照恢复默认可用。`BILI_COMPLIANCE_ENABLED=1` 启用全部限制；此时还需
+`BILI_PUBLICATION_ENABLED=1` 才能登记权利或公开发布，未知权利禁止公开全文。
+`BILI_PLATFORM_ACCESS_REQUIRE_EVIDENCE=1` 可单独启用访问依据检查。
+关闭程序检查不代表取得平台或内容授权；下文审计和授权设计保留，执行限制仅在合规模式生效。
 
 自有软件源码继续使用 **GPL-3.0-only**，与当前 README 的声明保持一致。`bilibili-api-python==17.4.2` 声明 GPL-3.0-or-later，可以选择 GPLv3 与本项目组合分发。大部分 Python 依赖采用 MIT、BSD、Apache-2.0、ISC 等许可证，支持 GPLv3 发布方向；LGPL 与 MPL 组件须保留其原许可证和各自分发义务。`regex` 的历史 CNRI 部分、原生库/GPU 运行时、Git 历史中的复制 API 文档还需要专项核实，因此不能宣布所有发行物已完成合规审查。
 
