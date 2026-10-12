@@ -104,7 +104,9 @@ def test_scheduled_transport_recovery_preserves_checkpoint_and_dependency(databa
     files = control_files(tmp_path, proof)
     with scheduled(tmp_path, files) as process:
         try:
-            wait_for(lambda: workflow.explain_job(proof)["status"] == "queued", process)
+            wait_for(lambda: workflow.explain_job(proof)["status"] == "queued"
+                     and files["health"].exists()
+                     and read_json(files["health"]).get("last_succeeded_at") is not None, process)
         except AssertionError as exc:
             raise AssertionError((tmp_path / "scheduler.log").read_text()) from exc
         assert read_json(files["state"])["retry_ledger"][proof]["retries"] == 1

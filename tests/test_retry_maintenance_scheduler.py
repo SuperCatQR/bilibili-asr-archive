@@ -2,13 +2,12 @@
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
-
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="container process supervision is POSIX")
 RUNNER = Path(__file__).parents[1] / "scripts/deployment/run_retry_maintenance.py"
@@ -42,26 +41,35 @@ def test_failed_pass_continues_and_sigterm_stops_without_touching_state(tmp_path
     command = [sys.executable, str(RUNNER), "--bin", str(fake), "--archive-root", str(tmp_path / "archive"),
                "--policy", str(policy), "--state", str(state), "--lock", str(tmp_path / "retry.lock"),
                "--health", str(tmp_path / "health.json")]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    try:
-        wait_for(lambda: calls.exists() and len(calls.read_text().splitlines()) >= 2, process)
-        process.terminate()
-        stdout, stderr = process.communicate(timeout=8)
-        assert process.returncode == 0, stderr
-        records = [json.loads(line) for line in stdout.splitlines()]
-        assert records[0]["pass"] == "failed"
-        assert any(record["pass"] == "completed" for record in records[1:])
-        first = json.loads(calls.read_text().splitlines()[0])
-        assert first[:2] == ["retry-maintenance", "tick"]
-        assert first[first.index("--state") + 1] == str(state)
-        assert state.read_bytes() == original
-        stopped_count = len(calls.read_text().splitlines())
-        time.sleep(1.1)
-        assert len(calls.read_text().splitlines()) == stopped_count
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait()
+    log = tmp_path / "scheduler.log"
+
+    def records():
+        # A child's call record precedes the scheduler's exit observation.
+        # Wait for the scheduler's complete JSON event before sending SIGTERM.
+        return [json.loads(line) for line in log.read_text().splitlines(keepends=True)
+                if line.endswith("\n")]
+
+    with log.open("w") as output:
+        process = subprocess.Popen(command, stdout=output, stderr=subprocess.PIPE, text=True)
+        try:
+            wait_for(lambda: any(record["pass"] == "completed" for record in records()), process)
+            process.terminate()
+            _, stderr = process.communicate(timeout=8)
+            assert process.returncode == 0, stderr
+            observed = records()
+            assert observed[0]["pass"] == "failed"
+            assert any(record["pass"] == "completed" for record in observed[1:])
+            first = json.loads(calls.read_text().splitlines()[0])
+            assert first[:2] == ["retry-maintenance", "tick"]
+            assert first[first.index("--state") + 1] == str(state)
+            assert state.read_bytes() == original
+            stopped_count = len(calls.read_text().splitlines())
+            time.sleep(1.1)
+            assert len(calls.read_text().splitlines()) == stopped_count
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
 
 def test_hung_pass_is_terminated_and_scheduler_records_timeout(tmp_path):
