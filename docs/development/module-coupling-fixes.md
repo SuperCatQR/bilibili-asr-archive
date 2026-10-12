@@ -3,7 +3,10 @@
 This change addresses issues #372–#383 against the fixed source baseline
 98904edbb01fd23a5c3fb857a27e919df6b34e70. It preserves stored schema DDL,
 profile identities, publication bytes, retry history and caller-owned transaction
-boundaries. It does not migrate or requeue a production archive.
+boundaries. The branch is rebased onto main at
+85d5795d8cc739fe81bfdee8a67eda17466b736d, which adds CI improvements without
+changing the repaired product source. It does not migrate or requeue a
+production archive.
 
 ## Ownership changes
 
@@ -85,5 +88,14 @@ transaction and profile tests successfully.
 Mutation checks detected an unconditional candidate claim, omitted render
 binding and incomplete file writes. Each mutation was isolated/restored and is
 excluded from the passing-test counts. Ruff E9, compilation and the contract
-documentation check pass. Linux full-suite results are recorded after the final
-run completes.
+documentation check pass.
+
+The final Linux/WSL Python 3.12 suite completed with 3310 passed, 11 skipped,
+zero failures/errors and one expected duplicate-ZIP-member warning in 989.03
+seconds. Its source and tests match the rebased branch after normalizing Windows
+line endings. The CI shard tests added by the latest main were collected after
+the full run started and were verified separately: 11 passed in 2.77 seconds.
+The full-suite JUnit and text logs are retained outside tracked source at
+.tmp/coupling-linux-full.xml and .tmp/coupling-linux-full.log in the primary
+workspace. Windows evidence remains at .tmp/coupling-staged-full.xml and
+.tmp/coupling-staged-full.log.
