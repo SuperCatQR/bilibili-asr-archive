@@ -1,0 +1,270 @@
+{
+  "head": "7409c50dc6de0c2c558d44ba6edbebc5308bbda2",
+  "validation_environment": "WSL Ubuntu 24.04 / Python 3.12.3 / uv 0.11.14",
+  "tests": {
+    "tests": 3165,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 11,
+    "passed": 3154
+  },
+  "shards": [
+    {
+      "index": 0,
+      "tests": 1081,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 4,
+      "passed": 1077,
+      "pytest_seconds": 587.358
+    },
+    {
+      "index": 1,
+      "tests": 679,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5,
+      "passed": 674,
+      "pytest_seconds": 564.194
+    },
+    {
+      "index": 2,
+      "tests": 798,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "passed": 797,
+      "pytest_seconds": 467.807
+    },
+    {
+      "index": 3,
+      "tests": 607,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "passed": 606,
+      "pytest_seconds": 461.245
+    }
+  ],
+  "execution": {
+    "base": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en",
+    "head": "7409c50dc6de0c2c558d44ba6edbebc5308bbda2",
+    "overlay_sha256": {
+      ".github/workflows/ci.yml": "98c0ee3875624773c1a4da6bb603afe1b2be1a7f133165f01eb2e265d1f6f731",
+      "scripts/pytest_shard.py": "765b978a70d47475e4c552e5816fea8c358663cd4c3a5ed3ef567405bc7b4fe9",
+      "scripts/pytest-shard-durations.json": "076384baf47281a1763d1dd39f460e45f436c38750fd8039ce1ba819502710f4",
+      "tests/test_pytest_shard.py": "92e7fe73be3c08f3083909591744742a8f958f1cd517ce99876e2a2e6c2edb82",
+      "docs/development/ci-coverage.md": "5be9df89e997bf416d97bab805b44c6aa32ee5de30c123c6c1b65ce04790e5c7"
+    },
+    "shards": [
+      {
+        "index": 0,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en/shard-0",
+        "preparation_seconds": 0.9988536370000247,
+        "exit": 0,
+        "phase": "tests",
+        "test_seconds": 595.231969808
+      },
+      {
+        "index": 1,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en/shard-1",
+        "preparation_seconds": 1.24663603099998,
+        "exit": 0,
+        "phase": "tests",
+        "test_seconds": 571.6631480560001
+      },
+      {
+        "index": 2,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en/shard-2",
+        "preparation_seconds": 1.199201443999982,
+        "exit": 0,
+        "phase": "tests",
+        "test_seconds": 475.43938824500003
+      },
+      {
+        "index": 3,
+        "stage": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en/shard-3",
+        "preparation_seconds": 1.2462142450000329,
+        "exit": 0,
+        "phase": "tests",
+        "test_seconds": 468.827002181
+      }
+    ],
+    "environment_preheated": true
+  },
+  "coverage_totals": {
+    "covered_lines": 21203,
+    "num_statements": 25128,
+    "percent_covered": 81.59405012883579,
+    "percent_covered_display": "81.59",
+    "missing_lines": 3925,
+    "excluded_lines": 146,
+    "percent_statements_covered": 84.37997453040433,
+    "percent_statements_covered_display": "84.38",
+    "num_branches": 9024,
+    "num_partial_branches": 1553,
+    "covered_branches": 6663,
+    "missing_branches": 2361,
+    "percent_branches_covered": 73.83643617021276,
+    "percent_branches_covered_display": "73.84"
+  },
+  "coverage_job_steps": [
+    {
+      "step": "Install coverage tooling",
+      "exit": 0
+    },
+    {
+      "step": "Combine coverage data",
+      "exit": 0
+    },
+    {
+      "step": "Generate coverage report",
+      "exit": 0
+    },
+    {
+      "step": "Enforce product coverage floors",
+      "exit": 0
+    }
+  ],
+  "coverage_fragments": 217,
+  "workflow_jobs": [
+    {
+      "job": "quality",
+      "stage": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en/job-quality",
+      "steps": [
+        {
+          "step": "Install development tools",
+          "exit": 0
+        },
+        {
+          "step": "Run blocking Ruff checks",
+          "exit": 0
+        },
+        {
+          "step": "Compile source and test trees",
+          "exit": 0
+        }
+      ],
+      "exit": 0,
+      "offline_wheel_source": "/home/chosenecho/bili-asr-regression/ci-tools-20261012/cached-wheels"
+    },
+    {
+      "job": "security",
+      "stage": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en/job-security",
+      "steps": [
+        {
+          "step": "Install project and audit tooling",
+          "exit": 0
+        },
+        {
+          "step": "Audit resolved dependencies",
+          "exit": 0
+        }
+      ],
+      "exit": 0,
+      "offline_wheel_source": "/home/chosenecho/bili-asr-regression/ci-tools-20261012/cached-wheels"
+    },
+    {
+      "job": "package",
+      "stage": "/home/chosenecho/bili-asr-regression/ci-validation-20261012-zkf4y_en/job-package",
+      "steps": [
+        {
+          "step": "Build distribution artifacts",
+          "exit": 0
+        },
+        {
+          "step": "Install wheel in a clean environment",
+          "exit": 0
+        },
+        {
+          "step": "Verify installed command and packaged resources",
+          "exit": 0
+        },
+        {
+          "step": "Write build provenance and checksums",
+          "exit": 0
+        }
+      ],
+      "exit": 0,
+      "offline_wheel_source": "/home/chosenecho/bili-asr-regression/ci-tools-20261012/cached-wheels"
+    }
+  ],
+  "collected": 3165,
+  "selected_counts": [
+    1081,
+    679,
+    798,
+    607
+  ],
+  "estimated_seconds": [
+    488.64779999999973,
+    488.6409000000001,
+    488.64219999999995,
+    488.6419
+  ],
+  "file_ownership_verified": true,
+  "source_files": {
+    ".github/workflows/ci.yml": "0c18c095c92bd54a627abc7478e41f80cba977da9f96366a073d8b567c9efca7",
+    "scripts/pytest_shard.py": "765b978a70d47475e4c552e5816fea8c358663cd4c3a5ed3ef567405bc7b4fe9",
+    "scripts/pytest-shard-durations.json": "076384baf47281a1763d1dd39f460e45f436c38750fd8039ce1ba819502710f4",
+    "tests/test_pytest_shard.py": "92e7fe73be3c08f3083909591744742a8f958f1cd517ce99876e2a2e6c2edb82",
+    "docs/development/ci-coverage.md": "97b8422c9afdfbe5205d6abc528d0cb0e35cda25150ed0704837a3190d441353"
+  },
+  "limitations": [
+    "Cold uv installation timed out locally at 240 seconds; environments were preheated from matching lockfile wheels before validation.",
+    "GitHub-hosted runner speed and artifact upload/download were not executed.",
+    "WSL tests are four independent checkouts on one host; times are not GitHub runner performance."
+  ],
+  "locked_wheelhouse_installed_retry": {
+    "tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "recorded_at": "2026-10-12T13:41:13.449546+08:00",
+  "static_validation": {
+    "actionlint": "1.7.12 passed",
+    "bash_run_blocks": 18,
+    "yaml": "passed",
+    "mutation": "empty-shard guard mutation rejected by regression test",
+    "focused_suite": "41 passed"
+  },
+  "logs": {
+    ".tmp/ci-shard-0-20261012.log": {
+      "sha256": "4dae1873c2c1d80ef353823cacecfebc2698943f18486eb6d4c5e79e0e95efc0",
+      "bytes": 3971
+    },
+    ".tmp/ci-shard-1-20261012.log": {
+      "sha256": "c9bb0a910f83c98d6e4fe9f306e27815400a14346c8a69d13959f350e92f613b",
+      "bytes": 5746
+    },
+    ".tmp/ci-shard-2-20261012.log": {
+      "sha256": "44ceeb71128c12bb653e4b02233639d350c01086b8bfa7072921609c05469cee",
+      "bytes": 6049
+    },
+    ".tmp/ci-shard-3-20261012.log": {
+      "sha256": "6392faf91a9d476fe6110bb3f16e34b7709b8f26db67b7e3294501f8a8cef739",
+      "bytes": 4697
+    },
+    ".tmp/ci-coverage-job-20261012.log": {
+      "sha256": "5144f8cc4a8e18956231d34c1a28065dc4842576b0d30700681546b5f4a2d4b9",
+      "bytes": 30069
+    },
+    ".tmp/ci-job-quality-20261012.log": {
+      "sha256": "5dd55a738aa45385ae307f4131a60f41be5e94a850ef05a77ca139cd91f760ff",
+      "bytes": 495
+    },
+    ".tmp/ci-job-security-20261012.log": {
+      "sha256": "58c0b69cd8478cb6111f7c1607a0c176f7ad33504747b2b03b315f1bbaea89ad",
+      "bytes": 124148
+    },
+    ".tmp/ci-job-package-20261012.log": {
+      "sha256": "68935f1204a05089e0e6d42a0bf6c8c2e758f628299e15088fc785e5b95101d4",
+      "bytes": 170695
+    },
+    ".tmp/ci-locked-wheelhouse-20261012.log": {
+      "sha256": "5af3b38a177d75997737984e7083868a826362acd75a6aac06d8a3a0ae4332eb",
+      "bytes": 3862
+    }
+  }
+}
