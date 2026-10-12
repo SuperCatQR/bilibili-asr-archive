@@ -68,9 +68,9 @@ def _inventory(root: Path, product: Path) -> tuple[dict, dict[str, Path]]:
     schema_digest = validate_snapshot_database(database)
     refuse_unfinished(database)
     bases = tuple(dict.fromkeys((product, root)))
-    if product != root:
-        raise ValueError("first-stage maintenance export requires a unified artifact root; materialize external objects before export")
-    excluded = _root_entries(root, root, product)
+    if product != root and (product.is_relative_to(root) or root.is_relative_to(product)):
+        raise ValueError("external artifact and archive roots must be disjoint")
+    excluded = [entry for base in bases for entry in _root_entries(base, root, product)]
     files = {"archive.db": database, **collect_artifacts(bases)}
     records = [_record(key, path) for key, path in sorted(files.items())]
     _check_references(database, {entry["path"]: entry for entry in records})
@@ -160,8 +160,11 @@ def _check_attempt_artifacts(database: Path, files: dict[str, dict]) -> None:
 
 
 def export_package(source_root: Path, output: Path, *, part_ids: list[int] | None = None,
-                   bvids: list[str] | None = None, artifact_root: Path | None = None) -> dict:
+                   bvids: list[str] | None = None, artifact_root: Path | None = None,
+                   scope: dict | None = None) -> dict:
     root, out = absolute(source_root), absolute(output)
+    if scope is not None and scope["profile"] == "publication":
+        raise ValueError("publication profile is not a recoverable database package; use public maintenance export")
     product = root if artifact_root is None else absolute(artifact_root)
     if out.is_relative_to(root) or out.is_relative_to(product):
         raise ValueError("maintenance package output must be outside its source roots")
@@ -173,15 +176,20 @@ def export_package(source_root: Path, output: Path, *, part_ids: list[int] | Non
         source, physical = _inventory(root, product)
         with tempfile.TemporaryDirectory(prefix=".maintenance-export-", dir=out.parent) as temporary:
             stage = Path(temporary)
-            if part_ids or bvids:
+            if part_ids or bvids or scope is not None:
                 database = stage / "archive.db"
-                selection = select_database(root / "archive.db", database, part_ids=part_ids or [], bvids=bvids or [])
+                selection = select_database(root / "archive.db", database, part_ids=part_ids or [], bvids=bvids or [], scope=scope)
                 selected = _selected_artifacts(database, physical, selection["resolved_part_ids"])
                 selection.update({"mode": "selected", "requested_bvids": sorted(set(bvids or []))})
             else:
                 database = root / "archive.db"
                 selected = {key: value for key, value in physical.items() if key != "archive.db"}
                 selection = {"mode": "full", "policy": "all-private-history/v1"}
+            if scope is not None:
+                from bili_asr.storage.maintenance_scope import filter_artifacts
+                needed = set(required_artifacts(database)) | set(_attempt_artifacts(database))
+                selected, excluded = filter_artifacts(selected, needed, scope)
+                selection["excluded_artifacts"] = excluded
             selected = {"archive.db": database, **selected}
             files = [_record(key, path) for key, path in sorted(selected.items())]
             _check_references(database, {entry["path"]: entry for entry in files})
@@ -191,7 +199,8 @@ def export_package(source_root: Path, output: Path, *, part_ids: list[int] | Non
             provenance = {key: value for key, value in source.items() if key != "files"}
             provenance["file_count"] = len(source["files"])
             provenance["total_bytes"] = sum(entry["size"] for entry in source["files"])
-            content = {"format": _FORMAT, "profile": _PROFILE, "source": provenance,
+            content = {"format": _FORMAT if scope is None else "archive-maintenance-package/v2",
+                       "profile": _PROFILE if scope is None else scope["profile"], "source": provenance,
                        "selection": selection, "database_contract": validate_snapshot_database(database),
                        "tables": table_ledger(database), "files": files,
                        "redaction_policy": "none-frozen-private-history; credentials-models-cache-logs-excluded"}
@@ -272,10 +281,11 @@ def _read_manifest(bundle: zipfile.ZipFile) -> dict:
 
 def _validate_manifest(document: dict) -> None:
     from bili_asr.contracts.json_schema import validate_json
-    validate_json(_FORMAT, document)
+    version2 = document.get("format") == "archive-maintenance-package/v2"
+    validate_json(document.get("format", _FORMAT), document)
     keys = {"format", "profile", "source", "selection", "database_contract", "tables", "files",
             "redaction_policy", "content_id", "producer_version", "created_at"}
-    if not isinstance(document, dict) or set(document) != keys or document["format"] != _FORMAT or document["profile"] != _PROFILE:
+    if not isinstance(document, dict) or set(document) != keys or (not version2 and (document["format"] != _FORMAT or document["profile"] != _PROFILE)):
         raise ValueError("unsupported maintenance manifest contract")
     content = {key: value for key, value in document.items() if key not in {"content_id", "created_at", "producer_version"}}
     if document["content_id"] != digest(content):
@@ -306,16 +316,30 @@ def _validate_manifest(document: dict) -> None:
         if selection != {"mode": "full", "policy": "all-private-history/v1"}:
             raise ValueError("unsupported maintenance full selection policy")
     elif selection.get("mode") == "selected":
-        if (set(selection) != {"mode", "policy", "requested_part_ids", "resolved_part_ids", "requested_bvids"}
+        if version2:
+            from bili_asr.storage.maintenance_scope import scope as validate_scope
+            specification = selection.get("scope")
+            if (set(selection) != {"mode", "policy", "requested_part_ids", "resolved_part_ids", "requested_bvids", "scope", "explicit_row_counts", "excluded_artifacts"}
+                    or selection.get("policy") != "native-explicit-scope-fk-owned-json/v2" or not isinstance(specification, dict)
+                    or validate_scope(**specification) != specification or specification["profile"] != document["profile"]):
+                raise ValueError("unsupported maintenance scoped selection")
+            explicit = selection["explicit_row_counts"]
+            excluded = selection["excluded_artifacts"]
+            if (not isinstance(explicit, dict) or any(not isinstance(key, str) or type(value) is not int or value < 0 for key, value in explicit.items())
+                    or not isinstance(excluded, list) or excluded != sorted(set(excluded))):
+                raise ValueError("invalid explicit scope accounting")
+            for path in excluded:
+                portable_artifact_parts(path)
+        elif (set(selection) != {"mode", "policy", "requested_part_ids", "resolved_part_ids", "requested_bvids"}
                 or selection["policy"] != "native-full-part-history-fk-owned-json/v1"
                 or not isinstance(selection["requested_bvids"], list)
                 or any(not isinstance(value, str) or not value for value in selection["requested_bvids"])):
             raise ValueError("unsupported maintenance selected policy")
         for key in ("requested_part_ids", "resolved_part_ids"):
             values = selection[key]
-            if not isinstance(values, list) or not values or any(type(value) is not int or value < 1 for value in values) or values != sorted(set(values)):
+            if not isinstance(values, list) or (not values and not version2) or any(type(value) is not int or value < 1 for value in values) or values != sorted(set(values)):
                 raise ValueError("invalid maintenance part selection")
-        if not set(selection["requested_part_ids"]) <= set(selection["resolved_part_ids"]):
+        if not version2 and not set(selection["requested_part_ids"]) <= set(selection["resolved_part_ids"]):
             raise ValueError("maintenance closure excludes requested parts")
     else:
         raise ValueError("unsupported maintenance selection mode")
@@ -403,7 +427,10 @@ def _free_space(target: Path, needed: int) -> None:
         raise ValueError("maintenance target lacks staging space")
 
 
-def plan_import(package: Path, target_root: Path) -> dict:
+def plan_import(package: Path, target_root: Path, *, strategy: str = "new", resumable: bool = False, scope: dict | None = None) -> dict:
+    if resumable or strategy != "new" or scope is not None:
+        from bili_asr.services.maintenance_import import plan_import as planned
+        return planned(package, target_root, strategy=strategy, scope=scope)
     path, target = absolute(package), absolute(target_root)
     if path.is_relative_to(target):
         raise ValueError("maintenance target cannot contain its package")
@@ -440,6 +467,9 @@ def _receipt_path(root: Path, plan_id: str) -> Path:
 def _check_installation(root: Path, plan_id: str, *, staged: bool = False) -> dict:
     path = _receipt_path(root, plan_id)
     receipt = _json(path)
+    if receipt.get("format") == "archive-maintenance-import-receipt/v2":
+        from bili_asr.services.maintenance_import import check_import as checked
+        return checked(root, plan_id, staged=staged)
     if (set(receipt) != {"format", "plan", "manifest", "receipt_id"} or receipt["format"] != _RECEIPT
             or receipt["receipt_id"] != digest({key: value for key, value in receipt.items() if key != "receipt_id"})):
         raise ValueError("invalid maintenance receipt")
@@ -480,6 +510,9 @@ def check_import(target_root: Path, *, plan_id: str) -> dict:
 
 def apply_import(plan_path: Path) -> dict:
     plan = _json(absolute(plan_path))
+    if plan.get("format") == "archive-maintenance-import-plan/v2":
+        from bili_asr.services.maintenance_import import apply_import as applied
+        return applied(plan_path)
     _validate_plan(plan)
     package, target = absolute(Path(plan["package"])), absolute(Path(plan["target_root"]))
     if _record("package", package) != plan["package_file"]:

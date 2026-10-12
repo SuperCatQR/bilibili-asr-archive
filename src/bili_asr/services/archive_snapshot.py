@@ -371,6 +371,11 @@ def check_snapshot(snapshot: Path) -> dict:
     """Stream and check every file, database contract and database reference."""
     with _snapshot_errors():
         path = _absolute(snapshot)
+        with zipfile.ZipFile(path) as bundle:
+            differential = "differential.json" in bundle.namelist()
+        if differential:
+            from bili_asr.services.maintenance_chain import verify_chain
+            return verify_chain(path)
         with tempfile.TemporaryDirectory(prefix="bili-asr-snapshot-check-") as temporary:
             manifest = _validate_into(path, Path(temporary), extract_artifacts=False)
         return {"operation": "check", "snapshot": str(path), "valid": True, **_summary(manifest)}

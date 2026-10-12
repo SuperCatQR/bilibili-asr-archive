@@ -2,6 +2,31 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "archive-maintenance-package/v2",
+      "owner": "archive",
+      "authority": [
+        "src/bili_asr/services/maintenance_package.py",
+        "src/bili_asr/storage/maintenance_scope.py"
+      ],
+      "consumers": [
+        "cli.maintenance_package",
+        "services.maintenance_import"
+      ],
+      "capabilities": [
+        "validate",
+        "export",
+        "inspect",
+        "verify",
+        "import-plan",
+        "import-apply",
+        "import-check"
+      ],
+      "dependencies": [
+        "archive-maintenance-package/v1"
+      ],
+      "schema": "archive-maintenance-package-v2.schema.json"
+    },
+    {
       "identity": "archive-maintenance-package/v1",
       "owner": "archive",
       "authority": [

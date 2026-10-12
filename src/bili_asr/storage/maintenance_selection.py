@@ -70,7 +70,7 @@ def refuse_unfinished(database: Path) -> None:
                 raise ValueError("unfinished execution requires explicit recovery before maintenance export: " + table)
 
 
-def select_database(source: Path, destination: Path, *, part_ids: list[int], bvids: list[str]) -> dict:
+def select_database(source: Path, destination: Path, *, part_ids: list[int], bvids: list[str], scope: dict | None = None) -> dict:
     """Materialize a closed, native subset, preserving rowid and SQLite values."""
     from bili_asr.artifact_inventory import require_no_links
     require_no_links(source)
@@ -88,12 +88,14 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
         objects = list(origin.execute("SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name"))
         columns = {name: [row[1] for row in origin.execute(f"PRAGMA table_info({quote(name)})")]
                    for obj, name, _ in objects if obj == "table"}
-        selected = set(part_ids)
-        for bvid in bvids:
+        selected = set(part_ids) | set(scope["part_ids"] if scope is not None else [])
+        for bvid in sorted(set(bvids) | set(scope["bvids"] if scope is not None else [])):
             ids = [row[0] for row in origin.execute("SELECT video_part_id FROM video_parts WHERE bvid=?", (bvid,))]
             if not ids:
                 raise ValueError("selected video has no archived parts: " + bvid)
             selected.update(ids)
+        if not selected and scope is not None:
+            selected.update(row[0] for row in origin.execute("SELECT video_part_id FROM video_parts"))
         if not selected:
             raise ValueError("selection must contain at least one part")
         for identity in sorted(selected):
@@ -114,8 +116,28 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
         def add(name: str, query: str, params=()) -> int:
             return connection.execute(f"INSERT OR IGNORE INTO {keep(name)} SELECT rowid FROM source.{quote(name)} WHERE {query}", params).rowcount
 
-        for identity in sorted(selected):
-            add("video_parts", "video_part_id=?", (identity,))
+        explicit_rows = {}
+        if scope is None:
+            for identity in sorted(selected):
+                add("video_parts", "video_part_id=?", (identity,))
+        else:
+            from bili_asr.storage.maintenance_scope import DATASETS, predicate
+            seeds = set().union(*(DATASETS[key] for key in scope["datasets"])) if scope["datasets"] else set(columns)
+            ids = ",".join("?" for _ in selected)
+            for name in sorted(seeds & set(columns)):
+                names = columns[name]
+                clause, arguments = predicate(names, scope)
+                if "video_part_id" in names:
+                    clause += f" AND video_part_id IN ({ids})"
+                    arguments += tuple(sorted(selected))
+                elif "bvid" in names:
+                    clause += f" AND bvid IN (SELECT bvid FROM source.video_parts WHERE video_part_id IN ({ids}))"
+                    arguments += tuple(sorted(selected))
+                # Shared no-part tables become dependencies through FKs. They
+                # must not make a scoped request include unrelated executions.
+                else:
+                    continue
+                explicit_rows[name] = add(name, clause, arguments)
         for table in ("archive_contract", "manuscript_contract"):
             if table in columns:
                 add(table, "1")
@@ -131,16 +153,20 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
         examined = set()
         while True:
             changed = 0
+            if scope is not None and "publication_editions" in columns and "publication_heads" in columns:
+                changed += add("publication_heads", f"video_part_id IN (SELECT video_part_id FROM source.publication_editions WHERE rowid IN (SELECT id FROM {keep('publication_editions')}))")
             # Every newly introduced part includes its complete history.
             for name, names in columns.items():
-                if "video_part_id" in names and name != "video_parts":
+                if scope is None and "video_part_id" in names and name != "video_parts":
                     changed += add(name, f"video_part_id IN (SELECT video_part_id FROM source.video_parts WHERE rowid IN (SELECT id FROM {keep('video_parts')}))")
             for child, parent, condition, owned in fks:
                 changed += add(parent, f"rowid IN (SELECT p.rowid FROM source.{quote(parent)} p JOIN source.{quote(child)} c ON {condition} WHERE c.rowid IN (SELECT id FROM {keep(child)}))")
-                if owned:
+                if owned and (scope is None or child in {"transcript_segments", "workflow_attempts", "workflow_job_dependencies",
+                                                           "editorial_model_calls", "editorial_chunk_results", "editorial_input_versions",
+                                                           "workflow_asr_profile_configs", "publication_edition_reviews", "publication_content_versions"}):
                     changed += add(child, f"rowid IN (SELECT c.rowid FROM source.{quote(child)} c JOIN source.{quote(parent)} p ON {condition} WHERE p.rowid IN (SELECT id FROM {keep(parent)}))")
             # Observation tables intentionally have no authority FKs.
-            if "source_metadata_observations" in columns:
+            if scope is None and "source_metadata_observations" in columns:
                 for name in ("source_metadata_observations", "metadata_refresh_attempts"):
                     if name not in columns:
                         continue
@@ -197,5 +223,9 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
         if connection.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("selected closure contains a dangling foreign key")
     validate_snapshot_database(destination)
-    return {"requested_part_ids": sorted(selected), "resolved_part_ids": resolved,
-            "policy": "native-full-part-history-fk-owned-json/v1"}
+    result = {"requested_part_ids": sorted(selected), "resolved_part_ids": resolved,
+              "policy": "native-full-part-history-fk-owned-json/v1"}
+    if scope is not None:
+        result.update({"policy": "native-explicit-scope-fk-owned-json/v2", "scope": scope,
+                       "explicit_row_counts": explicit_rows})
+    return result
