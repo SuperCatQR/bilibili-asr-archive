@@ -13,53 +13,33 @@ from bili_asr.export_snapshot import ExportSnapshotError, _validate_snapshot
 from bili_asr.publication import edit_edition, get_edition, publish_edition
 from bili_asr.publication_export import export_publication_drafts, export_publications
 from bili_asr.publication_origins import PROFILE
-from bili_asr.services.archive_migration import check_migrated_archive, migrate_archive
+from bili_asr.services.archive_migration import check_migrated_archive
 from bili_asr.services.archive_snapshot import (
     check_snapshot,
     restore_snapshot,
     save_snapshot,
 )
-from bili_asr.services.preserved_body_import import (
-    apply_preserved_body_import,
-    install_preserved_body_extension,
-    plan_preserved_body_import,
-)
 from bili_asr.services.source_supplement import (
     apply_source_supplement,
     check_source_supplement,
-    install_source_supplement_extension,
     plan_source_supplement,
 )
 from bili_asr.storage.publication import PublicationConflictError, PublicationRepository
 from bili_asr.storage.source_supplements import edition_supplement
-from tests.fixtures.frozen_migration_archive import frozen_archive
 from tests.support.content_permissions import grant_test_permission
+from tests.fixtures.migrated_archive import copy_archive
 from tests.test_publication import approve
 
 
 @pytest.fixture
-def preserved(tmp_path):
-    source, root = tmp_path / "old", tmp_path / "archive"
-    frozen_archive(source)
-    migrate_archive(source, root)
-    install_preserved_body_extension(root)
-    assert install_source_supplement_extension(root)["installed"]
-    assert not install_source_supplement_extension(root)["installed"]
+def preserved(tmp_path, preserved_archive_template):
+    template, edition_ids = preserved_archive_template
+    root = copy_archive(template, tmp_path / "archive")
     with ArchiveSession(root, mode=ArchiveAccessMode.WRITE) as session:
         connection = session.connection
-        selection = [{"kind": "edition", "id": row[0]} for row in connection.execute(
-            "SELECT current_edition_id FROM publication_heads ORDER BY video_part_id")]
-        plan = plan_preserved_body_import(connection, selectors=selection, artifact_roots=(root,))
-        imported = apply_preserved_body_import(connection, plan=plan, artifact_roots=(root,), write_root=root, actor="importer")
-        editions = [get_edition(connection, item["editionId"]) for item in imported["editions"]]
+        editions = [get_edition(connection, identity) for identity in edition_ids]
         for edition in editions:
             grant_test_permission(connection, edition, (root,))
-        # Known collected titles; generic updated_at values must not become
-        # title observation timestamps. These are synthetic archive facts.
-        with connection:
-            for index, edition in enumerate(editions):
-                connection.execute("UPDATE video_parts SET title=?,updated_at=123 WHERE video_part_id=?",
-                                   ("概要" if index == 0 else "如何进行真正的哲学反思", edition["video_part_id"]))
         yield connection, root, editions
 
 

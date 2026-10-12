@@ -100,6 +100,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from scripts.forensic_log import open_forensic_log
 
+
+@pytest.fixture(scope="session")
+def historical_archive_template(tmp_path_factory):
+    from tests.fixtures.migrated_archive import build_historical_archive
+    return build_historical_archive(tmp_path_factory)
+
+
+@pytest.fixture(scope="session")
+def preserved_archive_template(tmp_path_factory, historical_archive_template):
+    from tests.fixtures.migrated_archive import build_preserved_archive
+    return build_preserved_archive(tmp_path_factory, historical_archive_template)
+
 _TEST_TMP_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".test-tmp"))
 _counter = itertools.count()
 

@@ -12,3 +12,4 @@ docs/contract-governance.json -text
 docs/contract-governance.html -text -diff -whitespace
 # Linux service files must survive Windows checkout with LF line endings.
 scripts/deployment/* text eol=lf
+scripts/*.sh text eol=lf
