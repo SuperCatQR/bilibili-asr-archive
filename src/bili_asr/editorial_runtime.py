@@ -82,10 +82,12 @@ class EditorialWorkflowHandlers:
                 blocks = validate_revision(chunk, parse_response(envelope))
                 self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, blocks)
             except Exception as exc:
-                self.repository.finish_call(call_id, envelope, type(exc).__name__[:64])
+                error_code = getattr(exc, "error_code", type(exc).__name__[:64])
+                self.repository.finish_call(call_id, envelope, error_code)
                 if hasattr(exc, "safe_details"):
-                    details = dict(exc.safe_details, call_id=call_id, chunk_id=chunk["chunk_id"])
-                    raise JobExecutionError(type(exc).__name__, details) from None
+                    details = dict(exc.safe_details, input_id=prepared["input_id"],
+                                   call_id=call_id, chunk_id=chunk["chunk_id"])
+                    raise JobExecutionError(error_code, details) from None
                 raise
         revision_id = self.repository.commit_revision(job, prepared)
         return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}

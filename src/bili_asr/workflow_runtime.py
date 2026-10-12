@@ -560,18 +560,36 @@ class ArchiveWorkflowHandlers:
                 with self.repository.owned_transaction(job):
                     preserve_existing_publication(self.connection, self.artifact_roots, previous_publication)
 
-        paths = archive.write_archive(
-            self.artifact_roots.write_base,
-            entry,
-            segments,
-            source="asr" if source_kind == "asr-local" else "subtitle",
-            raw=preserved_raw,
-            asr_provenance=asr_provenance,
-            characters=preserved_raw.get("characters") if preserved_raw is not None else None,
-            coverage=preserved_raw.get("coverage") if preserved_raw is not None else None,
-            before_replace=lambda: self.repository.assert_lease(job),
-            publication_guard=publication_guard,
-        )
+        # ``write_archive`` performs the pure publication contract checks
+        # (cue ordering, character timing shape, and serializable bundle
+        # inputs) before replacing any archive files. Convert only those
+        # ValueErrors into a stable workflow classification. Lease/cancel
+        # failures from ``before_replace`` and filesystem failures must keep
+        # their original exception type so the executor can handle them as
+        # operational failures.
+        from bili_asr.workflow_errors import JobExecutionError
+        try:
+            paths = archive.write_archive(
+                self.artifact_roots.write_base,
+                entry,
+                segments,
+                source="asr" if source_kind == "asr-local" else "subtitle",
+                raw=preserved_raw,
+                asr_provenance=asr_provenance,
+                characters=preserved_raw.get("characters") if preserved_raw is not None else None,
+                coverage=preserved_raw.get("coverage") if preserved_raw is not None else None,
+                before_replace=lambda: self.repository.assert_lease(job),
+                publication_guard=publication_guard,
+            )
+        except ValueError:
+            raise JobExecutionError(
+                "publication_contract_failed",
+                {
+                    "stage": "publication_validation",
+                    "reason_code": "bundle_contract_invalid",
+                    "transcript_id": transcript_id,
+                },
+            ) from None
         return {
             "requested_transcript_id": int(job.payload["transcript_id"]),
             "publication_request_id": job.payload.get("publication_request_id"),

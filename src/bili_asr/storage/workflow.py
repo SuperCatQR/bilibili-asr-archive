@@ -620,8 +620,15 @@ class WorkflowRepository:
                 "last_attempt": None if attempt is None else dict(attempt)}
 
     def requeue_failed(self, *, part_ids: Iterable[int] | None = None,
-                       job_ids: Iterable[str] | None = None, kinds: Iterable[JobKind] | None = None) -> int:
-        """Make failed jobs eligible for another worker without erasing attempts."""
+                       job_ids: Iterable[str] | None = None, kinds: Iterable[JobKind] | None = None,
+                       automatic: bool = False) -> int:
+        """Legacy manual requeue; automatic callers must use the guarded use case.
+
+        This compatibility method has no external control evidence. New CLI
+        and controllers use services.workflow_retry.guarded_retry_failed.
+        """
+        if automatic:
+            raise ValueError("automatic retry requires the guarded retry service and control state")
         ids = None if part_ids is None else tuple(dict.fromkeys(int(part_id) for part_id in part_ids))
         jobs = None if job_ids is None else tuple(dict.fromkeys(job_ids))
         selected = None if kinds is None else tuple(dict.fromkeys(k.value for k in kinds))
@@ -879,6 +886,8 @@ class WorkflowRepository:
             if cursor.rowcount != 1:
                 raise RuntimeError("running attempt is missing")
             self.commit_guard.assert_unexpired(deadline)
+            if retry_at is not None:
+                raise ValueError("inline retry requires guarded retry; record failure then requeue explicitly")
 
     @staticmethod
     def _job_from_row(row: sqlite3.Row) -> WorkflowJob:
