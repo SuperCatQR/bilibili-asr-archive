@@ -18,3 +18,10 @@
 | [双声道混音优化](asr-stereo-mix-performance.md) | [实现验收 JSON](asr-stereo-mix-implementation-2026-10-11.json) | CPU 快速路径、数值兼容与不能外推的性能结论 |
 
 上述 JSON 保留原字节和摘要。复现时使用独立输出目录；不要覆盖旧结果或把历史成功写成新的验收。
+
+## 项目回归测试
+
+| 报告 | 原始记录 | 范围 |
+| --- | --- | --- |
+| [项目全量 WSL 回归 · 2026-10-12](regression-test-2026-10-12.md) | [JSON](regression-test-2026-10-12.json)；[输入清单](regression-test-2026-10-12.inputs.json) | 全量 pytest、覆盖率、打包安装、安全、实网及阅读站浏览器检查 |
+| [CI 优化验收 · 2026-10-12](ci-optimization-2026-10-12.md) | [JSON](ci-optimization-2026-10-12.json) | 锁定依赖、文件分片、四片全量、覆盖率汇总与诊断 |
