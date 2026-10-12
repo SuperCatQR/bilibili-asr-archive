@@ -80,6 +80,7 @@ def test_response_file_preserves_nodes_and_failure_status(monkeypatch, tmp_path)
                               "--plan-output", str(plan), "--", "-q"]) == 1
     assert json.loads(plan.read_text())["shards"] == [nodes]
     assert not selection_paths[0].exists()
+    assert not selection_paths[0].parent.exists()
 
 
 def test_real_pytest_reads_selection_and_only_builds_module_fixture_once(tmp_path):
@@ -108,3 +109,17 @@ def test_unselected():
     assert result.returncode == 0, result.stdout + result.stderr
     assert "2 passed" in result.stdout
     assert (project / "fixture-count.txt").read_text() == "x"
+
+
+def test_response_directory_is_cleaned_when_pytest_cannot_start(monkeypatch, tmp_path):
+    permit_collection(monkeypatch, ["tests/test_example.py::test_one"])
+    selection_paths = []
+    def execute(command, **kwargs):
+        selection = Path(command[-1][1:])
+        selection_paths.append(selection)
+        assert selection.is_file()
+        raise OSError("pytest process could not start")
+    monkeypatch.setattr(pytest_shard.subprocess, "run", execute)
+    with pytest.raises(OSError, match="could not start"):
+        pytest_shard.main(["--shard-index", "0", "--shard-count", "1"])
+    assert not selection_paths[0].parent.exists()
