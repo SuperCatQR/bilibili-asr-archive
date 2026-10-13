@@ -1,6 +1,6 @@
 """Run the installed maintenance scheduler against real workflow persistence."""
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 import json
 import os
@@ -14,7 +14,7 @@ import pytest
 from bili_asr.deepseek import DeepSeekTransportError
 from bili_asr.editorial import EditorialConfig
 from bili_asr.services.retry_maintenance import health
-from bili_asr.services.retry_maintenance_io import maintenance_lock, read_json, write_json
+from bili_asr.services.retry_maintenance_io import MaintenanceBusyError, maintenance_lock, read_json, write_json
 from bili_asr.storage import open_database
 from bili_asr.workflow_models import JobKind
 from tests.test_ai_editorial import database, envelope, no_changes, runtime
@@ -180,7 +180,19 @@ def test_scheduled_preflight_failure_lock_contention_and_stop_are_distinguishabl
         assert report["maintenance"]["error_code"] == "ValueError"
         write_json(files["state"], {"retry_holds": {}, "retry_ledger": {}})
         wait_for(lambda: read_json(files["health"]).get("status") == "succeeded", process)
-        with maintenance_lock(files["lock"]):
+        # A published success can overlap the next scheduler pass. Acquire the
+        # test's lock between passes instead of assuming the child is idle.
+        with ExitStack() as held_lock:
+            deadline = time.monotonic() + 10
+            while True:
+                assert process.poll() is None, "scheduler exited before lock contention check"
+                try:
+                    held_lock.enter_context(maintenance_lock(files["lock"]))
+                    break
+                except MaintenanceBusyError:
+                    if time.monotonic() >= deadline:
+                        raise AssertionError("could not acquire maintenance test lock within 10 seconds") from None
+                    time.sleep(0.01)
             success = read_json(files["health"])["last_succeeded_at"]
             wait_for(lambda: read_json(files["health"]).get("lock_skip_count", 0) >= 2, process)
             report = health(health_path=files["health"], stale_after_seconds=1, worker_health_path=worker_health)
