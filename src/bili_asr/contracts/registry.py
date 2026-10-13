@@ -44,6 +44,9 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("artifact-package-v2", "storage", ("src/bili_asr/artifact_packages.py",),
+             ("services.artifact_transfer", "services.artifact_access", "services.artifact_restore"),
+             ("validate", "read", "write"), ("artifact-storage-v1",), "artifact-package-v2.schema.json"),
     Contract("retry-control/v2", "workflow", ("src/bili_asr/services/retry_control.py",),
              ("services.reference_backup", "services.workflow_retry", "services.retry_preflight", "services.maintenance_task_state"),
              ("validate", "capture", "read"), ("workflow-retry-control/v1",), "retry-control-v2.schema.json"),

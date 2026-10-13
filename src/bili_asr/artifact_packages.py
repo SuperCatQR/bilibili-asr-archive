@@ -28,7 +28,6 @@ from bili_asr.artifact_inventory import (
 )
 
 _FORMAT = "bili-asr-artifact-package"
-_VERSION = 1
 _MANIFEST_NAME = "package.json"
 _MANIFEST_LIMIT = 16 * 1024 * 1024
 _OBJECT_LIMIT = 100_000
@@ -227,7 +226,12 @@ def package_batches(sources: Iterable[PackageSource], *, max_bytes: int,
 
 
 def package_manifest(sources: tuple[PackageSource, ...], operation_id: str,
-              plan_sha256: str, batch_index: int) -> dict:
+              plan_sha256: str, batch_index: int, *, format_version: int = 1,
+              compression_level: int = 6) -> dict:
+    if type(format_version) is not int or format_version not in {1, 2}:
+        raise ArtifactPackageError("unsupported package format version")
+    if type(compression_level) is not int or not 0 <= compression_level <= 9:
+        raise ArtifactPackageError("DEFLATE compression level must be between 0 and 9")
     if (not isinstance(operation_id, str) or not _OPERATION_ID.fullmatch(operation_id)
             or not _valid_hash(plan_sha256) or type(batch_index) is not int or batch_index < 0):
         raise ArtifactPackageError("invalid package operation, plan or batch identity")
@@ -237,9 +241,11 @@ def package_manifest(sources: tuple[PackageSource, ...], operation_id: str,
     if len({entry["object_id"] for entry in entries}) != len(entries):
         raise ArtifactPackageError("duplicate object in artifact package")
     check_artifact_collisions([entry["storage_key"] for entry in entries])
-    manifest = {"format": _FORMAT, "format_version": _VERSION,
+    manifest = {"format": _FORMAT, "format_version": format_version,
                 "operation_id": operation_id, "plan_sha256": plan_sha256,
                 "batch_index": batch_index, "objects": entries}
+    if format_version == 2:
+        manifest["compression"] = {"method": "deflate", "level": compression_level}
     manifest["package_id"] = hashlib.sha256(_canonical(manifest)).hexdigest()
     if len(_canonical(manifest)) > _MANIFEST_LIMIT:
         raise ArtifactPackageError("package manifest exceeds 16 MiB")
@@ -257,7 +263,12 @@ def _hash_stream(source: BinaryIO, *, expected_size: int | None = None,
             raise ArtifactPackageError("object exceeds its frozen size")
         digest.update(chunk)
         if destination is not None:
-            destination.write(chunk)
+            remaining = memoryview(chunk)
+            while remaining:
+                written = destination.write(remaining)
+                if written is None or written <= 0 or written > len(remaining):
+                    raise ArtifactPackageError("object destination did not complete a bounded write")
+                remaining = remaining[written:]
     if expected_size is not None and size != expected_size:
         raise ArtifactPackageError("object does not match its frozen size")
     return size, digest.hexdigest()
@@ -317,13 +328,16 @@ def _read_manifest(bundle: zipfile.ZipFile) -> tuple[dict, bytes]:
         mode = member.external_attr >> 16
         if (member.orig_filename != member.filename or member.filename in names
                 or member.is_dir() or stat.S_IFMT(mode) not in {0, stat.S_IFREG}
-                or member.flag_bits & 1 or member.compress_type != zipfile.ZIP_STORED
-                or member.compress_size != member.file_size):
-            raise ArtifactPackageError(f"unsafe, compressed or duplicate ZIP member: {member.filename!r}")
+                or member.flag_bits & 1):
+            raise ArtifactPackageError(f"unsafe or duplicate ZIP member: {member.filename!r}")
         names.add(member.filename)
     if _MANIFEST_NAME not in names:
         raise ArtifactPackageError("package is missing its manifest")
     info = bundle.getinfo(_MANIFEST_NAME)
+    # The manifest is always stored. Reader selection never decompresses an
+    # untrusted manifest before knowing which bounded payload format it declares.
+    if info.compress_type != zipfile.ZIP_STORED or info.compress_size != info.file_size:
+        raise ArtifactPackageError("compressed package manifest is unsupported")
     if info.file_size > _MANIFEST_LIMIT:
         raise ArtifactPackageError("package manifest exceeds 16 MiB")
     with bundle.open(info) as stream:
@@ -332,6 +346,8 @@ def _read_manifest(bundle: zipfile.ZipFile) -> tuple[dict, bytes]:
         raise ArtifactPackageError("package manifest exceeds 16 MiB")
     manifest = json.loads(encoded, object_pairs_hook=_unique_json_object)
     keys = {"format", "format_version", "operation_id", "plan_sha256", "batch_index", "objects", "package_id"}
+    if isinstance(manifest, dict) and manifest.get("format_version") == 2:
+        keys.add("compression")
     if not isinstance(manifest, dict) or set(manifest) != keys:
         raise ArtifactPackageError("invalid package manifest fields")
     entries = manifest["objects"]
@@ -348,14 +364,23 @@ def _read_manifest(bundle: zipfile.ZipFile) -> tuple[dict, bytes]:
         if expected_entry != entry:
             raise ArtifactPackageError("package member does not match its object identity")
         sources.append(source)
-    expected = package_manifest(tuple(sources), manifest["operation_id"], manifest["plan_sha256"], manifest["batch_index"])
+    compression = manifest.get("compression", {})
+    if "compression" in manifest and (not isinstance(compression, dict)
+            or set(compression) != {"method", "level"} or compression["method"] != "deflate"):
+        raise ArtifactPackageError("unsupported package compression")
+    expected = package_manifest(tuple(sources), manifest["operation_id"], manifest["plan_sha256"], manifest["batch_index"],
+                                format_version=manifest["format_version"], compression_level=compression.get("level", 6))
     if manifest != expected or type(manifest["format_version"]) is not int:
         raise ArtifactPackageError("unsupported package identity or format")
     expected_members = {_MANIFEST_NAME, *(entry["member"] for entry in entries)}
     if names != expected_members:
         raise ArtifactPackageError("package contains missing or unlisted members")
     for entry in entries:
-        if bundle.getinfo(entry["member"]).file_size != entry["size_bytes"]:
+        member = bundle.getinfo(entry["member"])
+        method = zipfile.ZIP_STORED if manifest["format_version"] == 1 else zipfile.ZIP_DEFLATED
+        if member.compress_type != method or (method == zipfile.ZIP_STORED and member.compress_size != member.file_size):
+            raise ArtifactPackageError("compressed member differs from declared package format")
+        if member.file_size != entry["size_bytes"]:
             raise ArtifactPackageError("package member size differs from manifest")
     return manifest, encoded
 
@@ -395,16 +420,25 @@ def check_artifact_package(package_path: Path, *, expected_sha256: str | None = 
                         _, actual = _hash_stream(member, expected_size=entry["size_bytes"])
                     if actual != entry["sha256"]:
                         raise ArtifactPackageError(f"package object SHA-256 mismatch: {entry['object_id']}")
-        return {**_summary(path, manifest, encoded), "package_sha256": digest,
-                "package_size_bytes": size, "valid": True}
+                payload_bytes = sum(entry["size_bytes"] for entry in manifest["objects"])
+                stored_bytes = sum(bundle.getinfo(entry["member"]).compress_size for entry in manifest["objects"])
+        summary = {**_summary(path, manifest, encoded), "package_sha256": digest,
+                   "package_size_bytes": size, "valid": True}
+        if manifest["format_version"] == 2:
+            summary["compression_statistics"] = {"original_payload_bytes": payload_bytes,
+                "compressed_payload_bytes": stored_bytes, "container_bytes": size,
+                "container_to_original_ratio": size / payload_bytes if payload_bytes else None}
+        return summary
 
 
 def create_artifact_package(target_root: Path, sources: Iterable[PackageSource], *,
-                            operation_id: str, plan_sha256: str, batch_index: int) -> dict:
+                            operation_id: str, plan_sha256: str, batch_index: int,
+                            format_version: int = 1, compression_level: int = 6) -> dict:
     """Copy a frozen batch, reread it on target, and publish it without overwrite."""
     with _package_errors():
         selected = tuple(sources)
-        manifest = package_manifest(selected, operation_id, plan_sha256, batch_index)
+        manifest = package_manifest(selected, operation_id, plan_sha256, batch_index,
+                                    format_version=format_version, compression_level=compression_level)
         root = _absolute(target_root)
         root_identity = _directory_identity(root)  # Never recreate a missing mount.
         directory = root / "packages"
@@ -428,7 +462,8 @@ def create_artifact_package(target_root: Path, sources: Iterable[PackageSource],
             return checked
         with tempfile.TemporaryDirectory(prefix=".artifact-package-stage-", dir=directory) as temporary:
             stage = Path(temporary) / "package.zip"
-            with zipfile.ZipFile(stage, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as bundle:
+            method = zipfile.ZIP_STORED if format_version == 1 else zipfile.ZIP_DEFLATED
+            with zipfile.ZipFile(stage, "w", compression=method, compresslevel=compression_level, allowZip64=True) as bundle:
                 for source, entry in zip(selected, manifest["objects"], strict=True):
                     with _open_regular(_absolute(source.source_path)) as incoming:
                         if _generation(_regular(_absolute(source.source_path))) != source.source_generation:
@@ -437,7 +472,7 @@ def create_artifact_package(target_root: Path, sources: Iterable[PackageSource],
                             _, digest = _hash_stream(incoming, expected_size=source.size_bytes, destination=outgoing)
                         if digest != source.sha256:
                             raise ArtifactPackageError("source SHA-256 changed since planning")
-                bundle.writestr(_MANIFEST_NAME, _canonical(manifest))
+                bundle.writestr(_MANIFEST_NAME, _canonical(manifest), compress_type=zipfile.ZIP_STORED)
             with stage.open("r+b") as stream:
                 os.fsync(stream.fileno())
             checked = check_artifact_package(stage)
