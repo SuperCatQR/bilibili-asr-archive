@@ -2,11 +2,23 @@
 from __future__ import annotations
 
 from bili_asr.canonical_json import digest
+from bili_asr.metadata_acceptance import CONTRACT
 from bili_asr.provenance_contract import exact_json, verify_graph
+from bili_asr.provenance_metadata import is_acceptance
 
 
 def _children(node, nodes, kind):
     return [nodes[key] for key in node["dependencies"] if nodes[key]["kind"] == kind]
+
+
+def _accepted_fields(node) -> dict:
+    fields = exact_json(node["record"]["payload_json"])["fields"]
+    return {"observation_id": node["identity"], "record_sha256": node["sha256"],
+            "owner": "application", "codec": CONTRACT,
+            "payload_sha256": node["record"]["payload_sha256"],
+            "envelope_sha256": node["record"]["envelope_sha256"],
+            "fields": [field["field"] for field in fields],
+            "source_observation_ids": sorted({field["source"]["observationId"] for field in fields})}
 
 
 def _call(node, selected: set[str]) -> dict:
@@ -99,14 +111,21 @@ def report_graph(graph: dict) -> dict:
                 "content_deduplicated": len(producers) > 1, "producer_state": "recorded" if producers else "unavailable_legacy",
                 "producers": producers, "record_sha256": transcript["sha256"]})
         source = _children(frozen, nodes, "source")[0]
+        observations = [nodes[key] for key in source["dependencies"]]
+        acceptances = [item for item in observations if is_acceptance(item)]
+        selected_fields = sorted(field["field"] for item in acceptances
+                                 for field in exact_json(item["record"]["payload_json"])["fields"])
         revisions.append({"revision_id": revision["revision_id"], "created_at": revision["created_at"],
             "input_id": revision["input_id"], "input_created_at": frozen["record"]["row"]["created_at"],
             "requested_model": snapshot["config"].get("model"), "config": snapshot["config"],
             "config_sha256": digest(snapshot["config"]), "prompt_sha256": snapshot["prompt_sha256"],
             "input_version": frozen["record"]["version"], "source_metadata": source["record"],
+            "metadata_selection": {"state": "recorded_fields" if acceptances else "unknown", "fields": selected_fields},
+            "application_acceptance_digests": [_accepted_fields(item) for item in acceptances],
             "raw_observation_digests": [{"observation_id": item["identity"], "record_sha256": item["sha256"],
+                "owner": "provider",
                 "payload_sha256": item["record"]["payload_sha256"], "envelope_sha256": item["record"]["envelope_sha256"]}
-                for item in _children(source, nodes, "observation")],
+                for item in observations if not is_acceptance(item)],
             "transcripts": transcripts,
             "source_selection": _selection(_children(node, nodes, "workflow-attempt"), revision, all_producers),
             "calls": sorted((_call(item, selected) for item in _children(node, nodes, "call")),

@@ -25,6 +25,8 @@ def test_frozen_receipt_preserves_raw_unknown_fields_and_never_uses_later_observ
         report = report_graph(graph)
         facts = report["revisions"][0]
         assert facts["source_metadata"]["raw_observation_binding"] == "verified_frozen"
+        assert facts["metadata_selection"] == {"state": "unknown", "fields": []}
+        assert facts["application_acceptance_digests"] == []
         assert len(facts["raw_observation_digests"]) == 1
         source = facts["source_metadata"]["metadata"]["source_metadata"]
         assert source["version"] == "source-metadata-v2" and source["observationBindings"]
@@ -129,3 +131,4 @@ def test_unbound_historical_input_does_not_adopt_matching_current_receipts(tmp_p
         later = trace(connection, release_id=release["release_id"], artifact_roots=(root,))
         assert later == initial and all(node["kind"] != "observation" for node in later["nodes"])
         assert report_graph(later)["revisions"][0]["source_metadata"]["raw_observation_binding"] == "unavailable_unfrozen_history"
+        assert report_graph(later)["revisions"][0]["metadata_selection"] == {"state": "unknown", "fields": []}

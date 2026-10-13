@@ -90,6 +90,7 @@
               "artifact",
               "source",
               "observation",
+              "metadata-acceptance",
               "audio"
             ]
           },

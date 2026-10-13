@@ -53,6 +53,16 @@ frozen bindings, including their original observations and selected values.
 `storage.metadata_acceptance.verify_acceptance_graph` exposes the same private
 validation for provenance readers.
 
+Portable artifact provenance captures these application nodes separately from
+provider observations. Each `metadata-acceptance` node records its application
+owner and codec and depends on precisely the provider ID inside its receipt.
+The offline reader reruns the same pure normalizer, then checks the frozen
+source projection, without reading current caches, the database or the SDK.
+Private reports list application choices separately; historical v1 or manual
+raw-only v2 inputs keep selection unknown. The private graph preserves original
+envelope/payload strings and refuses absent originals even after its outer
+digests are recomputed.
+
 Application nodes are excluded from platform superset namespaces, acquisition
 coverage and the provider-history count limit. They can be read privately by
 their immutable IDs or `ObservationRepository.read_video` with the explicit

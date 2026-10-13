@@ -35,11 +35,16 @@ from tests.test_workflow_control_plane import _seed_part
 pytestmark = pytest.mark.usefixtures("enable_content_publication_for_tests")
 
 
-def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True, raw_kind=None):
+def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True, raw_kind=None, seed_part=None):
     root = tmp_path / "archive"
-    initialize_archive(root, with_source_observations=True)
+    if seed_part is None:
+        initialize_archive(root, with_source_observations=True)
+    else:
+        part_id = seed_part(root)
     connection = connect_database(root / "archive.db")
-    if platform == "bilibili":
+    if seed_part is not None:
+        assert platform == "bilibili"
+    elif platform == "bilibili":
         part_id = _seed_part(connection)
     else:
         with connection:

@@ -33,7 +33,8 @@
       "identity": "artifact-provenance/v1",
       "owner": "provenance",
       "authority": [
-        "src/bili_asr/provenance_contract.py"
+        "src/bili_asr/provenance_contract.py",
+        "src/bili_asr/provenance_metadata.py"
       ],
       "consumers": [
         "cli.provenance",
@@ -48,7 +49,9 @@
       "dependencies": [
         "frozen-input/v1",
         "frozen-input/v2",
-        "asr-evidence/v1"
+        "asr-evidence/v1",
+        "metadata-acceptance/v1",
+        "source-observations/v1"
       ],
       "schema": "artifact-provenance-v1.schema.json"
     },

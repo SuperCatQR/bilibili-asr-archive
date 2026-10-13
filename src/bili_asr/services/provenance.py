@@ -181,18 +181,56 @@ class TraceReader:
     def source(self, metadata: dict) -> str:
         frozen = metadata.get("source_metadata")
         bindings = frozen.get("observationBindings", []) if isinstance(frozen, dict) else []
-        dependencies = []
+        from bili_asr.metadata_acceptance import (
+            CONTRACT,
+            OPERATION,
+            acceptance_document,
+            binding_tuple,
+        )
+        from bili_asr.source_metadata import SourceMetadataSnapshot
+        from bili_asr.storage.source_observations import ObservationRepository
+
+        if frozen:
+            SourceMetadataSnapshot.from_dict(frozen)
+        repository = ObservationRepository(self.connection)
+        observations = {}
+        read_bytes = 0
         for binding in bindings:
-            # Only frozen exact bindings establish a historical relationship.
-            from bili_asr.storage.source_observations import ObservationRepository
-            observation = ObservationRepository(self.connection).get(binding["observationId"])
-            value = observation.to_dict()
-            if (value["envelope"]["payloadSha256"] != binding["payloadSha256"]
-                    or value["envelopeSha256"] != binding["envelopeSha256"]):
+            observation = repository.get(binding["observationId"])
+            read_bytes += len(observation.envelope_json.encode("utf-8")) + len((observation.payload_json or "").encode("utf-8"))
+            if read_bytes > MAX_BYTES:
+                raise ValueError("provenance: frozen observation read exceeds byte limit")
+            envelope = observation.envelope
+            if (envelope["payloadSha256"] != binding["payloadSha256"]
+                    or digest(envelope) != binding["envelopeSha256"]):
                 raise ValueError("provenance: frozen raw observation binding mismatch")
-            dependencies.append(self.remember("observation", observation.observation_id, {
+            observations[observation.observation_id] = (observation, binding)
+        dependencies, providers = [], {}
+        # Install provider nodes first: application choices can only reference
+        # exact originals already present in this frozen historical selection.
+        for identity, (observation, binding) in observations.items():
+            if observation.envelope["operation"] == OPERATION:
+                continue
+            key = self.remember("observation", identity, {
                 "envelope_json": observation.envelope_json, "payload_json": observation.payload_json,
-                "envelope_sha256": binding["envelopeSha256"], "payload_sha256": binding["payloadSha256"]}))
+                "envelope_sha256": binding["envelopeSha256"], "payload_sha256": binding["payloadSha256"]})
+            providers[identity] = key
+            dependencies.append(key)
+        for identity, (observation, binding) in observations.items():
+            if observation.envelope["operation"] != OPERATION:
+                continue
+            document = acceptance_document(observation)
+            originals = []
+            for item in document["fields"]:
+                selected = item["source"]
+                source_id = selected["observationId"]
+                if (source_id not in providers or binding_tuple(observations[source_id][1]) != binding_tuple(selected)):
+                    raise ValueError("provenance: acceptance original provider is absent from frozen bindings")
+                originals.append(providers[source_id])
+            dependencies.append(self.remember("metadata-acceptance", identity, {
+                "owner": "application", "codec": CONTRACT,
+                "envelope_json": observation.envelope_json, "payload_json": observation.payload_json,
+                "envelope_sha256": binding["envelopeSha256"], "payload_sha256": binding["payloadSha256"]}, originals))
         return self.remember("source", digest(metadata), {"metadata": metadata,
                              "raw_observation_binding": "verified_frozen" if bindings else "unavailable_unfrozen_history"}, dependencies)
 

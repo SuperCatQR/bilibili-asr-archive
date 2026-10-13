@@ -8,13 +8,14 @@ from pathlib import Path
 
 from bili_asr.canonical_json import digest
 from bili_asr.file_ops import checked_path, json_bytes, write_new_file
+from bili_asr.provenance_metadata import MetadataEvidence, is_acceptance
 
 FORMAT = "artifact-provenance/v1"
 POLICY = "frozen-input-and-recorded-producers/v1"
 MAX_BYTES = 64 * 1024 * 1024
 MAX_NODES = 25_000
 KINDS = frozenset({"release", "edition", "revision", "input", "transcript", "producer",
-                   "workflow-attempt", "call", "checkpoint", "artifact", "source", "observation", "audio"})
+                   "workflow-attempt", "call", "checkpoint", "artifact", "source", "observation", "metadata-acceptance", "audio"})
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -72,7 +73,7 @@ def _one(node: dict, nodes: dict, kind: str) -> dict:
     return matches[0]["record"]
 
 
-def _verify_domain(node: dict, nodes: dict) -> None:
+def _verify_domain(node: dict, nodes: dict, metadata_evidence: MetadataEvidence) -> None:
     record, kind = node["record"], node["kind"]
     if kind in {"input", "transcript", "revision", "call"}:
         column = {"input": "input_id", "transcript": "transcript_id", "revision": "revision_id", "call": "call_id"}[kind]
@@ -263,32 +264,7 @@ def _verify_domain(node: dict, nodes: dict) -> None:
                 if (parsed.get("profile_id"), parsed.get("config_sha256")) != (profile["profile_id"], profile["config_sha256"]):
                     raise ValueError("provenance: ASR evidence differs from frozen profile")
     elif kind == "source":
-        metadata = record["metadata"].get("source_metadata", {})
-        if metadata:
-            from bili_asr.source_metadata import SourceMetadataSnapshot
-            SourceMetadataSnapshot.from_dict(metadata)
-        bindings = metadata.get("observationBindings", [])
-        if record["raw_observation_binding"] != ("verified_frozen" if bindings else "unavailable_unfrozen_history"):
-            raise ValueError("provenance: raw observation availability differs from frozen evidence")
-        observations = _bound(node, nodes, "observation")
-        recorded = sorted((item["identity"], item["record"]["payload_sha256"], item["record"]["envelope_sha256"])
-                          for item in observations)
-        expected = sorted((item["observationId"], item["payloadSha256"], item["envelopeSha256"]) for item in bindings)
-        if recorded != expected:
-            raise ValueError("provenance: source observation dependencies differ from frozen bindings")
-        for observation in observations:
-            envelope = exact_json(observation["record"]["envelope_json"])
-            scope = envelope["scope"]
-            matched_video = scope.get("externalVideoId") == metadata["externalVideoId"]
-            if not matched_video and envelope["platform"] == "bilibili" and envelope["operation"] == "creator-page":
-                payload = exact_json(observation["record"]["payload_json"])
-                listing = payload.get("list") if isinstance(payload, dict) else None
-                page = listing.get("vlist") if isinstance(listing, dict) else None
-                matched_video = isinstance(page, list) and any(isinstance(item, dict) and
-                    item.get("bvid") == metadata["externalVideoId"] for item in page)
-            if (envelope["state"] != "success" or envelope["platform"] != metadata["platform"] or not matched_video
-                    or (scope.get("partIndex") is not None and scope["partIndex"] != metadata["partIndex"])):
-                raise ValueError("provenance: frozen observation belongs to another source")
+        metadata_evidence.source(node)
     elif kind == "workflow-attempt":
         attempt, job = record["attempt"], record["job"]
         if attempt["job_id"] != job["job_id"]:
@@ -327,16 +303,10 @@ def _verify_domain(node: dict, nodes: dict) -> None:
         for retained in record["retained"]:
             if retained["sha256"] != identity["sha256"] or (identity.get("byte_size") is not None and retained["byte_size"] != identity["byte_size"]):
                 raise ValueError("provenance: retained audio identity mismatch")
-    elif kind == "observation":
-        from bili_asr.source_observations import (
-            PlatformObservation,
-            validate_observation,
-        )
-        validate_observation(PlatformObservation(node["identity"], record["envelope_json"], record["payload_json"]))
-        if (hashlib.sha256(record["envelope_json"].encode("utf-8")).hexdigest() != record["envelope_sha256"]
-                or (None if record["payload_json"] is None else hashlib.sha256(record["payload_json"].encode("utf-8")).hexdigest())
-                    != record["payload_sha256"]):
-            raise ValueError("provenance: raw observation digest mismatch")
+    elif kind in {"observation", "metadata-acceptance"}:
+        metadata_evidence.observation(node)
+        if kind == "metadata-acceptance" or (is_acceptance(node) and node["dependencies"]):
+            metadata_evidence.acceptance(node)
 
 
 def verify_graph(value: dict) -> dict:
@@ -388,8 +358,10 @@ def verify_graph(value: dict) -> dict:
     elif not any(node["kind"] == "artifact" and node["record"].get("sha256") == selector["value"] for node in nodes.values()):
         raise ValueError("provenance: final artifact selector is unavailable")
     try:
+        metadata_evidence = MetadataEvidence(nodes)
         for node in nodes.values():
-            _verify_domain(node, nodes)
+            _verify_domain(node, nodes, metadata_evidence)
+        metadata_evidence.require_legacy_sources()
     except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as error:
         raise ValueError("provenance: invalid domain evidence") from error
     return {"valid": True, "graph_sha256": value["graph_sha256"], "node_count": len(nodes),
