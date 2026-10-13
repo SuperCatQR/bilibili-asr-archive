@@ -52,6 +52,9 @@ _CONTRACTS = (
     Contract("artifact-provenance/v1", "provenance", ("src/bili_asr/provenance_contract.py",),
              ("cli.provenance", "publication_export", "external-reader"), ("read", "validate", "export"),
              ("frozen-input/v1", "frozen-input/v2", "asr-evidence/v1"), "artifact-provenance-v1.schema.json"),
+    _json("public-provenance-summary/v1", "public-provenance-summary-v1.schema.json", "provenance"),
+    _json("editorial-provenance-export-manifest/v1", "editorial-provenance-export-manifest-v1.schema.json", "provenance",
+          dependencies=("artifact-provenance/v1", "editorial-export-manifest/v1")),
     Contract("source-observations/v1", "sources", ("src/bili_asr/source_observations.py",
              "src/bili_asr/storage/schema-source-observations.sql"),
              ("storage.source_observations", "storage.snapshots", "cli.source"),
@@ -229,6 +232,8 @@ def manifest_contract(kind: str, profile: str | None, *, imported: bool = False)
     if kind not in {"publication-export", "publication-draft-export", "editorial-export"}:
         raise ValueError("unsupported export kind")
     if profile is not None:
+        if profile == "private-provenance-v1" and kind == "editorial-export":
+            return "editorial-provenance-export-manifest/v1"
         if profile not in {ORIGIN_PROFILE, ORIGIN_PROFILE_V2} or kind == "editorial-export":
             raise ValueError("unsupported export profile")
         return "publication-origin-manifest/v3" if profile == ORIGIN_PROFILE_V2 else "publication-origin-manifest/v2"

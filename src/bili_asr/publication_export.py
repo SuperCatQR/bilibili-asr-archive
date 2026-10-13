@@ -403,6 +403,7 @@ def export_editorial(
     edition_id: str,
     artifact_roots: tuple[Path, ...],
     output: Path,
+    include_provenance: bool = False,
 ) -> dict:
     """Export an exact edition and its immutable AI baseline for private review."""
     require_manuscript_schema(connection)
@@ -484,5 +485,9 @@ def export_editorial(
             files.update({"import-origin.json": json_bytes({"origin": public, "baseline": evidence["baseline"]}),
                 "preserved-body.md": preserved,
                 "differences/preserved.patch": _difference(preserved.decode("utf-8"), content["markdown"], "preserved-body.md", "edition-body.md")})
-    snapshot_id = replace_snapshot(output, kind="editorial-export", files=files)
+        if include_provenance:
+            from bili_asr.services.provenance import trace
+            files["provenance.json"] = json_bytes(trace(connection, edition_id=edition_id, artifact_roots=artifact_roots))
+    snapshot_id = replace_snapshot(output, kind="editorial-export", files=files,
+                                   profile="private-provenance-v1" if include_provenance else None)
     return {"revision_id": revision_id, "edition_id": edition_id, "content_sha256": edition["content_sha256"], "snapshot_id": snapshot_id, "output": str(output)}

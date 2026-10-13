@@ -56,6 +56,8 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
 
 
 def _allowed_file(name: str, kind: str, profile: str | None = None) -> bool:
+    if name == "provenance.json":
+        return kind == "editorial-export" and profile == "private-provenance-v1"
     if name == "origins.json":
         return profile in {"universal-origin-v1", "universal-origin-v2"} and kind in {"publication-export", "publication-draft-export"}
     if kind == "publication-export":
@@ -285,12 +287,23 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
             series = read_json(directory / "series.json")
             _contract_json("publication-series/v1", series)
             validate_public_series(series, catalog["articles"], manuscript_type)
-    elif expected_files not in (_REVIEW_FILES | {manifest_name}, _REVIEW_FILES | _IMPORT_REVIEW_FILES | {manifest_name}):
+    elif expected_files - ({"provenance.json"} if profile == "private-provenance-v1" else set()) not in (
+            _REVIEW_FILES | {manifest_name}, _REVIEW_FILES | _IMPORT_REVIEW_FILES | {manifest_name}):
         raise ExportSnapshotError("private editorial snapshot is incomplete")
     else:
         review = read_json(directory / "review.json")
         universal = isinstance(review, dict) and isinstance(review.get("ai"), dict) and review["ai"].get("templateVersion") == "ai-draft-v2"
         _contract_json("editorial-review-universal/v1" if universal else "editorial-review/v1", review)
+        if profile == "private-provenance-v1":
+            from bili_asr.provenance_contract import read_graph
+            graph = read_graph(directory / "provenance.json")
+            editions = [node["record"]["edition"] for node in graph["nodes"] if node["kind"] == "edition"]
+            selected = next((edition for edition in editions if edition["edition_id"] == review["editionId"]), None)
+            if (graph["selector"] != {"kind": "edition", "value": review["editionId"]}
+                    or selected is None or selected["content_sha256"] != review["contentSha256"]
+                    or selected["revision_id"] != review["revisionId"] or selected["video_part_id"] != review["videoPartId"]
+                    or selected["review_status"] != review["reviewStatus"]):
+                raise ExportSnapshotError("private provenance differs from editorial review")
     return str(manifest["snapshotId"])
 
 
@@ -370,7 +383,9 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes],
     """
     if kind not in {"publication-export", "publication-draft-export", "editorial-export"} or not files:
         raise ExportSnapshotError("unsupported or empty export snapshot")
-    if profile is not None and (profile not in {"universal-origin-v1", "universal-origin-v2"} or kind == "editorial-export"):
+    if profile is not None and not (
+            (profile in {"universal-origin-v1", "universal-origin-v2"} and kind != "editorial-export")
+            or (profile == "private-provenance-v1" and kind == "editorial-export")):
         raise ExportSnapshotError("unsupported export origin profile")
     output = checked_path(output)
     for name, content in files.items():

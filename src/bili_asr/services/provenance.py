@@ -285,3 +285,28 @@ def export_trace(connection, *, output: Path, artifact_roots: tuple[Path, ...], 
     from bili_asr.export_snapshot import guard_output
     guard_output(connection, output, artifact_roots)
     return write_graph(output, trace(connection, artifact_roots=artifact_roots, **selector))
+
+def _public_summary(connection, release_id: str, artifact_roots: tuple[Path, ...]) -> dict:
+    from bili_asr.content_rights import require_public_rights
+    from bili_asr.manuscript_artifacts import get_ai_artifacts
+    with _snapshot(connection):
+        release = dict(connection.execute("SELECT * FROM publication_releases WHERE release_id=?", (release_id,)).fetchone() or {})
+        if not release or release["status"] != "published":
+            raise ValueError("provenance: public summary requires a current published release")
+        edition = verify_release_identity(connection, release)
+        review = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)["review.md"]
+        require_public_rights(connection, edition, review)
+        graph = trace(connection, release_id=release_id, artifact_roots=artifact_roots)
+        result = {"format": "public-provenance-summary/v1", "schema_version": 1,
+                  "release_id": release_id, "edition_id": release["edition_id"], "revision_id": edition["revision_id"],
+                  "content_sha256": release["content_sha256"], "artifact_sha256": release["artifact_sha256"],
+                  "private_graph_sha256": graph["graph_sha256"], "published_at": release["published_at"]}
+        from bili_asr.contracts.json_schema import validate_json
+        validate_json("public-provenance-summary/v1", result)
+    require_public_rights(connection, read_edition(connection, edition["edition_id"]), review)
+    return result
+
+
+from bili_asr.content_rights import serialized_distribution
+
+public_summary = serialized_distribution(_public_summary)

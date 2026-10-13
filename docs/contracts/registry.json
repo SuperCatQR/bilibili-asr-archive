@@ -53,6 +53,43 @@
       "schema": "artifact-provenance-v1.schema.json"
     },
     {
+      "identity": "public-provenance-summary/v1",
+      "owner": "provenance",
+      "authority": [
+        "src/bili_asr/contracts/schemas/public-provenance-summary-v1.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [],
+      "schema": "public-provenance-summary-v1.schema.json"
+    },
+    {
+      "identity": "editorial-provenance-export-manifest/v1",
+      "owner": "provenance",
+      "authority": [
+        "src/bili_asr/contracts/schemas/editorial-provenance-export-manifest-v1.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "artifact-provenance/v1",
+        "editorial-export-manifest/v1"
+      ],
+      "schema": "editorial-provenance-export-manifest-v1.schema.json"
+    },
+    {
       "identity": "source-observations/v1",
       "owner": "sources",
       "authority": [

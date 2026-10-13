@@ -76,6 +76,7 @@ def _cmd_editorial(args) -> int:
             result = export_editorial(
                 connection, revision_id=args.revision_id, edition_id=args.edition_id,
                 artifact_roots=args.artifact_roots.read_bases(), output=Path(args.out),
+                include_provenance=args.provenance,
             )
         print_result(result, args.format)
         return 0
@@ -124,3 +125,4 @@ def add_editorial_parser(subparsers, *, archive_root: str) -> None:
     export.add_argument("--revision-id", required=True)
     export.add_argument("--edition-id", required=True)
     export.add_argument("--out", required=True)
+    export.add_argument("--provenance", action="store_true", help="Include the complete portable private evidence chain")

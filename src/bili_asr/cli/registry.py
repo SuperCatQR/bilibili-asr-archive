@@ -66,6 +66,7 @@ COMMANDS = MappingProxyType({
     "export": CommandSpec("_cmd_export", 'bili_asr.cli.ops', ArtifactPolicy.READ, ArchiveAccessMode.READ),
     "publication": CommandSpec("_cmd_publication", 'bili_asr.cli.publication', ArtifactPolicy.NONE, ArchiveAccessMode.READ),
     "editorial": CommandSpec("_cmd_editorial", 'bili_asr.cli.editorial', ArtifactPolicy.NONE, ArchiveAccessMode.READ),
+    "provenance": CommandSpec("_cmd_provenance", 'bili_asr.cli.provenance', ArtifactPolicy.NONE, None),
     "dedup": CommandSpec("_cmd_dedup", 'bili_asr.cli.dedup', ArtifactPolicy.READ, ArchiveAccessMode.READ),
 })
 
