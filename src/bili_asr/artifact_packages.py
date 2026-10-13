@@ -26,6 +26,7 @@ from bili_asr.artifact_inventory import (
     portable_artifact_parts,
     require_no_links,
 )
+from bili_asr.file_generation import stream_generation
 
 _FORMAT = "bili-asr-artifact-package"
 _MANIFEST_NAME = "package.json"
@@ -97,6 +98,12 @@ def capture_source_generation(path: Path) -> dict[str, int]:
     """Freeze a JSON-safe identity/version for later copy and release checks."""
     with _package_errors():
         return _generation(_regular(_absolute(path)))
+
+
+def capture_verified_file_generation(path: Path) -> tuple[int, ...]:
+    """Current descriptor generation without changing the frozen v1 manifest."""
+    with _package_errors(), _open_regular(_absolute(path)) as source:
+        return stream_generation(source)
 
 
 @contextmanager
