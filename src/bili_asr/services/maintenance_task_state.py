@@ -51,7 +51,7 @@ def validate_components(components) -> list[dict]:
     result = []
     for value in components:
         if (not isinstance(value, dict) or set(value) != {"kind", "path", "lock_path"}
-                or value["kind"] not in {"retry-control/v1", "backup-job-state/v1"}
+                or value["kind"] not in {"retry-control/v1", "retry-control/v2", "backup-job-state/v1"}
                 or any(not isinstance(value[key], str) or not Path(value[key]).is_absolute() for key in ("path", "lock_path"))):
             raise ValueError("unknown external component contract or nonabsolute path")
         path = package.absolute(Path(value["path"]))
@@ -84,23 +84,11 @@ def _control(value: dict, kind: str) -> None:
                     or previous["status"] != "running" and previous.get("receipt_id") != package.digest({k: v for k, v in previous.items() if k != "receipt_id"})):
                 raise ValueError("unknown prior backup receipt identity")
         return
-    # This versioned adapter preserves original JSON bytes including hold
-    # reasons. Unknown component layouts are never guessed from generic keys.
-    if (set(value) != {"format", "schema_version", "retry_holds", "retry_ledger"}
-            or value["format"] != "retry-control/v1" or type(value["schema_version"]) is not int or value["schema_version"] != 1
-            or not isinstance(value["retry_holds"], dict) or not isinstance(value["retry_ledger"], dict)):
-        raise ValueError("unknown retry-control version or layout")
-    for key, entry in value["retry_ledger"].items():
-        if (not isinstance(key, str) or not key or not isinstance(entry, dict)
-                or not {"retries", "last_retry_at"} <= set(entry)
-                or not set(entry) <= {"retries", "last_retry_at", "next_retry_at", "max_retries", "last_error_code", "reserved_attempt_id", "dispatch_outcome"}
-                or any(type(item) is not int or item < 0 for name, item in entry.items() if name in {"retries", "last_retry_at", "next_retry_at", "max_retries"})
-                or any(not isinstance(entry[name], str) or not entry[name] for name in ("last_error_code", "reserved_attempt_id") if name in entry)
-                or entry.get("dispatch_outcome", "reserved") not in {"reserved", "requeued", "stale"}):
-            raise ValueError("invalid retry budget ledger entry")
-    for key, entry in value["retry_holds"].items():
-        if not isinstance(key, str) or not key or not isinstance(entry, (str, dict)):
-            raise ValueError("invalid preserved retry hold")
+    from bili_asr.services.retry_control import validate_control, validate_legacy_typed
+    if kind == "retry-control/v2":
+        validate_control(value)
+    else:
+        validate_legacy_typed(value)
 
 
 def _observe(components: list[dict]) -> list[dict]:
@@ -291,7 +279,7 @@ def extract_task_state(snapshot: Path, stage: Path) -> dict:
         for component in observation["component_versions"]:
             _parts(component["path"])
             if (not component["path"].startswith("control-state/component-") or not component["path"].endswith(".json")
-                    or component["path"] not in expected or component["kind"] not in {"retry-control/v1", "backup-job-state/v1"}
+                    or component["path"] not in expected or component["kind"] not in {"retry-control/v1", "retry-control/v2", "backup-job-state/v1"}
                     or not Path(component["source_path"]).is_absolute() or not Path(component["lock_path"]).is_absolute()):
                 raise ValueError("task-state component path or contract is unsupported")
             component_paths.append(component["path"])
@@ -346,6 +334,10 @@ def extract_task_state(snapshot: Path, stage: Path) -> dict:
         for component in observation["component_versions"]:
             document = package._json(destination / component["path"])
             _control(document, component["kind"])
+            if component["kind"] == "retry-control/v2":
+                from bili_asr.services.retry_control import validate_control
+                with closing(sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+                    validate_control(document, connection=connection)
             if package._record(component["path"], destination / component["path"]) != {k: component[k] for k in ("path", "size", "sha256")}:
                 raise ValueError("task-state external observation identity mismatch")
         if manifest["backup_job_state"] is not None:

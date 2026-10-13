@@ -281,6 +281,7 @@
               "kind": {
                 "enum": [
                   "retry-control/v1",
+                  "retry-control/v2",
                   "backup-job-state/v1"
                 ]
               },
