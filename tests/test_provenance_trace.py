@@ -68,7 +68,8 @@ def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True)
         stored = transcripts.record_local_transcript(run_id=run_id, video_part_id=part_id, language="en",
             segments=(TranscriptSegmentRecord(0, 1900, "A complete source sentence."),), model_name=name,
             model_revision="a" * 40, started_at=index + 1, finished_at=index + 2, created_at=index + 2,
-            asr_evidence=recorded if evidence else None)
+            coverage={"decoded_s": 2.0, "produced_s": 1.9, "coverage": .95,
+                      "coverage_min": .85, "coverage_short": False}, asr_evidence=recorded)
         transcripts.finish_acquisition_run(run_id, index + 2)
         with connection:
             connection.execute("INSERT INTO workflow_jobs VALUES (?,?,?,?,'all',?,?,'succeeded',0,1,NULL,NULL,1,NULL,1,2)",
@@ -92,6 +93,11 @@ def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True)
     edition = create_edition(connection, revision_id=revision_id, artifact_roots=(root,), actor="private-editor")
     approve(connection, edition)
     release = publish_edition(connection, edition_id=edition["edition_id"], artifact_roots=(root,), write_root=root, actor="private-publisher")
+    if not evidence:
+        # Model a previously released historical archive with missing evidence,
+        # after the current execution path has passed real measured admission.
+        with connection:
+            connection.execute("DELETE FROM transcript_asr_evidence")
     return connection, root, revision_id, edition, release, producers
 
 
@@ -127,6 +133,27 @@ def test_final_hash_trace_preserves_multiple_producers_and_actual_ai_model(tmp_p
         root.joinpath("offline.db").rename(root.joinpath("archive.db"))
         assert root.joinpath("archive.db").read_bytes() == before
         assert root.joinpath(release["relative_path"]).read_bytes() == document
+
+
+@pytest.mark.parametrize("cache", ["budget", "readonly-context", "editable-text"])
+def test_resealed_graph_cannot_replace_chunks_derived_from_a_frozen_plan(tmp_path, cache):
+    connection, root, _revision, _edition, release, _producers = manuscript(tmp_path, "youtube")
+    with closing(connection):
+        graph = trace(connection, release_id=release["release_id"], artifact_roots=(root,))
+    altered = deepcopy(graph)
+    input_node = next(node for node in altered["nodes"] if node["kind"] == "input")
+    prepared = json.loads(input_node["record"]["row"]["prepared_json"])
+    assert prepared["snapshot"]["config"]["budget_policy"] == "token-budget-v2"
+    chunk = prepared["chunks"][0]
+    if cache == "budget":
+        chunk["budget_estimate"]["request_tokens"] += 1
+    elif cache == "readonly-context":
+        chunk["readonly_context"].append(deepcopy(chunk["editable_segments"][0]))
+    else:
+        chunk["editable_segments"][0]["text"] = "Changed cached request text"
+    input_node["record"]["row"]["prepared_json"] = json.dumps(prepared, ensure_ascii=False)
+    with pytest.raises(ValueError, match="frozen editorial budget plan or derived chunks changed"):
+        verify_graph(_rehash(altered))
 
 
 def test_automatic_proofreading_records_the_selected_attempt_without_changing_input(tmp_path):

@@ -107,6 +107,12 @@ def _verify_domain(node: dict, nodes: dict) -> None:
                 or (None if snapshot["reference"] is None else snapshot["reference"]["transcript_id"]) != row["reference_transcript_id"]
                 or digest(snapshot["system_prompt"]) != snapshot["prompt_sha256"]):
             raise ValueError("provenance: frozen input or prompt digest mismatch")
+        budget_policy = snapshot["config"].get("budget_policy", "legacy-v1")
+        if budget_policy not in {"legacy-v1", "token-budget-v2"}:
+            raise ValueError("provenance: unsupported frozen budget policy")
+        if budget_policy == "token-budget-v2":
+            from bili_asr.editorial_budget import require_frozen_plan
+            require_frozen_plan(prepared)
         sources = _bound(node, nodes, "source")
         if len(sources) != 1 or sources[0]["record"]["metadata"] != snapshot.get("metadata", {}):
             raise ValueError("provenance: metadata differs from frozen input")
