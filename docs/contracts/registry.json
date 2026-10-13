@@ -30,6 +30,29 @@
       "schema": null
     },
     {
+      "identity": "artifact-provenance/v1",
+      "owner": "provenance",
+      "authority": [
+        "src/bili_asr/provenance_contract.py"
+      ],
+      "consumers": [
+        "cli.provenance",
+        "publication_export",
+        "external-reader"
+      ],
+      "capabilities": [
+        "read",
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "frozen-input/v1",
+        "frozen-input/v2",
+        "asr-evidence/v1"
+      ],
+      "schema": "artifact-provenance-v1.schema.json"
+    },
+    {
       "identity": "source-observations/v1",
       "owner": "sources",
       "authority": [
