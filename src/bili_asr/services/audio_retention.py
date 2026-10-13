@@ -63,16 +63,16 @@ def _retarget(plan, target_id):
 
 
 def _plans(connection, inventory, config, pressure, now):
-    from bili_asr.services.artifact_policy import _bounded_plan
+    from bili_asr.services.artifact_policy_planning import bounded_plan
     inventory, clocks = _clock_and_pending(connection, inventory)
     eligible = {**inventory, "copies": [{**copy, "candidate": copy["candidate"]
         and clocks.get(copy["copy_id"], now) <= now - config["minimum_age_seconds"]} for copy in inventory["copies"]]}
-    backup = _bounded_plan(eligible, config)
+    backup = bounded_plan(eligible, config)
     backed_up = {item["copy_id"] for item in backup["items"]}
     release_inventory = {**eligible, "copies": [{**copy, "candidate": copy["candidate"] and (pressure
         or clocks.get(copy["copy_id"], now) <= now - config["local_retention_seconds"])
         and copy["copy_id"] in backed_up} for copy in eligible["copies"]]}
-    release = _bounded_plan(release_inventory, config)
+    release = bounded_plan(release_inventory, config)
     return {"format": "audio-retention-plan/v1", "backup": backup, "release": release,
             "pressure_active": bool(pressure)}
 
@@ -100,7 +100,7 @@ def _release_verifier(requirement, config, plan):
 
 def run_audio_retention_once(roots, *, policy_id, target_root, storage_targets, external_holds, checkpoint=None):
     """A bounded, journaled cycle runnable independently of inference workers."""
-    from bili_asr.services.artifact_policy import read_policy
+    from bili_asr.services.artifact_policy_configuration import read_policy
     with ArchiveSession(roots.archive_root, mode=ArchiveAccessMode.WRITE, artifact_roots=roots) as session:
         connection = session.connection
         config = read_policy(connection, policy_id)

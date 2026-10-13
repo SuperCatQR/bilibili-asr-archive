@@ -8,7 +8,7 @@ from bili_asr.services.artifact_inventory_service import ArtifactSelection
 
 
 def default_audio_retention_policy():
-    from bili_asr.services.artifact_policy import DEFAULT_POLICY
+    from bili_asr.services.artifact_policy_defaults import DEFAULT_POLICY
     selection = {key: list(values) for key, values in asdict(ArtifactSelection(kinds=("audio",))).items()}
     return {**DEFAULT_POLICY, "version": 2, "selection": selection,
         "allow_delete": False, "compression_level": 6, "minimum_verified_copies": 1,
