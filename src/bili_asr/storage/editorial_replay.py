@@ -6,6 +6,7 @@ import sqlite3
 from functools import lru_cache
 
 from bili_asr.canonical_json import digest
+from bili_asr.sql_identity import schema_sql_sha256
 from bili_asr.storage.schema_contract import SchemaContractError, schema_resource
 from bili_asr.workflow_errors import JobExecutionError
 
@@ -32,20 +33,18 @@ def objects():
 
 
 def derived_group():
-    from bili_asr.storage.migration_source import _sql_digest
-    return {"policy": POLICY, "objects": {name: [{"kind": kind, "sql_sha256": _sql_digest(sql)}]
+    return {"policy": POLICY, "objects": {name: [{"kind": kind, "sql_sha256": schema_sql_sha256(sql)}]
             for name, (kind, sql) in objects().items()}}
 
 
 def require_indexes(connection, *, allow_partial=False):
-    from bili_asr.storage.migration_source import _sql_digest
     expected = objects()
     present = {}
     for name in expected:
         row = connection.execute("SELECT type,sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
         if row is not None:
             present[name] = (row[0], row[1])
-            if row[0] != expected[name][0] or _sql_digest(row[1]) != _sql_digest(expected[name][1]):
+            if row[0] != expected[name][0] or schema_sql_sha256(row[1]) != schema_sql_sha256(expected[name][1]):
                 raise SchemaContractError(f"{POLICY}: altered derived object {name}")
     if present and len(present) != len(expected) and not allow_partial:
         raise SchemaContractError(f"{POLICY}: incomplete derived index group; run explicit recovery")

@@ -47,8 +47,8 @@ def estimate(chunk, config, system_prompt):
     The output guard retains the historical byte reserve as a conservative
     token ceiling. Its separate name prevents claiming it is provider usage.
     """
-    from bili_asr.deepseek import request_body
-    from bili_asr.editorial import estimate_chunk_budget
+    from bili_asr.editorial_input_contract import estimate_chunk_budget
+    from bili_asr.editorial_request import request_body
 
     original = {name: value for name, value in chunk.items() if name != "budget_estimate"}
     result = estimate_chunk_budget(original, system_prompt=system_prompt, max_output_tokens=config.max_output_tokens)
@@ -81,7 +81,7 @@ def exceeded_limits(chunk, config):
 
 
 def _build_chunk(snapshot, config, matches, start, end, *, include_precheck):
-    from bili_asr.editorial import local_precheck
+    from bili_asr.editorial_input_contract import local_precheck
     body = snapshot["base"]["segments"]
     refs = [] if snapshot["reference"] is None else snapshot["reference"]["segments"]
     selected = {ref["segment_id"] for segment in body[start:end] for ref in matches[segment["segment_id"]]}
@@ -173,7 +173,7 @@ def require_frozen_plan(prepared):
 
     Historical inputs retain their old optional estimates and boundaries.
     """
-    from bili_asr.editorial import EditorialConfig
+    from bili_asr.editorial_input_contract import EditorialConfig
     snapshot = prepared["snapshot"]
     if snapshot["config"].get("budget_policy", "legacy-v1") != POLICY:
         return

@@ -7,19 +7,20 @@ Callers must stop writers and hold the archive access lock for the entire read.
 
 from __future__ import annotations
 
-from contextlib import closing
-from dataclasses import dataclass
-from functools import lru_cache
 import hashlib
-from importlib import resources
 import json
-from pathlib import Path
-import re
 import sqlite3
 import stat
 import struct
 import time
+from contextlib import closing
+from dataclasses import dataclass
+from functools import lru_cache
+from importlib import resources
+from pathlib import Path
 from typing import Any
+
+from bili_asr.sql_identity import schema_sql_sha256
 
 
 class MigrationSourceError(ValueError):
@@ -41,31 +42,6 @@ class MigrationSourceReport:
     table_fingerprints: tuple[TableFingerprint, ...]
     derived_objects: tuple[str, ...]
     expired_running_jobs: int = 0
-
-
-def _normalize_sql(sql: str) -> str:
-    """Normalize unquoted SQL only; literals and quoted identifiers stay exact."""
-    tokens: list[str] = []
-    pattern = re.compile(
-        r"--[^\n]*(?:\n|$)|/\*.*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\""
-        r"|`(?:``|[^`])*`|\[[^\]]*\]|[A-Za-z_][A-Za-z_0-9]*|\s+|.",
-        re.DOTALL,
-    )
-    for match in pattern.finditer(sql):
-        token = match.group()
-        if token.isspace() or token.startswith(("--", "/*")):
-            continue
-        tokens.append(token if token[0] in "'\"`[" else token.casefold())
-    # SQLite removes this clause and trailing terminators from stored DDL.
-    text = " ".join(tokens).rstrip(" ;")
-    return re.sub(
-        r"^(create (?:unique |virtual )?(?:table|view|index|trigger)) if not exists ",
-        r"\1 ", text,
-    )
-
-
-def _sql_digest(sql: str) -> str:
-    return hashlib.sha256(_normalize_sql(sql).encode("utf-8")).hexdigest()
 
 
 @lru_cache(maxsize=1)
@@ -111,7 +87,7 @@ def _source_state(path: Path) -> tuple[int, int, int, int, int]:
 
 def _validate_objects(connection: sqlite3.Connection, contract: dict[str, Any]) -> tuple[str, ...]:
     actual = {
-        name: {"kind": kind, "sql_sha256": _sql_digest(sql)}
+        name: {"kind": kind, "sql_sha256": schema_sql_sha256(sql)}
         for kind, name, sql in connection.execute(
             "SELECT type, name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name"
         )
