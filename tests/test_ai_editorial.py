@@ -41,7 +41,7 @@ def envelope(value, *, finish="stop"):
             "choices": [{"finish_reason": finish, "message": {"content": canonical(value)}}]}
 
 
-def insert_record(connection, value):
+def insert_record(connection, value, *, measured=True):
     with connection:
         connection.execute("INSERT INTO transcripts(transcript_id, video_part_id, source_kind, language, "
                            "model_id, version, content_sha256, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)",
@@ -50,6 +50,9 @@ def insert_record(connection, value):
         for i, s in enumerate(value.segments):
             connection.execute("INSERT INTO transcript_segments VALUES (?, ?, ?, ?, ?)",
                                (value.transcript_id, i, s.start_ms, s.end_ms, s.text))
+        if measured and value.source_kind == "asr-local":
+            from tests.support.asr_quality import measured_fixture_evidence
+            measured_fixture_evidence(connection, value)
 
 
 @pytest.fixture
@@ -483,7 +486,7 @@ def test_automatic_plan_waits_for_asr_only_not_subtitle(database, tmp_path):
         else:
             workflow.finish(job.job_id, worker_id="producer", result={})
     asr = workflow.claim("producer", kinds=(JobKind.ASR,))
-    workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": 1})
+    workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": 1, "run_id": "editorial-fixture-1"})
     assert executor.run().succeeded == 2
     assert database.execute("SELECT COUNT(*) FROM editorial_job_inputs").fetchone()[0] == 1
 

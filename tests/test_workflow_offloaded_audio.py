@@ -121,7 +121,8 @@ def test_restored_same_sha_allows_new_profile_with_unchanged_previous_attempts(r
     def transcribe(config, audio_path, **kwargs):
         inference.append(audio_path)
         assert hashlib.sha256(Path(audio_path).read_bytes()).hexdigest() == identity
-        return [{"start": 0, "end": 1, "text": "same retained input"}], {"language": "English"}, None
+        return [{"start": 0, "end": 1, "text": "same retained input"}], {"language": "English"}, {
+            "decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0, "coverage_min": .85, "coverage_short": False}
     handlers.timeout_transcriber = transcribe
     profile = workflow.register_profile(AsrProfile("new-profile", "offline-v2", device="cuda"))
     workflow.plan(part_ids=[part_id], policy=AsrPolicy.ALL, profile_id=profile)

@@ -356,6 +356,12 @@ def test_real_workflow_asr_evidence_flows_into_readonly_report(tmp_path, monkeyp
             dependency = repository.claim("test", kinds=(kind,))
             repository.finish(dependency.job_id, worker_id="test",
                 result={"storage_key": "audio/fixture.m4a", "sha256": digest, "duration_ms": 3000})
+        # This fixture's aligner must describe each one-second decoded chunk.
+        # The generic runner double uses 0.4 s per character and overshoots a
+        # short chunk; such evidence correctly fails structural admission.
+        monkeypatch.setattr("test_asr_qwen._units", lambda text: [
+            {"text": char, "start_time": index / len(text), "end_time": (index + 1) / len(text)}
+            for index, char in enumerate(text)])
         runner, _ = _runner(monkeypatch, text="test", chunk_seconds=1)
         handlers = ArchiveWorkflowHandlers(connection, repository, archive_root=tmp_path, sessdata=None,
             runner_factory=lambda config: runner, asr_prefetch=True)

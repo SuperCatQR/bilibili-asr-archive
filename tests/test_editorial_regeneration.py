@@ -113,6 +113,8 @@ def test_second_chunk_reference_recovery_reuses_first_success(database, tmp_path
     with database:
         database.execute("INSERT INTO transcript_segments VALUES (1,2,2000,2900,?)", ("第三段文字",))
         database.execute("INSERT INTO transcript_segments VALUES (1,3,3000,3900,?)", ("第四段文字",))
+        database.execute("UPDATE transcript_coverage_attestations SET decoded_s=3.9,produced_s=3.9 WHERE transcript_id=1")
+        database.execute("UPDATE transcript_asr_evidence SET evidence_json=json_set(evidence_json,'$.audio.duration_ms',3900) WHERE transcript_id=1")
     class SecondChunkClient(ReferenceClient):
         def complete(self, request, config):
             self.requests.append(deepcopy(request))

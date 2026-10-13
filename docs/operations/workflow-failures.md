@@ -116,6 +116,10 @@ finish/fail 的内联 retry_at 路径同样拒绝未经检查的自动重排。�
 
 ## 编辑失败诊断与修复
 
+ASR 推理完成与下游可用性按[ASR 准入与显式修复](asr-admission-and-repair.md)
+分别保存。倒退、越界、覆盖异常和历史缺证据不进入付费校对；原始推理和 hold
+保留。使用 `workflow asr-quality` 只读查询，`workflow repair-asr` 明确创建修复链。
+
 安全诊断保存 stage、reason_code、input/call/chunk 身份、paragraph/issue/segment 位置、
 计数、阈值或非法引用摘要。provider_request 表示供应商请求，response_parse 表示响应
 解析，revision_validation 表示结构校验；source_quality 在调用模型之前检查来源。

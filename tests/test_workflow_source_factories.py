@@ -112,7 +112,8 @@ def test_injected_cpu_runner_executes_and_releases_once(database, tmp_path):
             return {"language": "Chinese"}
 
         def transcribed_coverage(self):
-            return None
+            return {"decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0,
+                    "coverage_min": .85, "coverage_short": False}
 
         def release(self):
             calls.append(("release",))
@@ -158,7 +159,8 @@ def test_injected_timeout_transcriber_executes_gpu_profile_without_cpu_factory(d
     def transcribe(config, path, *, paired_subtitle_text, timeout_seconds, diagnostics_sink):
         calls.append((config.model_name, path, paired_subtitle_text, timeout_seconds))
         diagnostics_sink.update({"quality": {"status": "not-evaluable", "flags": []}})
-        return [{"start": 0, "end": 1, "text": "受控子进程转录"}], {"language": "Chinese"}, None
+        return [{"start": 0, "end": 1, "text": "受控子进程转录"}], {"language": "Chinese"}, {
+            "decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0, "coverage_min": .85, "coverage_short": False}
 
     repository = WorkflowRepository(database)
     profile_id = repository.register_profile(AsrProfile("timeout", "offline", device="cuda", inference_timeout_seconds=72))
