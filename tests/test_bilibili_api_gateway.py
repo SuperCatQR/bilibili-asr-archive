@@ -619,17 +619,8 @@ def test_summary_blank_details_are_absence_rather_than_empty_strings():
 # ----------------------- the desc boundary: the multiline read and its limits
 
 
-def test_a_multiline_description_is_read_as_absence():
-    """An interior newline in ``description`` reads as absence, siblings intact.
-
-    This is the green pin for the boundary fix.  The storage contract's
-    ``_text`` refuses a newline, so before the fix the raw value reached
-    ``VideoSummary`` and its ``ValueError`` surfaced as a bounded
-    ``GatewayShapeError`` for the item.  The normalizer now answers that
-    refusal with absence for this one field, and the opt-in is per field:
-    ``pic``/``tid`` are still read from the same item rather than dropped
-    with it.
-    """
+def test_a_multiline_description_is_preserved():
+    """Projected prose preserves interior line breaks and sibling fields."""
 
     summary = _normalize_video_summary_item(
         make_vlist_item(
@@ -640,7 +631,7 @@ def test_a_multiline_description_is_read_as_absence():
         )
     )
 
-    assert summary.desc is None
+    assert summary.desc == "第一行\n第二行"
     assert summary.pic == "http://i1.hdslb.com/bfs/archive/cover.jpg"
     assert summary.tid == 124
 
@@ -672,7 +663,7 @@ def test_a_multiline_description_does_not_fail_the_page(bilibili_api_seam):
     ]
     good, multiline = page.videos
     assert good.desc == "哲学讲座简介"
-    assert multiline.desc is None
+    assert multiline.desc == "第一行\n第二行"
     assert page.observed_total == 2
 
 
@@ -754,19 +745,12 @@ def test_a_control_character_in_title_still_fails_the_page(bilibili_api_seam):
     assert caught.value.code == "shape_error"
 
 
-def test_the_detail_record_still_refuses_a_control_character_desc():
-    """The storage DTO stays strict: defence in depth behind the boundary read.
-
-    The boundary normalization is what keeps this refusal unreachable in
-    practice, and the row must keep it anyway — relaxing the DTO instead of
-    the reader would move the decision below the layer that can still tell
-    "upstream sent a line break" from "this write is corrupt", and every other
-    caller of the record would inherit the relaxation.
-    """
-
+@pytest.mark.parametrize("description", ["a\x00b", "a\x0bb", "a\u0085b", "a\ud800b"])
+def test_the_detail_record_refuses_invalid_prose(description):
+    """Prose permits CR/LF/tab and rejects corrupt controls and surrogates."""
     with pytest.raises(ValueError):
         VideoDetailRecord(
-            bvid="BV1detailrec", pic="p", desc="a\nb", tid=124, observed_at=1
+            bvid="BV1detailrec", pic="p", desc=description, tid=124, observed_at=1
         )
 
 

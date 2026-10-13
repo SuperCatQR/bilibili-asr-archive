@@ -103,16 +103,6 @@ _METADATA_PACING_JITTER_SPAN_SECONDS = 0.8
 _HTTPS_SCHEME = "https://"
 _PLAIN_HTTP_SCHEME = "http://"
 
-# Exactly the characters the storage contract's ``_text`` rule refuses (its
-# message is "contains invalid control characters").  ``\t``/``\x0b``/``\x0c``
-# are deliberately absent: that rule accepts them, and a predicate over
-# ``str.isspace()`` here would quietly widen this set.  Whether such a byte
-# is read as absence or refused is the caller's decision, taken per field
-# rather than per character (see ``_read_optional_text``): a line break in a
-# description is ordinary prose, where the same byte inside a cover URL makes
-# the value corrupt data.
-_INVALID_CONTROL_CHARACTERS = ("\x00", "\r", "\n")
-
 # The package's own endpoint description for the user-video page call
 # (``bilibili_api.user.API["info"]["video"]``).  ``url``/``method``/
 # ``verify``/``wbi`` are read from it so this adapter cannot drift from the
@@ -216,39 +206,12 @@ def _read_optional_aid(item: Mapping) -> int | None:
 def _read_optional_text(
     item: Mapping,
     field: str,
-    *,
-    control_characters_are_absence: bool = False,
 ) -> str | None:
-    """Read one optional text field, collapsing blank text to absence.
+    """Read a projected text value; field DTOs validate its own text rules.
 
-    Upstream leaves these fields present-but-empty on real items; empty is not
-    a value the store should carry, because the ingestor counts an observation
-    by whether the field holds anything and a blank would count as one.  So the
-    collapse happens here, where "upstream sent an empty string" and "upstream
-    sent nothing" are both still distinguishable from a real value.  A present
-    non-string is a bounded shape error like every sibling field's.
-
-    ``control_characters_are_absence`` is how the **caller** says whether the
-    storage contract's refusal of ``\\x00``/``\\r``/``\\n`` should be answered
-    with absence or with that refusal.  It is opt-in per field rather than a
-    rule this function applies to everything it reads, because the two callers
-    answer differently and the difference is a decision, not an oversight:
-
-    * ``desc`` passes it.  A line break in a description is ordinary upstream
-      prose rather than damage, so the refusal of a value the store cannot hold
-      is answered with absence.  That keeps the page, its sibling items and the
-      cursor's progress, where raising loses the page's items and leaves the
-      cursor on that page.
-    * ``pic`` does not, and that is deliberate.  A cover URL carrying a control
-      character is corrupt data rather than a line break, so it stays a page
-      failure.  A field-agnostic rule here would silently relax ``pic`` — which
-      is why this is a parameter with a default that preserves the old
-      behaviour, instead of something the reader switches on by itself.
-
-    The strip runs first, so a control character that is only transport
-    whitespace is already gone and never reaches that decision: ``"\\na"`` is
-    ``"a"`` here, exactly as it was before.  What the flag decides is only the
-    value left after stripping still carrying one.
+    Description permits prose line breaks, whereas URLs and names keep their
+    scalar validation. Unrepresentable prose is a shape error, never absence.
+    The raw observation keeps whitespace and explicit empty values separately.
     """
 
     value = item.get(field)
@@ -257,10 +220,6 @@ def _read_optional_text(
     if not isinstance(value, str):
         raise GatewayShapeError(detail=f"video item has no valid {field}")
     text = value.strip()
-    if control_characters_are_absence and any(
-        mark in text for mark in _INVALID_CONTROL_CHARACTERS
-    ):
-        return None
     return text or None
 
 
@@ -326,9 +285,7 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
             mid=owner_mid,
             author=None if author is None else author.strip(),
             pic=_read_optional_text(item, "pic"),
-            desc=_read_optional_text(
-                item, "description", control_characters_are_absence=True
-            ),
+            desc=_read_optional_text(item, "description"),
             tid=_read_optional_typeid(item),
         )
     except (TypeError, ValueError) as exc:
