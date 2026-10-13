@@ -44,6 +44,12 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("retry-control/v2", "workflow", ("src/bili_asr/services/retry_control.py",),
+             ("services.reference_backup", "services.workflow_retry", "services.retry_preflight", "services.maintenance_task_state"),
+             ("validate", "capture", "read"), ("workflow-retry-control/v1",), "retry-control-v2.schema.json"),
+    Contract("archive-reference-backup/v2", "archive", ("src/bili_asr/services/reference_backup.py",),
+             ("cli.remote_storage", "services.archive_recovery"), ("validate", "save", "check", "plan", "restore"),
+             ("archive-reference-backup/v1", "retry-control/v2"), "archive-reference-backup-v2.schema.json"),
     Contract("archive-task-state-backup/v1", "archive", ("src/bili_asr/services/maintenance_task_state.py",),
              ("services.maintenance_state_reader", "services.maintenance_backup"), ("validate", "save", "read"),
              (BILIBILI_V1, UNIVERSAL_V2), "archive-task-state-backup-v1.schema.json"),

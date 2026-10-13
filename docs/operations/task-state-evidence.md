@@ -55,6 +55,14 @@ fields, versions and layouts fail closed. Existing untyped operational JSON
 requires an explicitly registered adapter instead of guessing from field
 names. An archive without external controls must explicitly declare that fact.
 
+`retry-control/v2` is also a registered external component. It is the portable
+reference-backup retry envelope with original-source/projection/content hashes,
+immutable archive job scope and the explicit `unix-seconds-utc/v1` clock.
+Task-state capture preserves its exact bytes and the reader checks its scope
+against the captured SQLite database. Unknown nested fields or version/digest
+mismatches refuse the package; this does not rewrite historical v1 bytes or
+start a controller. See `remote-reference-backups.md` for projection and handoff.
+
 `backup-job-state/v1` includes exactly `format`, `policy`, `current_run`,
 `prior_runs` and `state`. Policy and run contracts and invocation identities
 are checked. Completed prior runs require their receipt digest; an interrupted
