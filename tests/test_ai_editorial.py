@@ -117,7 +117,7 @@ def test_local_revision_only_handles_all_mechanical_segments():
 def test_chunk_budget_exposes_component_estimates_without_changing_frozen_identity():
     prepared = prepare_input(record(("中文" * 30, "第二段")), None, EditorialConfig())
     budget = prepared["chunks"][0]["budget_estimate"]
-    assert budget["method"] == "utf8-bytes/3"
+    assert budget["method"] == "serialized-request-utf8/3-v1"
     assert budget["system_prompt_tokens"] == estimate_utf8_tokens(
         prepared["snapshot"]["system_prompt"])
     assert budget["editable_tokens"] > 0

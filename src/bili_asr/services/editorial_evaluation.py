@@ -112,12 +112,20 @@ def _validate_frozen_chunk(prepared: dict[str, Any], chunk: dict[str, Any]) -> N
     if "budget_estimate" in chunk:
         original = dict(chunk)
         original.pop("budget_estimate")
-        if chunk["budget_estimate"] != estimate_chunk_budget(original,
-                max_output_tokens=EditorialConfig.from_snapshot(snapshot["config"]).max_output_tokens):
+        config = EditorialConfig.from_snapshot(snapshot["config"])
+        if config.budget_policy == "token-budget-v2":
+            from bili_asr.editorial_budget import estimate
+            expected_budget = estimate(original, config, snapshot["system_prompt"])
+        else:
+            expected_budget = estimate_chunk_budget(original, max_output_tokens=config.max_output_tokens)
+        if chunk["budget_estimate"] != expected_budget:
             raise ValueError("frozen chunk estimate changed")
     expected_id = f"{prepared['input_id'][:16]}:{start}-{end}"
     if chunk["chunk_id"] != expected_id:
-        v2_body = {k: v for k, v in chunk.items() if k != "chunk_id"}
+        ignored = {"chunk_id"}
+        if snapshot.get("budget_plan", {}).get("policy_version") == "token-budget-v2":
+            ignored.add("budget_estimate")
+        v2_body = {k: v for k, v in chunk.items() if k not in ignored}
         if chunk["chunk_id"] != digest({"input_id": prepared["input_id"], "start": start, "end": end, "chunk": v2_body}):
             raise ValueError("frozen chunk boundary identity mismatch")
 

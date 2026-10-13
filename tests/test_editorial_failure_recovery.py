@@ -47,7 +47,7 @@ def test_repair_uses_current_prompt_preserves_attempts_and_renders_new_chain(tmp
         insert_record(db, record())
         fake = FakeClient()
         workflow, editorial, _, executor = runtime(db, root, fake)
-        previous = editorial.build_input(1, None, EditorialConfig())
+        previous = editorial.build_input(1, None, EditorialConfig(budget_policy="legacy-v1"))
         previous["snapshot"]["system_prompt"] = "Old frozen prompt."
         previous["snapshot"]["prompt_sha256"] = digest("Old frozen prompt.")
         previous["input_id"] = digest(previous["snapshot"])

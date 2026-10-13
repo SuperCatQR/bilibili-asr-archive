@@ -273,11 +273,13 @@ def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
                         help="Optional sampling temperature; requires --thinking-mode disabled")
     parser.add_argument("--max-chunk-regenerations", type=int, default=defaults.max_chunk_regenerations,
                         help="Persisted extra physical call budget per chunk (0..4); only allowlisted reference failures regenerate")
-    parser.add_argument("--max-chunk-segments", type=int, default=defaults.max_chunk_segments)
-    parser.add_argument("--max-chunk-chars", type=int, default=defaults.max_chunk_chars)
+    parser.add_argument("--chunk-preset", choices=("baseline-v1", "large-v1"), default="baseline-v1")
+    parser.add_argument("--max-chunk-segments", type=int, default=None)
+    parser.add_argument("--max-chunk-chars", type=int, default=None)
 
 
 def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
+    guards = EditorialConfig.preset(args.chunk_preset)
     return EditorialConfig(model=args.editorial_model, base_url=args.editorial_base_url,
                            context_tokens=args.context_tokens,
                            max_input_tokens=args.max_input_tokens, max_output_tokens=args.max_output_tokens,
@@ -285,7 +287,9 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
                            thinking_mode=args.thinking_mode,
                            reasoning_effort=args.reasoning_effort, top_p=args.top_p,
                            temperature=args.temperature, max_chunk_regenerations=args.max_chunk_regenerations,
-                           max_chunk_segments=args.max_chunk_segments, max_chunk_chars=args.max_chunk_chars)
+                           chunk_preset=args.chunk_preset,
+                           max_chunk_segments=args.max_chunk_segments if args.max_chunk_segments is not None else guards.max_chunk_segments,
+                           max_chunk_chars=args.max_chunk_chars if args.max_chunk_chars is not None else guards.max_chunk_chars)
 
 
 def _cmd_workflow(args: argparse.Namespace) -> int:

@@ -99,10 +99,16 @@ class EditorialConfig:
     rule_version: str = RULE_VERSION
     max_chunk_segments: int = 256
     max_chunk_chars: int = 20_000
+    budget_policy: str = "token-budget-v2"
+    chunk_preset: str = "baseline-v1"
 
     def __post_init__(self) -> None:
         if not self.model.strip() or self.rule_version != RULE_VERSION:
             raise ValueError("invalid model or unsupported editorial rule version")
+        if self.budget_policy not in {"legacy-v1", "token-budget-v2"}:
+            raise ValueError("unsupported editorial budget policy")
+        if self.chunk_preset not in {"baseline-v1", "large-v1"}:
+            raise ValueError("unsupported editorial chunk preset")
         if self.base_url.rstrip("/") not in {
             "https://api.deepseek.com",
             "https://opencode.ai/zen/go/v1",
@@ -146,7 +152,19 @@ class EditorialConfig:
         values = dict(values)
         values.setdefault("request_policy", "legacy-v1")
         values.setdefault("max_chunk_regenerations", 0)
+        values.setdefault("budget_policy", "legacy-v1")
+        values.setdefault("chunk_preset", "baseline-v1")
         return cls(**values)
+
+    @classmethod
+    def preset(cls, name: str, **values) -> EditorialConfig:
+        """Explicit scheduling candidates; provider controls stay separately frozen."""
+        guards = {"baseline-v1": (256, 20_000), "large-v1": (2048, 128_000)}
+        if name not in guards:
+            raise ValueError("unsupported editorial chunk preset")
+        values.setdefault("max_chunk_segments", guards[name][0])
+        values.setdefault("max_chunk_chars", guards[name][1])
+        return cls(chunk_preset=name, **values)
 
 
 def estimate_utf8_tokens(value: str | bytes) -> int:
@@ -294,6 +312,9 @@ def prepare_input(base: TranscriptRecord, reference: TranscriptRecord | None,
                                and r["end_ms"] > s["start_ms"]] for s in body}
     assigned = {r["segment_id"] for group in matches.values() for r in group}
     snapshot["unassigned_reference_ids"] = [r["segment_id"] for r in refs if r["segment_id"] not in assigned]
+    if config.budget_policy != "legacy-v1":
+        from bili_asr.editorial_budget import prepare_budgeted_input
+        return prepare_budgeted_input(snapshot, config, matches, include_precheck=True)
     input_id = digest(snapshot)
 
     def make_chunk(start: int, end: int) -> dict[str, Any]:

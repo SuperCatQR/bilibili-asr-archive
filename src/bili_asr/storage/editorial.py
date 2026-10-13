@@ -119,6 +119,10 @@ class EditorialRepository:
             comparison_config.setdefault("request_policy", config.request_policy)
             comparison_config.setdefault("temperature", None)
             comparison_config.setdefault("max_chunk_regenerations", 0 if config.request_policy == "legacy-v1" else 2)
+            comparison_config.setdefault("budget_policy", config.budget_policy)
+            if "budget_plan" not in snapshot and comparison_config["budget_policy"] == "legacy-v1":
+                comparison_config["budget_policy"] = config.budget_policy
+            comparison_config.setdefault("chunk_preset", "baseline-v1")
             if comparison_config != config.to_dict():
                 continue
             if (snapshot.get("video_part_id") != base.video_part_id or snapshot.get("base") != expected_base

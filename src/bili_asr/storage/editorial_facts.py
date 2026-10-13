@@ -32,6 +32,8 @@ def load_input(connection, input_id: str) -> dict[str, Any]:
             raise ValueError("editorial input identity mismatch")
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid frozen editorial input") from exc
+    from bili_asr.editorial_budget import require_frozen_plan
+    require_frozen_plan(prepared)
     return prepared
 
 
