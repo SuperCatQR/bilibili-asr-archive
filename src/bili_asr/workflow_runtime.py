@@ -25,6 +25,7 @@ from bili_asr.artifact_inventory import stream_hash
 from bili_asr.artifact_root import ArtifactRoots, usable_audio_path
 from bili_asr.asr.session import AsrInferenceSession, InferenceRequest
 from bili_asr.formatting import duration_s_from_ms, pubdate_utc
+from bili_asr.file_ops import install_prepared_file
 from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
@@ -233,8 +234,10 @@ class ArchiveWorkflowHandlers:
         if not math.isfinite(duration_s) or duration_s <= 0:
             raise RuntimeError("invalid_audio_duration")
         duration_ms = max(1, round(duration_s * 1000))
-        with final.open("rb") as stream:
+        # Windows FlushFileBuffers requires write access even without byte writes.
+        with final.open("r+b") as stream:
             size_bytes, digest = stream_hash(stream)
+            os.fsync(stream.fileno())
         self.repository.assert_lease(job)
         storage_key = next(target.relative_to(base).as_posix()
                            for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
@@ -242,8 +245,7 @@ class ArchiveWorkflowHandlers:
         byte_size = size_bytes
         media_format = final.suffix.removeprefix(".")
         with self.repository.owned_transaction(job):
-            if final != target:
-                os.replace(final, target)
+            install_prepared_file(final, target)
             from bili_asr.storage.workflow_outputs import record_audio
             base = next(base for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
             target_id = "local-artifacts" if self.artifact_roots.configured and base == self.artifact_roots.artifact_root else "local"

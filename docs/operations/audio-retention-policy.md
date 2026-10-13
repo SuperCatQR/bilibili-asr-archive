@@ -23,8 +23,8 @@ bili-asr workflow status --archive-root archive --jobs
 
 1. 校验 job 当前 lease，按存储的 BVID、page index 和 CID 建立目标身份。
 2. 在归档根的 `audio/` 下分配本次独占 staging。下载 helper 使用临时文件接收流；失败的 CDN 尝试从空文件重新开始，非空检查与必要的格式转换在 staging 完成。
-3. 再次校验 lease，用 `ffprobe` 获取时长，拒绝非有限或非正时长，计算字节 SHA-256、大小及格式。
-4. 进入任务拥有的短数据库事务，在同一所有权检查范围内替换最终音频、登记 `audio_objects` 并建立分 P 关联。
+3. 再次校验 lease，用 `ffprobe` 获取时长，拒绝非有限或非正时长，计算字节 SHA-256、大小及格式，并同步文件字节；此阶段不持有 SQLite 写锁。Windows 同步使用可写句柄，但不修改源音频字节。
+4. 进入任务拥有的短数据库事务，在同一所有权检查范围内替换最终音频，先同步目标目录以及不同的源目录，随后登记 `audio_objects` 并建立分 P 关联。同路径复用也同步所在目录。任何同步、替换或登记失败都不提交成功事实。
 5. audio job 成功后，ASR 从该精确 dependency 的结果读取 `storage_key` 与身份，先验证实际音频，再以本次独占的固定文件代次为输入。
 
 ## ASR 的输入身份与临时空间
@@ -41,7 +41,9 @@ bili-asr workflow status --archive-root archive --jobs
 
 下载、格式转换、探测和摘要计算不占用最终提交事务。最终替换及 catalog 登记受 lease/取消检查约束，避免已取消或失去 lease 的 worker 发布音频。取消在安全提交边界生效，不能保证立即中断网络请求或推理。
 
-正常退出清理本次 staging；强制终止或掉电可能留下临时文件。当前没有自动遍历历史 staging 并回收的 workflow 任务。SQLite 和文件系统不是一个原子提交介质，失败后的 catalog 与实际文件仍需分别核对。
+正常退出清理本次 staging；强制终止或掉电可能留下临时文件。当前没有自动遍历历史 staging 并回收的 workflow 任务。SQLite 和文件系统不是一个原子提交介质，失败后的 catalog 与实际文件仍需分别核对。最终替换已完成但目录同步或数据库登记失败时，保留未登记的最终文件，显式重试会重新 probe、hash 和同步该文件再登记，避免重新下载。尚未替换的 staging 输入由本次 staging 所有者处理，不会记录虚假成功。
+
+原子 rename 保证路径可见性；进程退出后的重开测试验证文件/数据库恢复；支持目录 fsync 的 POSIX 平台通过文件和相关目录同步提供掉电持久化屏障。Windows 沿用文件 fsync 和原子替换、目录同步不支持的明确平台策略，不宣称与 POSIX 相同的掉电持久性。测试验证同步顺序与 I/O 故障恢复，未执行实机断电；实机电源故障验证应单独记录文件系统、挂载和存储缓存配置。
 
 ASR 成功、失败或 publish 成功均不会触发删除。取消后续 ASR/publish 也不删除此前完成下载的音频。转录包有独立 marker 和摘要契约，见 [WebVTT 与归档包](../guides/webvtt.md)。
 
