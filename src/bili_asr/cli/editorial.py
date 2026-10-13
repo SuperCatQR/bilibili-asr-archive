@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -15,6 +16,34 @@ def _cmd_editorial(args) -> int:
     from bili_asr.publication_export import export_editorial
 
     try:
+        if args.editorial_action in {"compare", "compare-report", "compare-review", "record-review"}:
+            from bili_asr.services.editorial_comparison import (
+                compare_presets,
+                comparison_report,
+                record_review,
+                write_review_packet,
+            )
+            ledger = Path(args.ledger)
+            if args.editorial_action == "compare":
+                from bili_asr.storage.editorial import EditorialRepository
+                with closing(archive_connection(args.archive_root)) as connection:
+                    prepared = EditorialRepository(connection).load_input(args.input_id)
+                    if args.allow_paid_calls:
+                        from bili_asr.editorial_quality import check_source_quality
+                        check_source_quality(prepared, connection=connection)
+                pricing = None if args.pricing is None else json.loads(Path(args.pricing).read_text(encoding="utf-8"))
+                result = compare_presets(prepared, ledger, endpoint=args.editorial_base_url,
+                    model=args.editorial_model, allow_paid_calls=args.allow_paid_calls,
+                    maximum=args.max_physical_calls, max_output_tokens=args.max_output_tokens, pricing=pricing)
+            elif args.editorial_action == "compare-report":
+                result = comparison_report(ledger)
+            elif args.editorial_action == "compare-review":
+                result = write_review_packet(ledger, Path(args.out))
+            else:
+                review = json.loads(Path(args.review).read_text(encoding="utf-8"))
+                result = record_review(ledger, review, Path(args.out))
+            print_result(result, "json")
+            return 0
         if args.editorial_action == "replay-index":
             from bili_asr.storage.editorial_replay import install_indexes
             with closing(archive_connection(args.archive_root, readonly=False)) as connection:
@@ -70,6 +99,26 @@ def add_editorial_parser(subparsers, *, archive_root: str) -> None:
     _common(plan, archive_root)
     plan.add_argument("--input-id", required=True)
     plan.add_argument("--preset", action="append", choices=("baseline-v1", "large-v1"))
+    comparison = actions.add_parser("compare", help="Opt in to a bounded preset comparison in a dedicated ledger")
+    _common(comparison, archive_root)
+    comparison.add_argument("--input-id", required=True)
+    comparison.add_argument("--ledger", required=True)
+    comparison.add_argument("--editorial-base-url", required=True)
+    comparison.add_argument("--editorial-model", required=True)
+    comparison.add_argument("--max-physical-calls", type=int, default=8)
+    comparison.add_argument("--max-output-tokens", type=int)
+    comparison.add_argument("--pricing", help="JSON with dated, explicit prices; omitted prices remain unknown")
+    comparison.add_argument("--allow-paid-calls", action="store_true")
+    for action, help_text in (("compare-report", "Read saved comparison usage, errors and structural coverage"),
+                              ("compare-review", "Export a private semantic review packet"),
+                              ("record-review", "Save a named review bound to the comparison and report hashes")):
+        command = actions.add_parser(action, help=help_text)
+        _common(command, archive_root)
+        command.add_argument("--ledger", required=True)
+        if action != "compare-report":
+            command.add_argument("--out", required=True)
+        if action == "record-review":
+            command.add_argument("--review", required=True)
     export = actions.add_parser("export", help="Export selected edition, fixed references and differences")
     _common(export, archive_root, artifacts=ArtifactPolicy.READ)
     export.add_argument("--revision-id", required=True)
