@@ -186,6 +186,7 @@ bili-asr artifacts policy-show --archive-root D:/archives/online > C:/plans/poli
 
 没有保存策略时返回完整默认配置，`mode=off`，不安排扫描或迁移。
 策略 JSON 对应发布的 `artifact-policy-v1` schema；`policy-set` 要求已安装 online 扩展，不执行 DDL。
+独立的压缩音频自动维护使用新的 [audio-retention.md](audio-retention.md) 中 `artifact-policy-v2`，其默认 `allow_delete=false`，必须明确开启删除；旧 v1 契约继续可用。
 从默认配置开始，先限定 `selection.kinds=["audio"]`、一个 `selection.part_ids` 或小范围业务选择，配置真实 `target_id`，使用 `mode=copy` 验证目标。
 各选择器与手动 inventory/plan 相同；空数组表示不限该维度。
 

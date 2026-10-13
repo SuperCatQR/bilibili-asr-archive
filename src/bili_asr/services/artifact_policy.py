@@ -24,9 +24,9 @@ from bili_asr.services.artifact_inventory_service import (
 )
 from bili_asr.services.artifact_io import artifact_io_budget
 from bili_asr.services.artifact_transfer import transfer_artifacts
-from bili_asr.storage.artifact_policies import ArtifactPolicyRepository
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 from bili_asr.storage.artifact_online import require_artifact_online
+from bili_asr.storage.artifact_policies import ArtifactPolicyRepository
 
 DEFAULT_POLICY = {
     "version": 1, "mode": "off", "target_id": None,
@@ -46,7 +46,13 @@ def validate_policy(value):
         value = json.loads(json.dumps(value))
     except (TypeError, ValueError) as error:
         raise ValueError("artifact policy must be a JSON value") from error
-    validate_json("artifact-policy-v1", value)
+    if isinstance(value, dict) and value.get("version") == 2:
+        from bili_asr.services.audio_retention_policy import (
+            validate_audio_retention_policy,
+        )
+        validate_audio_retention_policy(value)
+    else:
+        validate_json("artifact-policy-v1", value)
     if (value["backoff_seconds"] < value["scan_interval_seconds"]
             or value["trigger_free_bytes"] >= value["stop_free_bytes"]
             or value["minimum_free_bytes"] > value["trigger_free_bytes"]):
@@ -66,14 +72,23 @@ def configure_policy(connection, policy_id: str, configuration: dict):
     with connection:
         if config["target_id"] is not None:
             catalog.register_target(config["target_id"])
+        for identity in config.get("replica_target_ids", []):
+            catalog.register_target(identity)
         ArtifactPolicyRepository(connection).configure(policy_id, config, now=int(time.time()))
     return {"policy_id": policy_id, "policy_sha256": digest(config), "configuration": config}
 
 
-def read_policy(connection, policy_id="default"):
+def read_policy(connection, policy_id="default", *, default_version=1):
     require_artifact_online(connection, required=True)
     row = connection.execute("SELECT config_json FROM artifact_policies WHERE policy_id=?", (policy_id,)).fetchone()
-    return validate_policy(json.loads(row[0]) if row else DEFAULT_POLICY)
+    if row:
+        return validate_policy(json.loads(row[0]))
+    if default_version == 2:
+        from bili_asr.services.audio_retention_policy import (
+            default_audio_retention_policy,
+        )
+        return validate_policy(default_audio_retention_policy())
+    return validate_policy(DEFAULT_POLICY)
 
 
 def minimum_free_space(connection):
@@ -142,12 +157,16 @@ def _bounded_plan(inventory, config):
     return plan_artifact_offload(filtered, target_id=config["target_id"])
 
 
-def run_policy_once(roots, *, policy_id="default", target_root=None, external_holds=None):
+def run_policy_once(roots, *, policy_id="default", target_root=None, external_holds=None, storage_targets=None, checkpoint=None):
     """Run at most one frozen batch; callers may poll using the returned deadline."""
     with ArchiveSession(roots.archive_root, mode=ArchiveAccessMode.WRITE, artifact_roots=roots) as session:
         connection = session.connection
         require_artifact_online(connection, required=True)
         config = read_policy(connection, policy_id)
+        if config["version"] == 2:
+            from bili_asr.services.audio_retention import run_audio_retention_once
+            return run_audio_retention_once(roots, policy_id=policy_id, target_root=target_root,
+                storage_targets=storage_targets, external_holds=external_holds, checkpoint=checkpoint)
         if config["mode"] == "off":
             return {"state": "off", "policy_id": policy_id, "released_bytes": 0}
         with ExitStack() as resources:
