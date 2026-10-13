@@ -5,6 +5,7 @@ import argparse
 import json
 import sqlite3
 import zipfile
+from contextlib import ExitStack
 from pathlib import Path
 
 
@@ -88,6 +89,8 @@ def add_maintenance_package_parser(subparsers: argparse._SubParsersAction) -> No
     configure.add_argument("--profile", choices=("private-history", "workflow-transcripts", "database-only", "database-subtitles", "publication", "task-state"), default="private-history")
     configure.add_argument("--external-components", type=Path, help="JSON object with a components list of typed state declarations")
     configure.add_argument("--no-external-control-state", action="store_true", help="Explicitly declare this archive has no external retry state")
+    configure.add_argument("--media-policy", choices=("local-required", "verified-references"), default="local-required",
+                           help="Explicit task-state v2 references to freshly verified cold audio replicas")
     configure.add_argument("--dataset", action="append")
     configure.add_argument("--artifact-type", action="append")
     configure.add_argument("--directory", action="append")
@@ -101,6 +104,8 @@ def add_maintenance_package_parser(subparsers: argparse._SubParsersAction) -> No
     run.add_argument("--policy", type=Path, required=True)
     run.add_argument("--trigger", choices=("time", "event", "manual"), default="manual")
     run.add_argument("--event-id")
+    run.add_argument("--storage-target", action="append", help="TARGET_ID=DIRECTORY for explicit cold reference verification")
+    run.add_argument("--remote-binding", action="append", type=Path, help="SSH target binding for explicit cold reference verification")
     status = actions.add_parser("backup-status")
     status.add_argument("--repository", type=Path, required=True)
     status.add_argument("--policy-id", required=True)
@@ -198,12 +203,25 @@ def _cmd_maintenance_package(args: argparse.Namespace) -> int:
                             artifact_root=args.artifact_root, selection=None if task_state else _scope(args),
                             mode=args.mode, compression=args.compression, profile="task-state" if task_state else "archive",
                             external_components=components["components"],
-                            no_external_control_state=args.no_external_control_state)
+                            no_external_control_state=args.no_external_control_state, media_policy=args.media_policy)
             _write_new(report, args.output)
         elif action == "backup-run":
+            from bili_asr.remote_storage import SSHDirectoryBackend, read_ssh_binding
+            from bili_asr.services.artifact_access import parse_target_bindings
             from bili_asr.services.maintenance_backup import run_backup
             from bili_asr.services.maintenance_package import _json
-            report = run_backup(_json(args.policy), trigger=args.trigger, event_id=args.event_id)
+            document = _json(args.policy)
+            if (args.storage_target or args.remote_binding) and document.get("media_policy") != "verified-references":
+                raise ValueError("target bindings require explicit verified-references task-state policy")
+            with ExitStack() as stack:
+                backends = {}
+                for path in args.remote_binding or ():
+                    binding = read_ssh_binding(path)
+                    if binding.target_id in backends or binding.instance_id is None:
+                        raise ValueError("cold references require one exact remote instance per target")
+                    backends[binding.target_id] = stack.enter_context(SSHDirectoryBackend(binding))
+                report = run_backup(document, trigger=args.trigger, event_id=args.event_id,
+                                    local_targets=parse_target_bindings(args.storage_target), remote_backends=backends)
         elif action == "backup-status":
             from bili_asr.services.maintenance_backup import backup_status
             report = backup_status(args.repository, args.policy_id)

@@ -24,6 +24,7 @@ from bili_asr.artifact_inventory import (
     portable_artifact_parts,
     stream_hash,
 )
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.services import maintenance_package_core as package
 from bili_asr.services.retry_maintenance_io import maintenance_lock
 from bili_asr.storage.archive_contracts import runtime_contract
@@ -32,6 +33,7 @@ from bili_asr.storage.snapshots import required_artifacts, validate_snapshot_dat
 
 NAME = "task-state.json"
 FORMAT = "archive-task-state-backup/v1"
+REFERENCE_FORMAT = "archive-task-state-backup/v2"
 PROTOCOL = "sqlite-read-transaction-and-stable-components/v1"
 RESTORE_POLICY = "read-only-evidence-never-start-workers/v1"
 
@@ -141,10 +143,15 @@ def _copy_file(source: Path, target: Path, expected: dict) -> None:
 
 
 def save_task_state(source_root: Path, output: Path, *, artifact_root=None, external_components=(),
-                    no_external_control_state=False, backup_job_state=None, timeout_seconds=30) -> dict:
+                    no_external_control_state=False, backup_job_state=None, timeout_seconds=30,
+                    media_policy="local-required", local_targets=None, remote_backends=None) -> dict:
     root, out = package.absolute(source_root), package.absolute(output)
     product = root if artifact_root is None else package.absolute(artifact_root)
     components = validate_components(external_components)
+    if media_policy not in {"local-required", "verified-references"}:
+        raise ValueError("unknown task-state media policy")
+    if media_policy == "local-required" and (local_targets or remote_backends):
+        raise ValueError("cold target bindings require explicit verified-references media policy")
     if type(no_external_control_state) is not bool or (not components and not no_external_control_state) or (components and no_external_control_state):
         raise ValueError("declare typed external controls or explicitly declare no external control state")
     if type(timeout_seconds) not in {int, float} or not 0 < timeout_seconds <= 300:
@@ -172,16 +179,26 @@ def save_task_state(source_root: Path, output: Path, *, artifact_root=None, exte
             needed = required_artifacts(stage / "archive.db")
             needed.update(package._attempt_artifacts(stage / "archive.db"))
             selected = {key: value for key, value in physical.items() if not key.startswith("audio/")}
-            missing = set(needed) - set(physical)
+            missing = {key for key in needed if key not in physical
+                       and (media_policy == "local-required" or not key.startswith("audio/"))}
             if missing:
                 raise ValueError("task-state evidence dependency is missing: " + min(missing))
             media = []
-            for key in sorted(needed):
-                record = package._record(key, physical[key])
-                if needed[key] is not None and record["sha256"] != needed[key]:
-                    raise ValueError("task-state dependency hash differs from frozen evidence: " + key)
-                if key.startswith("audio/"):
-                    media.append({**record, "available": True, "kind": "audio-reference"})
+            from bili_asr.services.maintenance_media import ReferenceCapture
+            references = ReferenceCapture(ArtifactRoots.of(root, product), dict(local_targets or {}),
+                                          dict(remote_backends or {}), Path(temporary), deadline)
+            with closing(sqlite3.connect((stage / "archive.db").as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys=ON")
+                for key in sorted(needed):
+                    if key not in physical:
+                        media.append(references.reference(connection, key, needed[key]))
+                        continue
+                    record = package._record(key, physical[key])
+                    if needed[key] is not None and record["sha256"] != needed[key]:
+                        raise ValueError("task-state dependency hash differs from frozen evidence: " + key)
+                    if key.startswith("audio/"):
+                        media.append({**record, "available": True, "kind": "audio-reference"})
             files = [package._record("archive.db", stage / "archive.db")]
             for key, source in sorted(selected.items()):
                 if time.monotonic() >= deadline:
@@ -199,8 +216,9 @@ def save_task_state(source_root: Path, output: Path, *, artifact_root=None, exte
                 if entry["path"] in selected and package._record(entry["path"], selected[entry["path"]]) != entry:
                     raise ValueError("task-state source evidence changed across capture")
             for entry in media:
-                if package._record(entry["path"], physical[entry["path"]]) != {k: entry[k] for k in ("path", "size", "sha256")}:
+                if entry["available"] and package._record(entry["path"], physical[entry["path"]]) != {k: entry[k] for k in ("path", "size", "sha256")}:
                     raise ValueError("task-state audio identity changed across capture")
+            references.finish()
             if backup_job_state is not None:
                 evidence = stage / "control-state" / "backup-job.json"
                 evidence.parent.mkdir(exist_ok=True)
@@ -216,6 +234,9 @@ def save_task_state(source_root: Path, output: Path, *, artifact_root=None, exte
                      "no_external_control_state": no_external_control_state, "backup_job_state": backup_job_state,
                      "observation": {"protocol": PROTOCOL, "started_at": started, "finished_at": datetime.now(UTC).isoformat(),
                          "sqlite_snapshot_sha256": files[0]["sha256"], "component_versions": before, "atomic_cross_components": False}}
+            if media_policy == "verified-references":
+                from bili_asr.services.maintenance_media import POLICY
+                value.update(format=REFERENCE_FORMAT, media_policy=POLICY)
             manifest = {**value, "created_at": started, "content_id": package.digest(value)}
             package._free_space(out, sum(item["size"] for item in files) * 2 + 32 * 1024**2)
             staged = Path(temporary) / "state.zip"
@@ -248,8 +269,11 @@ def extract_task_state(snapshot: Path, stage: Path) -> dict:
             raise ValueError("oversized task-state manifest")
         manifest = json.loads(bundle.read(info), object_pairs_hook=package._manifest_object)
         from bili_asr.contracts.json_schema import validate_json
-        validate_json(FORMAT, manifest)
-        if (manifest.get("format") != FORMAT or manifest.get("profile") != "task-state"
+        version = manifest.get("format") if isinstance(manifest, dict) else None
+        if version not in {FORMAT, REFERENCE_FORMAT}:
+            raise ValueError("unsupported task-state manifest version")
+        validate_json(version, manifest)
+        if (manifest.get("profile") != "task-state"
                 or manifest.get("runtime_contract") not in {"bilibili-v1", "universal-v2"}
                 or manifest.get("container") != {"compression": "stored", "encryption": None}
                 or manifest.get("inactive_archive") is not True or manifest.get("media_self_contained") is not False
@@ -320,12 +344,24 @@ def extract_task_state(snapshot: Path, stage: Path) -> dict:
         media = {entry["path"]: entry for entry in manifest["media_dependencies"]}
         if len(media) != len(manifest["media_dependencies"]):
             raise ValueError("task-state media dependencies contain duplicates")
+        cold_entries = []
         for entry in media.values():
             portable_artifact_parts(entry["path"])
-            if (set(entry) != {"path", "size", "sha256", "kind", "available"} or not entry["path"].startswith("audio/")
+            cold = entry["available"] is False and version == REFERENCE_FORMAT
+            fields = {"path", "size", "sha256", "kind", "available"} | ({"verification", "replicas"} if cold else set())
+            if (set(entry) != fields or not entry["path"].startswith("audio/")
                     or type(entry["size"]) is not int or entry["size"] < 0 or not isinstance(entry["sha256"], str)
-                    or not package._HASH.fullmatch(entry["sha256"]) or entry["kind"] != "audio-reference" or entry["available"] is not True):
+                    or not package._HASH.fullmatch(entry["sha256"]) or entry["kind"] != "audio-reference"
+                    or not cold and entry["available"] is not True):
                 raise ValueError("invalid task-state media dependency identity")
+            if cold:
+                cold_entries.append(entry)
+        if cold_entries:
+            from bili_asr.services.maintenance_media import validate_references
+            with closing(sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys=ON")
+                validate_references(connection, cold_entries)
         inventory = {entry["path"]: entry for entry in files} | media
         needed = required_artifacts(database) | package._attempt_artifacts(database)
         for key, fingerprint in needed.items():
@@ -350,6 +386,8 @@ def extract_task_state(snapshot: Path, stage: Path) -> dict:
 def verify_task_state(snapshot: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="task-state-verify-") as temporary:
         manifest = extract_task_state(snapshot, Path(temporary))
+    from bili_asr.services.maintenance_media import media_availability
     return {"operation": "task-state-verify", "valid": True, "manifest": manifest, "content_id": manifest["content_id"],
             "inactive_archive": True, "media_self_contained": False, "restoration_verified": False,
+            **media_availability(manifest),
             "verification_kind": "inactive-task-evidence-sqlite-fk-typed-rows-files-and-media-identities"}

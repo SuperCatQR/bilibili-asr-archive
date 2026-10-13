@@ -8,6 +8,29 @@ job status and stored leases. It copies no audio. Required audio dependencies
 have a size and SHA256 identity, so the package is complete state evidence but
 is explicitly not a media self-contained execution environment.
 
+The separately registered `archive-task-state-backup/v2` adds the explicit
+`verified-references/v1` media policy. V1 still requires audio to exist locally
+at capture. V2 can instead freeze an externally retained audio reference after
+verifying the exact bound copy. The reference records the original SHA256 and
+size, replica ID, target ID, relative package and member keys, catalog
+generation, verification/presence observations, package SHA256 and size,
+manifest SHA256, backend version, and exact SSH instance when applicable.
+These facts must match the frozen database catalog; the package and its
+original member must pass stream verification before capture completes.
+Target markers, package file generations and SSH instances are checked again
+before publishing the state point. Catalog scans fail closed above 4096
+replicas for one audio object rather than silently truncating alternatives.
+
+V2 state checks compare reference facts against the embedded immutable
+database. They require no target binding or network, extract only state
+evidence and never materialize audio. Reports distinguish
+`media_restored:false`, `media_restore_required`,
+`external_audio_references`, and `external_media_verified_now:false`.
+The last field avoids presenting historical capture evidence as a live target
+probe. Restoring media requires a separate explicit artifact restore with
+fresh target verification. Reading this state package does not perform that
+operation or activate its saved jobs.
+
 The package is inactive. Verification and the reader never acquire a WRITE
 session, start a worker, recover a lease, release a hold, refund a charged
 retry, change a budget, requeue a job or delete a hot-library record. A running

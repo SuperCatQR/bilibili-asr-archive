@@ -2,6 +2,30 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "archive-task-state-backup/v2",
+      "owner": "archive",
+      "authority": [
+        "src/bili_asr/services/maintenance_task_state.py",
+        "src/bili_asr/services/maintenance_media.py"
+      ],
+      "consumers": [
+        "services.maintenance_state_reader",
+        "services.maintenance_backup"
+      ],
+      "capabilities": [
+        "validate",
+        "save",
+        "read"
+      ],
+      "dependencies": [
+        "archive-task-state-backup/v1",
+        "artifact-storage-v1",
+        "artifact-package-v2",
+        "ssh-directory/v1"
+      ],
+      "schema": "archive-task-state-backup-v2.schema.json"
+    },
+    {
       "identity": "metadata-acceptance/v1",
       "owner": "sources",
       "authority": [

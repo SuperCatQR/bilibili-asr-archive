@@ -44,6 +44,11 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("archive-task-state-backup/v2", "archive", ("src/bili_asr/services/maintenance_task_state.py",
+             "src/bili_asr/services/maintenance_media.py"),
+             ("services.maintenance_state_reader", "services.maintenance_backup"), ("validate", "save", "read"),
+             ("archive-task-state-backup/v1", "artifact-storage-v1", "artifact-package-v2", "ssh-directory/v1"),
+             "archive-task-state-backup-v2.schema.json"),
     Contract("metadata-acceptance/v1", "sources", ("src/bili_asr/metadata_acceptance.py",
              "src/bili_asr/sources/bilibili_metadata_codec.py", "src/bili_asr/storage/metadata_acceptance.py"),
              ("sources.bilibili_api_gateway", "services.metadata_ingest", "services.metadata_refresh",
