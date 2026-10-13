@@ -238,6 +238,11 @@ class MetadataIngestor:
         self._gateway = gateway
         self._source = BilibiliMetadataSource(gateway)
         self._repository = repository
+        from bili_asr.services.metadata_observations import bind_observations
+        self.raw_observations_available = bind_observations(gateway, repository)
+        self.metadata_capture_report = {
+            "rawHistory": "available" if self.raw_observations_available else "unavailable",
+            "requiredContract": "source-observations/v1", "capture": "explicit-endpoints"}
         self._preserve_cursor = False
 
     def replay_page(self, *, mid: int, page_number: int) -> IngestionRunResult:

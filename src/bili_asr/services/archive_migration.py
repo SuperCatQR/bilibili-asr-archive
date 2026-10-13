@@ -394,7 +394,7 @@ def migrate_archive(source_root: Path, target_root: Path, *, artifact_root: Path
             return completed
 
 
-def initialize_archive(target_root: Path) -> dict:
+def initialize_archive(target_root: Path, *, with_source_observations: bool = False) -> dict:
     """Explicit empty-target initialization with the same complete install rule."""
     target = Path(os.path.abspath(target_root))
     _empty_target(target)
@@ -406,6 +406,9 @@ def initialize_archive(target_root: Path) -> dict:
             stage.mkdir()
             with closing(connect_database(stage / "archive.db")) as connection:
                 bootstrap_contract(connection)
+                if with_source_observations:
+                    from bili_asr.storage.source_observations import install_observations_in_staged_copy
+                    install_observations_in_staged_copy(connection)
             validate_snapshot_database(stage / "archive.db")
             # Windows fsync requires a writable descriptor for this owned target.
             with (stage / "archive.db").open("r+b") as database:

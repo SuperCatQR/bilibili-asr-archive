@@ -27,6 +27,11 @@ class MetadataRefreshService:
 
     def __init__(self, gateway: BilibiliGateway, repository: MetadataRepository):
         self.gateway, self.repository = gateway, repository
+        from bili_asr.services.metadata_observations import bind_observations
+        self.raw_observations_available = bind_observations(gateway, repository)
+        self.metadata_capture_report = {
+            "rawHistory": "available" if self.raw_observations_available else "unavailable",
+            "requiredContract": "source-observations/v1", "capture": "explicit-endpoints"}
 
     def refresh(self, bvids, *, operations=("summary", "details", "parts", "tags"),
                 policy: MetadataRefreshPolicy | None = None) -> tuple[MetadataRefreshOutcome, ...]:

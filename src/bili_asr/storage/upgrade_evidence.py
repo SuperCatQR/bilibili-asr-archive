@@ -51,10 +51,13 @@ def source_evidence(database: Path) -> dict:
         else:
             imports = require_import_extension(connection)
             supplements = require_supplement_extension(connection)
+            from bili_asr.storage.source_observations import require_observations
+            observations = require_observations(connection)
             validate_snapshot_database(database)
-            required, _ = _current_contract(kind, imports, supplements, artifacts, online)
+            required, _ = _current_contract(kind, imports, supplements, artifacts, online, observations=observations)
             extensions = (((IMPORT_EXTENSION,) if imports else ()) + ((SOURCE_SUPPLEMENT_POLICY,) if supplements else ())
-                          + ((ARTIFACT_EXTENSION,) if artifacts else ()) + ((ONLINE_EXTENSION,) if online else ()))
+                          + ((ARTIFACT_EXTENSION,) if artifacts else ()) + ((ONLINE_EXTENSION,) if online else ())
+                          + (("source-observations/v1",) if observations else ()))
         actual = _schema(connection)
         extras = set(actual) - set(required)
         # Search indexes are derived but must still match a registered definition.

@@ -44,6 +44,16 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("source-observations/v1", "sources", ("src/bili_asr/source_observations.py",
+             "src/bili_asr/storage/schema-source-observations.sql"),
+             ("storage.source_observations", "storage.snapshots", "cli.source"),
+             ("extension", "snapshot", "read", "explicit-upgrade")),
+    Contract("source-superset/v1", "sources", ("src/bili_asr/source_observations.py",),
+             ("storage.source_observations", "cli.source"),
+             ("read", "reproject", "private-export"), ("source-observations/v1",)),
+    Contract("source-superset/v2", "sources", ("src/bili_asr/source_observations.py",),
+             ("storage.source_observations", "cli.source"),
+             ("read", "reproject", "private-export"), ("source-observations/v1",)),
     Contract("archive-task-state-backup/v1", "archive", ("src/bili_asr/services/maintenance_task_state.py",),
              ("services.maintenance_state_reader", "services.maintenance_backup"), ("validate", "save", "read"),
              (BILIBILI_V1, UNIVERSAL_V2), "archive-task-state-backup-v1.schema.json"),
@@ -270,6 +280,26 @@ UPGRADE_EDGES = (
           ("supplemented", (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY)))),
 )
 
+# Observation storage is independent of the existing optional extensions. Its
+# marker is last in the canonical combination, so old edge identities remain
+# unchanged and copied authority rows retain their existing fingerprints.
+_OBSERVATION_BASES = tuple(dict.fromkeys(
+    combination for edge in UPGRADE_EDGES for combination in (edge.source, edge.target)
+    if combination[0] == UNIVERSAL_V2))
+_OBSERVATION_EDGES = tuple(
+    UpgradeEdge("source-observations-" + "-".join(item.replace("/", "-") for item in combination) + "/v1", combination,
+                (*combination, "source-observations/v1"), "install-source-observations", 1,
+                ("storage/source_observations.py", "storage/schema-source-observations.sql"),
+                "snapshot-database", "snapshot-database", ("empty-extension-tables",),
+                "tests/test_source_observations.py")
+    for combination in _OBSERVATION_BASES)
+UPGRADE_EDGES = (*UPGRADE_EDGES, *_OBSERVATION_EDGES, *(
+    UpgradeEdge(edge.identity + "-with-observations", (*edge.source, "source-observations/v1"),
+                (*edge.target, "source-observations/v1"), edge.converter, edge.revision,
+                edge.authority, edge.source_reader, edge.target_validator, edge.allowed_changes,
+                "tests/test_source_observations.py")
+    for edge in UPGRADE_EDGES if edge.converter in {"install-artifact-storage", "install-artifact-online"}))
+
 
 @dataclass(frozen=True)
 class FrozenReleaseFile:
@@ -311,6 +341,10 @@ UPGRADE_ACCEPTANCE = (
       for extension, mode in (("storage", "stored"), ("online", "online"))
       for case in ("native", "preserved", "supplemented")),
 )
+UPGRADE_ACCEPTANCE = (*UPGRADE_ACCEPTANCE, *(
+    UpgradeAcceptance(edge.identity, _HISTORY, (
+        "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations",))
+    for edge in UPGRADE_EDGES if edge.sample == "tests/test_source_observations.py"))
 
 
 @dataclass(frozen=True)

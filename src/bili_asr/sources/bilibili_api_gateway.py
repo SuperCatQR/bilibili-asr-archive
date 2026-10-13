@@ -2,9 +2,11 @@
 
 This is the ONLY application module allowed to import ``bilibili_api`` (plan
 Global Constraints and the gateway spec's dependency contract).  Every method
-converts one upstream response into validated application DTOs and never
-retains, logs, or returns the response dictionary, credentials, or raw
-exception text. Upstream failures map onto the bounded exception taxonomy in
+converts one upstream response into validated application DTOs. When explicit
+source-observations/v1 storage is installed, metadata endpoint responses are
+captured privately before normalization; transport credentials are excluded
+with recorded JSON pointers. Public DTOs and diagnostics never return raw
+responses, credentials, or exception text. Upstream failures map onto the bounded exception taxonomy in
 ``bili_asr.sources.models``; only the scalar ``code`` is persisted. Operator
 diagnostics can additionally expose allowlisted operation names and numeric
 HTTP/API codes, never raw exceptions or response content.
@@ -43,6 +45,7 @@ from bilibili_api.video import API as VIDEO_API, Video
 from bili_asr.config import resolve_proxy
 from bili_asr.request_budget import RequestScheduler
 from bili_asr.metadata_policy import MetadataFieldObservation
+from bili_asr.source_observations import PlatformObservation
 from bili_asr.sources.request_scope import sdk_settings_scope
 from bili_asr.bili_client import NAV_URL
 from bili_asr.sources.models import (
@@ -715,6 +718,7 @@ class BilibiliApiGateway:
         self._metadata_credential_checked = not bool(sessdata)
         self.resolved_proxy = resolve_proxy(proxy, os.environ)
         self._w_webid_by_mid: dict[int, str] = {}
+        self._observation_sink = None
         self.request_scheduler = request_scheduler or RequestScheduler(sleeper=_sleeper or asyncio.sleep)
         # Pacing seams, mirroring the legacy page-fetch path's sleeper/jitter
         # injection: tests substitute non-blocking fakes so the pacing sleep
@@ -728,6 +732,27 @@ class BilibiliApiGateway:
         self._jitter: Callable[[], float] = (
             _jitter if _jitter is not None else lambda: random.uniform(0.0, 1.0)
         )
+
+    def set_observation_sink(self, sink) -> None:
+        """Bind a private append-only capture sink; transport calls stay excluded."""
+        self._observation_sink = sink
+
+    async def _read_metadata(self, operation, call, *, scope, capture_operation, endpoint):
+        try:
+            payload = await self._await_upstream(operation, call)
+        except GatewayError as error:
+            if self._observation_sink is not None:
+                self._observation_sink(PlatformObservation.capture(
+                    platform="bilibili", operation=capture_operation, endpoint=endpoint, scope=scope,
+                    extractor=PACKAGE_DISTRIBUTION_NAME, extractor_version=self.get_package_version(),
+                    state="denied" if isinstance(error, GatewayAuthenticationError) else "failed",
+                    error_code=error.code))
+            raise
+        if self._observation_sink is not None:
+            self._observation_sink(PlatformObservation.capture(
+                platform="bilibili", operation=capture_operation, endpoint=endpoint, scope=scope,
+                extractor=PACKAGE_DISTRIBUTION_NAME, extractor_version=self.get_package_version(), payload=payload))
+        return payload
 
     async def _pace(self) -> None:
         """Sleep the per-row metadata delay before one upstream call.
@@ -775,9 +800,11 @@ class BilibiliApiGateway:
             # to arc/search, which obscures authentication behind risk control.
             await self._validate_credentials("validate_metadata_credentials")
             self._metadata_credential_checked = True
-        response = await self._await_upstream(
+        response = await self._read_metadata(
             "get_user_video_page",
             lambda: self._fetch_user_video_page(mid, page_number, page_size),
+            scope={"creatorId": str(mid), "pageNumber": page_number, "pageSize": page_size},
+            capture_operation="creator-page", endpoint="user/info/video",
         )
         summaries: list[VideoSummary] = []
         verified: dict[str, VideoSummary] = {}
@@ -795,11 +822,12 @@ class BilibiliApiGateway:
                 summary = _normalize_video_summary_item(item, owner_mid)
                 if summary.bvid not in verified:
                     await self._pace()
-                    detail = await self._await_upstream(
+                    detail = await self._read_metadata(
                         "get_completed_video_summary",
                         lambda: Video(
                             bvid=summary.bvid, credential=self._credential
                         ).get_info(),
+                        scope={"externalVideoId": summary.bvid}, capture_operation="details", endpoint="video/info/detail",
                     )
                     if not isinstance(detail, Mapping):
                         raise GatewayShapeError(
@@ -843,9 +871,10 @@ class BilibiliApiGateway:
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         await self._pace()
-        pages = await self._await_upstream(
+        pages = await self._read_metadata(
             "get_video_parts",
             lambda: Video(bvid=bvid, credential=self._credential).get_pages(),
+            scope={"externalVideoId": bvid}, capture_operation="parts", endpoint="video/info/pages",
         )
         return _normalize_video_parts(pages, bvid, video_title_fallback)
 
@@ -861,11 +890,12 @@ class BilibiliApiGateway:
         if summary.aid is not None:
             return summary
         await self._pace()
-        detail = await self._await_upstream(
+        detail = await self._read_metadata(
             "get_completed_video_summary",
             lambda: Video(
                 bvid=summary.bvid, credential=self._credential
             ).get_info(),
+            scope={"externalVideoId": summary.bvid}, capture_operation="details", endpoint="video/info/detail",
         )
         return _complete_summary_from_detail(summary, detail)
 
@@ -878,8 +908,9 @@ class BilibiliApiGateway:
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         await self._pace()
-        detail = await self._await_upstream("get_completed_video_summary", lambda: Video(
-            bvid=bvid, credential=self._credential).get_info())
+        detail = await self._read_metadata("get_completed_video_summary", lambda: Video(
+            bvid=bvid, credential=self._credential).get_info(), scope={"externalVideoId": bvid},
+            capture_operation="details", endpoint="video/info/detail")
         if not isinstance(detail, Mapping) or detail.get("bvid") != bvid or not isinstance(detail.get("owner"), Mapping):
             raise GatewayShapeError()
         owner = detail["owner"]
@@ -959,7 +990,7 @@ class BilibiliApiGateway:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         await self._pace()
         try:
-            response = await self._await_upstream(
+            response = await self._read_metadata(
                 "get_video_tags",
                 lambda: Api(
                     url=_TAG_ENDPOINT["url"],
@@ -971,6 +1002,7 @@ class BilibiliApiGateway:
                 )
                 .update_params(bvid=bvid)
                 .result,
+                scope={"externalVideoId": bvid}, capture_operation="tags", endpoint="video/info/tags",
             )
         except GatewayError as error:
             # Best-effort call, and *not* an observation: ``None`` tells the

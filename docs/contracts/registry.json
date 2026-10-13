@@ -2,6 +2,67 @@
   "format_version": 1,
   "contracts": [
     {
+      "identity": "source-observations/v1",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/source_observations.py",
+        "src/bili_asr/storage/schema-source-observations.sql"
+      ],
+      "consumers": [
+        "storage.source_observations",
+        "storage.snapshots",
+        "cli.source"
+      ],
+      "capabilities": [
+        "extension",
+        "snapshot",
+        "read",
+        "explicit-upgrade"
+      ],
+      "dependencies": [],
+      "schema": null
+    },
+    {
+      "identity": "source-superset/v1",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/source_observations.py"
+      ],
+      "consumers": [
+        "storage.source_observations",
+        "cli.source"
+      ],
+      "capabilities": [
+        "read",
+        "reproject",
+        "private-export"
+      ],
+      "dependencies": [
+        "source-observations/v1"
+      ],
+      "schema": null
+    },
+    {
+      "identity": "source-superset/v2",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/source_observations.py"
+      ],
+      "consumers": [
+        "storage.source_observations",
+        "cli.source"
+      ],
+      "capabilities": [
+        "read",
+        "reproject",
+        "private-export"
+      ],
+      "dependencies": [
+        "source-observations/v1"
+      ],
+      "schema": null
+    },
+    {
       "identity": "archive-task-state-backup/v1",
       "owner": "archive",
       "authority": [
@@ -1337,6 +1398,417 @@
       ],
       "sample": "tests/test_archive_upgrade.py",
       "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2/v1",
+      "source": [
+        "universal-v2"
+      ],
+      "target": [
+        "universal-v2",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-preserved-body-import-v1/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-preserved-body-import-v1-legacy-part-title-supplement-v1/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-artifact-storage-v1/v1",
+      "source": [
+        "universal-v2",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-preserved-body-import-v1-artifact-storage-v1/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-preserved-body-import-v1-legacy-part-title-supplement-v1-artifact-storage-v1/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-artifact-storage-v1-artifact-online-v1/v1",
+      "source": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "artifact-online-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-preserved-body-import-v1-artifact-storage-v1-artifact-online-v1/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "source-observations-universal-v2-preserved-body-import-v1-legacy-part-title-supplement-v1-artifact-storage-v1-artifact-online-v1/v1",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-source-observations",
+      "revision": 1,
+      "authority": [
+        "storage/source_observations.py",
+        "storage/schema-source-observations.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-storage-native/v1-with-observations",
+      "source": [
+        "universal-v2",
+        "source-observations/v1"
+      ],
+      "target": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-artifact-storage",
+      "revision": 1,
+      "authority": [
+        "services/artifact_catalog_upgrade.py",
+        "storage/schema-artifact-storage.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "artifact-object-and-replica-backfill"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-storage-preserved/v1-with-observations",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "source-observations/v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-artifact-storage",
+      "revision": 1,
+      "authority": [
+        "services/artifact_catalog_upgrade.py",
+        "storage/schema-artifact-storage.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "artifact-object-and-replica-backfill"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-storage-supplemented/v1-with-observations",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "source-observations/v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-artifact-storage",
+      "revision": 1,
+      "authority": [
+        "services/artifact_catalog_upgrade.py",
+        "storage/schema-artifact-storage.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "artifact-object-and-replica-backfill"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-native/v1-with-observations",
+      "source": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "target": [
+        "universal-v2",
+        "artifact-storage-v1",
+        "artifact-online-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-preserved/v1-with-observations",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
+    },
+    {
+      "identity": "artifact-online-supplemented/v1-with-observations",
+      "source": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "source-observations/v1"
+      ],
+      "target": [
+        "universal-v2",
+        "preserved-body-import-v1",
+        "legacy-part-title-supplement-v1",
+        "artifact-storage-v1",
+        "artifact-online-v1",
+        "source-observations/v1"
+      ],
+      "converter": "install-artifact-online",
+      "revision": 1,
+      "authority": [
+        "storage/artifact_online.py",
+        "storage/schema-artifact-online.sql"
+      ],
+      "source_reader": "snapshot-database",
+      "target_validator": "snapshot-database",
+      "allowed_changes": [
+        "empty-extension-tables"
+      ],
+      "sample": "tests/test_source_observations.py",
+      "reversible": false
     }
   ],
   "content_policies": [
@@ -1722,6 +2194,156 @@
         "test_nodes": [
           "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-historical-supplemented]",
           "tests/test_archive_upgrade.py::test_artifact_catalog_is_reachable_from_each_actual_universal_combination[online-native-supplemented]"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-preserved-body-import-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-preserved-body-import-v1-legacy-part-title-supplement-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-artifact-storage-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-preserved-body-import-v1-artifact-storage-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-preserved-body-import-v1-legacy-part-title-supplement-v1-artifact-storage-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-artifact-storage-v1-artifact-online-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-preserved-body-import-v1-artifact-storage-v1-artifact-online-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "source-observations-universal-v2-preserved-body-import-v1-legacy-part-title-supplement-v1-artifact-storage-v1-artifact-online-v1/v1",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "artifact-storage-native/v1-with-observations",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "artifact-storage-preserved/v1-with-observations",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "artifact-storage-supplemented/v1-with-observations",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "artifact-online-native/v1-with-observations",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "artifact-online-preserved/v1-with-observations",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
+        ]
+      },
+      {
+        "edge": "artifact-online-supplemented/v1-with-observations",
+        "frozen_files": [
+          "tests/fixtures/data/bilibili-v1-frozen.zip",
+          "tests/fixtures/data/bilibili-v1-frozen.json"
+        ],
+        "test_nodes": [
+          "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations"
         ]
       }
     ],
