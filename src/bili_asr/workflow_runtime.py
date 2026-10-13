@@ -336,28 +336,14 @@ class ArchiveWorkflowHandlers:
                 if callable(diagnostics_reader):
                     diagnostics = diagnostics_reader()
             self.repository.assert_lease(job)
-            records = tuple(
-                TranscriptSegmentRecord(
-                    start_ms=round(float(cue["start"]) * 1000),
-                    end_ms=round(float(cue["end"]) * 1000),
-                    text=str(cue["text"]),
-                )
-                for cue in segments
-            )
-            if not records:
-                raise RuntimeError("empty_transcript")
+            from bili_asr.services.asr_result import preserve_inference
+
             finished = int(time.time())
-            stored = transcripts.record_local_transcript(
-                run_id=run_id,
-                video_part_id=int(part["video_part_id"]),
-                language=language,
-                segments=records,
-                model_name=profile.model_name,
-                model_revision=profile.model_revision,
-                started_at=started,
-                finished_at=finished,
-                created_at=finished,
-                coverage=coverage,
+            stored, admission = preserve_inference(
+                self.repository, job, run_id=run_id, segments=segments,
+                language=language, model_name=profile.model_name,
+                model_revision=profile.model_revision, started_at=started,
+                finished_at=finished, coverage=coverage,
                 asr_evidence={
                     "schema_version": 1,
                     "profile_id": job.profile_id,
@@ -369,12 +355,17 @@ class ArchiveWorkflowHandlers:
                     "diagnostics": diagnostics,
                 },
             )
-            transcripts.finish_acquisition_run(run_id, int(time.time()))
+            # Completed inference is distinct from usable output. The original
+            # evidence commits before admission can block downstream work.
+            transcripts.finish_acquisition_run(run_id, int(time.time()), outcome="complete")
         except BaseException:
             transcripts.finish_acquisition_run(
                 run_id, int(time.time()), outcome="failed"
             )
             raise
+        from bili_asr.storage.asr_quality import require_admission
+
+        require_admission(admission, stage="asr_quality")
         publication_job_id, _ = self.repository.request_publication(
             video_part_id=int(part["video_part_id"]), transcript_id=stored.transcript_id, source_job=job,
         )
@@ -384,7 +375,7 @@ class ArchiveWorkflowHandlers:
             "version": stored.version,
             "source_kind": "asr-local",
             "publication_job_id": publication_job_id,
-            "quality": diagnostics.get("quality", {"status": "not-evaluable", "flags": []}),
+            "quality": admission,
         }
 
     def publish(self, job: WorkflowJob) -> Mapping[str, Any]:
@@ -444,6 +435,13 @@ class ArchiveWorkflowHandlers:
             raise RuntimeError("transcript_missing")
         candidate = candidates[0]
         transcript_id = int(candidate.transcript["transcript_id"])
+        if candidate.transcript["source_kind"] == "asr-local":
+            from bili_asr.storage.asr_quality import (
+                assess_transcript,
+                require_admission,
+            )
+
+            require_admission(assess_transcript(self.connection, transcript_id), stage="publication_quality")
         segment_rows = self.connection.execute(
             """SELECT start_ms, end_ms, text FROM transcript_segments
                WHERE transcript_id = ? ORDER BY ordinal""",

@@ -14,8 +14,8 @@ from bili_asr.asr import default_config
 from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
 from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
-from bili_asr.workflow_roles import WORKER_ROLES
 from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobKind
+from bili_asr.workflow_roles import WORKER_ROLES
 
 
 def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -185,6 +185,23 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     evidence.add_argument("--run-id", required=True)
     evidence.add_argument("--part-id", type=int, required=True)
 
+    quality = actions.add_parser("asr-quality", help="Read ASR admission without changing historical evidence")
+    quality.set_defaults(database_policy=ArchiveAccessMode.READ)
+    quality.add_argument("--archive-root", default=archive_root)
+    identity = quality.add_mutually_exclusive_group(required=True)
+    identity.add_argument("--transcript-id", type=int)
+    identity.add_argument("--run-id")
+    quality.add_argument("--part-id", type=int)
+    quality.add_argument("--include-evidence", action="store_true")
+
+    repair_asr = actions.add_parser("repair-asr", help="Explicitly replace unusable or unknown ASR without rewriting history")
+    repair_asr.add_argument("--archive-root", default=archive_root)
+    repair_origin = repair_asr.add_mutually_exclusive_group(required=True)
+    repair_origin.add_argument("--job-id")
+    repair_origin.add_argument("--transcript-id", type=int, help="Re-evaluate historical ASR by fresh inference")
+    repair_asr.add_argument("--profile-config", required=True, help="JSON AsrProfile fields including profile_key")
+    repair_asr.add_argument("--reason", required=True, help="Inspected cause and original audio/alignment repair")
+
     performance = actions.add_parser("asr-performance", help="Read ASR throughput and retry costs in a fixed UTC window")
     performance.set_defaults(database_policy=ArchiveAccessMode.READ)
     performance.add_argument("--archive-root", default=archive_root)
@@ -283,9 +300,9 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
 
 def _execute_workflow(args: argparse.Namespace) -> int:
     from bili_asr.archive_session import ArchiveSession
-    from bili_asr.services.workflow_application import WorkflowApplication
-    from bili_asr.asr.session import InferenceSessionError
     from bili_asr.asr.runner import ASRInferenceTimeoutError
+    from bili_asr.asr.session import InferenceSessionError
+    from bili_asr.services.workflow_application import WorkflowApplication
 
     if args.workflow_action == "supervise":
         from bili_asr.workflow_supervisor import WorkerSupervisor
@@ -303,7 +320,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
     if args.workflow_action in {"run", "render", "publish"}:
         artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
                                    require_writable=args.workflow_action == "run")
-    readonly = args.workflow_action in {"status", "explain", "asr-evidence", "asr-performance"} or (
+    readonly = args.workflow_action in {"status", "explain", "asr-evidence", "asr-quality", "asr-performance"} or (
         args.workflow_action == "repair-dependencies" and not args.apply) or (
         args.workflow_action in {"publish", "retry"} and args.dry_run)
     mode = ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE
@@ -338,6 +355,43 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 write_stderr("workflow asr-evidence: no evidence for this run and part")
                 return 1
             print(json.dumps(evidence, ensure_ascii=False, indent=2, allow_nan=False))
+            return 0
+        if args.workflow_action == "asr-quality":
+            from bili_asr.storage.asr_quality import assess_transcript, read_assessment
+            if args.transcript_id is not None:
+                if args.include_evidence:
+                    raise ValueError("--include-evidence requires an exact --run-id and --part-id")
+                report = assess_transcript(connection, args.transcript_id)
+            else:
+                if args.part_id is None:
+                    raise ValueError("--run-id requires --part-id")
+                report = read_assessment(connection, run_id=args.run_id, video_part_id=args.part_id,
+                                         include_evidence=args.include_evidence)
+                if report is None:
+                    raise ValueError("no admission evidence for this run and part")
+            print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+            return 0
+        if args.workflow_action == "repair-asr":
+            from pathlib import Path
+
+            from bili_asr.services.asr_repair import repair_asr
+            values = json.loads(Path(args.profile_config).read_text(encoding="utf-8"))
+            if not isinstance(values, dict):
+                raise ValueError("ASR repair profile must be a JSON object")
+            if any(not isinstance(values.get(name), str) or not values[name].strip()
+                   for name in ("profile_key", "model_name")):
+                raise ValueError("ASR repair profile_key and model_name must be nonempty strings")
+            if "hotwords" in values:
+                if not isinstance(values["hotwords"], list):
+                    raise ValueError("ASR repair hotwords must be a JSON array")
+                values["hotwords"] = tuple(values["hotwords"])
+            try:
+                profile = AsrProfile(**values)
+            except TypeError:
+                raise ValueError("ASR repair profile has missing or unsupported fields") from None
+            report = repair_asr(repository, job_id=args.job_id, transcript_id=args.transcript_id,
+                                profile=profile, reason=args.reason)
+            print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
             return 0
         if args.workflow_action == "repair-proofread":
             from bili_asr.services.editorial_repair import repair_proofread

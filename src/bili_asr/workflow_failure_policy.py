@@ -53,6 +53,8 @@ _POLICIES = {
     "youtube_access_unverified": _CONFIG,
     "youtube_js_unavailable": _CONFIG,
     "editorial_source_repetition": _SOURCE,
+    "asr_quality_unusable": _SOURCE,
+    "asr_quality_unknown": FailurePolicy("source_quality", "repair", "verify_original_audio_and_asr_evidence"),
     "RevisionValidationError": _REVISION,
     "deepseek_non_json_response": _REVISION,
     "deepseek_invalid_envelope": _REVISION,

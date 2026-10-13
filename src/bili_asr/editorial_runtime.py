@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
@@ -48,7 +49,18 @@ class EditorialWorkflowHandlers:
         self.workflow.assert_lease(job)
         from bili_asr.services.editorial_application import freeze_job_input
         prepared = freeze_job_input(self.repository, self.workflow, job)
-        check_source_quality(prepared)
+        run_id = None
+        if "asr_job_id" in job.payload:
+            result = self.repository.connection.execute(
+                "SELECT result_json FROM workflow_attempts WHERE job_id=? AND outcome='succeeded' "
+                "ORDER BY finished_at DESC,rowid DESC LIMIT 1", (job.payload["asr_job_id"],)).fetchone()
+            if result is not None:
+                run_id = json.loads(result["result_json"]).get("run_id")
+            if not isinstance(run_id, str) or not run_id:
+                raise JobExecutionError("asr_quality_unknown", {
+                    "stage": "source_quality", "reason_code": "asr_prerequisite_run_unknown",
+                    "transcript_id": prepared["snapshot"]["base"]["transcript_id"]})
+        check_source_quality(prepared, connection=self.repository.connection, run_id=run_id)
         config = EditorialConfig.from_snapshot(prepared["snapshot"]["config"])
         for chunk in prepared["chunks"]:
             attempt_checkpoint(job)

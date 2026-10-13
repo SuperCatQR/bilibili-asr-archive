@@ -259,9 +259,11 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
     evidence = assemble_diagnostics([{"completed": True, "decoded_s": 1, "chunks": [],
                                      "timings_s": {"total": 2}}])
     segments = [{"start": 0, "end": 1, "text": "转录"}]
+    measured_coverage = {"decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0,
+                         "coverage_min": .85, "coverage_short": False}
     seen = []
     fake_runner = SimpleNamespace(
-        provenance=lambda: {"language": "Chinese"}, transcribed_coverage=lambda: None,
+        provenance=lambda: {"language": "Chinese"}, transcribed_coverage=lambda: measured_coverage,
         diagnostics=lambda: evidence, release=lambda: None)
     def make_runner(config):
         seen.append(config)
@@ -270,7 +272,7 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
         seen.append(config)
         assert timeout_seconds == 72
         diagnostics_sink.update(evidence)
-        return segments, {"language": "Chinese"}, None
+        return segments, {"language": "Chinese"}, measured_coverage
     monkeypatch.setattr(asr, "ASRRunner", make_runner)
     monkeypatch.setattr(asr, "two_pass_transcribe", lambda *args, **kwargs: segments)
     monkeypatch.setattr(asr, "transcribe_with_timeout", gpu_transcribe)
@@ -286,4 +288,6 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
     assert stored["config_sha256"] == repository.profile_digest(profile_id)
     assert stored["audio"]["sha256"] == "f" * 64
     assert stored["diagnostics"] == evidence
-    assert result["quality"] == evidence["quality"]
+    assert result["quality"]["status"] == "usable"
+    assert result["quality"]["inference_completed"] is True
+    assert stored["admission"]["status"] == "usable"
