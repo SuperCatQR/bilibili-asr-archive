@@ -198,10 +198,12 @@ class EditorialRepository:
 
     def physical_calls(self, input_id: str, chunk_id: str) -> list[dict[str, Any]]:
         """All sends, including unfinished/failed reservations, across attempts."""
+        from bili_asr.storage.editorial_call_budget import PHYSICAL_CALL_SQL
         from bili_asr.storage.editorial_replay import ReplayEvidenceError, _stored_request
         rows = self.connection.execute(
-            "SELECT call_id,input_id,chunk_id,request_json,response_json,error_code FROM editorial_model_calls "
-            "WHERE input_id=? AND chunk_id=? ORDER BY rowid", (input_id, chunk_id))
+            f"SELECT m.call_id,m.input_id,m.chunk_id,m.request_json,m.response_json,m.error_code,"
+            f"{PHYSICAL_CALL_SQL} AS is_physical FROM editorial_model_calls m "
+            "WHERE m.input_id=? AND m.chunk_id=? ORDER BY m.rowid", (input_id, chunk_id))
         result = []
         for row in rows:
             stored, _ = _stored_request(row)
@@ -220,8 +222,7 @@ class EditorialRepository:
                     raise TypeError()
             except (ValueError, TypeError):
                 raise ReplayEvidenceError(row["call_id"], "response_json_invalid") from None
-            # Historical formatting rows predate explicit invocation kinds.
-            if response is not None and response.get("id") == "local-precheck":
+            if not row["is_physical"]:
                 continue
             result.append(dict(row, stored_request=stored, response=response))
         return result
