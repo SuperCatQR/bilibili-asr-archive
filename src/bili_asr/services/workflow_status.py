@@ -97,7 +97,7 @@ def workflow_status_report(connection: sqlite3.Connection, *, since: int | None 
         raise ValueError('--since must be a non-negative epoch second before --until')
     if until < 0 or not 1 <= limit <= 1000 or offset < 0:
         raise ValueError('--until and --offset must be non-negative; --limit must be 1-1000')
-    control = load_control_state(control_state_path, no_control_state=no_control_state)
+    control = load_control_state(control_state_path, no_control_state=no_control_state, connection=connection, now=now)
     with facts.read_snapshot(connection):
         report = facts.counts(connection, since=since, until=until)
         groups = facts.failure_groups(connection, since=since, until=until)
@@ -148,7 +148,7 @@ def workflow_status_report(connection: sqlite3.Connection, *, since: int | None 
 def explain_workflow_job(connection: sqlite3.Connection, job_id: str, *, control_state_path=None,
                          no_control_state: bool = False, now: int | None = None) -> dict:
     now = int(time.time()) if now is None else now
-    control = load_control_state(control_state_path, no_control_state=no_control_state)
+    control = load_control_state(control_state_path, no_control_state=no_control_state, connection=connection, now=now)
     with facts.read_snapshot(connection):
         row = facts.job_fact(connection, job_id)
         repairs = facts.replacements(connection, (job_id,))

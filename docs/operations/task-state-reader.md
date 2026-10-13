@@ -1,6 +1,6 @@
 # Offline task-state backup reader
 
-The `task-state` CLI reads `archive-task-state-backup/v1` packages directly. It does not import a database into an active archive, acquire a worker session, load a model, contact a provider, or restore media. Each operation verifies the stored ZIP members, database contract, typed table ledger, dependencies and external component declarations before returning records. The reader uses a temporary directory and an immutable, query-only SQLite connection. Its source package and active archive remain unchanged.
+The `task-state` CLI reads `archive-task-state-backup/v1` and the explicit cold-reference `archive-task-state-backup/v2` packages directly. It does not import a database into an active archive, acquire a worker session, load a model, contact a provider, or restore media. Each operation verifies the stored ZIP members, database contract, typed table ledger, dependencies and external component declarations before returning records. The reader uses a temporary directory and an immutable, query-only SQLite connection. Its source package and active archive remain unchanged.
 
 ```sh
 bili-asr task-state verify --snapshot /backups/task-state.zip
@@ -14,6 +14,17 @@ bili-asr task-state read --snapshot /backups/task-state.zip \
 `read` selects original `workflow_jobs` rows. Exact matches are OR within repeated flags and AND across different flags. `--video` accepts the original BVID or, for a universal source without a BVID, `platform:external_id`. Stage is the persisted job kind, status is its original status, and time bounds are inclusive Unix seconds over `updated_at`. Model selects the original ASR profile model name or the model field of a recorded editorial request. Request JSON is inspected as evidence; the provider is never called.
 
 The report includes the selected jobs, related attempts and evidence tables, global collection run summaries and model catalogs, declared evidence member hashes, original typed external control bytes, the observation boundary and media identity references. Global summaries have no implied ownership by a selected job. Frozen JSON values remain strings with their original whitespace and UTF-8 SHA256; failed reasons, IDs and attempt counts remain unchanged. `archive_rowid` and row order preserve insertion order, including retries whose timestamps or random IDs would sort differently. Binary SQLite values are losslessly encoded as typed base64 objects. The row SHA256 binds the stable JSON representation of all returned values including original rowid.
+
+For v2, a reference with `available:false` records the exact verified external
+copy at capture: original identity, package/member hashes, target and catalog
+generation, and SSH instance where applicable. Offline verification compares
+these facts to the embedded catalog without contacting the target, downloading
+a package or extracting media. It remains possible after the original archive
+and target have been removed. A successful state report includes
+`media_restored:false`, `external_media_verified_now:false` and the number of
+`external_audio_references`; it does not claim the retained target is currently
+available. `media_restore_required:true` means media dependencies need a
+separate explicit restore and current copy verification before execution.
 
 The default job page contains at most 20 rows; `--limit` accepts 1–100. `pagination.next_offset` identifies another page. Each history table independently reports `truncated` when `--history-limit` (1–1000) is reached. Use `records` to page a specific original table beyond that limit or inspect collection state which has no workflow job:
 

@@ -131,7 +131,9 @@ class UpgradeCheckpoint:
         shutil.copytree(source, pending)
         for entry in inventory(source):
             path = pending / entry["path"]
-            with path.open("rb") as stream:
+            # This is an owned copied destination. Windows fsync requires a
+            # writable descriptor; source bytes remain untouched.
+            with path.open("r+b") as stream:
                 os.fsync(stream.fileno())
         if inventory(pending) != inventory(source):
             raise ValueError("upgrade phase copy differs from completed checkpoint")

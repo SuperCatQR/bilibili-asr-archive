@@ -112,6 +112,7 @@ class MetadataRepository:
         """
         if not isinstance(video, VideoRecord):
             raise TypeError("video must be a VideoRecord")
+        prior = self.connection.execute("SELECT title,pubdate,aid FROM videos WHERE bvid=?", (video.bvid,)).fetchone()
         self.connection.execute(
             """
             INSERT INTO videos(
@@ -135,18 +136,16 @@ class MetadataRepository:
                 int(refresh_pubdate),
             ),
         )
+        if prior is not None:
+            current = self.connection.execute("SELECT title,pubdate,aid FROM videos WHERE bvid=?", (video.bvid,)).fetchone()
+            from bili_asr.storage.metadata_acceptance import invalidate_fields
+            invalidate_fields(self.connection, video.bvid, tuple(name for index, name in enumerate(("title", "pubdate", "aid"))
+                              if prior[index] != current[index]))
 
     def read_source_metadata(self, video_part_id: int) -> SourceMetadataSnapshot:
         """Read one frozen-input candidate without modifying the archive."""
         if self.observations_supported():
-            from bili_asr.storage.sources import SourceRepository
-            part = SourceRepository(self.connection).part(video_part_id)
-            if part["platform"] != "bilibili":
-                return SourceMetadataSnapshot(
-                    part["content_ref"], part["video_title"], part["creator_external_id"],
-                    part["creator_name"], part["pubdate"], part["observed_at"],
-                    part_title=part["title"], duration_ms=part["duration_ms"],
-                )
+            return self._read_source_metadata_batch((video_part_id,))[0][video_part_id]
         row = self.connection.execute(
             """SELECT p.bvid, p.page_index, p.title AS part_title, p.duration_ms,
                       v.title, v.mid, v.aid, v.pubdate, v.updated_at,
@@ -212,7 +211,8 @@ class MetadataRepository:
         if not part_ids:
             return {}, {}
         marks = ",".join("?" for _ in part_ids)
-        if self.observations_supported():
+        supports_observations = self.observations_supported()
+        if supports_observations:
             query = f"""SELECT s.video_part_id,s.platform,s.external_video_id,s.page_index,
                         s.title AS part_title,s.duration_ms,
                         CASE WHEN s.platform='bilibili' THEN v.title ELSE s.video_title END AS title,
@@ -261,24 +261,38 @@ class MetadataRepository:
                 tag_states = {row["bvid"]: row["state"] for row in self.connection.execute(
                     f"SELECT bvid,state FROM video_tag_observations WHERE bvid IN ({tag_marks})", bvids,
                 )}
+        from bili_asr.storage.source_projection import read_youtube_fields_many
+        youtube_ids = tuple(dict.fromkeys(row["external_video_id"] for row in rows if row["platform"] == "youtube"))
+        youtube = read_youtube_fields_many(self.connection, youtube_ids) if youtube_ids else {}
+        from bili_asr.storage.metadata_acceptance import read_bindings_many
+        bilibili = read_bindings_many(self.connection, bvids) if bvids and supports_observations else {}
         snapshots = {
             int(row["video_part_id"]): SourceMetadataSnapshot(
                 ContentRef(row["platform"], row["external_video_id"], row["page_index"]),
                 row["title"], row["creator_id"], row["creator_name"], row["pubdate"], row["observed_at"],
-                row["desc"], row["pic"], row["tid"], tuple(tags.get(row["external_video_id"], ()))
-                if row["platform"] == "bilibili" else (), row["aid"], row["part_title"], row["duration_ms"],
+                row["desc"] if row["platform"] == "bilibili" else youtube[row["external_video_id"]].description,
+                row["pic"] if row["platform"] == "bilibili" else youtube[row["external_video_id"]].cover_url,
+                row["tid"], tuple(tags.get(row["external_video_id"], ()))
+                if row["platform"] == "bilibili" else youtube[row["external_video_id"]].tags,
+                row["aid"], row["part_title"], row["duration_ms"],
+                2 if (bool(bilibili.get(row["external_video_id"])) if row["platform"] == "bilibili"
+                      else bool(youtube[row["external_video_id"]].observed_fields)) else 1,
+                bilibili.get(row["external_video_id"], ()) if row["platform"] == "bilibili"
+                    else youtube[row["external_video_id"]].bindings,
             ) for row in rows
         } if include_source_metadata else {}
         fields = {
             int(row["video_part_id"]): {
-                "video_description": row["desc"],
+                "video_description": row["desc"] if row["platform"] == "bilibili" else youtube[row["external_video_id"]].description,
                 "uploader_mid": row["mid"] if row["platform"] == "bilibili" else None,
                 "uploader_name": row["creator_name"],
                 "video_tags": list(tags.get(row["external_video_id"], ()))
-                    if row["platform"] == "bilibili" else [],
+                    if row["platform"] == "bilibili" else list(youtube[row["external_video_id"]].tags),
                 "video_tags_state": tag_states.get(row["external_video_id"])
-                    if row["platform"] == "bilibili" else None,
-                "video_details_observed_at": row["details_observed_at"],
+                    if row["platform"] == "bilibili" else {"present": "success_nonempty", "empty": "success_empty",
+                         "missing": "unknown", "unavailable": "unavailable", "denied": "denied"}.get(youtube[row["external_video_id"]].tag_state),
+                "video_details_observed_at": row["details_observed_at"] if row["platform"] == "bilibili"
+                    else youtube[row["external_video_id"]].details_observed_at,
             } for row in rows
         }
         return ({part_id: snapshots[part_id] for part_id in part_ids}
@@ -297,10 +311,13 @@ class MetadataRepository:
         if part.video_part_id is not None:
             raise ValueError("upsert_part allocates video_part_id; it must be None")
         current = self.connection.execute(
-            "SELECT cid FROM video_parts WHERE bvid=? AND page_index=?", (part.bvid, part.page_index),
+            "SELECT cid,title,duration_ms FROM video_parts WHERE bvid=? AND page_index=?", (part.bvid, part.page_index),
         ).fetchone()
         if current is not None and current[0] != part.cid:
             raise ValueError("metadata_part_identity_conflict")
+        if current is None or current[1] != part.title or current[2] != part.duration_ms:
+            from bili_asr.storage.metadata_acceptance import invalidate_fields
+            invalidate_fields(self.connection, part.bvid, ("parts",))
         self.connection.execute(
             """
             INSERT INTO video_parts(
@@ -390,6 +407,11 @@ class MetadataRepository:
             # Nothing was observed: leave the row and its stamp alone, and do
             # not create one for a video that has none (D15).
             return
+        prior = self.connection.execute('SELECT pic,"desc",tid FROM video_details WHERE bvid=?', (details.bvid,)).fetchone()
+        if prior is not None:
+            from bili_asr.storage.metadata_acceptance import invalidate_fields
+            invalidate_fields(self.connection, details.bvid, tuple(name for index, name in enumerate(("pic", "desc", "tid"))
+                              if prior[index] != getattr(details, name)))
         self.connection.execute(
             """
             INSERT INTO video_details(bvid, pic, "desc", tid, observed_at)
@@ -426,6 +448,10 @@ class MetadataRepository:
         self.connection.execute("INSERT INTO video_details(bvid, observed_at) VALUES (?, ?) ON CONFLICT DO NOTHING",
                                 (details.bvid, details.observed_at))
         for field in known:
+            prior = self.connection.execute(f'SELECT "{field.field}" FROM video_details WHERE bvid=?', (details.bvid,)).fetchone()
+            if prior[0] != field.value:
+                from bili_asr.storage.metadata_acceptance import invalidate_fields
+                invalidate_fields(self.connection, details.bvid, (field.field,))
             # Column names come from the closed field vocabulary above.
             self.connection.execute(f'UPDATE video_details SET "{field.field}"=?, observed_at=? WHERE bvid=?',
                                     (field.value, details.observed_at, details.bvid))
@@ -453,6 +479,23 @@ class MetadataRepository:
             return
         for field in fields:
             successful = field.state in {"present", "empty"}
+            value_json = json.dumps(field.value, ensure_ascii=False) if successful else None
+            success_at = observed_at if successful else None
+            if successful:
+                from bili_asr.metadata_acceptance import unpack_cache
+                prior = self.connection.execute("SELECT value_json,last_success_at FROM source_metadata_observations "
+                    "WHERE platform='bilibili' AND external_id=? AND operation=? AND field=?", (bvid, operation, field.field)).fetchone()
+                # A repeat value with no new gateway proof retains its genuine
+                # adoption; a rejected stable-ID/publication update cannot
+                # replace the retained current field's successful evidence.
+                table = "videos" if operation == "summary" else "video_details"
+                current = self.connection.execute(f'SELECT "{field.field}" FROM {table} WHERE bvid=?', (bvid,)).fetchone()
+                if current is not None and current[0] != field.value:
+                    value_json, success_at = None, None
+                elif prior is not None:
+                    prior_value, cache = unpack_cache(prior[0])
+                    if cache is not None and prior_value == field.value:
+                        value_json, success_at = prior[0], prior[1]
             self.connection.execute(
                 """INSERT INTO source_metadata_observations VALUES ('bilibili', ?, ?, ?, ?, ?, ?, NULL, ?)
                    ON CONFLICT(platform, external_id, operation, field) DO UPDATE SET
@@ -462,8 +505,13 @@ class MetadataRepository:
                    value_json=CASE WHEN excluded.last_success_at IS NULL
                         THEN source_metadata_observations.value_json ELSE excluded.value_json END""",
                 (bvid, operation, field.field, field.state, observed_at,
-                 observed_at if successful else None, json.dumps(field.value, ensure_ascii=False) if successful else None),
+                 success_at, value_json),
             )
+
+    def record_accepted_receipts(self, bvid: str, receipts, observed_at: int) -> None:
+        if self.observations_supported():
+            from bili_asr.storage.metadata_acceptance import record_acceptance
+            record_acceptance(self.connection, bvid, receipts, observed_at)
 
     def upsert_video_tags(
         self, bvid: str, tags: Iterable[VideoTagRecord] = ()
@@ -491,6 +539,12 @@ class MetadataRepository:
                 raise TypeError("tags must be VideoTagRecord instances")
             if tag.bvid != bvid:
                 raise ValueError("every tag record must carry the given bvid")
+        from itertools import zip_longest
+        prior = self.connection.execute("SELECT tag_id,tag_name,tag_type FROM video_tags WHERE bvid=? ORDER BY tag_id", (bvid,))
+        expected = sorted((tag.tag_id, tag.tag_name, tag.tag_type) for tag in tag_records)
+        if any(stored != incoming for stored, incoming in zip_longest((tuple(row) for row in prior), expected)):
+            from bili_asr.storage.metadata_acceptance import invalidate_fields
+            invalidate_fields(self.connection, bvid, ("tags",))
         self.connection.execute("DELETE FROM video_tags WHERE bvid = ?", (bvid,))
         self.connection.executemany(
             """
@@ -603,6 +657,7 @@ class MetadataRepository:
         ensure_users: Iterable[UserRecord] = (),
         tag_observations: Mapping[str, tuple[str, str | None]] | None = None,
         preserve_unobserved_details: bool = False,
+        accepted_receipts: Mapping | None = None,
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
@@ -662,6 +717,7 @@ class MetadataRepository:
             or cursor is not None
             or tag_sets is not None
             or bool(tag_observations)
+            or bool(accepted_receipts)
         )
         if page.outcome == "failed" and has_payload:
             raise ValueError("a failed page is recorded without payload arguments")
@@ -727,6 +783,8 @@ class MetadataRepository:
                     self.record_field_observations(detail.bvid, "details", fields, page.finished_at)
                     self.record_metadata_attempt(detail.bvid, "details", "present" if any(
                         field.state == "present" for field in fields) else "missing", page.started_at, page.finished_at)
+            for bvid, receipts in (accepted_receipts or {}).items():
+                self.record_accepted_receipts(bvid, receipts, page.finished_at)
             for discovery in discovery_records:
                 self.record_discovery(discovery)
             if cursor is not None:

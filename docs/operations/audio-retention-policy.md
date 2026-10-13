@@ -23,13 +23,29 @@ bili-asr workflow status --archive-root archive --jobs
 
 1. 校验 job 当前 lease，按存储的 BVID、page index 和 CID 建立目标身份。
 2. 在归档根的 `audio/` 下分配本次独占 staging。下载 helper 使用临时文件接收流；失败的 CDN 尝试从空文件重新开始，非空检查与必要的格式转换在 staging 完成。
-3. 再次校验 lease，用 `ffprobe` 获取时长，拒绝非有限或非正时长，计算字节 SHA-256、大小及格式。
-4. 进入任务拥有的短数据库事务，在同一所有权检查范围内替换最终音频、登记 `audio_objects` 并建立分 P 关联。
-5. audio job 成功后，ASR 从该 dependency 的结果读取 `storage_key`，以归档根下的文件为输入。
+3. 再次校验 lease，用 `ffprobe` 获取时长，拒绝非有限或非正时长，计算字节 SHA-256、大小及格式，并同步文件字节；此阶段不持有 SQLite 写锁。Windows 同步使用可写句柄，但不修改源音频字节。
+4. 进入任务拥有的短数据库事务，在同一所有权检查范围内替换最终音频，先同步目标目录以及不同的源目录，随后登记 `audio_objects` 并建立分 P 关联。同路径复用也同步所在目录。任何同步、替换或登记失败都不提交成功事实。
+5. audio job 成功后，ASR 从该精确 dependency 的结果读取 `storage_key` 与身份，先验证实际音频，再以本次独占的固定文件代次为输入。
+
+## ASR 的输入身份与临时空间
+
+无论是否启用可选 artifact catalog，每次 ASR 都对照精确成功 AUDIO prerequisite 的 SHA-256 和已登记大小，按 1 MiB 分块读取并检查取消、失租和停止期限。坏的产物根副本不会遮住归档根中身份正确的副本。输入不存在、摘要/大小不一致或文件代次变化，会留下新的失败尝试，不改写先前成功下载、转录或 ASR evidence；恢复后显式重试失败消费者即可复用原下载。
+
+每次推理使用 `audio/.workflow-audio-input-<id>.<suffix>` 独立私有文件，始终写到 `ArtifactRoots.write_base`，读取正确的 legacy fallback 不会向只读候选根写私有文件或预留。Linux 优先使用文件系统 FICLONE 写时复制；不支持时流式复制一次压缩音频，内存缓冲上限 1 MiB。复制前通过内核锁和持久预留回执，在实际写盘预留整份输入大小及 64 MiB 安全余量；空间不足以 `audio_input_space_unavailable` 停止。非 CoW 文件系统的临时磁盘峰值增加一份输入音频，多个同时执行的 profile 分别计入预留。正常返回、异常、取消和失租都会删除本次私有文件并释放预留，不修改源 inode 的权限或历史状态。
+
+ASR 私有输入回执与可选 online 扩展的下载、恢复、解码数据库预留使用同一个 `capacity` 内核锁，并在两种准入方向都扣减双方的活跃预留。配置产物根与旧归档根的文件回执一并计入，避免同一文件系统上更换 root 后漏算；不同文件系统也按保守总量判断。未安装 online 表时继续使用文件回执，不自动安装扩展。回执正常退出时消失，需要再次取得其 owner 独占锁后才能按零计算；缺失但 owner 仍活跃或活跃回执损坏都会拒绝准入。同线程嵌套预留仍保留外层 owner 的字节。数据库退休只记录 `released_at`，保留原身份、大小和 owner；文件回执退休不删除崩溃留下的音频。每次扫描最多接受 4096 条活跃数据库预留和 4096 个文件回执；超过上限以 `reservation-scan-limit` 拒绝本次准入，不截断计费或按零计算，需先检查并退休已结束的预留。
+
+推理后、转录登记前再次验证私有字节与源文件代次，包括 inode、大小、mtime 与变更时间；Windows 使用 NTFS ChangeTime 而非创建时间。原文件名被替换时模型仍读私有旧字节，但本次提交保守地拒绝变化代次。原位写后恢复原字节和 mtime 也不能掩盖 ABA 变化。并发 profile 的私有文件不会互相改变源 inode 的变更时间。catalog 的 consumer pin 保持到读取和提交结束。
+
+历史 dependency 缺少 hash 时不补造旧下载身份：新 evidence 记录 `audio.verification.status=observed-only`、本次 observed SHA/大小、验证时间和代次摘要，原 dependency 保持不变；有 hash 则记录 `matched`。来源可读者应区分“匹配旧获取身份”和“只观测本次输入”。
+
+强制终止可能留下 `.workflow-audio-input-*`；快照继续将其视为未解决临时产物并拒绝保存。当前不按 PID、mtime 或年龄自动删除私有输入。显式恢复顺序是：停止对应 archive 的 worker/ASR 子进程、确认其全部退出，记录该临时文件与任务的关联及摘要，核对源文件和备份，再仅移除确认没有活跃消费者的那一个临时文件。不要根据文件名通配符对运行中的目录批量清理；保留失败 attempt、成功 AUDIO prerequisite 和既有 evidence，然后按失败诊断恢复准确身份并重试 ASR。内核已释放的空间预留回执可在下次预留时退休，退休回执不会删除其私有音频文件。
 
 下载、格式转换、探测和摘要计算不占用最终提交事务。最终替换及 catalog 登记受 lease/取消检查约束，避免已取消或失去 lease 的 worker 发布音频。取消在安全提交边界生效，不能保证立即中断网络请求或推理。
 
-正常退出清理本次 staging；强制终止或掉电可能留下临时文件。当前没有自动遍历历史 staging 并回收的 workflow 任务。SQLite 和文件系统不是一个原子提交介质，失败后的 catalog 与实际文件仍需分别核对。
+正常退出清理本次 staging；强制终止或掉电可能留下临时文件。当前没有自动遍历历史 staging 并回收的 workflow 任务。SQLite 和文件系统不是一个原子提交介质，失败后的 catalog 与实际文件仍需分别核对。最终替换已完成但目录同步或数据库登记失败时，保留未登记的最终文件，显式重试会重新 probe、hash 和同步该文件再登记，避免重新下载。尚未替换的 staging 输入由本次 staging 所有者处理，不会记录虚假成功。
+
+原子 rename 保证路径可见性；进程退出后的重开测试验证文件/数据库恢复；支持目录 fsync 的 POSIX 平台通过文件和相关目录同步提供掉电持久化屏障。Windows 沿用文件 fsync 和原子替换、目录同步不支持的明确平台策略，不宣称与 POSIX 相同的掉电持久性。测试验证同步顺序与 I/O 故障恢复，未执行实机断电；实机电源故障验证应单独记录文件系统、挂载和存储缓存配置。
 
 ASR 成功、失败或 publish 成功均不会触发删除。取消后续 ASR/publish 也不删除此前完成下载的音频。转录包有独立 marker 和摘要契约，见 [WebVTT 与归档包](../guides/webvtt.md)。
 

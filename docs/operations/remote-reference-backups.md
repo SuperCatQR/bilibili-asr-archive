@@ -71,6 +71,18 @@ save 在独占维护锁内复制原数据库，不执行 job recovery。已记�
 
 离线 inspect/check 验证每个随包文件及依赖与数据库/catalog 的对应关系，不访问网络或目标目录，始终报告 `external_state=unverified`。`--online` 才读取外部包，给出 `complete`、`partial` 或 `unverifiable`、检查时间、明确的摘要范围、阻塞对象和关联任务。在线核验依赖可用不代表本地输入、模型、凭据或 worker 已就绪。
 
+save 完成后的自检、离线 inspect/check/plan 和 `verified_reference` reader
+对所有成员流式计算大小/SHA-256，只提取 SQLite 数据库，媒体和普通产物
+不落盘。临时文件有效载荷为 manifest 报告的 `read_only_temporary_bytes`
+（数据库大小），额外内存是有界读取缓冲和受限清单；此数值不代表整个操作
+的 RSS 或文件系统开销。路径、重复成员、ZIP 目录和 bundle marker 仍完整
+验证，不以跳过媒体校验换取空间。显式 online 远程包检查另需下载目标包。
+
+只读 plan 可以在恢复空间不足时成功验证并报告 `target_ready=false`；
+restore 在创建目标前检查全部内嵌文件所需空间，然后重新验证并提取完整
+产物到 staging。只读临时空间不再随内嵌音频体积增长，恢复空间仍必须能
+容纳真实安装数据。历史 reference/v1 与新 reference/v2 使用同一校验路径。
+
 远程引用必须在保存时提供相应 binding 的 instance ID；保存只读取该非秘密身份，不连接服务器。在线检查要求重新提供匹配 binding。已登记但过期的副本记录不代表当前字节仍可访问。
 
 运维文件仅接受以下严格白名单，不收集任意目录、环境、令牌、worker 配置或整份监控状态：
@@ -80,6 +92,43 @@ save 在独占维护锁内复制原数据库，不执行 job recovery。已记�
 ```
 
 不接受未知字段、访问 URL 或无限长度原因。未提供 holds 时记录为未核验，不能等同于“没有 hold”。已核验的 holds 在恢复目录 `documents/reference-recovery/BACKUP_ID/holds.json` 原样保留，可交给现有 `--holds-file` 接口；未核验状态写入单独的 `holds-unverified.json`，不能作为空 holds 输入。不要把含凭据的自由文本作为原因。
+
+上述历史 `archive-reference-backup/v1` 只保存 holds，报告
+`control_recovery_capability=limited-holds-only` 和未知的 retry ledger；不能用它
+证明可重试预算，也不能把 `holds.json` 当作完整 retry 控制文件。
+
+需要完整重试控制时显式使用 `--retry-control-file` 和该 owner 实际使用的
+`--retry-control-lock`，且不能同时提供 `--holds-file`。保存注册的
+`archive-reference-backup/v2`，只提取 `retry_holds` 与 `retry_ledger`，
+整份监控 JSON 的凭据、其他运维字段不进入包；原文件的 SHA-256 作为
+来源证据记录。接受严格 typed `retry-control/v1`、已封装的 v2，以及
+显式声明此操作的无版本生产 retry 映射；未知版本/时钟声明拒绝。
+
+```sh
+bili-asr reference save --archive-root /archives/current --out /backup/retry-state.zip \
+  --retry-control-file /ops/state.json --retry-control-lock /ops/retry.lock
+bili-asr reference restore --file /backup/retry-state.zip --archive-root /archives/restored
+bili-asr retry-maintenance preflight --help
+```
+
+恢复报告返回 `control_state_path`，指向
+`documents/reference-recovery/BACKUP_ID/retry-control.json`。该 `retry-control/v2`
+文档可以直接作为 retry-maintenance preflight 的 `--state` 和 workflow
+retry/status 的控制输入。完整保留原原因、次数、上限、deadline、预约 attempt
+及 outcome。原因仅接受有界文本或白名单 reason/source/error_code/调查修复引用/
+时间/part/transcript/paused 字段；ledger 只接受已登记预算与预约字段。
+未知嵌套字段拒绝，不能把令牌放进原因文本。
+
+封装保存原源摘要、白名单投影摘要、内容摘要、数据库快照摘要与所有冻结 job
+身份。preflight 对当前归档逐项核验这些 job 的冻结身份，允许以后新增 job，
+但原 job 缺失或被替换会阻断；文件路径变化不会冒充归档身份变化。时间只使用
+`unix-seconds-utc/v1`，不转换进程 monotonic 时间，读取时本机 Unix 时间早于
+捕获时间会阻断重试。保存者持有声明控制锁并前后验证原字节摘要；该摘要表示
+记录的原来源，不宣称在未提供原文件时证明源真实性或提供数字签名。
+
+restore 永不自动执行。之后显式调用 retry tick 时继续先扣预算再发送，
+更新 projection/content 摘要，保留 original source、scope、clock，
+失败和不确定的预约不退款；已有失败 attempts 与 hold 不被清除。
 
 ## 恢复和执行权交接
 

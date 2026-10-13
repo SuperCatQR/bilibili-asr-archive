@@ -218,6 +218,10 @@ def _sanitize_value(
     if isinstance(val, dict):
         sanitized_dict: dict[str, Any] = {}
         for k, v in sorted(val.items(), key=lambda item: str(item[0])):
+            if field_name == "sourceMetadata" and k == "coverUrl" and val.get("version") == "source-metadata-v2":
+                from bili_asr.source_metadata import public_cover_url
+                sanitized_dict["coverUrl"] = public_cover_url(v, platform=val.get("platform"), codec_version=2)
+                continue
             if _is_sensitive_key(str(k)):
                 continue
             child_name = "video_description" if field_name == "sourceMetadata" and k == "description" else str(k)

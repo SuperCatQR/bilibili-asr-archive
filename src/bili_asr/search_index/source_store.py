@@ -180,6 +180,9 @@ def search_metadata(connection, query, *, pubdate_from=None, pubdate_to=None, li
             'WHERE p.video_part_id>? ORDER BY p.video_part_id LIMIT 256', (after,)).fetchall()
         if not rows:
             break
+        from bili_asr.storage.source_projection import read_youtube_fields_many
+        youtube = read_youtube_fields_many(connection, tuple(dict.fromkeys(
+            row["external_video_id"] for row in rows if row["platform"] == "youtube")))
         for row in rows:
             published = row["pubdate"]
             if pubdate_from is not None and (published is None or published < pubdate_from):
@@ -187,7 +190,11 @@ def search_metadata(connection, query, *, pubdate_from=None, pubdate_to=None, li
             if pubdate_to is not None and (published is None or published >= pubdate_to):
                 continue
             fields = {"video_title": row["video_title"], "part_title": row["title"], "creator_name": row["creator_name"]}
-            fields.update(description=row["description"], tags=row["tags"])
+            if row["platform"] == "youtube":
+                projected = youtube[row["external_video_id"]]
+                fields.update(description=projected.description, tags="\n".join(projected.tags))
+            else:
+                fields.update(description=row["description"], tags=row["tags"])
             matched = tuple(key for key,value in fields.items() if value and needle in value.casefold())
             if matched:
                 text = _redact_text("\n".join(fields[key] for key in matched))

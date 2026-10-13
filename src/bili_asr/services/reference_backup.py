@@ -14,21 +14,41 @@ import tempfile
 import time
 import uuid
 import zipfile
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from pathlib import Path
 
 from bili_asr.archive_maintenance import archive_access
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
-from bili_asr.artifact_inventory import (check_artifact_collisions, collect_artifacts, portable_artifact_parts,
-                                         require_no_links, require_regular_file, stream_hash)
-from bili_asr.artifact_packages import _bounded_zip_directory, _open_regular, check_artifact_package
+from bili_asr.artifact_inventory import (
+    check_artifact_collisions,
+    collect_artifacts,
+    portable_artifact_parts,
+    require_no_links,
+    require_regular_file,
+    stream_hash,
+)
+from bili_asr.artifact_packages import (
+    _bounded_zip_directory,
+    _open_regular,
+    check_artifact_package,
+)
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.contracts.json_schema import validate_json
 from bili_asr.services.archive_snapshot import _check_bundle_markers, _empty_destination
+from bili_asr.services.retry_control import capture_control, validate_control
+from bili_asr.services.retry_maintenance_io import maintenance_lock
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 from bili_asr.storage.database import connect_database
-from bili_asr.storage.snapshots import create_database_snapshot, required_artifacts, validate_snapshot_database
-from bili_asr.storage_targets import open_directory_target, sync_directory, unique_json_object
+from bili_asr.storage.snapshots import (
+    create_database_snapshot,
+    required_artifacts,
+    validate_snapshot_database,
+)
+from bili_asr.storage_targets import (
+    open_directory_target,
+    sync_directory,
+    unique_json_object,
+)
 
 FORMAT = "archive-reference-backup"
 VERSION = 1
@@ -97,7 +117,18 @@ def _consumers(connection, dependencies):
 
 
 def save_reference_backup(roots: ArtifactRoots, output: Path, *, holds: dict | None = None,
-                          target_instances: dict[str, str] | None = None) -> dict:
+                          target_instances: dict[str, str] | None = None,
+                          retry_control_path: Path | None = None, retry_control_lock: Path | None = None) -> dict:
+    if ((retry_control_path is None) != (retry_control_lock is None)
+            or retry_control_path is not None and holds is not None):
+        raise ReferenceBackupError("retry controls require their declared coordination lock and exclude holds-only input")
+    if retry_control_path is not None:
+        retry_control_path, retry_control_lock = Path(retry_control_path).absolute(), Path(retry_control_lock).absolute()
+        require_no_links(retry_control_path)
+        require_no_links(retry_control_lock)
+        if (retry_control_path == retry_control_lock or retry_control_lock.is_relative_to(roots.archive_root)
+                or retry_control_path.exists() and retry_control_lock.exists() and retry_control_path.samefile(retry_control_lock)):
+            raise ReferenceBackupError("control lock must be distinct and outside the archive")
     controls = operational_holds(holds)
     instances = dict(target_instances or {})
     if any(not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", key)
@@ -108,7 +139,10 @@ def save_reference_backup(roots: ArtifactRoots, output: Path, *, holds: dict | N
     if output.exists() or any(output.is_relative_to(base) for base in roots.read_bases()):
         raise ReferenceBackupError("backup output must be new and outside both archive roots")
     output.parent.mkdir(parents=True, exist_ok=True)
-    with ArchiveSession(roots.archive_root, mode=ArchiveAccessMode.MAINTENANCE, artifact_roots=roots) as session:
+    with ExitStack() as resources:
+        if retry_control_path is not None:
+            resources.enter_context(maintenance_lock(retry_control_lock))
+        session = resources.enter_context(ArchiveSession(roots.archive_root, mode=ArchiveAccessMode.MAINTENANCE, artifact_roots=roots))
         artifacts = collect_artifacts(roots.read_bases())
         with tempfile.TemporaryDirectory(prefix=".reference-save-", dir=output.parent) as temporary:
             stage = Path(temporary)
@@ -117,6 +151,11 @@ def save_reference_backup(roots: ArtifactRoots, output: Path, *, holds: dict | N
             # Exclusive archive ownership stops supported live writers. Recorded
             # running/failed attempts remain exact history; do not recover them.
             with closing(connect_database(database, readonly=True)) as connection:
+                if retry_control_path is not None:
+                    with database.open("rb") as source:
+                        _size, database_digest = stream_hash(source)
+                    controls = {"verified": True, "retry_control": capture_control(retry_control_path, connection,
+                                database_sha256=database_digest, captured_at=int(time.time()))}
                 catalog = ArtifactCatalog(connection)
                 dependencies = []
                 for key, expected in required_artifacts(database).items():
@@ -137,18 +176,24 @@ def save_reference_backup(roots: ArtifactRoots, output: Path, *, holds: dict | N
                     with _open_regular(path) as source, bundle.open(key, "w", force_zip64=True) as destination:
                         size, digest = stream_hash(source, destination)
                     entries.append({"path": key, "size": size, "sha256": digest})
-                manifest = {"format": FORMAT, "format_version": VERSION, "self_contained": False,
+                version = 2 if retry_control_path is not None else VERSION
+                manifest = {"format": FORMAT, "format_version": version, "self_contained": False,
                             "backup_id": uuid.uuid4().hex, "created_at": int(time.time()), "database_contract": contract,
                             "files": entries, "dependencies": dependencies, "target_instances": instances,
                             "affected_jobs": consumers, "operational_state": controls,
                             "handoff": "stop-old-workers-before-new-workers; no-automatic-recovery-or-retry"}
-                validate_json(CONTRACT, manifest)
+                validate_json(f"{FORMAT}/v{version}", manifest)
                 if len(_encoded(manifest)) > 16 * 1024**2:
                     raise ReferenceBackupError("reference manifest exceeds 16 MiB")
                 bundle.writestr(MANIFEST, _encoded(manifest))
             # Independently read the finished container before publishing it.
             with verified_reference(archive) as (_database, verified):
                 result = _report(verified)
+            if retry_control_path is not None:
+                with _open_regular(retry_control_path) as source:
+                    _size, digest = stream_hash(source)
+                if digest != controls["retry_control"]["source"]["sha256"]:
+                    raise ReferenceBackupError("retry control source changed during capture")
             with archive.open("r+b") as sealed:
                 os.fsync(sealed.fileno())
             if os.name == "nt":
@@ -171,10 +216,13 @@ def _read_manifest(bundle):
     if bundle.getinfo(MANIFEST).file_size > 16 * 1024**2:
         raise ReferenceBackupError("reference manifest exceeds 16 MiB")
     manifest = json.loads(bundle.read(MANIFEST), object_pairs_hook=unique_json_object)
-    validate_json(CONTRACT, manifest)
+    version = manifest.get("format_version") if isinstance(manifest, dict) else None
+    if type(version) is not int or version not in {1, 2}:
+        raise ReferenceBackupError("unsupported reference backup contract")
+    validate_json(f"{FORMAT}/v{version}", manifest)
     fields = {"format", "format_version", "self_contained", "backup_id", "created_at", "database_contract", "files",
               "dependencies", "target_instances", "affected_jobs", "operational_state", "handoff"}
-    if not isinstance(manifest, dict) or set(manifest) != fields or manifest["format"] != FORMAT or type(manifest["format_version"]) is not int or manifest["format_version"] != VERSION or manifest["self_contained"] is not False:
+    if set(manifest) != fields or manifest["format"] != FORMAT or manifest["self_contained"] is not False:
         raise ReferenceBackupError("unsupported reference backup contract")
     if not isinstance(manifest["backup_id"], str) or not re.fullmatch("[0-9a-f]{32}", manifest["backup_id"]) or type(manifest["created_at"]) is not int or manifest["created_at"] < 0:
         raise ReferenceBackupError("invalid reference backup identity")
@@ -189,11 +237,16 @@ def _read_manifest(bundle):
     if keys.count("archive.db") != 1 or set(names) != {MANIFEST, *keys}:
         raise ReferenceBackupError("unlisted or missing embedded files")
     controls = manifest["operational_state"]
-    if not isinstance(controls, dict) or set(controls) != {"verified", "holds"} or type(controls["verified"]) is not bool:
-        raise ReferenceBackupError("invalid operational whitelist")
-    expected = operational_holds({"version": 1, "holds": controls["holds"]}) if controls["verified"] else operational_holds(None)
-    if controls != expected:
-        raise ReferenceBackupError("unverified holds cannot carry unvalidated state")
+    if version == 2:
+        if set(controls) != {"verified", "retry_control"} or controls["verified"] is not True:
+            raise ReferenceBackupError("invalid typed retry operational state")
+        validate_control(controls["retry_control"])
+    else:
+        if not isinstance(controls, dict) or set(controls) != {"verified", "holds"} or type(controls["verified"]) is not bool:
+            raise ReferenceBackupError("invalid operational whitelist")
+        expected = operational_holds({"version": 1, "holds": controls["holds"]}) if controls["verified"] else operational_holds(None)
+        if controls != expected:
+            raise ReferenceBackupError("unverified holds cannot carry unvalidated state")
     if manifest["handoff"] != "stop-old-workers-before-new-workers; no-automatic-recovery-or-retry":
         raise ReferenceBackupError("unknown execution handoff contract")
     instances = manifest["target_instances"]
@@ -202,7 +255,7 @@ def _read_manifest(bundle):
     return manifest
 
 
-def _validate_into(path, stage):
+def _validate_into(path, stage, *, extract_artifacts=False):
     require_regular_file(path)
     with _open_regular(path) as source:
         _bounded_zip_directory(source)
@@ -213,12 +266,17 @@ def _validate_into(path, stage):
                 member = bundle.getinfo(key)
                 if member.file_size != entry["size"]:
                     raise ReferenceBackupError("embedded file size mismatch")
-                destination = stage.joinpath(*portable_artifact_parts(key))
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                with bundle.open(member) as incoming, destination.open("xb") as output:
-                    actual = stream_hash(incoming, output)
-                    output.flush()
-                    os.fsync(output.fileno())
+                parts = portable_artifact_parts(key)
+                with bundle.open(member) as incoming:
+                    if key == "archive.db" or extract_artifacts:
+                        destination = stage.joinpath(*parts)
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        with destination.open("xb") as output:
+                            actual = stream_hash(incoming, output)
+                            output.flush()
+                            os.fsync(output.fileno())
+                    else:
+                        actual = stream_hash(incoming)
                 if actual != (entry["size"], entry["sha256"]):
                     raise ReferenceBackupError("embedded checksum mismatch")
             _check_bundle_markers(bundle, {entry["path"]: entry for entry in manifest["files"]})
@@ -231,6 +289,9 @@ def _validate_into(path, stage):
         raise ReferenceBackupError("invalid dependency list")
     seen = set(available)
     with closing(connect_database(database, readonly=True)) as connection:
+        if manifest["format_version"] == 2:
+            database_digest = available["archive.db"]
+            validate_control(manifest["operational_state"]["retry_control"], connection=connection, database_sha256=database_digest)
         catalog = ArtifactCatalog(connection)
         for dep in dependencies:
             if not isinstance(dep, dict) or set(dep) != {"path", "object_id", "size", "replicas"}:
@@ -257,6 +318,7 @@ def _validate_into(path, stage):
 
 @contextmanager
 def verified_reference(path: Path):
+    """Stream-verify every member; materialize only SQLite for offline readers."""
     with tempfile.TemporaryDirectory(prefix="bili-reference-check-") as temporary:
         stage = Path(temporary)
         manifest = _validate_into(Path(path), stage)
@@ -265,13 +327,20 @@ def verified_reference(path: Path):
 
 def _report(manifest):
     dependencies = manifest["dependencies"]
-    return {"valid": True, "format": CONTRACT, "backup_id": manifest["backup_id"], "self_contained": False,
+    controls = manifest["operational_state"]
+    typed = manifest["format_version"] == 2
+    return {"valid": True, "format": f"{FORMAT}/v{manifest['format_version']}", "backup_id": manifest["backup_id"], "self_contained": False,
             "database_contract": manifest["database_contract"], "embedded_files": len(manifest["files"]),
+            "read_only_temporary_bytes": next(entry["size"] for entry in manifest["files"] if entry["path"] == "archive.db"),
+            "read_only_media_extracted": False,
+            "verification_scope": "all-embedded-member-bytes-streamed-and-database-references",
             "dependency_count": len(dependencies), "external_state": "unverified", "external_verified": False,
             "blocking_objects": [{"path": dep["path"], "object_id": dep["object_id"], "reason": "external_unverified",
                                   "jobs": manifest["affected_jobs"].get(dep["object_id"], [])} for dep in dependencies],
-            "holds_preserved": len(manifest["operational_state"]["holds"]),
-            "external_holds_verified": manifest["operational_state"]["verified"],
+            "holds_preserved": len(controls["retry_control"]["retry_holds"] if typed else controls["holds"]),
+            "retry_ledger_preserved": len(controls["retry_control"]["retry_ledger"]) if typed else None,
+            "control_recovery_capability": "scope-bound-retry-controls" if typed else "limited-holds-only" if controls["verified"] else "unavailable",
+            "external_holds_verified": controls["verified"],
             "execution_handoff_required": True, "worker_started": False, "retry_started": False}
 
 
@@ -296,7 +365,9 @@ def check_reference_backup(path: Path, *, local_targets: dict[str, Path] | None 
                                 expected = manifest["target_instances"].get(identity)
                                 if expected is None or backend.binding.instance_id != expected:
                                     raise ReferenceBackupError("target_instance_unbound_or_mismatch")
-                                from bili_asr.services.remote_artifacts import fetch_remote_package
+                                from bili_asr.services.remote_artifacts import (
+                                    fetch_remote_package,
+                                )
                                 destination = Path(temporary) / (uuid.uuid4().hex + ".zip")
                                 cache[cache_key] = fetch_remote_package(backend, replica, destination)
                             elif identity in (local_targets or {}):
@@ -357,13 +428,14 @@ def restore_reference_backup(path: Path, target: Path, *, source_workers_stopped
         _empty_destination(target)
         stage = Path(temporary) / "archive"
         stage.mkdir()
-        manifest = _validate_into(path, stage)
+        manifest = _validate_into(path, stage, extract_artifacts=True)
         controls_directory = stage / "documents" / "reference-recovery" / manifest["backup_id"]
         controls_directory.mkdir(parents=True, exist_ok=True)
         verified_holds = manifest["operational_state"]["verified"]
-        controls = controls_directory / ("holds.json" if verified_holds else "holds-unverified.json")
+        typed = manifest["format_version"] == 2
+        controls = controls_directory / ("retry-control.json" if typed else "holds.json" if verified_holds else "holds-unverified.json")
         with controls.open("xb") as output:
-            output.write(_encoded({"version": 1, "holds": manifest["operational_state"]["holds"]} if verified_holds
+            output.write(_encoded(manifest["operational_state"]["retry_control"] if typed else {"version": 1, "holds": manifest["operational_state"]["holds"]} if verified_holds
                                   else {"version": 1, "verified": False, "action": "verify-external-hold-source-before-use"}))
             output.flush()
             os.fsync(output.fileno())
@@ -379,6 +451,7 @@ def restore_reference_backup(path: Path, target: Path, *, source_workers_stopped
     with ArchiveSession(target, mode=ArchiveAccessMode.READ) as session:
         readiness = artifact_state(session.connection, ArtifactRoots.of(target))
     return {"operation": "reference-restore", **_report(manifest), "installed": True,
+            "control_state_path": str(target / controls.relative_to(stage)),
             "source_workers_stopped_attested": source_workers_stopped,
             "ready_to_run": False, "next_steps": ["rebind-and-verify-targets", "restore-required-inputs", "doctor", "explicit-worker-handoff"],
             "workflow_recovery_changes": [], "doctor": doctor, "artifact_readiness": readiness}

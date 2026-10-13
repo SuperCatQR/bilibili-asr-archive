@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from contextlib import closing
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -119,8 +120,9 @@ def test_restored_same_sha_allows_new_profile_with_unchanged_previous_attempts(r
     inference = []
     def transcribe(config, audio_path, **kwargs):
         inference.append(audio_path)
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == identity
-        return [{"start": 0, "end": 1, "text": "same retained input"}], {"language": "English"}, None
+        assert hashlib.sha256(Path(audio_path).read_bytes()).hexdigest() == identity
+        return [{"start": 0, "end": 1, "text": "same retained input"}], {"language": "English"}, {
+            "decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0, "coverage_min": .85, "coverage_short": False}
     handlers.timeout_transcriber = transcribe
     profile = workflow.register_profile(AsrProfile("new-profile", "offline-v2", device="cuda"))
     workflow.plan(part_ids=[part_id], policy=AsrPolicy.ALL, profile_id=profile)
@@ -132,7 +134,7 @@ def test_restored_same_sha_allows_new_profile_with_unchanged_previous_attempts(r
     assert job.profile_id == profile
     result = handlers.local_asr(job)
     workflow.finish(job.job_id, worker_id="test", result=result)
-    assert inference == [str(path)]
+    assert len(inference) == 1 and inference[0] != str(path)
     assert connection.execute("SELECT text FROM transcript_segments WHERE transcript_id=?", (result["transcript_id"],)).fetchone()[0] == "same retained input"
     assert [tuple(row) for row in connection.execute("SELECT rowid,* FROM workflow_attempts WHERE job_id=?", (audio_job.job_id,))] == old_attempts
 

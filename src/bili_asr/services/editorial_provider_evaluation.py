@@ -298,7 +298,7 @@ def _evaluate_variant(connection, sample, name, config, client, *,
     previous = _initial_previous(sample, initial_diagnostic)
     # Two persisted reservations per variant, four across the experiment. A
     # crash after reservation leaves an unknown send; it is never sent again.
-    for generation in range(2):
+    for generation in range(min(2, 1 + config.max_chunk_regenerations)):
         request, recovery = recovery_request(original, previous, config)
         with connection:
             connection.execute("BEGIN IMMEDIATE")

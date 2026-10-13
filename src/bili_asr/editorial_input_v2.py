@@ -51,6 +51,9 @@ def prepare_input_v2(base, reference, config, *, source_metadata) -> dict[str, A
         "prompt_sha256": digest(MULTILINGUAL_PROMPT),
         "unassigned_reference_ids": [ref["segment_id"] for ref in refs if ref["segment_id"] not in assigned],
     }
+    if config.budget_policy != "legacy-v1":
+        from bili_asr.editorial_budget import prepare_budgeted_input
+        return prepare_budgeted_input(snapshot, config, matches, include_precheck=False)
     identity = digest(snapshot)
     input_limit = min(config.max_input_tokens, config.context_tokens - config.max_output_tokens - config.safety_tokens)
     def make_chunk(start, end):

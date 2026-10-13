@@ -145,7 +145,8 @@ def test_corrupt_published_bundle_remains_a_defect_after_new_acquisition(tmp_pat
     assert integrity.backlog_count == 0
 
 
-def test_projection_queries_are_batched_and_preserve_existing_row_order(tmp_path, monkeypatch):
+@pytest.mark.parametrize("batch_size,expected_batches", [(4, 3), (12, 1)])
+def test_projection_queries_are_batched_and_preserve_existing_row_order(tmp_path, monkeypatch, batch_size, expected_batches):
     connection = open_database(tmp_path)
     try:
         older = _video_with_parts(connection, "BVolder", tuple(range(1231, 1242)), pubdate=100)
@@ -164,23 +165,24 @@ def test_projection_queries_are_batched_and_preserve_existing_row_order(tmp_path
         result.set_trace_callback(statements.append)
         return result
 
-    monkeypatch.setattr(workflow_projection, "_PART_READ_BATCH_SIZE", 4)
+    monkeypatch.setattr(workflow_projection, "_PART_READ_BATCH_SIZE", batch_size)
     monkeypatch.setattr(workflow_projection, "open_archive_connection", traced_connect)
     records = workflow_projection.workflow_records(tmp_path, with_text=True, verify_artifacts=False)
     assert list(records) == ["BVnewer:p0", *(f"BVolder:p{i}" for i in range(11))]
     assert {row["language"] for row in records.values()} == {"en-US"}
     assert {row["transcript_text"] for row in records.values()} == {"English"}
     selects = [sql for sql in statements if sql.lstrip().upper().startswith(("SELECT", "WITH"))]
-    # Three sets of four original data queries and five source-metadata
-    # queries, plus end detection and the projection's contract-marker read.
-    # Metadata costs follow the batch count rather than the number of parts.
-    assert len(selects) == 29
-    assert sum("FROM sqlite_master WHERE type='table' AND name='archive_contract'" in sql for sql in selects) == 4
-    assert sum("LEFT JOIN video_details" in sql for sql in selects) == 3
-    assert sum("FROM video_tags WHERE bvid IN" in sql for sql in selects) == 3
-    assert sum("FROM video_tag_observations WHERE bvid IN" in sql for sql in selects) == 3
-    assert sum("FROM transcripts WHERE video_part_id IN" in sql for sql in selects) == 3
-    assert sum("FROM transcript_segments" in sql for sql in selects) == 3
+    # Each legacy batch reads nine sets; its unsupported acceptance extension
+    # is not queried. The other queries detect the end and read the contract.
+    # Vary the batch size to detect growth per part instead of per batch.
+    assert len(selects) == 2 + 9 * expected_batches
+    assert sum("FROM sqlite_master WHERE type='table' AND name='archive_contract'" in sql for sql in selects) == expected_batches + 1
+    assert sum("LEFT JOIN video_details" in sql for sql in selects) == expected_batches
+    assert sum("FROM video_tags WHERE bvid IN" in sql for sql in selects) == expected_batches
+    assert sum("FROM video_tag_observations WHERE bvid IN" in sql for sql in selects) == expected_batches
+    assert not any("FROM source_metadata_observations" in sql or "FROM platform_observations" in sql for sql in selects)
+    assert sum("FROM transcripts WHERE video_part_id IN" in sql for sql in selects) == expected_batches
+    assert sum("FROM transcript_segments" in sql for sql in selects) == expected_batches
 
 
 def test_same_second_republication_updates_the_actual_bundle_identity(tmp_path, monkeypatch):

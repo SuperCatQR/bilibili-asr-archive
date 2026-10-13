@@ -33,7 +33,7 @@ def test_formal_upgrade_reuses_completed_ai_jobs_and_preserves_pending_work(tmp_
         before = [tuple(row) for row in session.connection.execute("SELECT * FROM workflow_jobs ORDER BY rowid")]
         frozen = [dict(row) for row in session.connection.execute("SELECT * FROM editorial_inputs ORDER BY rowid")]
         for row in frozen:
-            config = EditorialConfig(**json.loads(row["prepared_json"])["snapshot"]["config"])
+            config = EditorialConfig.from_snapshot(json.loads(row["prepared_json"])["snapshot"]["config"])
             for _ in range(2):
                 planned = app.proofread(part_id=None, base_transcript_id=row["base_transcript_id"],
                     reference_transcript_id=row["reference_transcript_id"], no_reference=row["reference_transcript_id"] is None,
@@ -71,7 +71,7 @@ def test_explicit_refresh_or_changed_configuration_creates_current_input(tmp_pat
     apply_upgrade(plan_upgrade(source, target, target_contracts=("universal-v2",)))
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
         row = session.connection.execute("SELECT * FROM editorial_inputs ORDER BY rowid LIMIT 1").fetchone()
-        config = EditorialConfig(**json.loads(row["prepared_json"])["snapshot"]["config"])
+        config = EditorialConfig.from_snapshot(json.loads(row["prepared_json"])["snapshot"]["config"])
         app = WorkflowApplication(session)
         options = dict(part_id=None, base_transcript_id=row["base_transcript_id"],
             reference_transcript_id=row["reference_transcript_id"], no_reference=row["reference_transcript_id"] is None)
@@ -93,7 +93,7 @@ def test_replanning_does_not_revive_terminal_historical_editorial_job(tmp_path, 
             connection.execute("UPDATE workflow_jobs SET status=? WHERE kind='proofread'", (status,))
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
         row = session.connection.execute("SELECT * FROM editorial_inputs ORDER BY rowid LIMIT 1").fetchone()
-        config = EditorialConfig(**json.loads(row["prepared_json"])["snapshot"]["config"])
+        config = EditorialConfig.from_snapshot(json.loads(row["prepared_json"])["snapshot"]["config"])
         planned = WorkflowApplication(session).proofread(part_id=None, base_transcript_id=row["base_transcript_id"],
             reference_transcript_id=row["reference_transcript_id"], no_reference=row["reference_transcript_id"] is None, config=config)
         assert WorkflowRepository(session.connection).explain_job(planned["job_id"])["status"] == status
@@ -163,7 +163,12 @@ def _automatic_editorial(session, config, base_id):
     while True:
         asr = workflow.claim("producer", kinds=(JobKind.ASR,))
         assert asr is not None
-        workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": base_id})
+        run_id = f"editorial-fixture-{base_id}"
+        if session.connection.execute("SELECT 1 FROM acquisition_runs WHERE run_id=?", (run_id,)).fetchone() is None:
+            from tests.support.asr_quality import measured_fixture_evidence
+            with session.connection:
+                measured_fixture_evidence(session.connection, EditorialRepository(session.connection).read_source(base_id))
+        workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": base_id, "run_id": run_id})
         if asr.profile_id == profile:
             break
     proof = session.connection.execute("SELECT job_id FROM workflow_jobs WHERE kind='proofread' "
@@ -185,7 +190,7 @@ def test_automatic_chain_resolves_real_frozen_input_and_explicit_render_default(
         historical = [tuple(row) for row in session.connection.execute("SELECT * FROM editorial_inputs ORDER BY rowid")]
         old_calls = [tuple(row) for row in session.connection.execute("SELECT * FROM editorial_model_calls ORDER BY rowid")]
         row = session.connection.execute("SELECT * FROM editorial_inputs WHERE video_part_id=1 ORDER BY rowid LIMIT 1").fetchone()
-        config = EditorialConfig(**json.loads(row["prepared_json"])["snapshot"]["config"])
+        config = EditorialConfig.from_snapshot(json.loads(row["prepared_json"])["snapshot"]["config"])
         if native_v2:
             config = replace(config, max_chunk_chars=config.max_chunk_chars - 1)
         workflow, proof_id, render_id, profile = _automatic_editorial(session, config, row["base_transcript_id"])
@@ -239,7 +244,7 @@ def test_binding_uses_existing_canonical_job_without_reviving_terminal_history(t
     apply_upgrade(plan_upgrade(source, target, target_contracts=("universal-v2", "artifact-storage-v1", "artifact-online-v1")))
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
         row = session.connection.execute("SELECT * FROM editorial_inputs WHERE video_part_id=1 ORDER BY rowid LIMIT 1").fetchone()
-        config = EditorialConfig(**json.loads(row["prepared_json"])["snapshot"]["config"])
+        config = EditorialConfig.from_snapshot(json.loads(row["prepared_json"])["snapshot"]["config"])
         workflow, proof_id, pending_id, _ = _automatic_editorial(session, config, row["base_transcript_id"])
         with workflow._write_transaction():
             canonical_id, _ = workflow._ensure_job(kind=JobKind.RENDER_DOCUMENT, video_part_id=1,
@@ -278,7 +283,7 @@ def test_cancelling_unbound_render_is_preserved_after_freezing_and_replanning(tm
     apply_upgrade(plan_upgrade(source, target, target_contracts=("universal-v2",)))
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
         row = session.connection.execute("SELECT * FROM editorial_inputs WHERE video_part_id=1 ORDER BY rowid LIMIT 1").fetchone()
-        config = EditorialConfig(**json.loads(row["prepared_json"])["snapshot"]["config"])
+        config = EditorialConfig.from_snapshot(json.loads(row["prepared_json"])["snapshot"]["config"])
         workflow, _, render_id, profile = _automatic_editorial(session, config, row["base_transcript_id"])
         workflow.cancel(job_ids=(render_id,))
         historical = tuple(session.connection.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (render_id,)).fetchone())
@@ -297,7 +302,7 @@ def test_old_wrong_template_failed_attempt_is_preserved_and_explicit_render_repa
     apply_upgrade(plan_upgrade(source, target, target_contracts=("universal-v2",)))
     with ArchiveSession(target, mode=ArchiveAccessMode.WRITE) as session:
         row = session.connection.execute("SELECT * FROM editorial_inputs WHERE video_part_id=1 ORDER BY rowid LIMIT 1").fetchone()
-        config = EditorialConfig(**json.loads(row["prepared_json"])["snapshot"]["config"])
+        config = EditorialConfig.from_snapshot(json.loads(row["prepared_json"])["snapshot"]["config"])
         workflow, proof_id, render_id, profile = _automatic_editorial(session, config, row["base_transcript_id"])
         # Simulate the previous release's already-executed wrong-v2 render job.
         with session.connection:

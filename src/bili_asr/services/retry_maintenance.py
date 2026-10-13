@@ -81,6 +81,12 @@ class RetryPolicy:
 
 
 def validate_state(state: dict) -> None:
+    if state.get("format") == "retry-control/v2":
+        from bili_asr.services.retry_control import validate_control
+        validate_control(state)
+    elif "format" in state:
+        from bili_asr.services.retry_control import validate_legacy_typed
+        validate_legacy_typed(state)
     if not isinstance(state.get("retry_holds"), dict) or not isinstance(state.get("retry_ledger"), dict):
         raise ValueError("production retry state contract is incomplete")  # noqa: TRY004 - external JSON contract
     for entry in state["retry_ledger"].values():
@@ -152,6 +158,9 @@ def validate_maintenance_paths(archive_root, *, policy_path: Path, state_path: P
 
 def maintain_failed_jobs(connection, policy: RetryPolicy, state: dict, *, state_path: Path, now: int) -> list[dict]:
     validate_state(state)
+    if state.get("format") == "retry-control/v2":
+        from bili_asr.services.retry_control import validate_control
+        validate_control(state, connection=connection, now=now)
     events = []
     for candidate in failed_candidates(connection, job_ids=policy.job_ids, part_ids=policy.part_ids, kinds=policy.kinds):
         job_id, code = candidate["job_id"], candidate["last_error_code"]
@@ -169,6 +178,9 @@ def maintain_failed_jobs(connection, policy: RetryPolicy, state: dict, *, state_
                      last_error_code=code, reserved_attempt_id=candidate["attempt_id"],
                      dispatch_outcome="reserved")
         state["retry_ledger"][job_id] = entry
+        if state.get("format") == "retry-control/v2":
+            from bili_asr.services.retry_control import seal_control
+            seal_control(state)
         write_json(state_path, state)
         def eligible(candidate=candidate, prior_state=prior_state):
             # The tick lock serializes cooperative updates. Unexpected file
@@ -178,6 +190,8 @@ def maintain_failed_jobs(connection, policy: RetryPolicy, state: dict, *, state_
             return _decision(connection, candidate, policy, prior_state, now)['allowed']
         changed = requeue_exact_failure(connection, candidate, now, eligible=eligible)
         entry["dispatch_outcome"] = "requeued" if changed else "stale"
+        if state.get("format") == "retry-control/v2":
+            seal_control(state)
         write_json(state_path, state)
         events.append({"job_id": job_id, "attempt_id": candidate["attempt_id"],
                        "action": entry["dispatch_outcome"], "retry": entry["retries"]})

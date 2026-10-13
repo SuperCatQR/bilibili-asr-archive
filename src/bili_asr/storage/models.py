@@ -14,6 +14,7 @@ from typing import Literal
 from bili_asr.contracts.values import integer as _integer, text as _text, caption_text as _caption_text
 
 from bili_asr.error_codes import validate_error_code as _error_code
+from bili_asr.source_metadata import valid_source_text
 
 ProcessingStatus = Literal["discovered", "metadata_collected", "gone"]
 RunOutcome = Literal["running", "complete", "limited", "risk_interrupted", "failed"]
@@ -203,7 +204,8 @@ class VideoDetailRecord:
         if self.pic is not None:
             _text(self.pic, "pic")
         if self.desc is not None:
-            _text(self.desc, "desc")
+            if not valid_source_text(self.desc, limit=65536, multiline=True):
+                raise ValueError("desc contains invalid source text")
         if self.tid is not None:
             _integer(self.tid, "tid", minimum=1)
         _integer(self.observed_at, "observed_at", minimum=0)

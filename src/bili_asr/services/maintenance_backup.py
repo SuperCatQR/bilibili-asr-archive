@@ -59,7 +59,7 @@ def policy(source_root: Path, repository: Path, *, interval_seconds: int = 3600,
            keep_days: int = 30, alert_after: int = 3, artifact_root: Path | None = None,
            selection: dict | None = None, mode: str = "incremental", compression: str = "stored",
            profile: str = "archive", external_components: tuple | list = (),
-           no_external_control_state: bool = False) -> dict:
+           no_external_control_state: bool = False, media_policy: str = "local-required") -> dict:
     source, destination = package.absolute(source_root), package.absolute(repository)
     if source == destination or destination.is_relative_to(source) or source.is_relative_to(destination):
         raise ValueError("backup repository and source must be disjoint")
@@ -80,6 +80,8 @@ def policy(source_root: Path, repository: Path, *, interval_seconds: int = 3600,
         raise ValueError("public publication backup requires full mode; its projection has no database dependency chain")
     if profile not in {"archive", "task-state"} or type(no_external_control_state) is not bool:
         raise ValueError("invalid backup state profile or control declaration")
+    if media_policy not in {"local-required", "verified-references"} or profile != "task-state" and media_policy != "local-required":
+        raise ValueError("verified-references media policy requires task-state profile")
     if profile == "archive" and (external_components or no_external_control_state):
         raise ValueError("external state components require task-state profile")
     if profile == "task-state":
@@ -91,7 +93,7 @@ def policy(source_root: Path, repository: Path, *, interval_seconds: int = 3600,
             raise ValueError("declare typed external control state or explicitly declare none")
         for component in external_components:
             if (not isinstance(component, dict) or set(component) != {"kind", "path", "lock_path"}
-                    or component["kind"] not in {"retry-control/v1", "backup-job-state/v1"}
+                    or component["kind"] not in {"retry-control/v1", "retry-control/v2", "backup-job-state/v1"}
                     or not isinstance(component["path"], str)
                     or not isinstance(component["lock_path"], str)
                     or str(package.absolute(Path(component["path"]))) != component["path"]
@@ -107,6 +109,8 @@ def policy(source_root: Path, repository: Path, *, interval_seconds: int = 3600,
     if profile == "task-state":
         value.update({"profile": profile, "external_components": list(external_components),
                       "no_external_control_state": no_external_control_state})
+        if media_policy == "verified-references":
+            value["media_policy"] = media_policy
     return {**value, "policy_id": package.digest(value)}
 
 
@@ -120,14 +124,17 @@ def _validate(document: dict) -> None:
                      artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]),
                      selection=document["scope"], mode=document["mode"], compression=document["compression"],
                      profile=document.get("profile", "archive"), external_components=document.get("external_components", ()),
-                     no_external_control_state=document.get("no_external_control_state", False))
+                     no_external_control_state=document.get("no_external_control_state", False),
+                     media_policy=document.get("media_policy", "local-required"))
     if rebuilt != document:
         raise ValueError("backup policy contains unsupported fields or paths")
 
 
 def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None = None,
-               now: int | None = None) -> dict:
+               now: int | None = None, local_targets=None, remote_backends=None) -> dict:
     _validate(document)
+    if document.get("media_policy") != "verified-references" and (local_targets or remote_backends):
+        raise ValueError("target bindings require explicit verified-references task-state policy")
     if trigger not in {"manual", "time", "event"}:
         raise ValueError("unknown backup trigger")
     if trigger == "event" and (not isinstance(event_id, str) or not event_id or len(event_id) > 256):
@@ -174,7 +181,8 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
         _save(receipt_path, start)
         try:
             if document.get("profile") == "task-state":
-                checkpoint, verification, cleaned = _run_task_state(document, start, state, state_root, output, timestamp)
+                checkpoint, verification, cleaned = _run_task_state(document, start, state, state_root, output, timestamp,
+                                                                   local_targets, remote_backends)
                 rollover = False
             else:
                 checkpoint, verification, cleaned, rollover = _run_archive(document, source, repository, state, output)
@@ -187,8 +195,10 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
                       "verification_kind": "detached-chain-materialization-database-contract-fk-typed-rows-file-hashes",
                       "notification": "backup_success", "retention": cleaned}
             if document.get("profile") == "task-state":
+                from bili_asr.services.maintenance_media import media_availability
                 result.update({"restoration_verified": False, "state_evidence_complete": True,
                                "media_self_contained": False, "worker_started": False,
+                               **media_availability(verification["manifest"]),
                                "verification": {"valid": True, "manifest_id": package.digest(verification["manifest"]),
                                                 "profile": "task-state", "state_evidence_complete": True},
                                "verification_kind": "sqlite-consistent-readonly-state-and-observed-component-evidence"})
@@ -208,7 +218,9 @@ def run_backup(document: dict, *, trigger: str = "manual", event_id: str | None 
             # Publish the completed receipt and last-success pointer before
             # pruning. A crash can leave excess backups, never a deleted last
             # successful point paired with a failed current invocation.
-            from bili_asr.services.maintenance_state_retention import retain_state_packages
+            from bili_asr.services.maintenance_state_retention import (
+                retain_state_packages,
+            )
             try:
                 completed = backup_status(repository, document["policy_id"])["runs"]
                 result["retention"] = retain_state_packages(repository, document, completed, now=timestamp)
@@ -274,7 +286,7 @@ def _verify_backup(path: Path, document: dict) -> dict:
     return verify_chain(path)
 
 
-def _run_task_state(document, start, state, state_root, output, timestamp):
+def _run_task_state(document, start, state, state_root, output, timestamp, local_targets=None, remote_backends=None):
     from bili_asr.services.maintenance_task_state import save_task_state
     prior = []
     for path in sorted(state_root.glob("*.json")):
@@ -289,7 +301,9 @@ def _run_task_state(document, start, state, state_root, output, timestamp):
         save_task_state(Path(document["source_root"]), output,
                         artifact_root=None if document["artifact_root"] is None else Path(document["artifact_root"]),
                         external_components=document["external_components"],
-                        no_external_control_state=document["no_external_control_state"], backup_job_state=job_state)
+                        no_external_control_state=document["no_external_control_state"], backup_job_state=job_state,
+                        media_policy=document.get("media_policy", "local-required"),
+                        local_targets=local_targets, remote_backends=remote_backends)
     verification = _verify_backup(output, document)
     _verify_profile(document, verification)
     if verification["manifest"]["backup_job_state"]["current_run"] != start:
@@ -306,6 +320,10 @@ def _verify_profile(document: dict, verified: dict) -> None:
                 or not isinstance(manifest.get("backup_job_state"), dict)
                 or manifest["backup_job_state"].get("policy") != document):
             raise ValueError("task-state package does not match its policy")
+        from bili_asr.services.maintenance_task_state import FORMAT, REFERENCE_FORMAT
+        expected_format = REFERENCE_FORMAT if document.get("media_policy") == "verified-references" else FORMAT
+        if manifest["format"] != expected_format:
+            raise ValueError("task-state media version does not match its explicit policy")
         return
     public = document["scope"] is not None and document["scope"]["profile"] == "publication"
     if public != (verified.get("database_recoverable") is False):

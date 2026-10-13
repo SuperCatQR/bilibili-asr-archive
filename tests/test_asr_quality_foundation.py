@@ -250,18 +250,21 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
     audio_path = tmp_path / "audio" / "test.m4a"
     audio_path.parent.mkdir()
     audio_path.write_bytes(b"fake audio; decoder is substituted")
+    audio_sha256 = hashlib.sha256(audio_path.read_bytes()).hexdigest()
     for _ in range(2):
         job = repository.claim("test", kinds=(JobKind.SUBTITLE, JobKind.AUDIO))
         repository.finish(job.job_id, worker_id="test",
-                          result={"storage_key": "audio/test.m4a", "sha256": "f" * 64} if job.kind is JobKind.AUDIO else {})
+                          result={"storage_key": "audio/test.m4a", "sha256": audio_sha256} if job.kind is JobKind.AUDIO else {})
     job = repository.claim("test")
     assert job.kind is JobKind.ASR
     evidence = assemble_diagnostics([{"completed": True, "decoded_s": 1, "chunks": [],
                                      "timings_s": {"total": 2}}])
     segments = [{"start": 0, "end": 1, "text": "转录"}]
+    measured_coverage = {"decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0,
+                         "coverage_min": .85, "coverage_short": False}
     seen = []
     fake_runner = SimpleNamespace(
-        provenance=lambda: {"language": "Chinese"}, transcribed_coverage=lambda: None,
+        provenance=lambda: {"language": "Chinese"}, transcribed_coverage=lambda: measured_coverage,
         diagnostics=lambda: evidence, release=lambda: None)
     def make_runner(config):
         seen.append(config)
@@ -270,7 +273,7 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
         seen.append(config)
         assert timeout_seconds == 72
         diagnostics_sink.update(evidence)
-        return segments, {"language": "Chinese"}, None
+        return segments, {"language": "Chinese"}, measured_coverage
     monkeypatch.setattr(asr, "ASRRunner", make_runner)
     monkeypatch.setattr(asr, "two_pass_transcribe", lambda *args, **kwargs: segments)
     monkeypatch.setattr(asr, "transcribe_with_timeout", gpu_transcribe)
@@ -284,6 +287,8 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
     assert seen[0].aligner_revision == "align-commit"
     stored = TranscriptRepository(database).read_asr_evidence(result["run_id"], 1)
     assert stored["config_sha256"] == repository.profile_digest(profile_id)
-    assert stored["audio"]["sha256"] == "f" * 64
+    assert stored["audio"]["sha256"] == audio_sha256
     assert stored["diagnostics"] == evidence
-    assert result["quality"] == evidence["quality"]
+    assert result["quality"]["status"] == "usable"
+    assert result["quality"]["inference_completed"] is True
+    assert stored["admission"]["status"] == "usable"

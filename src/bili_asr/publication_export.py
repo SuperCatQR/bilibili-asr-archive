@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 from contextlib import contextmanager
 import difflib
 import hashlib
@@ -21,6 +22,12 @@ from bili_asr.storage.import_origins import import_origin, read_baseline
 from bili_asr.content_rights import (
     ContentRightsError, public_notice, require_public_rights, distribution_status, serialized_distribution,
 )
+
+
+def _catalog_version(articles, contract_profile):
+    if any(article.get("sourceMetadata", {}).get("version") == "source-metadata-v2" for article in articles):
+        return 4
+    return 3 if contract_profile or any(article.get("contentVersion") == 2 for article in articles) else 2
 
 
 def _source_fields(edition: dict) -> dict:
@@ -72,7 +79,7 @@ def _install_public_snapshot(
             rights_checks = [check for check in rights_checks if check[0] not in denied]
             origins = [origin for origin in origins if origin.get("editionId") not in denied]
             files["catalog.json"] = json_bytes({
-                "schemaVersion": 3 if contract_profile or any(article.get("contentVersion") == 2 for article in articles) else 2,
+                "schemaVersion": _catalog_version(articles, contract_profile),
                 "manuscriptType": "publication-draft" if manuscript_type == "publication-draft-export" else "publication",
                 "articles": articles,
             })
@@ -226,7 +233,7 @@ def export_publications(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["publishedAt"], entry["videoPartId"]))
-    version = 3 if contract_profile or any(entry.get("contentVersion") == 2 for entry in articles) else 2
+    version = _catalog_version(articles, contract_profile)
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication", "articles": articles})
     _add_series(files, series, articles, "publication")
     _add_origins(files, origins, "publication", contract_profile)
@@ -328,7 +335,7 @@ def export_publication_drafts(
             files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["createdAt"], entry["videoPartId"], entry["editionId"]))
-    version = 3 if contract_profile or any(entry.get("contentVersion") == 2 for entry in articles) else 2
+    version = _catalog_version(articles, contract_profile)
     files["catalog.json"] = json_bytes({"schemaVersion": version, "manuscriptType": "publication-draft", "articles": articles})
     _add_series(files, series, articles, "publication-draft")
     _add_origins(files, origins, "publication-draft", contract_profile)
@@ -396,6 +403,7 @@ def export_editorial(
     edition_id: str,
     artifact_roots: tuple[Path, ...],
     output: Path,
+    include_provenance: bool = False,
 ) -> dict:
     """Export an exact edition and its immutable AI baseline for private review."""
     require_manuscript_schema(connection)
@@ -477,5 +485,9 @@ def export_editorial(
             files.update({"import-origin.json": json_bytes({"origin": public, "baseline": evidence["baseline"]}),
                 "preserved-body.md": preserved,
                 "differences/preserved.patch": _difference(preserved.decode("utf-8"), content["markdown"], "preserved-body.md", "edition-body.md")})
-    snapshot_id = replace_snapshot(output, kind="editorial-export", files=files)
+        if include_provenance:
+            from bili_asr.services.provenance import trace
+            files["provenance.json"] = json_bytes(trace(connection, edition_id=edition_id, artifact_roots=artifact_roots))
+    snapshot_id = replace_snapshot(output, kind="editorial-export", files=files,
+                                   profile="private-provenance-v1" if include_provenance else None)
     return {"revision_id": revision_id, "edition_id": edition_id, "content_sha256": edition["content_sha256"], "snapshot_id": snapshot_id, "output": str(output)}

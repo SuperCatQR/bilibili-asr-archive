@@ -232,7 +232,13 @@ def _verify_file_inventory(actual: list[dict], protected: list[dict]) -> None:
 
 
 def _convert(edge, stage: Path) -> None:
-    if edge.converter == "install-preserved-body":
+    if edge.converter == "install-source-observations":
+        from bili_asr.storage.source_observations import install_observations_in_staged_copy
+        from bili_asr.storage.database import connect_database
+        with closing(connect_database(stage / "archive.db")) as connection:
+            install_observations_in_staged_copy(connection)
+        validate_snapshot_database(stage / "archive.db")
+    elif edge.converter == "install-preserved-body":
         from bili_asr.services.preserved_body_import import (
             install_preserved_body_extension,
         )

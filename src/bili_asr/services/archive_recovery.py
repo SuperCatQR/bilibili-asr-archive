@@ -19,6 +19,8 @@ from bili_asr import __version__
 from bili_asr.archive_session import ArchiveSession, ArchiveAccessMode
 from bili_asr.artifact_inventory import require_no_links, require_regular_file, portable_artifact_parts, stream_hash
 from bili_asr.artifact_root import ArtifactRoots
+from bili_asr.editorial import EditorialConfig
+from bili_asr.editorial_provider import CREDENTIAL_NAMES, editorial_provider
 from bili_asr.runtime_bindings import ModelBindingError, load_runtime_bindings
 from bili_asr.services.archive_snapshot import verified_snapshot_reader, SnapshotError
 from bili_asr.storage.database import connect_database
@@ -63,7 +65,7 @@ class RuntimeProbe:
                             devices.add(f"rocm:{index}")
             except (OSError, subprocess.TimeoutExpired, ValueError):
                 pass
-        names = frozenset(name for name in ("BILI_SESSDATA", "DEEPSEEK_API_KEY") if os.environ.get(name, "").strip())
+        names = frozenset(name for name in {"BILI_SESSDATA", *CREDENTIAL_NAMES} if os.environ.get(name, "").strip())
         youtube_ready = False
         if "yt_dlp" in packages:
             from bili_asr.sources.youtube_source import youtube_environment
@@ -116,11 +118,34 @@ def _requirements(kind: str, platform: str, probe: RuntimeProbe) -> list[str]:
             missing.append("runtime:youtube-unverified")
     if kind == "subtitle" and platform == "bilibili" and "BILI_SESSDATA" not in probe.credential_names:
         missing.append("credential:BILI_SESSDATA")
-    if kind == "proofread" and "DEEPSEEK_API_KEY" not in probe.credential_names:
-        missing.append("credential:DEEPSEEK_API_KEY")
     if kind == "index":
         missing.append("handler:index")
     return missing
+
+
+def _editorial_requirements(connection, row, payload, probe) -> list[str]:
+    """Resolve the exact frozen input, including a not-yet-bound ASR chain."""
+    from bili_asr.storage.editorial_facts import input_for_proofread, load_input
+    try:
+        input_id = input_for_proofread(connection, row["job_id"])
+        if input_id is None:
+            if "asr_job_id" not in payload or not isinstance(payload.get("editorial_config"), dict):
+                raise ValueError("missing frozen editorial configuration")
+            values = payload["editorial_config"]
+        else:
+            prepared = load_input(connection, input_id)
+            if prepared["snapshot"]["video_part_id"] != row["video_part_id"]:
+                raise ValueError("frozen input belongs to another part")
+            values = prepared["snapshot"]["config"]
+        # Missing endpoint is not a historical default: every frozen editorial
+        # snapshot stored it. Do not guess from today's global configuration.
+        if not isinstance(values, dict) or "base_url" not in values:
+            raise ValueError("missing frozen endpoint")
+        config = EditorialConfig.from_snapshot(values)
+        credential = editorial_provider(config.base_url).credential_name
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return ["editorial:invalid-frozen-config"]
+    return [] if credential in probe.credential_names else ["credential:" + credential]
 
 
 def _job_report(connection, *, restored: bool, probe: RuntimeProbe, bindings=None, now: int | None = None) -> dict:
@@ -164,11 +189,14 @@ def _job_report(connection, *, restored: bool, probe: RuntimeProbe, bindings=Non
             try:
                 from bili_asr.workflow_models import JobKind
                 from bili_asr.workflow_payloads import validate_payload
-                validate_payload(JobKind(row["kind"]), json.loads(row["payload_json"]),
+                payload = json.loads(row["payload_json"])
+                validate_payload(JobKind(row["kind"]), payload,
                                  part_id=row["video_part_id"], profile_id=row["profile_id"])
             except (ValueError, TypeError, KeyError):
                 valid_payload = False
                 missing.append("payload:invalid")
+            if row["kind"] == "proofread" and valid_payload:
+                missing += _editorial_requirements(connection, row, payload, probe)
             binding_identity = None
             if row["kind"] == "asr":
                 profile_id = row["profile_id"]

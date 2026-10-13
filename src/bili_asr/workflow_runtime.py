@@ -22,14 +22,16 @@ from uuid import uuid4
 
 from bili_asr import archive, asr, bili_client
 from bili_asr.artifact_inventory import stream_hash
-from bili_asr.artifact_root import ArtifactRoots, resolve_audio_path, usable_audio_path
+from bili_asr.artifact_root import ArtifactRoots, usable_audio_path
 from bili_asr.asr.session import AsrInferenceSession, InferenceRequest
 from bili_asr.formatting import duration_s_from_ms, pubdate_utc
+from bili_asr.file_ops import install_prepared_file
 from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
 from bili_asr.services.workflow_audio_access import retained_audio, verified_local_audio
+from bili_asr.services.workflow_audio_input import VerifiedAudioInput, verified_audio_input
 from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
 from bili_asr.sources.bilibili_source import BilibiliAudioSource
 from bili_asr.storage import (
@@ -232,8 +234,10 @@ class ArchiveWorkflowHandlers:
         if not math.isfinite(duration_s) or duration_s <= 0:
             raise RuntimeError("invalid_audio_duration")
         duration_ms = max(1, round(duration_s * 1000))
-        with final.open("rb") as stream:
+        # Windows FlushFileBuffers requires write access even without byte writes.
+        with final.open("r+b") as stream:
             size_bytes, digest = stream_hash(stream)
+            os.fsync(stream.fileno())
         self.repository.assert_lease(job)
         storage_key = next(target.relative_to(base).as_posix()
                            for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
@@ -241,8 +245,7 @@ class ArchiveWorkflowHandlers:
         byte_size = size_bytes
         media_format = final.suffix.removeprefix(".")
         with self.repository.owned_transaction(job):
-            if final != target:
-                os.replace(final, target)
+            install_prepared_file(final, target)
             from bili_asr.storage.workflow_outputs import record_audio
             base = next(base for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
             target_id = "local-artifacts" if self.artifact_roots.configured and base == self.artifact_roots.artifact_root else "local"
@@ -257,29 +260,29 @@ class ArchiveWorkflowHandlers:
 
     def local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
         from bili_asr.services.artifact_coordination import consumer_pin
+        from contextlib import nullcontext
+        decode_job_payload(job)
+        self._inference_checkpoint(job)
+        part = self._part(job)
+        audio_result = self.repository.dependency_result(job, JobKind.AUDIO)
         retained = retained_audio(self.connection, job.video_part_id,
-                                  self.repository.dependency_result(job, JobKind.AUDIO))
-        if retained is None:
-            return self._local_asr(job)
-        with consumer_pin(self.connection, self.artifact_roots, retained["object_id"],
-                          owner=f"asr:{job.job_id}:{job.attempt_count}"):
-            return self._local_asr(job)
+                                  audio_result)
+        pin = (nullcontext() if retained is None else
+               consumer_pin(self.connection, self.artifact_roots, retained["object_id"],
+                            owner=f"asr:{job.job_id}:{job.attempt_count}"))
+        with pin, verified_audio_input(self.connection, self.artifact_roots, int(part["video_part_id"]),
+                                      audio_result, retained=retained,
+                                      checkpoint=lambda: self._inference_checkpoint(job)) as audio_input:
+            return self._local_asr(job, audio_input, retained)
 
-    def _local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
+    def _local_asr(self, job: WorkflowJob, audio_input: VerifiedAudioInput,
+                   retained: Mapping[str, Any] | None) -> Mapping[str, Any]:
         decode_job_payload(job)
         self.repository.assert_lease(job)
         if job.profile_id is None:
             raise RuntimeError("missing_profile")
         part = self._part(job)
-        audio_result = self.repository.dependency_result(job, JobKind.AUDIO)
-        storage_key = audio_result.get("storage_key")
-        if not isinstance(storage_key, str) or not storage_key:
-            raise RuntimeError("audio_result_missing_storage_key")
-        retained = retained_audio(self.connection, int(part["video_part_id"]), audio_result)
-        audio_path = (verified_local_audio(self.connection, self.artifact_roots, retained) if retained is not None
-                      else resolve_audio_path(self.artifact_roots, storage_key))
-        if audio_path is None:
-            raise RuntimeError("audio_missing")
+        audio_result, audio_path = audio_input.evidence, audio_input.path
         profile = self.repository.profile(job.profile_id)
         config, binding_identity = self.config_resolver(profile.asr_config())
         inference_request = InferenceRequest(job.job_id, job.lease_owner or "", job.attempt_count,
@@ -335,29 +338,15 @@ class ArchiveWorkflowHandlers:
                 diagnostics_reader = getattr(runner, "diagnostics", None)
                 if callable(diagnostics_reader):
                     diagnostics = diagnostics_reader()
-            self.repository.assert_lease(job)
-            records = tuple(
-                TranscriptSegmentRecord(
-                    start_ms=round(float(cue["start"]) * 1000),
-                    end_ms=round(float(cue["end"]) * 1000),
-                    text=str(cue["text"]),
-                )
-                for cue in segments
-            )
-            if not records:
-                raise RuntimeError("empty_transcript")
+            audio_input.assert_unchanged()
+            self._inference_checkpoint(job)
+            from bili_asr.services.asr_result import preserve_inference
             finished = int(time.time())
-            stored = transcripts.record_local_transcript(
-                run_id=run_id,
-                video_part_id=int(part["video_part_id"]),
-                language=language,
-                segments=records,
-                model_name=profile.model_name,
-                model_revision=profile.model_revision,
-                started_at=started,
-                finished_at=finished,
-                created_at=finished,
-                coverage=coverage,
+            stored, admission = preserve_inference(
+                self.repository, job, run_id=run_id, segments=segments,
+                language=language, model_name=profile.model_name,
+                model_revision=profile.model_revision, started_at=started,
+                finished_at=finished, coverage=coverage,
                 asr_evidence={
                     "schema_version": 1,
                     "profile_id": job.profile_id,
@@ -369,12 +358,17 @@ class ArchiveWorkflowHandlers:
                     "diagnostics": diagnostics,
                 },
             )
-            transcripts.finish_acquisition_run(run_id, int(time.time()))
+            # Completed inference is distinct from usable output. The original
+            # evidence commits before admission can block downstream work.
+            transcripts.finish_acquisition_run(run_id, int(time.time()), outcome="complete")
         except BaseException:
             transcripts.finish_acquisition_run(
                 run_id, int(time.time()), outcome="failed"
             )
             raise
+        from bili_asr.storage.asr_quality import require_admission
+
+        require_admission(admission, stage="asr_quality")
         publication_job_id, _ = self.repository.request_publication(
             video_part_id=int(part["video_part_id"]), transcript_id=stored.transcript_id, source_job=job,
         )
@@ -384,7 +378,7 @@ class ArchiveWorkflowHandlers:
             "version": stored.version,
             "source_kind": "asr-local",
             "publication_job_id": publication_job_id,
-            "quality": diagnostics.get("quality", {"status": "not-evaluable", "flags": []}),
+            "quality": admission,
         }
 
     def publish(self, job: WorkflowJob) -> Mapping[str, Any]:
@@ -444,6 +438,13 @@ class ArchiveWorkflowHandlers:
             raise RuntimeError("transcript_missing")
         candidate = candidates[0]
         transcript_id = int(candidate.transcript["transcript_id"])
+        if candidate.transcript["source_kind"] == "asr-local":
+            from bili_asr.storage.asr_quality import (
+                assess_transcript,
+                require_admission,
+            )
+
+            require_admission(assess_transcript(self.connection, transcript_id), stage="publication_quality")
         segment_rows = self.connection.execute(
             """SELECT start_ms, end_ms, text FROM transcript_segments
                WHERE transcript_id = ? ORDER BY ordinal""",

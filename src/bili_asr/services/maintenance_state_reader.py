@@ -10,6 +10,7 @@ from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from bili_asr.services.maintenance_media import media_availability
 from bili_asr.services.maintenance_task_state import extract_task_state
 from bili_asr.storage.archive_contracts import runtime_contract
 from bili_asr.storage.upgrade_evidence import readonly
@@ -209,6 +210,7 @@ def read_task_state(snapshot: Path, *, query: StateQuery | None = None, work_dir
                 "adapter": _ADAPTERS[contract], "content_id": manifest["content_id"], "inactive_archive": True,
                 "restore_policy": manifest["restore_policy"], "observation": manifest["observation"],
                 "media_self_contained": manifest["media_self_contained"], "media_dependencies": manifest["media_dependencies"],
+                **media_availability(manifest),
                 "query": asdict(query), "jobs": jobs, "histories": histories, "control_records": controls,
                 "pagination": {"offset": query.offset, "limit": query.limit, "next_offset": query.offset + len(jobs) if more else None},
                 "evidence_files": [entry for entry in manifest["files"] if entry["path"] != "archive.db"]})
@@ -340,6 +342,7 @@ def read_task_records(snapshot: Path, table: str, *, query: StateQuery | None = 
                 "content_id": manifest["content_id"], "adapter": _ADAPTERS[manifest["runtime_contract"]],
                 "restore_policy": manifest["restore_policy"], "observation": manifest["observation"],
                 "media_self_contained": manifest["media_self_contained"],
+                **media_availability(manifest),
                 "table": table, "query": asdict(query), **result,
                 "pagination": {"offset": query.offset, "limit": query.limit,
                                "next_offset": query.offset + len(result["records"]) if result["truncated"] else None}})
