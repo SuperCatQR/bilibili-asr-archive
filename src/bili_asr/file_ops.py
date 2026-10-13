@@ -4,15 +4,15 @@ The lock filename and marker are retained for compatibility with installed locks
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
-from collections.abc import Callable
 import json
 import os
-from pathlib import Path
 import stat
 import sys
 import tempfile
-from typing import BinaryIO, Iterator
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import BinaryIO
 
 
 class FileOperationError(ValueError):
@@ -38,11 +38,28 @@ def checked_path(path: Path) -> Path:
 
 def fsync_directory(path: Path) -> None:
     if os.name == "posix":
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY") | getattr(os, "O_NOFOLLOW", 0))
         try:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def install_prepared_file(source: Path, destination: Path) -> None:
+    """Install already-fsynced bytes, then persist every affected directory.
+
+    The caller owns its result/lease fence and must fsync the prepared file
+    before entering a database write transaction. Failure after replacement
+    leaves the destination available for explicit verification and retry.
+    Windows has no directory fsync contract here; fsync_directory deliberately
+    keeps that platform policy rather than claiming a power-loss guarantee.
+    """
+    source, destination = checked_path(source), checked_path(destination)
+    if source != destination:
+        os.replace(source, destination)
+    fsync_directory(destination.parent)
+    if source.parent != destination.parent:
+        fsync_directory(source.parent)
 
 
 def write_new_file(path: Path, content: bytes) -> None:

@@ -147,15 +147,21 @@ def test_cli_preflight_invalid_state_and_missing_archive_are_fail_closed(archive
     assert not (tmp_path / "missing-archive").exists()
 
 
-def test_preflight_checks_persisted_editorial_budget_without_provider_calls(tmp_path):
+@pytest.mark.parametrize("response_id", ["offline-call", "local-precheck"])
+def test_preflight_checks_persisted_editorial_budget_without_provider_calls(tmp_path, response_id):
     from tests.test_ai_editorial import database as editorial_database
     from tests.test_editorial_regeneration import ReferenceClient, queued
 
     generator = editorial_database.__wrapped__(tmp_path)
     connection = next(generator)
     try:
+        class ResponseIdClient(ReferenceClient):
+            def complete(self, request, config):
+                response = super().complete(request, config)
+                response["id"] = response_id
+                return response
         workflow, _repository, _handlers, executor, _prepared, job_id = queued(
-            connection, tmp_path, ReferenceClient(failures=10))
+            connection, tmp_path, ResponseIdClient(failures=10))
         assert executor.run().failed == 1
         files = seed_files(tmp_path)
         policy = policy_value()
@@ -167,6 +173,8 @@ def test_preflight_checks_persisted_editorial_budget_without_provider_calls(tmp_
             connection.execute("UPDATE workflow_attempts SET error_code='deepseek_transport_failed' WHERE job_id=?", (job_id,))
         preview = preflight(archive_root=tmp_path, **files)
         assert preview["events"][0]["reason"] == "physical_budget_exhausted"
+        dispatched = tick(archive_root=tmp_path, **files)
+        assert dispatched["events"][0]["reason"] == "physical_budget_exhausted"
         assert workflow.explain_job(job_id)["status"] == "failed"
         assert read_json(files["state_path"])["retry_ledger"] == {}
     finally:

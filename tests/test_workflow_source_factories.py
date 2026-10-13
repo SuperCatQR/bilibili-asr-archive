@@ -112,7 +112,8 @@ def test_injected_cpu_runner_executes_and_releases_once(database, tmp_path):
             return {"language": "Chinese"}
 
         def transcribed_coverage(self):
-            return None
+            return {"decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0,
+                    "coverage_min": .85, "coverage_short": False}
 
         def release(self):
             calls.append(("release",))
@@ -140,7 +141,8 @@ def test_injected_cpu_runner_executes_and_releases_once(database, tmp_path):
         handlers.close()
     assert calls[0] == ("runner", "offline", 60)
     assert calls[1] == ("evidence", {"evidence_text": None, "paired_subtitle_text": None})
-    assert calls[2] == ("transcribe", str(audio_path))
+    assert calls[2][0] == "transcribe" and calls[2][1] != str(audio_path)
+    assert Path(calls[2][1]).name.startswith(".workflow-audio-input-")
     assert calls[3] == ("release",)
     assert len(calls) == 4
     assert result["source_kind"] == "asr-local"
@@ -157,7 +159,8 @@ def test_injected_timeout_transcriber_executes_gpu_profile_without_cpu_factory(d
     def transcribe(config, path, *, paired_subtitle_text, timeout_seconds, diagnostics_sink):
         calls.append((config.model_name, path, paired_subtitle_text, timeout_seconds))
         diagnostics_sink.update({"quality": {"status": "not-evaluable", "flags": []}})
-        return [{"start": 0, "end": 1, "text": "受控子进程转录"}], {"language": "Chinese"}, None
+        return [{"start": 0, "end": 1, "text": "受控子进程转录"}], {"language": "Chinese"}, {
+            "decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0, "coverage_min": .85, "coverage_short": False}
 
     repository = WorkflowRepository(database)
     profile_id = repository.register_profile(AsrProfile("timeout", "offline", device="cuda", inference_timeout_seconds=72))
@@ -174,7 +177,8 @@ def test_injected_timeout_transcriber_executes_gpu_profile_without_cpu_factory(d
         result = handlers.local_asr(job)
     finally:
         handlers.close()
-    assert calls == [("offline", str(audio_path), None, 72)]
+    assert len(calls) == 1 and calls[0][0] == "offline" and calls[0][2:] == (None, 72)
+    assert Path(calls[0][1]).name.startswith(".workflow-audio-input-")
     assert result["source_kind"] == "asr-local"
     assert database.execute("SELECT text FROM transcript_segments").fetchone()[0] == "受控子进程转录"
 

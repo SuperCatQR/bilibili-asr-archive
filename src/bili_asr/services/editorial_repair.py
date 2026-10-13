@@ -34,7 +34,7 @@ def repair_proofread(workflow, *, job_id: str, config: EditorialConfig,
             raise ValueError("replacement transcript belongs to another part")
         reference_id = None if previous["reference"] is None else previous["reference"]["transcript_id"]
         prepared = editorial.build_input(base_id, reference_id, config)
-        check_source_quality(prepared)
+        check_source_quality(prepared, connection=connection)
         if prepared["input_id"] == old_input:
             raise ValueError("repair must change prompt, configuration or transcript; use retry for identical input")
         editorial.store_input(prepared)

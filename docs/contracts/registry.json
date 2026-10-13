@@ -91,6 +91,51 @@
       "schema": null
     },
     {
+      "identity": "retry-control/v2",
+      "owner": "workflow",
+      "authority": [
+        "src/bili_asr/services/retry_control.py"
+      ],
+      "consumers": [
+        "services.reference_backup",
+        "services.workflow_retry",
+        "services.retry_preflight",
+        "services.maintenance_task_state"
+      ],
+      "capabilities": [
+        "validate",
+        "capture",
+        "read"
+      ],
+      "dependencies": [
+        "workflow-retry-control/v1"
+      ],
+      "schema": "retry-control-v2.schema.json"
+    },
+    {
+      "identity": "archive-reference-backup/v2",
+      "owner": "archive",
+      "authority": [
+        "src/bili_asr/services/reference_backup.py"
+      ],
+      "consumers": [
+        "cli.remote_storage",
+        "services.archive_recovery"
+      ],
+      "capabilities": [
+        "validate",
+        "save",
+        "check",
+        "plan",
+        "restore"
+      ],
+      "dependencies": [
+        "archive-reference-backup/v1",
+        "retry-control/v2"
+      ],
+      "schema": "archive-reference-backup-v2.schema.json"
+    },
+    {
       "identity": "archive-task-state-backup/v1",
       "owner": "archive",
       "authority": [

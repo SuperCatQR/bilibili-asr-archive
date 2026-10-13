@@ -43,6 +43,9 @@ def preflight(*, archive_root, policy_path: Path, state_path: Path, lock_path: P
         connection = session.connection
         # One SQLite snapshot keeps selector evidence and failed attempts aligned.
         connection.execute("BEGIN")
+        if state.get("format") == "retry-control/v2":
+            from bili_asr.services.retry_control import validate_control
+            validate_control(state, connection=connection, now=now)
         missing_jobs = [job for job in policy.job_ids if not connection.execute(
             "SELECT 1 FROM workflow_jobs WHERE job_id=?", (job,)).fetchone()]
         missing_parts = [part for part in policy.part_ids if not connection.execute(

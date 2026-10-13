@@ -9,8 +9,20 @@ from typing import Any
 
 import requests
 
-from bili_asr.editorial import SYSTEM_PROMPT, EditorialConfig, canonical
+from bili_asr.editorial_input_contract import EditorialConfig
+from bili_asr.editorial_provider import editorial_provider
+from bili_asr.editorial_request import request_body
 from bili_asr.workflow_errors import JobExecutionError
+
+__all__ = [
+    "DeepSeekClient",
+    "DeepSeekError",
+    "DeepSeekTransportError",
+    "normalize_usage",
+    "parse_response",
+    "request_body",
+    "usage_metrics",
+]
 
 
 class DeepSeekError(RuntimeError):
@@ -30,30 +42,6 @@ class DeepSeekError(RuntimeError):
 
 class DeepSeekTransportError(DeepSeekError):
     """A request transport failure, distinct from payment/protocol failures."""
-
-
-def request_body(chunk: dict[str, Any], config: EditorialConfig, *, system_prompt: str = SYSTEM_PROMPT) -> dict[str, Any]:
-    thinking = {"type": config.thinking_mode}
-    if config.thinking_mode == "enabled" and config.request_policy == "legacy-v1":
-        thinking["reasoning_effort"] = config.reasoning_effort
-    body = {"model": config.model, "messages": [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": canonical(chunk)}],
-        "response_format": {"type": "json_object"}, "stream": False,
-        "thinking": thinking,
-        "top_p": config.top_p,
-        "max_tokens": config.max_output_tokens}
-    if config.request_policy == "deepseek-v2":
-        if config.thinking_mode == "enabled":
-            body["reasoning_effort"] = config.reasoning_effort
-        else:
-            # Non-thinking DeepSeek ignores top_p: freeze and send its effective
-            # value explicitly. OpenCode receives the same compatibility shape;
-            # this does not assert that the proxy honors these controls.
-            body["top_p"] = 1
-            if config.temperature is not None:
-                body["temperature"] = config.temperature
-    return body
 
 
 def _nonnegative_int(value: Any) -> int | None:
@@ -108,8 +96,8 @@ class DeepSeekClient:
             self.session.close()
 
     def complete(self, request: dict[str, Any], config: EditorialConfig) -> dict[str, Any]:
-        is_opencode = config.base_url.rstrip("/") == "https://opencode.ai/zen/go/v1"
-        env_name = "OPENCODE_API_KEY" if is_opencode else "DEEPSEEK_API_KEY"
+        policy = editorial_provider(config.base_url)
+        env_name = policy.credential_name
         api_key = self.api_key if self.api_key is not None else os.environ.get(env_name, "")
         if not api_key.strip():
             raise DeepSeekError(f"{env_name} is not configured", error_code="deepseek_missing_api_key",
@@ -119,7 +107,7 @@ class DeepSeekClient:
             "User-Agent": "bilibili-asr-archive/1.0",
             "Content-Type": "application/json",
         }
-        if is_opencode:
+        if policy.opencode_session:
             headers["x-opencode-session"] = self.opencode_session
         try:
             response = self.session.post(

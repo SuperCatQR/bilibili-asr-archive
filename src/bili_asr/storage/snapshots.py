@@ -128,11 +128,16 @@ def _table_shape(connection: sqlite3.Connection, name: str, sql: str) -> dict[st
 
 
 def _schema(connection: sqlite3.Connection) -> dict[str, Any]:
+    from bili_asr.storage.editorial_replay import objects as replay_objects, require_indexes
+    require_indexes(connection)
+    derived = replay_objects()
     objects: dict[str, Any] = {}
     for kind, name, sql in connection.execute(
         "SELECT type, name, sql FROM sqlite_master "
         "WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name"
     ):
+        if name in derived:
+            continue
         if kind == "table":
             body: Any = _table_shape(connection, name, sql)
         else:

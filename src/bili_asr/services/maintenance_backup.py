@@ -91,7 +91,7 @@ def policy(source_root: Path, repository: Path, *, interval_seconds: int = 3600,
             raise ValueError("declare typed external control state or explicitly declare none")
         for component in external_components:
             if (not isinstance(component, dict) or set(component) != {"kind", "path", "lock_path"}
-                    or component["kind"] not in {"retry-control/v1", "backup-job-state/v1"}
+                    or component["kind"] not in {"retry-control/v1", "retry-control/v2", "backup-job-state/v1"}
                     or not isinstance(component["path"], str)
                     or not isinstance(component["lock_path"], str)
                     or str(package.absolute(Path(component["path"]))) != component["path"]
