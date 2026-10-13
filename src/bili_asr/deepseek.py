@@ -10,6 +10,7 @@ from typing import Any
 import requests
 
 from bili_asr.editorial import SYSTEM_PROMPT, EditorialConfig, canonical
+from bili_asr.editorial_provider import editorial_provider
 from bili_asr.workflow_errors import JobExecutionError
 
 
@@ -108,8 +109,8 @@ class DeepSeekClient:
             self.session.close()
 
     def complete(self, request: dict[str, Any], config: EditorialConfig) -> dict[str, Any]:
-        is_opencode = config.base_url.rstrip("/") == "https://opencode.ai/zen/go/v1"
-        env_name = "OPENCODE_API_KEY" if is_opencode else "DEEPSEEK_API_KEY"
+        policy = editorial_provider(config.base_url)
+        env_name = policy.credential_name
         api_key = self.api_key if self.api_key is not None else os.environ.get(env_name, "")
         if not api_key.strip():
             raise DeepSeekError(f"{env_name} is not configured", error_code="deepseek_missing_api_key",
@@ -119,7 +120,7 @@ class DeepSeekClient:
             "User-Agent": "bilibili-asr-archive/1.0",
             "Content-Type": "application/json",
         }
-        if is_opencode:
+        if policy.opencode_session:
             headers["x-opencode-session"] = self.opencode_session
         try:
             response = self.session.post(
