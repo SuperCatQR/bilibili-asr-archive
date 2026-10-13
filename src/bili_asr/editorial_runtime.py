@@ -69,7 +69,10 @@ class EditorialWorkflowHandlers:
                 continue
             self._proofread_chunk(job, prepared, chunk, config)
         revision_id = self.repository.commit_revision(job, prepared)
-        return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
+        result: dict[str, Any] = {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
+        if "source_selection" in prepared:
+            result["source_selection"] = prepared["source_selection"]
+        return result
 
     def _proofread_chunk(self, job, prepared, chunk, config):
         input_id, chunk_id = prepared["input_id"], chunk["chunk_id"]

@@ -140,6 +140,14 @@ def _verify_domain(node: dict, nodes: dict) -> None:
         binding = record["job_binding"]
         if binding["job_id"] != row["job_id"] or binding["input_id"] != row["input_id"]:
             raise ValueError("provenance: revision job differs from frozen input binding")
+        for workflow in _bound(node, nodes, "workflow-attempt"):
+            evidence = workflow["record"]
+            if evidence["job"]["kind"] != "proofread" or evidence["job"]["video_part_id"] != frozen["video_part_id"]:
+                raise ValueError("provenance: revision workflow differs from frozen input")
+            attempt_result = exact_json(evidence["attempt"]["result_json"]) if evidence["attempt"]["result_json"] else {}
+            selected = attempt_result.get("source_selection")
+            if selected is not None and selected["transcript_id"] != frozen["base_transcript_id"]:
+                raise ValueError("provenance: selected ASR result differs from frozen base transcript")
         checkpoints = {item["record"]["row"]["chunk_id"]: item["record"]["row"]
                        for item in _bound(node, nodes, "checkpoint")}
         chunks = exact_json(frozen["prepared_json"])["chunks"]
@@ -172,7 +180,13 @@ def _verify_domain(node: dict, nodes: dict) -> None:
     elif kind == "call":
         row = record["row"]
         stored = exact_json(row["request_json"])
+        if not isinstance(stored, dict):
+            raise ValueError("provenance: model request is not an object")
         request = stored.get("request", stored)
+        if not isinstance(request, dict):
+            raise ValueError("provenance: invocation request is not an object")
+        if row["response_json"] is not None and not isinstance(exact_json(row["response_json"]), dict):
+            raise ValueError("provenance: model response is not an object")
         invocation = stored.get("invocation_kind", "provider")
         if invocation not in {"provider", "response_replay", "local_precheck"}:
             raise ValueError("provenance: unknown model invocation kind")
@@ -185,6 +199,8 @@ def _verify_domain(node: dict, nodes: dict) -> None:
         attempt, job = workflow["attempt"], workflow["job"]
         if attempt["attempt_id"] != row["attempt_id"] or job["kind"] != "proofread":
             raise ValueError("provenance: call attempt mismatch")
+        if workflow["input_binding"]["input_id"] != row["input_id"]:
+            raise ValueError("provenance: call differs from workflow input binding")
         replay = stored.get("replay_of_call_id")
         if (invocation == "response_replay") != (replay is not None):
             raise ValueError("provenance: replay invocation and dependency disagree")
@@ -199,10 +215,12 @@ def _verify_domain(node: dict, nodes: dict) -> None:
                     or original["response_json"] != row["response_json"]):
                 raise ValueError("provenance: replay differs from physical call")
     elif kind == "edition":
-        edition = record["edition"]
-        revision = _one(node, nodes, "revision")["row"]
-        if edition["revision_id"] != revision["revision_id"] or digest(edition["content"]) != edition["content_sha256"]:
-            raise ValueError("provenance: publication edition digest mismatch")
+        from bili_asr.provenance_editions import verify_edition
+        revision_record = _one(node, nodes, "revision")
+        revision = _bound(node, nodes, "revision")[0]
+        verify_edition(record, revision_record, _one(revision, nodes, "input"),
+                       [item["record"] for item in _bound(node, nodes, "artifact")],
+                       [item["record"] for item in _bound(node, nodes, "edition")])
     elif kind == "release":
         from bili_asr.publication_identity import validate_release_identity
         edition = _one(node, nodes, "edition")["edition"]
@@ -240,6 +258,9 @@ def _verify_domain(node: dict, nodes: dict) -> None:
                     raise ValueError("provenance: ASR evidence differs from frozen profile")
     elif kind == "source":
         metadata = record["metadata"].get("source_metadata", {})
+        if metadata:
+            from bili_asr.source_metadata import SourceMetadataSnapshot
+            SourceMetadataSnapshot.from_dict(metadata)
         bindings = metadata.get("observationBindings", [])
         observations = _bound(node, nodes, "observation")
         recorded = sorted((item["identity"], item["record"]["payload_sha256"], item["record"]["envelope_sha256"])
@@ -247,6 +268,17 @@ def _verify_domain(node: dict, nodes: dict) -> None:
         expected = sorted((item["observationId"], item["payloadSha256"], item["envelopeSha256"]) for item in bindings)
         if recorded != expected:
             raise ValueError("provenance: source observation dependencies differ from frozen bindings")
+        for observation in observations:
+            envelope = exact_json(observation["record"]["envelope_json"])
+            scope = envelope["scope"]
+            matched_video = scope.get("externalVideoId") == metadata["externalVideoId"]
+            if not matched_video and envelope["platform"] == "bilibili" and envelope["operation"] == "creator-page":
+                payload = exact_json(observation["record"]["payload_json"])
+                matched_video = any(isinstance(item, dict) and item.get("bvid") == metadata["externalVideoId"]
+                                    for item in payload.get("list", {}).get("vlist", []))
+            if (envelope["platform"] != metadata["platform"] or not matched_video
+                    or (scope.get("partIndex") is not None and scope["partIndex"] != metadata["partIndex"])):
+                raise ValueError("provenance: frozen observation belongs to another source")
     elif kind == "workflow-attempt":
         attempt, job = record["attempt"], record["job"]
         if attempt["job_id"] != job["job_id"]:
