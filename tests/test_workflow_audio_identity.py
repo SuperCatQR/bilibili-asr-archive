@@ -335,3 +335,33 @@ def test_private_input_corruption_never_commits_even_when_source_is_unchanged(in
         handlers.local_asr(workflow.claim("asr", kinds=(JobKind.ASR,)))
     assert original.read_bytes() == content
     assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
+
+
+def test_readonly_legacy_fallback_never_receives_private_input_or_reservation_writes(tmp_path, monkeypatch):
+    archive = tmp_path / "archive"
+    artifacts = tmp_path / "artifacts"
+    archive.mkdir()
+    artifacts.mkdir()
+    connection = open_database(archive)
+    _seed_part(connection)
+    source = archive / "audio/input.m4a"
+    source.parent.mkdir()
+    content = b"correct input in readonly legacy fallback"
+    source.write_bytes(content)
+    original_open = Path.open
+    def confined_write(path, mode="r", *args, **kwargs):
+        if any(flag in mode for flag in "wax+") and path.is_relative_to(archive / "audio"):
+            pytest.fail("private input must use the configured write base")
+        return original_open(path, mode, *args, **kwargs)
+    monkeypatch.setattr(Path, "open", confined_write)
+    roots = ArtifactRoots.of(archive, artifacts)
+    try:
+        with verified_audio_input(connection, roots, 1,
+                                  {"storage_key": "audio/input.m4a", "sha256": hashlib.sha256(content).hexdigest()},
+                                  retained=None, checkpoint=lambda: None) as audio_input:
+            assert audio_input.path.is_relative_to(artifacts / "audio")
+            assert audio_input.path.read_bytes() == content
+            audio_input.assert_unchanged()
+        assert not (archive / ".asr-input-reservations").exists()
+    finally:
+        connection.close()
