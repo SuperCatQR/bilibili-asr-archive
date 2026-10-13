@@ -255,7 +255,7 @@ def _read_manifest(bundle):
     return manifest
 
 
-def _validate_into(path, stage):
+def _validate_into(path, stage, *, extract_artifacts=False):
     require_regular_file(path)
     with _open_regular(path) as source:
         _bounded_zip_directory(source)
@@ -266,12 +266,17 @@ def _validate_into(path, stage):
                 member = bundle.getinfo(key)
                 if member.file_size != entry["size"]:
                     raise ReferenceBackupError("embedded file size mismatch")
-                destination = stage.joinpath(*portable_artifact_parts(key))
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                with bundle.open(member) as incoming, destination.open("xb") as output:
-                    actual = stream_hash(incoming, output)
-                    output.flush()
-                    os.fsync(output.fileno())
+                parts = portable_artifact_parts(key)
+                with bundle.open(member) as incoming:
+                    if key == "archive.db" or extract_artifacts:
+                        destination = stage.joinpath(*parts)
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        with destination.open("xb") as output:
+                            actual = stream_hash(incoming, output)
+                            output.flush()
+                            os.fsync(output.fileno())
+                    else:
+                        actual = stream_hash(incoming)
                 if actual != (entry["size"], entry["sha256"]):
                     raise ReferenceBackupError("embedded checksum mismatch")
             _check_bundle_markers(bundle, {entry["path"]: entry for entry in manifest["files"]})
@@ -313,6 +318,7 @@ def _validate_into(path, stage):
 
 @contextmanager
 def verified_reference(path: Path):
+    """Stream-verify every member; materialize only SQLite for offline readers."""
     with tempfile.TemporaryDirectory(prefix="bili-reference-check-") as temporary:
         stage = Path(temporary)
         manifest = _validate_into(Path(path), stage)
@@ -325,6 +331,9 @@ def _report(manifest):
     typed = manifest["format_version"] == 2
     return {"valid": True, "format": f"{FORMAT}/v{manifest['format_version']}", "backup_id": manifest["backup_id"], "self_contained": False,
             "database_contract": manifest["database_contract"], "embedded_files": len(manifest["files"]),
+            "read_only_temporary_bytes": next(entry["size"] for entry in manifest["files"] if entry["path"] == "archive.db"),
+            "read_only_media_extracted": False,
+            "verification_scope": "all-embedded-member-bytes-streamed-and-database-references",
             "dependency_count": len(dependencies), "external_state": "unverified", "external_verified": False,
             "blocking_objects": [{"path": dep["path"], "object_id": dep["object_id"], "reason": "external_unverified",
                                   "jobs": manifest["affected_jobs"].get(dep["object_id"], [])} for dep in dependencies],
@@ -419,7 +428,7 @@ def restore_reference_backup(path: Path, target: Path, *, source_workers_stopped
         _empty_destination(target)
         stage = Path(temporary) / "archive"
         stage.mkdir()
-        manifest = _validate_into(path, stage)
+        manifest = _validate_into(path, stage, extract_artifacts=True)
         controls_directory = stage / "documents" / "reference-recovery" / manifest["backup_id"]
         controls_directory.mkdir(parents=True, exist_ok=True)
         verified_holds = manifest["operational_state"]["verified"]

@@ -71,6 +71,18 @@ save 在独占维护锁内复制原数据库，不执行 job recovery。已记�
 
 离线 inspect/check 验证每个随包文件及依赖与数据库/catalog 的对应关系，不访问网络或目标目录，始终报告 `external_state=unverified`。`--online` 才读取外部包，给出 `complete`、`partial` 或 `unverifiable`、检查时间、明确的摘要范围、阻塞对象和关联任务。在线核验依赖可用不代表本地输入、模型、凭据或 worker 已就绪。
 
+save 完成后的自检、离线 inspect/check/plan 和 `verified_reference` reader
+对所有成员流式计算大小/SHA-256，只提取 SQLite 数据库，媒体和普通产物
+不落盘。临时文件有效载荷为 manifest 报告的 `read_only_temporary_bytes`
+（数据库大小），额外内存是有界读取缓冲和受限清单；此数值不代表整个操作
+的 RSS 或文件系统开销。路径、重复成员、ZIP 目录和 bundle marker 仍完整
+验证，不以跳过媒体校验换取空间。显式 online 远程包检查另需下载目标包。
+
+只读 plan 可以在恢复空间不足时成功验证并报告 `target_ready=false`；
+restore 在创建目标前检查全部内嵌文件所需空间，然后重新验证并提取完整
+产物到 staging。只读临时空间不再随内嵌音频体积增长，恢复空间仍必须能
+容纳真实安装数据。历史 reference/v1 与新 reference/v2 使用同一校验路径。
+
 远程引用必须在保存时提供相应 binding 的 instance ID；保存只读取该非秘密身份，不连接服务器。在线检查要求重新提供匹配 binding。已登记但过期的副本记录不代表当前字节仍可访问。
 
 运维文件仅接受以下严格白名单，不收集任意目录、环境、令牌、worker 配置或整份监控状态：
