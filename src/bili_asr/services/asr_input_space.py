@@ -1,9 +1,7 @@
 """Kernel-owned reservations for private ASR inputs on their actual filesystem."""
 from __future__ import annotations
 
-import json
 import shutil
-import stat
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,47 +10,10 @@ from uuid import uuid4
 from bili_asr.archive_maintenance import ArchiveBusyError
 from bili_asr.artifact_fences import resource_fence
 from bili_asr.file_ops import atomic_replace_file, checked_path, json_bytes
-from bili_asr.storage_targets import unique_json_object
+from bili_asr.services.local_space import SpaceReservationError, reserved_local_bytes
 from bili_asr.workflow_errors import JobExecutionError
 
 INPUT_MINIMUM_FREE_BYTES = 64 * 1024 * 1024
-
-
-def _confirm_owner_released(roots, receipt: Path) -> None:
-    """A vanished receipt is safe only after its kernel owner has released it."""
-    try:
-        with resource_fence(roots, "asr-input:" + receipt.stem, exclusive=True):
-            pass
-    except ArchiveBusyError:
-        raise JobExecutionError("audio_input_space_unavailable", {
-            "reason": "missing-live-reservation"}) from None
-
-
-def _reservation_bytes(roots, receipt: Path) -> int:
-    try:
-        checked_path(receipt)
-        info = receipt.stat()
-        if not stat.S_ISREG(info.st_mode) or info.st_size > 4096:
-            raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"})
-        try:
-            with resource_fence(roots, "asr-input:" + receipt.stem, exclusive=True):
-                receipt.unlink(missing_ok=True)
-                return 0
-        except ArchiveBusyError:
-            record = json.loads(receipt.read_text("utf-8"), object_pairs_hook=unique_json_object)
-    except FileNotFoundError:
-        # An owner may finish between glob/stat, the busy check, and the read.
-        # Recheck its fence: ignoring a receipt while its owner lives would
-        # admit bytes that are still reserved.
-        _confirm_owner_released(roots, receipt)
-        return 0
-    except (ValueError, UnicodeError):
-        raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"}) from None
-    if (not isinstance(record, dict) or set(record) != {"schema_version", "byte_size"}
-            or record["schema_version"] != 1 or type(record["byte_size"]) is not int
-            or record["byte_size"] < 0):
-        raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"})
-    return record["byte_size"]
 
 
 @contextmanager
@@ -60,7 +21,7 @@ def _capacity_fence(roots, checkpoint):
     deadline = time.monotonic() + 5
     while True:
         checkpoint()
-        lock = resource_fence(roots, "asr-input-capacity", exclusive=True)
+        lock = resource_fence(roots, "capacity", exclusive=True)
         try:
             lock.__enter__()
         except ArchiveBusyError:
@@ -76,22 +37,20 @@ def _capacity_fence(roots, checkpoint):
 
 
 @contextmanager
-def reserve_input_space(roots, base: Path, byte_size: int, checkpoint):
+def reserve_input_space(roots, base: Path, byte_size: int, checkpoint, *, connection=None):
     """No timer guesses: a live reservation owns its kernel fence until exit."""
+    if type(byte_size) is not int or byte_size < 0:
+        raise ValueError("space reservation must be a nonnegative integer")
     directory = checked_path(base / ".asr-input-reservations")
     directory.mkdir(exist_ok=True)
     identity = uuid4().hex
     receipt = directory / f"{identity}.json"
-    with resource_fence(roots, "asr-input:" + identity, exclusive=True):
+    with resource_fence(roots, "asr-input:" + identity, exclusive=False):
         with _capacity_fence(roots, checkpoint):
-            reserved = 0
-            for candidate_base in roots.read_bases():
-                candidates = checked_path(candidate_base / ".asr-input-reservations")
-                if not candidates.exists():
-                    continue
-                for previous in candidates.glob("*.json"):
-                    checkpoint()
-                    reserved += _reservation_bytes(roots, previous)
+            try:
+                reserved = reserved_local_bytes(connection, roots, checkpoint)
+            except SpaceReservationError as error:
+                raise JobExecutionError("audio_input_space_unavailable", {"reason": error.reason}) from None
             free = shutil.disk_usage(base).free
             if free - reserved - byte_size < INPUT_MINIMUM_FREE_BYTES:
                 raise JobExecutionError("audio_input_space_unavailable", {

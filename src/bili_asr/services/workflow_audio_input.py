@@ -164,7 +164,8 @@ def verified_audio_input(connection: sqlite3.Connection, roots: ArtifactRoots, p
         try:
             with confined_audio_file(base, key) as source_path, open(source_path, "rb") as source:
                 source_generation = _generation(source)
-                reservation.enter_context(reserve_input_space(roots, roots.write_base, source_generation[2], checkpoint))
+                reservation.enter_context(reserve_input_space(
+                    roots, roots.write_base, source_generation[2], checkpoint, connection=connection))
                 with fixed.open("xb") as destination:
                     size, sha256 = _clone_or_copy(source, destination, checkpoint)
                 after = _generation(source)

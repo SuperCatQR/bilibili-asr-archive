@@ -63,7 +63,7 @@ def test_receipt_disappearance_requires_release_of_real_owner_fence(
 
 
 @pytest.mark.parametrize("record", ["null", "[]", '{"byte_size":',
-    '{"schema_version":1,"byte_size":-1}'])
+    '{"schema_version":1,"byte_size":-1}', '{"schema_version":true,"byte_size":1}'])
 def test_malformed_live_reservation_has_a_classified_capacity_failure(tmp_path, monkeypatch, record):
     roots = ArtifactRoots.of(tmp_path)
     monkeypatch.setattr("shutil.disk_usage", lambda _: SimpleNamespace(free=200 * 1024 * 1024))
