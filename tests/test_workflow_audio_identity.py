@@ -65,8 +65,13 @@ def _transcribe(content, seen):
     def transcribe(config, path, **kwargs):
         seen.append(Path(path))
         assert Path(path).read_bytes() == content
-        return [{"start": 0, "end": 1, "text": "verified input"}], {"language": "English"}, None
+        return [{"start": 0, "end": 1, "text": "verified input"}], {"language": "English"}, _coverage()
     return transcribe
+
+
+def _coverage():
+    return {"decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0,
+            "coverage_min": .85, "coverage_short": False}
 
 
 def test_matching_prerequisite_uses_fixed_generation_and_records_verification(input_worker):
@@ -240,7 +245,7 @@ class ReadingProcessRunner:
     def provenance(self):
         return {"language": "English"}
     def transcribed_coverage(self):
-        return None
+        return _coverage()
     def diagnostics(self):
         return {}
     def release(self):

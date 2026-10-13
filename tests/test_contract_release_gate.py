@@ -36,7 +36,7 @@ def _shrink(value):
 def test_actual_full_pytest_collection_covers_every_registered_upgrade(monkeypatch):
     monkeypatch.chdir(ROOT)
     report = validate_release_collection(ROOT, pytest_shard._node_ids())
-    assert report["registered_edges"] == 9
+    assert report["registered_edges"] == len(catalog()["upgrades"])
     assert report["frozen_files"] == 3
     assert all(report["collected_acceptance"].values())
 
@@ -192,7 +192,7 @@ def test_registered_path_and_collected_evidence_allow_explicit_reader_retirement
     value = deepcopy(catalog())
     _shrink(value)
     value["release_acceptance"]["transitions"] = [_transition(value)]
-    assert validate_release_collection(ROOT, _nodes(value), candidate=value)["registered_edges"] == 9
+    assert validate_release_collection(ROOT, _nodes(value), candidate=value)["registered_edges"] == len(value["upgrades"])
 
 
 @pytest.mark.parametrize("damage", ["unregistered-path", "evidence", "target", "self-replacement"])

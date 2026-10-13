@@ -62,6 +62,14 @@ def two_chunks(connection):
     with connection:
         connection.execute("INSERT INTO transcript_segments VALUES (1,2,2000,2900,'第三段文字')")
         connection.execute("INSERT INTO transcript_segments VALUES (1,3,3000,3900,'第四段文字')")
+        # This fixture substitutes a four-second decoder. Its original two-cue
+        # attestation must describe the expanded inference before it is frozen.
+        connection.execute("UPDATE transcript_coverage_attestations SET decoded_s=3.9,produced_s=3.9,"
+                           "coverage=1,coverage_short=0 WHERE transcript_id=1")
+        row = connection.execute("SELECT evidence_json FROM transcript_asr_evidence WHERE transcript_id=1").fetchone()
+        evidence = json.loads(row[0])
+        evidence["audio"]["duration_ms"] = 3900
+        connection.execute("UPDATE transcript_asr_evidence SET evidence_json=? WHERE transcript_id=1", (json.dumps(evidence),))
 
 
 class CheckpointClient:

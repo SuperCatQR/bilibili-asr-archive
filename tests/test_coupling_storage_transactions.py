@@ -35,7 +35,15 @@ def test_freeze_and_render_binding_roll_back_together_on_late_failure(database, 
     assert not database.in_transaction
     monkeypatch.setattr(workflow, "bind_editorial_render", original_bind)
     prepared = freeze_job_input(repository, workflow, job)
-    assert repository.load_input(prepared["input_id"]) == prepared
+    frozen = repository.load_input(prepared["input_id"])
+    selection = prepared["source_selection"]
+    assert selection["transcript_id"] == frozen["snapshot"]["base"]["transcript_id"]
+    prerequisite = database.execute("SELECT attempt_id,result_json FROM workflow_attempts "
+        "WHERE job_id=? AND outcome='succeeded'", (job.payload["asr_job_id"],)).fetchone()
+    assert selection["attempt_id"] == prerequisite["attempt_id"]
+    assert selection["asr_job_id"] == job.payload["asr_job_id"]
+    # Producer selection is per-invocation evidence, outside frozen identity.
+    assert frozen == {key: value for key, value in prepared.items() if key != "source_selection"}
     assert database.execute("SELECT COUNT(*) FROM editorial_job_inputs").fetchone()[0] == 1
 
 

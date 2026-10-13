@@ -211,7 +211,8 @@ class MetadataRepository:
         if not part_ids:
             return {}, {}
         marks = ",".join("?" for _ in part_ids)
-        if self.observations_supported():
+        supports_observations = self.observations_supported()
+        if supports_observations:
             query = f"""SELECT s.video_part_id,s.platform,s.external_video_id,s.page_index,
                         s.title AS part_title,s.duration_ms,
                         CASE WHEN s.platform='bilibili' THEN v.title ELSE s.video_title END AS title,
@@ -264,7 +265,7 @@ class MetadataRepository:
         youtube_ids = tuple(dict.fromkeys(row["external_video_id"] for row in rows if row["platform"] == "youtube"))
         youtube = read_youtube_fields_many(self.connection, youtube_ids) if youtube_ids else {}
         from bili_asr.storage.metadata_acceptance import read_bindings_many
-        bilibili = read_bindings_many(self.connection, bvids) if bvids and self.observations_supported() else {}
+        bilibili = read_bindings_many(self.connection, bvids) if bvids and supports_observations else {}
         snapshots = {
             int(row["video_part_id"]): SourceMetadataSnapshot(
                 ContentRef(row["platform"], row["external_video_id"], row["page_index"]),

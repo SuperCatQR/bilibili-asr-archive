@@ -46,6 +46,12 @@ def _store_transcript(connection, *, transcript_id=1, part_id=1, source="subtitl
             "INSERT INTO transcript_segments VALUES (?, 0, 0, 900, ?)",
             (transcript_id, text),
         )
+        if source == "asr-local":
+            from bili_asr.storage.models import TranscriptRecord, TranscriptSegmentRecord
+            from tests.support.asr_quality import measured_fixture_evidence
+            measured_fixture_evidence(connection, TranscriptRecord(transcript_id, part_id, source, "zh-CN", None,
+                1, hashlib.sha256(text.encode()).hexdigest(), created_at,
+                (TranscriptSegmentRecord(0, 900, text),)))
     return text
 
 
