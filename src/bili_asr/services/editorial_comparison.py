@@ -236,7 +236,7 @@ def _report(connection, manifest):
     return {"schema": SCHEMA, "comparison_id": digest(manifest), "source_input_id": manifest["source"]["input_id"],
             "max_physical_calls": manifest["max_physical_calls"],
             "physical_calls": sum(v["physical_calls"] for v in variants.values()), "variants": variants,
-            "provider_capability": "not_verified", "semantic_quality": "not_reviewed", "default_preset": "baseline-v1"}
+            "provider_capability": "not_verified", "semantic_quality": "not_reviewed", "default_preset": EditorialConfig().chunk_preset}
 
 
 def write_review_packet(ledger: Path, output: Path):

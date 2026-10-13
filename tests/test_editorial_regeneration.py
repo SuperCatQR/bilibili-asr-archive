@@ -403,7 +403,7 @@ def test_legacy_raw_call_is_classified_read_only_without_enabling_regeneration(d
     assert repository.load_input(prepared["input_id"]) == prepared
 
 
-def test_default_replan_reuses_legacy_but_explicit_new_limit_creates_new_identity(database, tmp_path):
+def test_explicit_baseline_reuses_legacy_but_large_default_creates_new_identity(database, tmp_path):
     _, repository, _, _, prepared, _ = queued(database, tmp_path, ReferenceClient(),
         EditorialConfig.from_snapshot({}))
     # Remove fields that were absent in archives, recomputing fixture identity.
@@ -412,7 +412,8 @@ def test_default_replan_reuses_legacy_but_explicit_new_limit_creates_new_identit
         del legacy["snapshot"]["config"][field]
     legacy["input_id"] = digest(legacy["snapshot"])
     repository.store_input(legacy)
-    assert repository.build_input(1, None, EditorialConfig(), reuse_existing=True) == legacy
+    assert repository.build_input(1, None, EditorialConfig.preset("baseline-v1"), reuse_existing=True) == legacy
+    assert repository.build_input(1, None, EditorialConfig(), reuse_existing=True)["input_id"] != legacy["input_id"]
     fresh = repository.build_input(1, None, EditorialConfig(max_chunk_regenerations=1), reuse_existing=True)
     assert fresh["input_id"] != legacy["input_id"]
     assert repository.build_input(1, None, EditorialConfig(), reuse_existing=False)["input_id"] != legacy["input_id"]

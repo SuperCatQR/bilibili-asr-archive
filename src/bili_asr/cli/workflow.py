@@ -273,7 +273,7 @@ def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
                         help="Optional sampling temperature; requires --thinking-mode disabled")
     parser.add_argument("--max-chunk-regenerations", type=int, default=defaults.max_chunk_regenerations,
                         help="Persisted extra physical call budget per chunk (0..4); only allowlisted reference failures regenerate")
-    parser.add_argument("--chunk-preset", choices=("baseline-v1", "large-v1"), default="baseline-v1")
+    parser.add_argument("--chunk-preset", choices=("baseline-v1", "large-v1"), default=defaults.chunk_preset)
     parser.add_argument("--max-chunk-segments", type=int, default=None)
     parser.add_argument("--max-chunk-chars", type=int, default=None)
 

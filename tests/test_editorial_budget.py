@@ -91,7 +91,7 @@ def test_recovery_feedback_is_measured_in_same_wire_token_unit_before_a_reservat
 
 @pytest.mark.parametrize("mutation", ["omit_chunk", "changed_text", "missing_estimate", "reorder_chunk", "missing_plan"])
 def test_new_frozen_boundaries_and_chunk_caches_cannot_silently_change(mutation):
-    prepared = prepare_input(record(tuple(f"具体内容{i}" for i in range(600))), None, EditorialConfig())
+    prepared = prepare_input(record(tuple(f"具体内容{i}" for i in range(600))), None, EditorialConfig.preset("baseline-v1"))
     changed = deepcopy(prepared)
     if mutation == "omit_chunk":
         changed["chunks"].pop()
@@ -108,8 +108,8 @@ def test_new_frozen_boundaries_and_chunk_caches_cannot_silently_change(mutation)
     require_frozen_plan(prepared)
 
 
-def test_600_short_segments_have_explainable_baseline_and_explicit_large_candidate():
-    original = prepare_input(record(tuple(f"具体内容{i}" for i in range(600))), None, EditorialConfig())
+def test_600_short_segments_have_explainable_explicit_baseline_and_large_default():
+    original = prepare_input(record(tuple(f"具体内容{i}" for i in range(600))), None, EditorialConfig.preset("baseline-v1"))
     before = canonical(original)
     large = replan(original, EditorialConfig.preset("large-v1"))
     baseline_report, large_report = plan_report(original), plan_report(large)
@@ -139,7 +139,7 @@ def test_historical_input_does_not_change_on_replanning_or_readonly_comparison(t
         _seed_part(connection)
         insert_record(connection, record(tuple(f"具体内容{i}" for i in range(600))))
         repository = EditorialRepository(connection)
-        legacy = repository.prepare(1, None, EditorialConfig(budget_policy="legacy-v1"))
+        legacy = repository.prepare(1, None, EditorialConfig.preset("baseline-v1", budget_policy="legacy-v1"))
         # Reproduce a historical config with no newly installed policy fields.
         legacy["snapshot"]["config"].pop("budget_policy")
         legacy["snapshot"]["config"].pop("chunk_preset")
@@ -150,7 +150,7 @@ def test_historical_input_does_not_change_on_replanning_or_readonly_comparison(t
         with connection:
             repository.store_input(legacy)
         before = [tuple(row) for row in connection.execute("SELECT * FROM editorial_inputs")]
-        assert repository.build_input(1, None, EditorialConfig(), reuse_existing=True)["input_id"] == legacy["input_id"]
+        assert repository.build_input(1, None, EditorialConfig.preset("baseline-v1"), reuse_existing=True)["input_id"] == legacy["input_id"]
         assert EditorialConfig.from_snapshot(legacy["snapshot"]["config"]).budget_policy == "legacy-v1"
         assert cli.main(["editorial", "plan", "--archive-root", str(tmp_path), "--input-id", legacy["input_id"]]) == 0
         result = json.loads(capsys.readouterr().out)
@@ -164,3 +164,40 @@ def test_historical_input_does_not_change_on_replanning_or_readonly_comparison(t
 def test_unknown_planning_policy_fails_explicitly(config):
     with pytest.raises(ValueError, match="unsupported editorial"):
         EditorialConfig(**config)
+
+
+@pytest.mark.parametrize("prepare", [prepare_input, multilingual])
+def test_new_default_uses_large_chunks_while_explicit_baseline_remains_available(prepare):
+    source = record(tuple(f"具体内容{i}" for i in range(600)))
+    default = prepare(source, None, EditorialConfig())
+    baseline = prepare(source, None, EditorialConfig.preset("baseline-v1"))
+    assert default["snapshot"]["config"]["chunk_preset"] == "large-v1"
+    assert default["snapshot"]["config"]["max_chunk_segments"] == 2048
+    assert default["snapshot"]["config"]["max_chunk_chars"] == 128_000
+    assert len(default["chunks"]) == 1 and len(baseline["chunks"]) == 3
+    require_frozen_plan(default)
+    assert [s["segment_id"] for c in default["chunks"] for s in c["editable_segments"]] == [s["segment_id"] for s in default["snapshot"]["base"]["segments"]]
+
+
+def test_cli_large_default_baseline_opt_out_and_explicit_limits():
+    from bili_asr.cli.workflow import _editorial_config
+    parser = cli.build_parser()
+    arguments = ["workflow", "proofread", "--base-transcript-id", "1"]
+    default = _editorial_config(parser.parse_args(arguments))
+    assert default == EditorialConfig()
+    baseline = _editorial_config(parser.parse_args(arguments + ["--chunk-preset", "baseline-v1"]))
+    assert baseline == EditorialConfig.preset("baseline-v1")
+    custom = _editorial_config(parser.parse_args(arguments + ["--max-chunk-segments", "40", "--max-chunk-chars", "4000"]))
+    assert custom.chunk_preset == "large-v1" and custom.max_chunk_segments == 40 and custom.max_chunk_chars == 4000
+
+
+def test_missing_historical_scheduling_fields_keep_baseline_guards():
+    saved = EditorialConfig.preset("baseline-v1").to_dict()
+    for name in ("chunk_preset", "max_chunk_segments", "max_chunk_chars"):
+        saved.pop(name)
+    before = canonical(saved)
+    restored = EditorialConfig.from_snapshot(saved)
+    assert restored.chunk_preset == "baseline-v1"
+    assert restored.max_chunk_segments == 256 and restored.max_chunk_chars == 20_000
+    assert canonical(saved) == before
+    assert EditorialConfig.from_snapshot(EditorialConfig().to_dict()) == EditorialConfig()

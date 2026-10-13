@@ -71,7 +71,7 @@ def test_bounded_comparison_keeps_raw_evidence_and_replay_never_resends(tmp_path
     ledger = tmp_path / "comparison.db"
     report = compare(prepared, ledger, provider)
     assert report["physical_calls"] == len(provider.calls) == 4
-    assert report["default_preset"] == "baseline-v1" and report["provider_capability"] == "not_verified"
+    assert report["default_preset"] == "large-v1" and report["provider_capability"] == "not_verified"
     assert report["variants"]["baseline-v1"]["plan"]["planned_calls"] == 3
     assert report["variants"]["large-v1"]["plan"]["planned_calls"] == 1
     assert all(v["structure_complete"] and v["semantic_quality"] == "not_reviewed" for v in report["variants"].values())

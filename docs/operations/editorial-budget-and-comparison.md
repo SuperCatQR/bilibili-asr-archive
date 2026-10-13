@@ -12,9 +12,10 @@ request JSON 的 UTF-8 长度估算 token，包含系统提示、正文、参考
 token。段数、字符、输出 reserve 和输入 token 都会单独报告限制原因。单段连同
 参考、上下文超限时以 `editorial_budget_exceeded` 结束，不拆写、不丢段。
 
-默认 `baseline-v1` 保留 256 段、20000 字符保护。`large-v1` 是显式候选，保护为
-2048 段、128000 字符，同时仍受输入、输出和 safety token 限制。新任务可指定
-`workflow plan ... --chunk-preset large-v1`。显式 `--max-chunk-segments` /
+自 2026-10-13 用户确认后，新任务默认 `large-v1`：最多 2048 段、128000 字符，
+同时仍受输入、输出和 safety token 限制。能够容纳的整份文本优先一次处理，超限时
+继续按冻结预算分块。需要小批时显式指定 `--chunk-preset baseline-v1`，其保护为
+256 段、20000 字符。显式 `--max-chunk-segments` /
 `--max-chunk-chars` 覆盖所选 preset。规划寻找容量边界后，在末尾 20% 区间优先选择
 句末或至少 1200ms 间隔；相邻 chunk 共享配置数量的只读上下文。正文段只能属于
 一个 chunk，不能把只读段当正文来源。完整段覆盖、顺序、重复防护、严格输出结构
@@ -62,7 +63,7 @@ baseline/large 均一块的实际对照只能验证请求与响应能力，不�
 报告区分 requested model 与 returned model，保留原始 usage，累计已知输入/输出/
 推理/cache counters，同时列出缺失计数；记录延时、finish_reason、失败、重试和
 结构完整性。没给出的字段保持 unknown，不推定 reasoning 为零。默认 preset
-始终为 baseline；候选结构成功和模型别名不能证明 1M 能力。
+为当前新任务默认 large-v1；候选结构成功和模型别名不能证明 1M 能力。
 
 可用 `--pricing PRIVATE/prices.json` 明确冻结价格来源、日期和货币。格式如下；
 数值是说明格式的占位价格，不是实际报价，应替换为核验后的证据：
@@ -90,4 +91,8 @@ pass/fail/unknown 和具体证据；审阅跨块衔接时按全局段序检查�
 不能填写 completeness 或 structure_failures=pass。agent 复核单独记录，不能标成
 人工已复核。record 绑定 comparison ID、review hash 与当次 report hash，文件
 以独占新建写入，不覆盖既有复核。默认报告的 semantic_quality 仍为 not_reviewed，
-具名记录是独立证据。更改默认 preset 必须另有真实使用及人工对照结论。
+具名记录是独立证据。2026-10-13 用户在官方 300 段结构对照和 60 段质量对照后明确决定后续默认大批。
+该决定不将 agent 评审标成人工通过；两组未确认宾语补写及语气变化等问题继续保留，
+1M 实际上下文能力仍未验证，#412 的质量及能力验收继续开放。已有冻结输入和请求
+按保存的 preset/边界读取；缺少历史分块字段时仍按 256/20000 的兼容默认解释。
+显式以新大批配置重新规划可能产生新 input 和付费任务，需先查看计划。

@@ -83,10 +83,10 @@ class EditorialConfig:
     request_policy: str = "deepseek-v2"
     max_chunk_regenerations: int = 2
     rule_version: str = RULE_VERSION
-    max_chunk_segments: int = 256
-    max_chunk_chars: int = 20_000
+    max_chunk_segments: int = 2048
+    max_chunk_chars: int = 128_000
     budget_policy: str = "token-budget-v2"
-    chunk_preset: str = "baseline-v1"
+    chunk_preset: str = "large-v1"
 
     def __post_init__(self) -> None:
         if not self.model.strip() or self.rule_version != RULE_VERSION:
@@ -140,6 +140,9 @@ class EditorialConfig:
         values.setdefault("max_chunk_regenerations", 0)
         values.setdefault("budget_policy", "legacy-v1")
         values.setdefault("chunk_preset", "baseline-v1")
+        # Missing historical guards retain their original scheduling semantics.
+        values.setdefault("max_chunk_segments", 256)
+        values.setdefault("max_chunk_chars", 20_000)
         return cls(**values)
 
     @classmethod
