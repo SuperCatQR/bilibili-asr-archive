@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import stat
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +16,43 @@ from bili_asr.storage_targets import unique_json_object
 from bili_asr.workflow_errors import JobExecutionError
 
 INPUT_MINIMUM_FREE_BYTES = 64 * 1024 * 1024
+
+
+def _confirm_owner_released(roots, receipt: Path) -> None:
+    """A vanished receipt is safe only after its kernel owner has released it."""
+    try:
+        with resource_fence(roots, "asr-input:" + receipt.stem, exclusive=True):
+            pass
+    except ArchiveBusyError:
+        raise JobExecutionError("audio_input_space_unavailable", {
+            "reason": "missing-live-reservation"}) from None
+
+
+def _reservation_bytes(roots, receipt: Path) -> int:
+    try:
+        checked_path(receipt)
+        info = receipt.stat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 4096:
+            raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"})
+        try:
+            with resource_fence(roots, "asr-input:" + receipt.stem, exclusive=True):
+                receipt.unlink(missing_ok=True)
+                return 0
+        except ArchiveBusyError:
+            record = json.loads(receipt.read_text("utf-8"), object_pairs_hook=unique_json_object)
+    except FileNotFoundError:
+        # An owner may finish between glob/stat, the busy check, and the read.
+        # Recheck its fence: ignoring a receipt while its owner lives would
+        # admit bytes that are still reserved.
+        _confirm_owner_released(roots, receipt)
+        return 0
+    except (ValueError, UnicodeError):
+        raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"}) from None
+    if (not isinstance(record, dict) or set(record) != {"schema_version", "byte_size"}
+            or record["schema_version"] != 1 or type(record["byte_size"]) is not int
+            or record["byte_size"] < 0):
+        raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"})
+    return record["byte_size"]
 
 
 @contextmanager
@@ -53,17 +91,7 @@ def reserve_input_space(roots, base: Path, byte_size: int, checkpoint):
                     continue
                 for previous in candidates.glob("*.json"):
                     checkpoint()
-                    checked_path(previous)
-                    if not previous.is_file() or previous.stat().st_size > 4096:
-                        raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"})
-                    try:
-                        with resource_fence(roots, "asr-input:" + previous.stem, exclusive=True):
-                            previous.unlink()
-                    except ArchiveBusyError:
-                        record = json.loads(previous.read_text("utf-8"), object_pairs_hook=unique_json_object)
-                        if set(record) != {"schema_version", "byte_size"} or record["schema_version"] != 1 or type(record["byte_size"]) is not int or record["byte_size"] < 0:
-                            raise JobExecutionError("audio_input_space_unavailable", {"reason": "invalid-reservation"})
-                        reserved += record["byte_size"]
+                    reserved += _reservation_bytes(roots, previous)
             free = shutil.disk_usage(base).free
             if free - reserved - byte_size < INPUT_MINIMUM_FREE_BYTES:
                 raise JobExecutionError("audio_input_space_unavailable", {
