@@ -60,7 +60,7 @@ def test_catalog_cross_schema_references_validate_without_network(monkeypatch):
     assert "secret body" not in str(error.value)
 
 
-@pytest.mark.parametrize("version", [1, 4, True, 2.0, None])
+@pytest.mark.parametrize("version", [1, 5, True, 2.0, None])
 def test_unknown_catalog_versions_have_no_default_fallback(version):
     with pytest.raises(ValueError):
         catalog_contract(version)

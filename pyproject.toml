@@ -29,7 +29,7 @@ youtube = [
     "yt-dlp-ejs==0.8.0",
 ]
 dev = [
-    "mypy>=1.19,<2",
+    "mypy>=1.19,<3",
     # The light members of the ASR stack.  The test double exercises the real audio path,
     # which calls numpy/soundfile/soxr directly; of the three, only soundfile and soxr are
     # declared in the [asr] extra — numpy arrives transitively through both, and is named
@@ -90,7 +90,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "bili_asr.contracts" = ["schemas/*.json", "database-fingerprints.json"]
-"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "schema-content-v2.sql", "schema-observations.sql", "schema-source-sync.sql", "schema-preserved-body-import.sql", "schema-source-supplements.sql", "schema-artifact-storage.sql", "schema-artifact-online.sql", "schema-rights.sql", "migration-source-bilibili-v1.json"]
+"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "schema-editorial-replay-index.sql", "schema-content-v2.sql", "schema-observations.sql", "schema-source-observations.sql", "schema-source-sync.sql", "schema-preserved-body-import.sql", "schema-source-supplements.sql", "schema-artifact-storage.sql", "schema-artifact-online.sql", "schema-rights.sql", "migration-source-bilibili-v1.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -81,10 +81,14 @@ def add_artifacts_parser(subparsers: argparse._SubParsersAction, *, archive_root
         action.add_argument("--archive-root", default=archive_root)
         action.add_argument("--artifact-root", default=None)
         action.add_argument("--policy-id", default="default")
+        if name == "policy-show":
+            action.add_argument("--default-version", type=int, choices=(1, 2), default=1,
+                help="Defaults for an unconfigured policy; version 2 is audio-only and forbids deletion")
         if name == "policy-set":
-            action.add_argument("--config", required=True, help="Complete version 1 policy JSON; policy-show returns defaults")
+            action.add_argument("--config", required=True, help="Complete version 1 or audio retention version 2 policy JSON")
         if name == "policy-run":
             action.add_argument("--target-root")
+            action.add_argument("--storage-target", action="append", help="TARGET_ID=DIRECTORY for each additional audio replica")
             action.add_argument("--watch", action="store_true", help="Poll at the configured scan/backoff deadline")
             action.add_argument("--drain-file")
             _hold_arguments(action)
@@ -202,13 +206,24 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
                 run_policy_once,
             )
             if args.artifacts_action == "policy-run":
+                from bili_asr.services.artifact_access import parse_target_bindings
+                def checkpoint():
+                    if args.drain_file and Path(args.drain_file).exists():
+                        raise ValueError("audio_retention_drained")
                 try:
                     while True:
                         if args.drain_file and Path(args.drain_file).exists():
                             report = {"state": "drained", "policy_id": args.policy_id}
                             break
                         report = run_policy_once(roots, policy_id=args.policy_id,
-                            target_root=None if args.target_root is None else Path(args.target_root), external_holds=lambda: _external_holds(args))
+                            target_root=None if args.target_root is None else Path(args.target_root), external_holds=lambda: _external_holds(args),
+                            storage_targets=parse_target_bindings(args.storage_target), checkpoint=checkpoint)
+                        if report.get("reason") == "audio_retention_interrupted":
+                            report = {"state": "drained", "policy_id": args.policy_id, "last_run": report}
+                            break
+                        if args.drain_file and Path(args.drain_file).exists():
+                            report = {"state": "drained", "policy_id": args.policy_id, "last_run": report}
+                            break
                         if not args.watch or report["state"] == "off":
                             break
                         print(json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
@@ -223,7 +238,8 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
                 mode = ArchiveAccessMode.WRITE if args.artifacts_action == "policy-set" else ArchiveAccessMode.READ
                 with ArchiveSession(roots.archive_root, mode=mode, artifact_roots=roots) as session:
                     report = (configure_policy(session.connection, args.policy_id, _read_plan(Path(args.config)))
-                              if args.artifacts_action == "policy-set" else read_policy(session.connection, args.policy_id))
+                              if args.artifacts_action == "policy-set" else read_policy(session.connection, args.policy_id,
+                                  default_version=args.default_version))
         elif args.artifacts_action == "check":
             from bili_asr.artifact_packages import check_artifact_package
             report = check_artifact_package(Path(args.package), expected_sha256=args.expected_sha256)

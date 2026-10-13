@@ -64,7 +64,7 @@ def test_universal_chain_keeps_frozen_source_and_exports_explicit_version(tmp_pa
                 sync_source_tags(connection, edition_id=edited["edition_id"], actor="editor", note="refresh tags")
         grant_test_permission(connection, edited, (root,))
         assert export_publication_drafts(connection, artifact_roots=(root,), output=tmp_path / "drafts") == 1
-        draft_catalog = json.loads((tmp_path / "drafts" / "catalog.json").read_text())
+        draft_catalog = json.loads((tmp_path / "drafts" / "catalog.json").read_text(encoding="utf-8"))
         assert draft_catalog["schemaVersion"] == 3
         export_editorial(connection, revision_id=revision, edition_id=edited["edition_id"], artifact_roots=(root,), output=tmp_path / "review")
         approve(connection, edited)
@@ -79,7 +79,7 @@ def test_universal_chain_keeps_frozen_source_and_exports_explicit_version(tmp_pa
                 connection.execute("UPDATE source_videos SET published_at=2345678901,title='new title' WHERE external_id='dQw4w9WgXcQ'")
         assert get_edition(connection, edited["edition_id"])["content"]["source"]["metadata"] == original
         assert export_publications(connection, artifact_roots=(root,), output=tmp_path / "public") == 1
-        catalog = json.loads((tmp_path / "public" / "catalog.json").read_text())
+        catalog = json.loads((tmp_path / "public" / "catalog.json").read_text(encoding="utf-8"))
         assert catalog["schemaVersion"] == 3
         entry = catalog["articles"][0]
         assert entry["platform"] == platform and entry["sourceMetadata"] == original
@@ -121,7 +121,7 @@ def test_mixed_historical_and_new_release_catalog_preserves_old_bytes(tmp_path):
         approve(connection, edition)
         publish_edition(connection, edition_id=edition["edition_id"], artifact_roots=(target,), write_root=target, actor="publisher")
         export_publications(connection, artifact_roots=(target,), output=tmp_path / "catalog")
-        catalog = json.loads((tmp_path / "catalog" / "catalog.json").read_text())
+        catalog = json.loads((tmp_path / "catalog" / "catalog.json").read_text(encoding="utf-8"))
         assert catalog["schemaVersion"] == 3
         assert any("bvid" in entry for entry in catalog["articles"])
         assert any(entry.get("platform") == "youtube" for entry in catalog["articles"])

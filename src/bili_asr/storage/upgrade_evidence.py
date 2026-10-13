@@ -11,10 +11,10 @@ from bili_asr.contracts.registry import (
     IMPORT_EXTENSION,
     SOURCE_SUPPLEMENT_POLICY,
 )
+from bili_asr.sql_identity import schema_sql_sha256
 from bili_asr.storage.archive_contracts import runtime_contract
 from bili_asr.storage.import_origins import require_import_extension
 from bili_asr.storage.migration_source import (
-    _sql_digest,
     inspect_migration_source,
     legacy_source_contract,
     typed_table_fingerprint,
@@ -38,8 +38,10 @@ def source_evidence(database: Path) -> dict:
     """Reject unknown schema objects and unfinished executions before copying."""
     with closing(readonly(database)) as connection:
         kind = runtime_contract(connection)
-        from bili_asr.storage.artifact_catalog import require_artifact_catalog, EXTENSION as ARTIFACT_EXTENSION
-        from bili_asr.storage.artifact_online import require_artifact_online, EXTENSION as ONLINE_EXTENSION
+        from bili_asr.storage.artifact_catalog import EXTENSION as ARTIFACT_EXTENSION
+        from bili_asr.storage.artifact_catalog import require_artifact_catalog
+        from bili_asr.storage.artifact_online import EXTENSION as ONLINE_EXTENSION
+        from bili_asr.storage.artifact_online import require_artifact_online
         artifacts = require_artifact_catalog(connection)
         online = require_artifact_online(connection)
         if kind == BILIBILI_V1:
@@ -51,10 +53,13 @@ def source_evidence(database: Path) -> dict:
         else:
             imports = require_import_extension(connection)
             supplements = require_supplement_extension(connection)
+            from bili_asr.storage.source_observations import require_observations
+            observations = require_observations(connection)
             validate_snapshot_database(database)
-            required, _ = _current_contract(kind, imports, supplements, artifacts, online)
+            required, _ = _current_contract(kind, imports, supplements, artifacts, online, observations=observations)
             extensions = (((IMPORT_EXTENSION,) if imports else ()) + ((SOURCE_SUPPLEMENT_POLICY,) if supplements else ())
-                          + ((ARTIFACT_EXTENSION,) if artifacts else ()) + ((ONLINE_EXTENSION,) if online else ()))
+                          + ((ARTIFACT_EXTENSION,) if artifacts else ()) + ((ONLINE_EXTENSION,) if online else ())
+                          + (("source-observations/v1",) if observations else ()))
         actual = _schema(connection)
         extras = set(actual) - set(required)
         # Search indexes are derived but must still match a registered definition.
@@ -66,11 +71,11 @@ def source_evidence(database: Path) -> dict:
                 raise ValueError("incomplete derived search index")
             for name, variants in group["objects"].items():
                 row = connection.execute("SELECT type,sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
-                if {"kind": row[0], "sql_sha256": _sql_digest(row[1])} not in variants:
+                if {"kind": row[0], "sql_sha256": schema_sql_sha256(row[1])} not in variants:
                     raise ValueError("unregistered derived search index definition")
             extras -= names
         if extras:
-            raise ValueError("unregistered source schema object: " + sorted(extras)[0])
+            raise ValueError("unregistered source schema object: " + min(extras))
         for table, condition in (
             ("workflow_jobs", "status='running'"), ("workflow_attempts", "outcome='running'"),
             ("ingestion_runs", "outcome='running'"), ("acquisition_runs", "outcome='running'"),

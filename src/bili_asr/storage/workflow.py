@@ -144,6 +144,37 @@ class WorkflowRepository:
                               quality_threshold=quality_threshold, editorial_config=editorial_config)
         return profile_id, plan
 
+    def enqueue_asr_repair(self, *, repair_of_job_id: str | None, video_part_id: int,
+                           profile: AsrProfile, reference_transcript_id: int | None,
+                           repair_of_transcript_id: int | None = None,
+                           editorial_config: Mapping[str, Any] | None = None) -> dict:
+        """Create a replacement graph inside an explicit repair transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("ASR repair enqueue requires a write transaction")
+        profile_id = self._register_profile(profile)
+        digest = self.profile_digest(profile_id)
+        audio_key, asr_key = "repair-audio", "repair-asr"
+        payload = {"video_part_id": video_part_id, "profile_id": profile_id,
+                   "reference_transcript_id": reference_transcript_id}
+        origin = repair_of_job_id if repair_of_job_id is not None else f"transcript-{repair_of_transcript_id}"
+        if repair_of_job_id is not None:
+            payload["repair_of_job_id"] = repair_of_job_id
+        if repair_of_transcript_id is not None:
+            payload["repair_of_transcript_id"] = repair_of_transcript_id
+        specs = [
+            JobSpec(audio_key, JobKind.AUDIO, video_part_id, {"video_part_id": video_part_id},
+                    dedupe_key=f"audio:{video_part_id}"),
+            JobSpec(asr_key, JobKind.ASR, video_part_id,
+                    payload, dedupe_key=f"asr-repair:{origin}:{digest}", profile_id=profile_id,
+                    policy_key=AsrPolicy.SELECTED.value, prerequisites=(audio_key,))]
+        if editorial_config is not None:
+            specs.extend(editorial_specs(video_part_id, {"editorial_config": dict(editorial_config)}, prerequisite=asr_key))
+        identities, created = self._enqueue_specs(specs)
+        return {"repair_of_job_id": repair_of_job_id, "job_id": identities[asr_key],
+                "repair_of_transcript_id": repair_of_transcript_id,
+                "profile_id": profile_id, "profile_sha256": digest,
+                "created": bool(created.get(JobKind.ASR))}
+
     def _plan(self, ids: tuple[int, ...], *, policy: AsrPolicy, profile_id: int,
               quality_threshold: float | None, editorial_config: Mapping[str, Any] | None) -> WorkflowPlan:
         if editorial_config is not None:
@@ -163,7 +194,8 @@ class WorkflowRepository:
             placeholders = ",".join("?" for _ in chunk)
             rows = self.connection.execute(
                 "SELECT p.video_part_id, (SELECT q.score FROM workflow_quality_assessments q "
-                "WHERE q.video_part_id = p.video_part_id ORDER BY q.assessed_at DESC, q.assessment_id DESC LIMIT 1) AS score "
+                "WHERE q.video_part_id = p.video_part_id AND q.assessor NOT LIKE 'asr-admission/%' "
+                "ORDER BY q.assessed_at DESC, q.assessment_id DESC LIMIT 1) AS score "
                 f"FROM video_parts p WHERE p.video_part_id IN ({placeholders}) AND p.processing_status <> 'gone'", chunk)
             valid = {int(row["video_part_id"]): row["score"] for row in rows}
             references: dict[int, list[sqlite3.Row]] = {}

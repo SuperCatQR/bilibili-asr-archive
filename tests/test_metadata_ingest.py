@@ -1990,6 +1990,28 @@ def test_video_details_land_through_the_pinned_adapter(tmp_root, bilibili_api_se
         connection.close()
 
 
+@pytest.mark.parametrize("description", ["第一行\n第二行", "Français\r\n中文\t🙂"])
+def test_multiline_description_reaches_persistent_source_metadata(tmp_root, bilibili_api_seam, description):
+    from bili_asr.source_metadata import SourceMetadataSnapshot
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1DETAILSD0", description=description), count=1)
+    bilibili_api_seam.parts_response = [make_part_item(cid=2222)]
+    connection = open_database(tmp_root)
+    try:
+        repository = MetadataRepository(connection)
+        result = MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1)
+        assert result.outcome == "limited"
+        part_id = connection.execute("SELECT video_part_id FROM video_parts").fetchone()[0]
+        snapshot = repository.read_source_metadata(part_id)
+        assert snapshot.description == description
+        assert SourceMetadataSnapshot.from_dict(snapshot.to_dict()).description == description
+        assert repository.read_source_metadata_many([part_id])[part_id].description == description
+    finally:
+        connection.close()
+
+
 def test_video_details_land_from_the_fixture_defaults(tmp_root, bilibili_api_seam):
     """The case above overrides the three; this one reads them un-overridden.
 

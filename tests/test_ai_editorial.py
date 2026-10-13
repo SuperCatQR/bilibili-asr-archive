@@ -41,7 +41,7 @@ def envelope(value, *, finish="stop"):
             "choices": [{"finish_reason": finish, "message": {"content": canonical(value)}}]}
 
 
-def insert_record(connection, value):
+def insert_record(connection, value, *, measured=True):
     with connection:
         connection.execute("INSERT INTO transcripts(transcript_id, video_part_id, source_kind, language, "
                            "model_id, version, content_sha256, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)",
@@ -50,6 +50,9 @@ def insert_record(connection, value):
         for i, s in enumerate(value.segments):
             connection.execute("INSERT INTO transcript_segments VALUES (?, ?, ?, ?, ?)",
                                (value.transcript_id, i, s.start_ms, s.end_ms, s.text))
+        if measured and value.source_kind == "asr-local":
+            from tests.support.asr_quality import measured_fixture_evidence
+            measured_fixture_evidence(connection, value)
 
 
 @pytest.fixture
@@ -114,7 +117,7 @@ def test_local_revision_only_handles_all_mechanical_segments():
 def test_chunk_budget_exposes_component_estimates_without_changing_frozen_identity():
     prepared = prepare_input(record(("中文" * 30, "第二段")), None, EditorialConfig())
     budget = prepared["chunks"][0]["budget_estimate"]
-    assert budget["method"] == "utf8-bytes/3"
+    assert budget["method"] == "serialized-request-utf8/3-v1"
     assert budget["system_prompt_tokens"] == estimate_utf8_tokens(
         prepared["snapshot"]["system_prompt"])
     assert budget["editable_tokens"] > 0
@@ -483,7 +486,7 @@ def test_automatic_plan_waits_for_asr_only_not_subtitle(database, tmp_path):
         else:
             workflow.finish(job.job_id, worker_id="producer", result={})
     asr = workflow.claim("producer", kinds=(JobKind.ASR,))
-    workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": 1})
+    workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": 1, "run_id": "editorial-fixture-1"})
     assert executor.run().succeeded == 2
     assert database.execute("SELECT COUNT(*) FROM editorial_job_inputs").fetchone()[0] == 1
 

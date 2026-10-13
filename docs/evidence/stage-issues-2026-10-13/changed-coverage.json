@@ -1,0 +1,1018 @@
+{
+  "base": "b07c51c5e38ef9680572a393e185d5a77b61579e",
+  "files": [
+    {
+      "file": "src/bili_asr/artifact_inventory.py",
+      "covered": 14,
+      "total": 14,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/artifact_packages.py",
+      "covered": 39,
+      "total": 41,
+      "percent": 95.1219512195122,
+      "missing_lines": [
+        241,
+        277
+      ]
+    },
+    {
+      "file": "src/bili_asr/asr/admission.py",
+      "covered": 98,
+      "total": 98,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/archive.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/artifacts.py",
+      "covered": 14,
+      "total": 14,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/editorial.py",
+      "covered": 79,
+      "total": 79,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/maintenance_package.py",
+      "covered": 17,
+      "total": 17,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/parser.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/provenance.py",
+      "covered": 43,
+      "total": 44,
+      "percent": 97.72727272727273,
+      "missing_lines": [
+        24
+      ]
+    },
+    {
+      "file": "src/bili_asr/cli/remote_storage.py",
+      "covered": 6,
+      "total": 6,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/source.py",
+      "covered": 33,
+      "total": 33,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/cli/workflow.py",
+      "covered": 53,
+      "total": 55,
+      "percent": 96.36363636363636,
+      "missing_lines": [
+        371,
+        391
+      ]
+    },
+    {
+      "file": "src/bili_asr/contracts/fingerprints.py",
+      "covered": 3,
+      "total": 3,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/contracts/registry.py",
+      "covered": 6,
+      "total": 6,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/deepseek.py",
+      "covered": 7,
+      "total": 7,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/editorial.py",
+      "covered": 5,
+      "total": 5,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/editorial_budget.py",
+      "covered": 125,
+      "total": 128,
+      "percent": 97.65625,
+      "missing_lines": [
+        65,
+        106,
+        114
+      ]
+    },
+    {
+      "file": "src/bili_asr/editorial_input_contract.py",
+      "covered": 111,
+      "total": 117,
+      "percent": 94.87179487179488,
+      "missing_lines": [
+        93,
+        110,
+        113,
+        150,
+        165,
+        187
+      ]
+    },
+    {
+      "file": "src/bili_asr/editorial_input_v2.py",
+      "covered": 3,
+      "total": 3,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/editorial_provider.py",
+      "covered": 13,
+      "total": 13,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/editorial_quality.py",
+      "covered": 10,
+      "total": 10,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/editorial_recovery.py",
+      "covered": 4,
+      "total": 4,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/editorial_request.py",
+      "covered": 16,
+      "total": 16,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/editorial_runtime.py",
+      "covered": 14,
+      "total": 14,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/export.py",
+      "covered": 4,
+      "total": 4,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/export_snapshot.py",
+      "covered": 13,
+      "total": 14,
+      "percent": 92.85714285714286,
+      "missing_lines": [
+        277
+      ]
+    },
+    {
+      "file": "src/bili_asr/file_generation.py",
+      "covered": 20,
+      "total": 20,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/file_ops.py",
+      "covered": 12,
+      "total": 12,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/manuscript_files.py",
+      "covered": 7,
+      "total": 7,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/metadata_acceptance.py",
+      "covered": 81,
+      "total": 85,
+      "percent": 95.29411764705883,
+      "missing_lines": [
+        16,
+        17,
+        106,
+        116
+      ]
+    },
+    {
+      "file": "src/bili_asr/provenance_contract.py",
+      "covered": 309,
+      "total": 332,
+      "percent": 93.07228915662651,
+      "missing_lines": [
+        113,
+        130,
+        139,
+        146,
+        153,
+        157,
+        166,
+        168,
+        170,
+        173,
+        178,
+        204,
+        223,
+        237,
+        261,
+        265,
+        276,
+        324,
+        332,
+        338,
+        366,
+        378,
+        388
+      ]
+    },
+    {
+      "file": "src/bili_asr/provenance_editions.py",
+      "covered": 50,
+      "total": 55,
+      "percent": 90.9090909090909,
+      "missing_lines": [
+        45,
+        48,
+        56,
+        59,
+        62
+      ]
+    },
+    {
+      "file": "src/bili_asr/provenance_metadata.py",
+      "covered": 100,
+      "total": 107,
+      "percent": 93.45794392523365,
+      "missing_lines": [
+        59,
+        67,
+        78,
+        112,
+        115,
+        139,
+        145
+      ]
+    },
+    {
+      "file": "src/bili_asr/provenance_report.py",
+      "covered": 67,
+      "total": 70,
+      "percent": 95.71428571428571,
+      "missing_lines": [
+        32,
+        77,
+        86
+      ]
+    },
+    {
+      "file": "src/bili_asr/publication_export.py",
+      "covered": 10,
+      "total": 10,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/search_index/source_store.py",
+      "covered": 6,
+      "total": 6,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/archive_migration.py",
+      "covered": 4,
+      "total": 4,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/archive_recovery.py",
+      "covered": 24,
+      "total": 26,
+      "percent": 92.3076923076923,
+      "missing_lines": [
+        133,
+        138
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/archive_upgrade.py",
+      "covered": 7,
+      "total": 7,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_consumer.py",
+      "covered": 13,
+      "total": 13,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_consumer_graph.py",
+      "covered": 11,
+      "total": 11,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_coordination.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_inventory_service.py",
+      "covered": 3,
+      "total": 3,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_io.py",
+      "covered": 10,
+      "total": 11,
+      "percent": 90.9090909090909,
+      "missing_lines": [
+        29
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/artifact_policy.py",
+      "covered": 12,
+      "total": 12,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_policy_configuration.py",
+      "covered": 28,
+      "total": 28,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_policy_defaults.py",
+      "covered": 3,
+      "total": 3,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_policy_planning.py",
+      "covered": 41,
+      "total": 42,
+      "percent": 97.61904761904762,
+      "missing_lines": [
+        33
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/artifact_readers.py",
+      "covered": 4,
+      "total": 4,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/artifact_transfer.py",
+      "covered": 37,
+      "total": 38,
+      "percent": 97.36842105263158,
+      "missing_lines": [
+        145
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/asr_input_space.py",
+      "covered": 49,
+      "total": 50,
+      "percent": 98.0,
+      "missing_lines": [
+        43
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/asr_repair.py",
+      "covered": 48,
+      "total": 48,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/asr_result.py",
+      "covered": 29,
+      "total": 29,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/audio_replica_requirement.py",
+      "covered": 51,
+      "total": 56,
+      "percent": 91.07142857142857,
+      "missing_lines": [
+        32,
+        36,
+        47,
+        57,
+        62
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/audio_retention.py",
+      "covered": 166,
+      "total": 175,
+      "percent": 94.85714285714286,
+      "missing_lines": [
+        94,
+        108,
+        112,
+        113,
+        119,
+        150,
+        171,
+        222,
+        223
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/audio_retention_policy.py",
+      "covered": 15,
+      "total": 15,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/audio_retention_recovery.py",
+      "covered": 23,
+      "total": 24,
+      "percent": 95.83333333333333,
+      "missing_lines": [
+        26
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/editorial_application.py",
+      "covered": 7,
+      "total": 7,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/editorial_comparison.py",
+      "covered": 179,
+      "total": 197,
+      "percent": 90.86294416243655,
+      "missing_lines": [
+        41,
+        47,
+        51,
+        75,
+        78,
+        82,
+        89,
+        90,
+        92,
+        112,
+        119,
+        159,
+        162,
+        180,
+        260,
+        267,
+        270,
+        273
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/editorial_evaluation.py",
+      "covered": 9,
+      "total": 10,
+      "percent": 90.0,
+      "missing_lines": [
+        120
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/editorial_provider_evaluation.py",
+      "covered": 1,
+      "total": 1,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/editorial_repair.py",
+      "covered": 1,
+      "total": 1,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/local_space.py",
+      "covered": 70,
+      "total": 73,
+      "percent": 95.89041095890411,
+      "missing_lines": [
+        44,
+        58,
+        82
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/maintenance_backup.py",
+      "covered": 14,
+      "total": 14,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/maintenance_media.py",
+      "covered": 122,
+      "total": 133,
+      "percent": 91.72932330827068,
+      "missing_lines": [
+        38,
+        53,
+        64,
+        78,
+        101,
+        106,
+        109,
+        144,
+        156,
+        160,
+        166
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/maintenance_state_reader.py",
+      "covered": 1,
+      "total": 1,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/maintenance_task_state.py",
+      "covered": 49,
+      "total": 52,
+      "percent": 94.23076923076923,
+      "missing_lines": [
+        152,
+        154,
+        199
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/metadata_ingest.py",
+      "covered": 20,
+      "total": 22,
+      "percent": 90.9090909090909,
+      "missing_lines": [
+        468,
+        877
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/metadata_observations.py",
+      "covered": 16,
+      "total": 16,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/metadata_refresh.py",
+      "covered": 9,
+      "total": 9,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/provenance.py",
+      "covered": 252,
+      "total": 269,
+      "percent": 93.68029739776952,
+      "missing_lines": [
+        46,
+        52,
+        67,
+        73,
+        89,
+        99,
+        118,
+        122,
+        163,
+        206,
+        228,
+        267,
+        270,
+        304,
+        307,
+        318,
+        333
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/reference_backup.py",
+      "covered": 63,
+      "total": 67,
+      "percent": 94.02985074626865,
+      "missing_lines": [
+        131,
+        242,
+        246,
+        249
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/retry_control.py",
+      "covered": 118,
+      "total": 119,
+      "percent": 99.15966386554622,
+      "missing_lines": [
+        104
+      ]
+    },
+    {
+      "file": "src/bili_asr/services/retry_maintenance.py",
+      "covered": 14,
+      "total": 14,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/retry_preflight.py",
+      "covered": 3,
+      "total": 3,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/upgrade_checkpoint.py",
+      "covered": 1,
+      "total": 1,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/video_tags.py",
+      "covered": 3,
+      "total": 3,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/workflow_audio_input.py",
+      "covered": 140,
+      "total": 140,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/workflow_retry.py",
+      "covered": 12,
+      "total": 12,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/services/workflow_status.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/source_metadata.py",
+      "covered": 26,
+      "total": 26,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/source_observations.py",
+      "covered": 158,
+      "total": 163,
+      "percent": 96.93251533742331,
+      "missing_lines": [
+        33,
+        163,
+        164,
+        165,
+        210
+      ]
+    },
+    {
+      "file": "src/bili_asr/source_video.py",
+      "covered": 7,
+      "total": 7,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/sources/bilibili_api_gateway.py",
+      "covered": 46,
+      "total": 47,
+      "percent": 97.87234042553192,
+      "missing_lines": [
+        483
+      ]
+    },
+    {
+      "file": "src/bili_asr/sources/bilibili_metadata_codec.py",
+      "covered": 246,
+      "total": 271,
+      "percent": 90.77490774907749,
+      "missing_lines": [
+        46,
+        49,
+        63,
+        90,
+        138,
+        239,
+        300,
+        335,
+        344,
+        345,
+        346,
+        354,
+        358,
+        367,
+        380,
+        387,
+        392,
+        395,
+        396,
+        397,
+        398,
+        399,
+        401,
+        405,
+        407
+      ]
+    },
+    {
+      "file": "src/bili_asr/sources/models.py",
+      "covered": 18,
+      "total": 18,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/sources/youtube_source.py",
+      "covered": 28,
+      "total": 28,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/sql_identity.py",
+      "covered": 15,
+      "total": 15,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/archive_validation.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/asr_quality.py",
+      "covered": 61,
+      "total": 61,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/editorial.py",
+      "covered": 18,
+      "total": 18,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/editorial_call_budget.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/editorial_facts.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/editorial_replay.py",
+      "covered": 100,
+      "total": 108,
+      "percent": 92.5925925925926,
+      "missing_lines": [
+        58,
+        75,
+        78,
+        79,
+        92,
+        103,
+        124,
+        133
+      ]
+    },
+    {
+      "file": "src/bili_asr/storage/metadata.py",
+      "covered": 49,
+      "total": 49,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/metadata_acceptance.py",
+      "covered": 146,
+      "total": 160,
+      "percent": 91.25,
+      "missing_lines": [
+        36,
+        38,
+        54,
+        56,
+        79,
+        82,
+        102,
+        105,
+        112,
+        126,
+        152,
+        154,
+        194,
+        210
+      ]
+    },
+    {
+      "file": "src/bili_asr/storage/migration_source.py",
+      "covered": 8,
+      "total": 8,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/models.py",
+      "covered": 3,
+      "total": 3,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/observation_rows.py",
+      "covered": 54,
+      "total": 56,
+      "percent": 96.42857142857143,
+      "missing_lines": [
+        42,
+        73
+      ]
+    },
+    {
+      "file": "src/bili_asr/storage/snapshots.py",
+      "covered": 22,
+      "total": 22,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/source_observations.py",
+      "covered": 109,
+      "total": 119,
+      "percent": 91.59663865546219,
+      "missing_lines": [
+        46,
+        67,
+        80,
+        82,
+        94,
+        96,
+        99,
+        103,
+        150,
+        153
+      ]
+    },
+    {
+      "file": "src/bili_asr/storage/source_projection.py",
+      "covered": 102,
+      "total": 112,
+      "percent": 91.07142857142857,
+      "missing_lines": [
+        41,
+        52,
+        57,
+        93,
+        107,
+        116,
+        123,
+        126,
+        143,
+        151
+      ]
+    },
+    {
+      "file": "src/bili_asr/storage/source_supplements.py",
+      "covered": 2,
+      "total": 2,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/sources.py",
+      "covered": 5,
+      "total": 5,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/upgrade_evidence.py",
+      "covered": 10,
+      "total": 10,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/workflow.py",
+      "covered": 17,
+      "total": 17,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/storage/workflow_retry.py",
+      "covered": 1,
+      "total": 1,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/workflow_payloads.py",
+      "covered": 4,
+      "total": 4,
+      "percent": 100.0,
+      "missing_lines": []
+    },
+    {
+      "file": "src/bili_asr/workflow_runtime.py",
+      "covered": 26,
+      "total": 26,
+      "percent": 100.0,
+      "missing_lines": []
+    }
+  ],
+  "errors": []
+}

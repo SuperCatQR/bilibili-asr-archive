@@ -22,6 +22,24 @@ def _run_fresh(code: str) -> None:
 
 
 @pytest.mark.parametrize("first", [
+    "bili_asr.editorial_input_contract", "bili_asr.editorial_request", "bili_asr.sql_identity",
+])
+def test_frozen_editorial_and_sql_contracts_import_without_consumers(first):
+    _run_fresh(f"""
+from importlib import import_module
+import sys
+import_module({first!r})
+assert 'bili_asr.editorial' not in sys.modules
+assert 'bili_asr.editorial_budget' not in sys.modules
+assert 'bili_asr.deepseek' not in sys.modules
+assert 'requests' not in sys.modules
+assert 'bili_asr.storage' not in sys.modules
+assert 'bili_asr.storage.migration_source' not in sys.modules
+assert 'bili_asr.storage.editorial_replay' not in sys.modules
+""")
+
+
+@pytest.mark.parametrize("first", [
     "bili_asr.platform_identity", "bili_asr.sources.protocols", "bili_asr.sources.models",
 ])
 def test_pure_source_ports_do_not_bootstrap_storage_or_clients(first):

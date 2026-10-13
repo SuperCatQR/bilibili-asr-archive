@@ -31,5 +31,6 @@
 
 | 报告 | 原始记录 | 范围 |
 | --- | --- | --- |
+| [阶段审查修复 · 2026-10-13](stage-issues-acceptance-2026-10-13.md) | [Linux](stage-issues-2026-10-13/linux-result.json)、[变更覆盖](stage-issues-2026-10-13/changed-coverage.json)、[真实 SSH](stage-issues-2026-10-13/cold-state-ssh.json)、[模型对照](stage-issues-2026-10-13/editorial-comparison.json) | #401–414、#425–426；完整回归、冷状态离线读取及未完成的真实模型验收 |
 | [项目全量 WSL 回归 · 2026-10-12](regression-test-2026-10-12.md) | [JSON](regression-test-2026-10-12.json)；[输入清单](regression-test-2026-10-12.inputs.json) | 全量 pytest、覆盖率、打包安装、安全、实网及阅读站浏览器检查 |
 | [CI 优化验收 · 2026-10-12](ci-optimization-2026-10-12.md) | [JSON](ci-optimization-2026-10-12.json) | 锁定依赖、文件分片、四片全量、覆盖率汇总与诊断 |

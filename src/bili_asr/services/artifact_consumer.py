@@ -29,13 +29,22 @@ def ensure_local(connection, roots, retained, *, storage_targets):
         try:
             return verified_local_audio(connection, roots, retained)
         except JobExecutionError:
-            packaged = ArtifactAccess(connection, roots, storage_targets).locate_external(retained["object_id"])
+            pass
         from bili_asr.services.artifact_policy import minimum_free_space
-        with reserve_local_space(connection, roots, retained["byte_size"], owner="restore:" + retained["object_id"],
-                                 minimum_free_bytes=minimum_free_space(connection)):
-            restore_artifact(roots, retained["object_id"], target_id=packaged.target.target_id,
-                             target_root=packaged.target.root, storage_key=retained["storage_key"], _online=True)
-        return verified_local_audio(connection, roots, retained)
+        remaining = dict(storage_targets)
+        failures = []
+        while remaining:
+            packaged = ArtifactAccess(connection, roots, remaining).locate_external(retained["object_id"])
+            try:
+                with reserve_local_space(connection, roots, retained["byte_size"], owner="restore:" + retained["object_id"],
+                                         minimum_free_bytes=minimum_free_space(connection)):
+                    restore_artifact(roots, retained["object_id"], target_id=packaged.target.target_id,
+                                     target_root=packaged.target.root, storage_key=retained["storage_key"], _online=True)
+                return verified_local_audio(connection, roots, retained)
+            except (ValueError, OSError) as error:
+                failures.append(packaged.target.target_id + ":" + type(error).__name__)
+                remaining.pop(packaged.target.target_id)
+        raise ValueError("artifact_input_unavailable: no supplied replica could restore exact audio; " + "; ".join(failures))
 
 
 @contextmanager

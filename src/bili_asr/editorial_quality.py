@@ -8,14 +8,25 @@ from collections import Counter
 from bili_asr.workflow_errors import JobExecutionError
 
 
-def check_source_quality(prepared: dict) -> None:
-    """Reject dense, long, heavily repeated ASR segments before spending API tokens.
+def check_source_quality(prepared: dict, *, connection=None, run_id: str | None = None) -> None:
+    """Check source timeline, repetition and persisted run admission before calls.
 
     A long segment or ordinary rhetorical repetition alone is insufficient.
     Thresholds deliberately target the observed multi-thousand-character bursts.
+    A pure invocation measures frozen cues; paid execution additionally supplies
+    the connection and producing run to verify measured coverage without guessing.
     """
     if prepared["snapshot"]["base"]["source_kind"] != "asr-local":
         return
+    from bili_asr.asr.admission import assess_output
+    from bili_asr.storage.asr_quality import assess_transcript, require_admission
+
+    base = prepared["snapshot"]["base"]
+    cues = [{"start": item["start_ms"] / 1000, "end": item["end_ms"] / 1000, "text": item["text"]}
+            for item in base["segments"]]
+    structural = {**assess_output(cues), "transcript_id": base["transcript_id"]}
+    if structural["status"] == "unusable":
+        require_admission(structural, stage="source_quality")
     for ordinal, segment in enumerate(prepared["snapshot"]["base"]["segments"]):
         text = segment["text"]
         duration = max(1, segment["end_ms"] - segment["start_ms"])
@@ -34,3 +45,5 @@ def check_source_quality(prepared: dict) -> None:
                 "minimum_characters": 1000, "density_limit_chars_per_second": 100,
                 "minimum_repeated_fourgrams": 24,
             })
+    if connection is not None:
+        require_admission(assess_transcript(connection, base["transcript_id"], run_id=run_id), stage="source_quality")

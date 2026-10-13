@@ -187,7 +187,7 @@ def test_cli_editorial_run_writes_configured_root_and_export_verifies_hash(tmp_p
         if not via_env:
             export_args += ["--artifact-root", str(products)]
         assert cli.main(export_args) == 0
-        assert json.loads((output / "catalog.json").read_text())["articles"][0]["aiRevisionId"] == revision
+        assert json.loads((output / "catalog.json").read_text(encoding="utf-8"))["articles"][0]["aiRevisionId"] == revision
         (products / release["relative_path"]).write_text("tampered", encoding="utf-8")
         with pytest.raises(ValueError, match="hash mismatch"):
             export_publications(connection, artifact_roots=(products, root), output=output)

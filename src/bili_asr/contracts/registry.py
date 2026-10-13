@@ -44,7 +44,53 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
-    Contract("archive-maintenance-package/v1", "archive", ("src/bili_asr/services/maintenance_package.py", "src/bili_asr/storage/maintenance_selection.py"),
+    Contract("archive-task-state-backup/v2", "archive", ("src/bili_asr/services/maintenance_task_state.py",
+             "src/bili_asr/services/maintenance_media.py"),
+             ("services.maintenance_state_reader", "services.maintenance_backup"), ("validate", "save", "read"),
+             ("archive-task-state-backup/v1", "artifact-storage-v1", "artifact-package-v2", "ssh-directory/v1"),
+             "archive-task-state-backup-v2.schema.json"),
+    Contract("artifact-policy-v2", "storage", ("src/bili_asr/services/audio_retention_policy.py",),
+             ("cli.artifacts", "services.artifact_consumer"), ("validate", "read", "write"),
+             ("artifact-online-v1", "artifact-package-v2"), "artifact-policy-v2.schema.json"),
+    Contract("artifact-package-v2", "storage", ("src/bili_asr/artifact_packages.py",),
+             ("services.artifact_transfer", "services.artifact_access", "services.artifact_restore"),
+             ("validate", "read", "write"), ("artifact-storage-v1",), "artifact-package-v2.schema.json"),
+    Contract("artifact-provenance/v1", "provenance", ("src/bili_asr/provenance_contract.py",
+             "src/bili_asr/provenance_metadata.py"),
+             ("cli.provenance", "publication_export", "external-reader"), ("read", "validate", "export"),
+             ("frozen-input/v1", "frozen-input/v2", "asr-evidence/v1", "metadata-acceptance/v1",
+              "source-observations/v1"), "artifact-provenance-v1.schema.json"),
+    _json("public-provenance-summary/v1", "public-provenance-summary-v1.schema.json", "provenance"),
+    _json("editorial-provenance-export-manifest/v1", "editorial-provenance-export-manifest-v1.schema.json", "provenance",
+          dependencies=("artifact-provenance/v1", "editorial-export-manifest/v1")),
+    Contract("retry-control/v2", "workflow", ("src/bili_asr/services/retry_control.py",),
+             ("services.reference_backup", "services.workflow_retry", "services.retry_preflight", "services.maintenance_task_state"),
+             ("validate", "capture", "read"), ("workflow-retry-control/v1",), "retry-control-v2.schema.json"),
+    Contract("archive-reference-backup/v2", "archive", ("src/bili_asr/services/reference_backup.py",),
+             ("cli.remote_storage", "services.archive_recovery"), ("validate", "save", "check", "plan", "restore"),
+             ("archive-reference-backup/v1", "retry-control/v2"), "archive-reference-backup-v2.schema.json"),
+    Contract("metadata-acceptance/v1", "sources", ("src/bili_asr/metadata_acceptance.py",
+             "src/bili_asr/sources/bilibili_metadata_codec.py", "src/bili_asr/storage/metadata_acceptance.py"),
+             ("sources.bilibili_api_gateway", "services.metadata_ingest", "services.metadata_refresh",
+              "storage.metadata", "storage.snapshots", "provenance-reader"),
+             ("validate", "accept", "read", "snapshot"), (UNIVERSAL_V2, "source-observations/v1")),
+    Contract("source-observations/v1", "sources", ("src/bili_asr/source_observations.py",
+             "src/bili_asr/storage/schema-source-observations.sql"),
+             ("storage.source_observations", "storage.snapshots", "cli.source"),
+             ("extension", "snapshot", "read", "explicit-upgrade")),
+    Contract("source-superset/v1", "sources", ("src/bili_asr/source_observations.py",),
+             ("storage.source_observations", "cli.source"),
+             ("read", "reproject", "private-export"), ("source-observations/v1",)),
+    Contract("source-superset/v2", "sources", ("src/bili_asr/source_observations.py",),
+             ("storage.source_observations", "cli.source"),
+             ("read", "reproject", "private-export"), ("source-observations/v1",)),
+    Contract("archive-task-state-backup/v1", "archive", ("src/bili_asr/services/maintenance_task_state.py",),
+             ("services.maintenance_state_reader", "services.maintenance_backup"), ("validate", "save", "read"),
+             (BILIBILI_V1, UNIVERSAL_V2), "archive-task-state-backup-v1.schema.json"),
+    Contract("archive-maintenance-package/v2", "archive", ("src/bili_asr/services/maintenance_package_core.py", "src/bili_asr/storage/maintenance_scope.py"),
+             ("cli.maintenance_package", "services.maintenance_import"), ("validate", "export", "inspect", "verify", "import-plan", "import-apply", "import-check"),
+             ("archive-maintenance-package/v1",), "archive-maintenance-package-v2.schema.json"),
+    Contract("archive-maintenance-package/v1", "archive", ("src/bili_asr/services/maintenance_package_core.py", "src/bili_asr/storage/maintenance_selection.py"),
              ("cli.maintenance_package", "services.maintenance_package"), ("validate", "export", "inspect", "verify", "import-plan", "import-apply", "import-check"),
              (BILIBILI_V1, UNIVERSAL_V2), "archive-maintenance-package-v1.schema.json"),
     Contract("archive-reference-backup/v1", "archive", ("src/bili_asr/services/reference_backup.py",),
@@ -135,15 +181,23 @@ _CONTRACTS = (
              ("publication_identity", "storage.migration_artifacts"), ("render", "historical-read"), ("publication-content/v1",)),
     Contract("publish-v2", "publication", ("src/bili_asr/publication_content_v2.py",),
              ("publication", "publication_export"), ("render",), ("publication-content/v2",)),
-    Contract("archive-snapshot/v1", "archive", ("src/bili_asr/services/archive_snapshot.py",),
+    Contract("archive-snapshot/v1", "archive", ("src/bili_asr/services/snapshot_protocol.py", "src/bili_asr/services/archive_snapshot.py"),
              ("services.archive_snapshot", "services.archive_recovery"), ("save", "check", "restore")),
     _json("source-metadata/v1", "source-metadata-v1.schema.json", "sources"),
+    Contract("youtube-source-fields/v1", "sources", ("src/bili_asr/storage/source_projection.py",),
+             ("storage.sources", "storage.metadata", "search_index.source_store"), ("write", "read"),
+             (UNIVERSAL_V2, "source-observations/v1")),
+    _json("source-metadata/v2", "source-metadata-v2.schema.json", "sources", dependencies=("source-metadata/v1",)),
     _json("publication-catalog/v2", "publication-catalog.schema.json", dependencies=("publish-v1",)),
     _json("publication-draft-catalog/v2", "publication-draft-catalog.schema.json"),
     _json("publication-catalog/v3", "publication-catalog-v3.schema.json",
           dependencies=("publication-catalog/v2", "source-metadata/v1", "publish-v2")),
     _json("publication-draft-catalog/v3", "publication-draft-catalog-v3.schema.json",
           dependencies=("publication-draft-catalog/v2", "source-metadata/v1")),
+    _json("publication-catalog/v4", "publication-catalog-v4.schema.json",
+          dependencies=("publication-catalog/v3", "source-metadata/v2")),
+    _json("publication-draft-catalog/v4", "publication-draft-catalog-v4.schema.json",
+          dependencies=("publication-draft-catalog/v3", "source-metadata/v2")),
     _json("publication-export-manifest/v1", "publication-export-manifest.schema.json"),
     _json("publication-draft-export-manifest/v1", "publication-draft-export-manifest.schema.json"),
     _json("content-rights/v1", "content-rights.schema.json"),
@@ -191,6 +245,8 @@ def manifest_contract(kind: str, profile: str | None, *, imported: bool = False)
     if kind not in {"publication-export", "publication-draft-export", "editorial-export"}:
         raise ValueError("unsupported export kind")
     if profile is not None:
+        if profile == "private-provenance-v1" and kind == "editorial-export":
+            return "editorial-provenance-export-manifest/v1"
         if profile not in {ORIGIN_PROFILE, ORIGIN_PROFILE_V2} or kind == "editorial-export":
             raise ValueError("unsupported export profile")
         return "publication-origin-manifest/v3" if profile == ORIGIN_PROFILE_V2 else "publication-origin-manifest/v2"
@@ -264,6 +320,26 @@ UPGRADE_EDGES = (
           ("supplemented", (UNIVERSAL_V2, IMPORT_EXTENSION, SOURCE_SUPPLEMENT_POLICY)))),
 )
 
+# Observation storage is independent of the existing optional extensions. Its
+# marker is last in the canonical combination, so old edge identities remain
+# unchanged and copied authority rows retain their existing fingerprints.
+_OBSERVATION_BASES = tuple(dict.fromkeys(
+    combination for edge in UPGRADE_EDGES for combination in (edge.source, edge.target)
+    if combination[0] == UNIVERSAL_V2))
+_OBSERVATION_EDGES = tuple(
+    UpgradeEdge("source-observations-" + "-".join(item.replace("/", "-") for item in combination) + "/v1", combination,
+                (*combination, "source-observations/v1"), "install-source-observations", 1,
+                ("storage/source_observations.py", "storage/schema-source-observations.sql"),
+                "snapshot-database", "snapshot-database", ("empty-extension-tables",),
+                "tests/test_source_observations.py")
+    for combination in _OBSERVATION_BASES)
+UPGRADE_EDGES = (*UPGRADE_EDGES, *_OBSERVATION_EDGES, *(
+    UpgradeEdge(edge.identity + "-with-observations", (*edge.source, "source-observations/v1"),
+                (*edge.target, "source-observations/v1"), edge.converter, edge.revision,
+                edge.authority, edge.source_reader, edge.target_validator, edge.allowed_changes,
+                "tests/test_source_observations.py")
+    for edge in UPGRADE_EDGES if edge.converter in {"install-artifact-storage", "install-artifact-online"}))
+
 
 @dataclass(frozen=True)
 class FrozenReleaseFile:
@@ -305,6 +381,10 @@ UPGRADE_ACCEPTANCE = (
       for extension, mode in (("storage", "stored"), ("online", "online"))
       for case in ("native", "preserved", "supplemented")),
 )
+UPGRADE_ACCEPTANCE = (*UPGRADE_ACCEPTANCE, *(
+    UpgradeAcceptance(edge.identity, _HISTORY, (
+        "tests/test_source_observations.py::test_explicit_upgrade_preserves_history_and_raw_observations",))
+    for edge in UPGRADE_EDGES if edge.sample == "tests/test_source_observations.py"))
 
 
 @dataclass(frozen=True)

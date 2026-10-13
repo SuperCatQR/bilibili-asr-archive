@@ -40,6 +40,8 @@ def refresh_video_tags(connection: sqlite3.Connection, gateway: BilibiliGateway,
     async def refresh():
         succeeded = failed = 0
         repository = MetadataRepository(connection)
+        from bili_asr.services.metadata_observations import bind_observations
+        bind_observations(gateway, repository)
         for bvid in selected:
             error = None
             try:
@@ -53,6 +55,8 @@ def refresh_video_tags(connection: sqlite3.Connection, gateway: BilibiliGateway,
                     repository.upsert_video_tags(bvid, [VideoTagRecord(
                         bvid=bvid, tag_id=tag.tag_id, tag_name=tag.tag_name, tag_type=tag.tag_type
                     ) for tag in tags])
+                    repository.record_accepted_receipts(bvid,
+                        () if observation.source_receipt is None else (observation.source_receipt,), int(time.time()))
                 connection.execute(
                     "INSERT INTO video_tag_observations VALUES (?, ?, ?, ?, NULL) "
                     "ON CONFLICT(bvid) DO UPDATE SET state=excluded.state, observed_at=excluded.observed_at, "

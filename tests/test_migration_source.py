@@ -138,6 +138,22 @@ def test_known_search_cache_is_explicitly_rebuildable_and_not_authoritative(sour
         inspect_migration_source(source_database)
 
 
+def test_editorial_replay_group_is_exact_and_keeps_frozen_authority(source_database):
+    from bili_asr.storage.editorial_replay import install_indexes, objects
+    before = inspect_migration_source(source_database)
+    with closing(sqlite3.connect(source_database)) as connection:
+        assert install_indexes(connection)["installed"]
+    indexed = inspect_migration_source(source_database)
+    assert indexed.table_fingerprints == before.table_fingerprints
+    assert set(indexed.derived_objects) == set(objects())
+    with closing(sqlite3.connect(source_database)) as connection:
+        name = next(iter(objects()))
+        connection.execute(f"DROP INDEX {name}")
+        connection.commit()
+    with pytest.raises(MigrationSourceError, match="incomplete derived"):
+        inspect_migration_source(source_database)
+
+
 def test_authoritative_table_cannot_hide_behind_known_search_index_name(source_database):
     with closing(sqlite3.connect(source_database)) as connection:
         connection.execute("CREATE TABLE transcript_fts_index_meta (key TEXT PRIMARY KEY, value TEXT, private_history TEXT)")

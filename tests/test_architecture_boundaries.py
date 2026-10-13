@@ -123,6 +123,7 @@ def test_pure_modules_have_no_transitive_path_to_runtime_or_storage():
         "publication_origin_contract", "editorial_segments", "profile_codec",
         "workflow_payloads", "workflow_planning", "contracts.registry",
         "contracts.content_policies", "storage.schema_contract", "artifact_fences",
+        "editorial_input_contract", "editorial_request", "sql_identity",
     )
     forbidden = ("bili_asr.storage", "bili_asr.services", "bili_asr.cli",
                  "bili_asr.sources", "bili_asr.workflow_runtime",

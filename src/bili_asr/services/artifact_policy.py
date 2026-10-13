@@ -7,7 +7,6 @@ import sqlite3
 import time
 import uuid
 from contextlib import ExitStack, contextmanager
-from dataclasses import asdict
 
 from bili_asr.archive_maintenance import ArchiveBusyError
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
@@ -20,41 +19,25 @@ from bili_asr.services.artifact_coordination import (
 from bili_asr.services.artifact_inventory_service import (
     ArtifactSelection,
     inventory_artifacts,
-    plan_artifact_offload,
 )
 from bili_asr.services.artifact_io import artifact_io_budget
+from bili_asr.services.artifact_policy_configuration import read_policy, validate_policy
+from bili_asr.services.artifact_policy_defaults import DEFAULT_POLICY
+from bili_asr.services.artifact_policy_planning import bounded_plan
 from bili_asr.services.artifact_transfer import transfer_artifacts
-from bili_asr.storage.artifact_policies import ArtifactPolicyRepository
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 from bili_asr.storage.artifact_online import require_artifact_online
+from bili_asr.storage.artifact_policies import ArtifactPolicyRepository
 
-DEFAULT_POLICY = {
-    "version": 1, "mode": "off", "target_id": None,
-    "selection": asdict(ArtifactSelection()), "minimum_age_seconds": 86400,
-    "trigger_free_bytes": 10 * 1024**3, "stop_free_bytes": 20 * 1024**3,
-    "minimum_free_bytes": 1024**3, "batch_bytes": 1024**3, "batch_objects": 100,
-    "max_concurrency": 1, "bytes_per_second": 16 * 1024**2,
-    "scan_interval_seconds": 60, "backoff_seconds": 300,
-    "priority": "oldest", "download_bytes_per_second": 256000,
-    "download_workspace_multiplier": 3,
-}
-
-
-def validate_policy(value):
-    from bili_asr.contracts.json_schema import validate_json
-    try:
-        value = json.loads(json.dumps(value))
-    except (TypeError, ValueError) as error:
-        raise ValueError("artifact policy must be a JSON value") from error
-    validate_json("artifact-policy-v1", value)
-    if (value["backoff_seconds"] < value["scan_interval_seconds"]
-            or value["trigger_free_bytes"] >= value["stop_free_bytes"]
-            or value["minimum_free_bytes"] > value["trigger_free_bytes"]):
-        raise ValueError("invalid artifact policy bounds or watermarks")
-    if value["mode"] != "off" and value["target_id"] is None:
-        raise ValueError("enabled artifact policy requires a target identity")
-    return value
-
+__all__ = [
+    "DEFAULT_POLICY",
+    "configure_policy",
+    "download_reservation",
+    "minimum_free_space",
+    "read_policy",
+    "run_policy_once",
+    "validate_policy",
+]
 
 
 def configure_policy(connection, policy_id: str, configuration: dict):
@@ -66,14 +49,10 @@ def configure_policy(connection, policy_id: str, configuration: dict):
     with connection:
         if config["target_id"] is not None:
             catalog.register_target(config["target_id"])
+        for identity in config.get("replica_target_ids", []):
+            catalog.register_target(identity)
         ArtifactPolicyRepository(connection).configure(policy_id, config, now=int(time.time()))
     return {"policy_id": policy_id, "policy_sha256": digest(config), "configuration": config}
-
-
-def read_policy(connection, policy_id="default"):
-    require_artifact_online(connection, required=True)
-    row = connection.execute("SELECT config_json FROM artifact_policies WHERE policy_id=?", (policy_id,)).fetchone()
-    return validate_policy(json.loads(row[0]) if row else DEFAULT_POLICY)
 
 
 def minimum_free_space(connection):
@@ -98,56 +77,16 @@ def download_reservation(connection, roots, part_id, *, owner):
         yield
 
 
-def _bounded_plan(inventory, config):
-    # Freeze complete connected groups; sharing one object joins their members.
-    candidates = {copy["copy_id"]: copy for copy in inventory["copies"] if copy["candidate"]}
-    membership = {}
-    for obj in inventory["objects"]:
-        groups = {ref["group_id"] for ref in obj["references"]}
-        for copy_id in obj["copies"]:
-            if copy_id in candidates:
-                membership.setdefault(copy_id, set()).update(groups)
-    components = []
-    remaining = set(candidates)
-    while remaining:
-        current = {remaining.pop()}
-        groups = set(membership.get(next(iter(current)), ()))
-        while True:
-            adjacent = {key for key in remaining if membership.get(key, set()) & groups}
-            if not adjacent:
-                break
-            current.update(adjacent)
-            remaining.difference_update(adjacent)
-            for key in adjacent:
-                groups.update(membership.get(key, ()))
-        copies = [candidates[key] for key in current]
-        if any(copy["fingerprint"][3] / 1e9 > time.time() - config["minimum_age_seconds"] for copy in copies):
-            continue
-        components.append(copies)
-    components.sort(key=lambda copies: (-sum(copy["size"] for copy in copies) if config["priority"] == "largest"
-                                      else min(copy["fingerprint"][3] for copy in copies)))
-    selected, total, objects = set(), 0, set()
-    for copies in components:
-        incoming = {copy["sha256"]: copy["size"] for copy in copies}
-        added = sum(size for identity, size in incoming.items() if identity not in objects)
-        if total + added > config["batch_bytes"] or len(objects | incoming.keys()) > config["batch_objects"]:
-            continue
-        selected.update(copy["copy_id"] for copy in copies)
-        total += added
-        objects.update(incoming)
-    filtered = {**inventory, "copies": [{**copy, "selected": copy["copy_id"] in selected} for copy in inventory["copies"]]}
-    physical = {copy["physical_id"]: copy["size"] for copy in candidates.values() if copy["copy_id"] in selected}
-    filtered["summary"] = {**inventory["summary"], "reclaimable_content_bytes": sum(physical.values()),
-        "target_payload_bytes": total, "restore_workspace_bytes": max((copy["size"] for copy in candidates.values() if copy["copy_id"] in selected), default=0)}
-    return plan_artifact_offload(filtered, target_id=config["target_id"])
-
-
-def run_policy_once(roots, *, policy_id="default", target_root=None, external_holds=None):
+def run_policy_once(roots, *, policy_id="default", target_root=None, external_holds=None, storage_targets=None, checkpoint=None):
     """Run at most one frozen batch; callers may poll using the returned deadline."""
     with ArchiveSession(roots.archive_root, mode=ArchiveAccessMode.WRITE, artifact_roots=roots) as session:
         connection = session.connection
         require_artifact_online(connection, required=True)
         config = read_policy(connection, policy_id)
+        if config["version"] == 2:
+            from bili_asr.services.audio_retention import run_audio_retention_once
+            return run_audio_retention_once(roots, policy_id=policy_id, target_root=target_root,
+                storage_targets=storage_targets, external_holds=external_holds, checkpoint=checkpoint)
         if config["mode"] == "off":
             return {"state": "off", "policy_id": policy_id, "released_bytes": 0}
         with ExitStack() as resources:
@@ -191,7 +130,7 @@ def run_policy_once(roots, *, policy_id="default", target_root=None, external_ho
                     selection=ArtifactSelection(**{key: tuple(values) for key, values in config["selection"].items()}),
                     external_holds=external_holds() if callable(external_holds) else external_holds,
                     progress=progress, max_bytes_per_second=config["bytes_per_second"] or None)
-                plan = _bounded_plan(inventory, config)
+                plan = bounded_plan(inventory, config)
                 if resume:
                     plan = json.loads(prior["plan_json"])  # Resume the exact journaled operation.
                 report["scan"] = {"bytes_read": measured["bytes_read"], "elapsed_seconds": time.monotonic() - started}

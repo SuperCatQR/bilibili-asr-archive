@@ -119,23 +119,29 @@ def _resume_offline(root: Path, monkeypatch, capsys) -> list[Path]:
     from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
 
     transcribed_paths = []
+    original_path = root.resolve() / AUDIO_KEY
 
     def forbid_completed_job(*args, **kwargs):
         pytest.fail("the restored workflow repeated a completed acquisition")
 
     def transcribe(runner, audio_path, *, paired_subtitle_text):
         path = Path(audio_path)
-        assert path == root.resolve() / AUDIO_KEY
+        assert path != original_path and path.suffix == original_path.suffix
         assert path.read_bytes() == AUDIO_BYTES
+        assert original_path.read_bytes() == AUDIO_BYTES
         assert paired_subtitle_text is None
-        transcribed_paths.append(path)
+        # ASR receives a verified private copy; the downloaded artifact remains
+        # the evidence represented by the portable snapshot.
+        transcribed_paths.append(original_path)
         return [{"start": 0.0, "end": 1.0, "text": TRANSCRIPT_TEXT}]
 
     def restored_runner(handlers, profile_id):
         profile = handlers.repository.profile(profile_id)
         assert profile == PORTABLE_PROFILE
         assert profile.asr_config() == PORTABLE_PROFILE.asr_config()
-        return SimpleNamespace(provenance=lambda: {"language": "en"})
+        return SimpleNamespace(provenance=lambda: {"language": "en"}, transcribed_coverage=lambda: {
+            "decoded_s": 1.0, "produced_s": 1.0, "coverage": 1.0,
+            "coverage_min": .9, "coverage_short": False})
 
     monkeypatch.setattr(audio, "download_audio", forbid_completed_job)
     monkeypatch.setattr(ArchiveWorkflowHandlers, "subtitle", forbid_completed_job)

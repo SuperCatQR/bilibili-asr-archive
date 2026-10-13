@@ -7,6 +7,7 @@ import pytest
 from bili_asr.editorial import EditorialConfig
 from bili_asr.services.editorial_evaluation import load_sample, replay_sample
 from bili_asr.services.editorial_provider_evaluation import evaluate_provider
+from bili_asr.services.editorial_provider_evaluation import evaluate_campaign
 from tests import test_ai_editorial as fixtures
 from tests.test_editorial_regeneration import ReferenceClient, queued
 
@@ -201,3 +202,130 @@ def test_provider_refuses_corrupt_ledger_before_http(database, tmp_path, tamper)
         evaluate_provider(sample, ledger, **args)
     assert len(client.requests) == 2
     assert ledger.read_bytes() == before
+
+
+def test_campaign_one_global_budget_for_five_samples_and_durable_reuse(database, tmp_path):
+    sample = load_sample(tmp_path / "archive.db", saved_failure(database, tmp_path))
+    samples = [dict(deepcopy(sample), call_id=f"historical-{i}") for i in range(5)]
+    client = ReferenceClient(failures=100)
+    ledger = tmp_path / "campaign.db"
+    args = dict(endpoint="https://api.deepseek.com", model="deepseek-flash", allow_paid_calls=True, client=client)
+    report = evaluate_campaign(samples, ledger, **args)
+    assert report["max_physical_calls"] == 20 and report["timeout_seconds"] == 180
+    assert report["physical_calls"] == len(client.requests) == 20
+    assert len(report["samples"]) == 5
+    assert all(len(s["calls"]) == 4 for s in report["samples"])
+    assert all(s["historical_feedback_seeded"] for s in report["samples"])
+    assert all(len(r["messages"]) == 3 and r["max_tokens"] == 8192 for r in client.requests)
+    assert all(json.loads(r["messages"][-1]["content"])["regeneration"] in {1, 2} for r in client.requests)
+    evaluate_campaign(samples, ledger, **args)
+    assert len(client.requests) == 20
+    with pytest.raises(ValueError, match="identity"):
+        evaluate_campaign(list(reversed(samples)), ledger, **args)
+    assert len(client.requests) == 20
+
+
+@pytest.mark.parametrize("tamper", ["request", "response", "table", "trigger", "manifest", "extra_calls"])
+def test_campaign_fails_closed_before_new_calls(database, tmp_path, tamper):
+    import sqlite3
+    sample = load_sample(tmp_path / "archive.db", saved_failure(database, tmp_path))
+    ledger = tmp_path / "campaign.db"
+    client = ReferenceClient(failures=0)
+    args = dict(endpoint="https://api.deepseek.com", model="deepseek-flash", allow_paid_calls=True, client=client)
+    evaluate_campaign([sample], ledger, **args)
+    assert len(client.requests) == 2
+    with sqlite3.connect(ledger) as connection:
+        if tamper == "request":
+            connection.execute("UPDATE calls SET request='{}' WHERE ordinal=2")
+        elif tamper == "response":
+            connection.execute("UPDATE calls SET response='{}' WHERE ordinal=2")
+        elif tamper == "table":
+            connection.execute("CREATE TABLE unexpected(x TEXT)")
+        elif tamper == "trigger":
+            connection.execute("CREATE TRIGGER unexpected AFTER INSERT ON calls BEGIN SELECT 1; END")
+        elif tamper == "manifest":
+            connection.execute("UPDATE manifest SET body='{}'")
+        else:
+            connection.execute("INSERT INTO calls SELECT 3,variant,request,response,outcome,latency_ms FROM calls WHERE ordinal=1")
+    with pytest.raises(ValueError, match="ledger|experiment"):
+        evaluate_campaign([sample], ledger, **args)
+    assert len(client.requests) == 2
+
+
+def _campaign_concurrent_unknown(samples, ledger, counter, start):
+    from bili_asr.deepseek import DeepSeekError
+    class Client:
+        def complete(self, request, config):
+            counter.put("send")
+            raise DeepSeekError("simulated uncertain endpoint failure")
+    start.wait(10)
+    evaluate_campaign(samples, ledger, endpoint="https://api.deepseek.com", model="deepseek-flash",
+                      allow_paid_calls=True, client=Client())
+
+
+def test_campaign_concurrent_processes_never_resend_unknown_reservations(database, tmp_path):
+    import multiprocessing
+    import queue
+    import sqlite3
+    sample = load_sample(tmp_path / "archive.db", saved_failure(database, tmp_path))
+    samples = [dict(deepcopy(sample), call_id=f"historical-{i}") for i in range(5)]
+    context = multiprocessing.get_context("spawn")
+    counter, start = context.Queue(), context.Event()
+    ledger = tmp_path / "concurrent-campaign.db"
+    processes = [context.Process(target=_campaign_concurrent_unknown, args=(samples, ledger, counter, start)) for _ in range(2)]
+    for process in processes:
+        process.start()
+    start.set()
+    for process in processes:
+        process.join(30)
+        assert process.exitcode == 0
+    sends = []
+    while True:
+        try:
+            sends.append(counter.get(timeout=.1))
+        except queue.Empty:
+            break
+    with sqlite3.connect(ledger) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == len(sends) == 10
+        assert connection.execute("SELECT MAX(n) FROM (SELECT COUNT(*) n FROM calls GROUP BY variant)").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM calls WHERE response IS NOT NULL").fetchone()[0] == 0
+
+
+def test_prepared_chunk_and_request_cannot_change_hashed_source(database, tmp_path):
+    from bili_asr.storage.editorial import EditorialRepository
+    call_id = saved_failure(database, tmp_path)
+    prepared = json.loads(database.execute("SELECT prepared_json FROM editorial_inputs").fetchone()[0])
+    stored = json.loads(database.execute("SELECT request_json FROM editorial_model_calls").fetchone()[0])
+    prepared["chunks"][0]["editable_segments"][0]["text"] = "changed-source"
+    stored["request"]["messages"][1]["content"] = json.dumps(prepared["chunks"][0])
+    stored["request_fingerprint"] = EditorialRepository.request_fingerprint(
+        prepared["input_id"], prepared["chunks"][0]["chunk_id"], stored["request"])
+    with database:
+        database.execute("UPDATE editorial_inputs SET prepared_json=?", (json.dumps(prepared),))
+        database.execute("UPDATE editorial_model_calls SET request_json=?", (json.dumps(stored),))
+    with pytest.raises(ValueError, match="hashed snapshot"):
+        load_sample(tmp_path / "archive.db", call_id)
+
+
+def test_historical_recovery_counts_actual_followup_usage_and_censored_failures(database, tmp_path):
+    from bili_asr.services.editorial_evaluation import historical_recovery_report
+    call_id = saved_failure(database, tmp_path)
+    report = historical_recovery_report(tmp_path / "archive.db", [call_id])
+    assert report["source_failures"] == 1 and report["failures_with_followup"] == 0
+    assert report["recoveries"] == 0 and report["recovery_rate_among_observed"] is None
+    assert report["samples"][0]["observation"] == "censored_no_more_observed_calls"
+    row = database.execute("SELECT * FROM editorial_model_calls WHERE call_id=?", (call_id,)).fetchone()
+    response = json.loads(row["response_json"])
+    body = json.loads(response["choices"][0]["message"]["content"])
+    for paragraph in body["paragraphs"]:
+        paragraph["issues"] = []
+    response["choices"][0]["message"]["content"] = json.dumps(body)
+    response["usage"] = {"prompt_tokens": 25, "completion_tokens": 12}
+    with database:
+        database.execute("INSERT INTO editorial_model_calls(call_id,attempt_id,input_id,chunk_id,request_json,response_json,started_at,finished_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("actual-followup", row["attempt_id"], row["input_id"], row["chunk_id"], row["request_json"], json.dumps(response), row["started_at"] + 1, row["finished_at"] + 1))
+    report = historical_recovery_report(tmp_path / "archive.db", [call_id])
+    assert report["recoveries"] == 1 and report["recovery_rate_among_observed"] == 1
+    assert report["additional_usage"]["prompt_tokens"]["known_total"] == 25
+    assert report["additional_usage"]["reasoning_tokens"]["missing_call_counters"] == 1
+    assert report["new_provider_calls"] == 0 and report["causal_feedback_improvement"] == "not_established"
