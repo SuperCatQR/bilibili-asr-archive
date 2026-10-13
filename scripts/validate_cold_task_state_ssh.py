@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import zipfile
 from contextlib import closing, contextmanager
 from dataclasses import replace
@@ -213,7 +214,7 @@ def seed_failed_evidence(root: Path, parent: Path, digest: str) -> tuple[dict, b
     return {"kind": "retry-control/v1", "path": str(control), "lock_path": str(controls / "retry.lock")}, raw
 
 
-def capture_over_ssh(parent: Path, binding) -> tuple[Path, dict, list, bytes]:
+def capture_over_ssh(parent: Path, binding, progress: dict) -> tuple[Path, dict, list, bytes]:
     from bili_asr.artifact_root import ArtifactRoots
     from bili_asr.remote_storage import SSHDirectoryBackend
     from bili_asr.services import maintenance_backup as backup
@@ -221,25 +222,41 @@ def capture_over_ssh(parent: Path, binding) -> tuple[Path, dict, list, bytes]:
     from bili_asr.services.remote_artifacts import push_remote_package
     from bili_asr.storage.maintenance_selection import table_ledger
 
+    progress["stage"] = "create-isolated-archive"
     root, local_target, audio, digest = create_archive(parent)
+    progress["stage"] = "explicit-local-audio-offload"
     offload = offload_audio(root, local_target, audio)
     package = next(local_target.glob("packages/*.zip"))
+    # The production prepare contract writes a marker into an existing root;
+    # it deliberately cannot create a missing mount or target directory.
+    progress["stage"] = "create-isolated-remote-root"
+    remote_root = Path(binding.root)
+    require(remote_root == parent / "remote-cold", "remote fixture root escaped its private parent")
+    remote_root.mkdir(mode=0o700)
+    progress["stage"] = "ssh-connect-for-prepare"
     with SSHDirectoryBackend(binding) as preparer:
+        progress["stage"] = "ssh-prepare-existing-root"
         prepared = preparer.prepare()
     bound = replace(binding, instance_id=prepared["instance_id"])
+    progress["stage"] = "ssh-connect-bound-instance"
     with SSHDirectoryBackend(bound) as backend:
+        progress["stage"] = "ssh-package-upload-and-client-readback"
         upload = push_remote_package(ArtifactRoots.of(root), package, backend)
+        progress["stage"] = "ssh-probe-bound-instance"
         probe = backend.probe()
         require(probe["instance_id"] == bound.instance_id, "SSH target instance did not match preparation")
         # Only the real SSH copy can satisfy capture after this removal.
+        progress["stage"] = "remove-local-cold-copy-and-seed-failed-evidence"
         shutil.rmtree(local_target)
         component, raw_control = seed_failed_evidence(root, parent, digest)
         ledger = table_ledger(root / "archive.db")
         document = backup.policy(root, parent / "repository", mode="full", profile="task-state",
                                  media_policy="verified-references", external_components=[component])
+        progress["stage"] = "automatic-task-state-v2-ssh-capture"
         result = backup.run_backup(document, trigger="time", remote_backends={bound.target_id: backend})
         require(result.get("valid") is True, f"automatic SSH state capture failed: {result.get('error')}")
         snapshot = Path(document["repository"]) / result["snapshot"]
+        progress["stage"] = "verify-captured-reference-and-uncompressed-ledger"
         manifest = state.verify_task_state(snapshot)["manifest"]
         require(manifest["format"] == state.REFERENCE_FORMAT, "capture did not use explicit task-state v2")
         require(len(manifest["media_dependencies"]) == 1, "unexpected media dependency set")
@@ -257,10 +274,12 @@ def capture_over_ssh(parent: Path, binding) -> tuple[Path, dict, list, bytes]:
                     "state capture embedded or restored cold audio")
             require(bundle.read("control-state/component-0.json") == raw_control, "retry control bytes changed")
         # Corruption is read through real SSH; failure must publish no partial state.
+        progress["stage"] = "corrupt-isolated-ssh-package"
         remote_package = Path(bound.root) / replica["relative_key"]
         with remote_package.open("r+b") as stream:
             stream.write(b"BAD!")
         rejected = parent / "corrupt-state.zip"
+        progress["stage"] = "reject-corrupt-package-over-real-ssh"
         try:
             state.save_task_state(root, rejected, no_external_control_state=True,
                                   media_policy="verified-references", remote_backends={bound.target_id: backend})
@@ -276,11 +295,12 @@ def capture_over_ssh(parent: Path, binding) -> tuple[Path, dict, list, bytes]:
              "instance_id": bound.instance_id, "package_id": replica["package_id"],
              "package_sha256": replica["package_sha256"], "replica_generation": replica["generation"],
              "content_id": manifest["content_id"], "corrupt_remote_replica_rejected": True,
-             "task_ledger_uncompressed": True, "ambient_credentials_disabled": True}
+             "task_ledger_uncompressed": True, "ambient_credentials_disabled": True,
+             "remote_root_precreated": True, "remote_agent_requires_project_pythonpath": False}
     return snapshot, facts, ledger, raw_control
 
 
-def offline_read(parent: Path, snapshot: Path, ledger: list, raw_control: bytes) -> dict:
+def offline_read(parent: Path, snapshot: Path, ledger: list, raw_control: bytes, progress: dict) -> dict:
     from bili_asr.remote_storage import SSHDirectoryBackend
     from bili_asr.services import maintenance_task_state as state
     from bili_asr.services.maintenance_state_reader import (
@@ -289,15 +309,20 @@ def offline_read(parent: Path, snapshot: Path, ledger: list, raw_control: bytes)
     )
     from bili_asr.storage.maintenance_selection import table_ledger
 
+    progress["stage"] = "remove-isolated-source-and-remote-target"
     shutil.rmtree(parent / "archive")
     shutil.rmtree(parent / "remote-cold")
     with patch.object(SSHDirectoryBackend, "__enter__", side_effect=AssertionError("offline read attempted SSH")):
+        progress["stage"] = "offline-task-state-check"
         verified = state.verify_task_state(snapshot)
+        progress["stage"] = "offline-task-and-attempt-read"
         report = read_task_state(snapshot)
         attempts = read_task_records(snapshot, "workflow_attempts")
         stage = parent / "detached-evidence"
         stage.mkdir()
+        progress["stage"] = "offline-detached-evidence-extract"
         state.extract_task_state(snapshot, stage)
+    progress["stage"] = "compare-offline-status-controls-and-all-table-ledgers"
     require(verified["valid"] and report["valid"], "offline state verification failed")
     require({row["values"]["job_id"]: row["values"]["status"] for row in report["jobs"]}
             == {"failed-asr": "failed", "queued-asr": "queued"}, "offline reader changed job state")
@@ -321,6 +346,7 @@ def main() -> int:
     parser.add_argument("--work-directory", type=Path, help="existing temporary validation parent")
     options = parser.parse_args()
     started = time.monotonic()
+    progress = {"stage": "environment-check"}
     try:
         if not sys.platform.startswith("linux"):
             raise UnsupportedEnvironment("the actual SSH storage backend requires a Linux OpenSSH server")
@@ -335,21 +361,29 @@ def main() -> int:
                     and not options.work_directory.is_symlink(), "work-directory must be an existing absolute directory")
         with tempfile.TemporaryDirectory(prefix="bili-cold-state-ssh-", dir=options.work_directory) as temporary:
             parent = Path(temporary).resolve()
+            progress["stage"] = "start-isolated-loopback-sshd"
             with isolated_sshd(parent / "ssh") as (username, port, key, known_hosts):
                 binding = SSHBinding(target_id="ssh-cold-acceptance", instance_id=None, host="127.0.0.1",
                                      root=str(parent / "remote-cold"), username=username, port=port,
                                      key_filename=str(key), known_hosts=str(known_hosts),
                                      python_executable=sys.executable, timeout=15)
                 with isolated_client_authentication(binding):
-                    snapshot, facts, ledger, raw_control = capture_over_ssh(parent, binding)
-            facts.update(offline_read(parent, snapshot, ledger, raw_control))
+                    snapshot, facts, ledger, raw_control = capture_over_ssh(parent, binding, progress)
+                progress["stage"] = "stop-isolated-sshd"
+            facts.update(offline_read(parent, snapshot, ledger, raw_control, progress))
+            progress["stage"] = "remove-isolated-directories-and-keys"
         result, exit_code = {"status": "passed", "valid": True, "checks": facts,
                              "temporary_server_keys_and_directories_removed": True}, 0
     except UnsupportedEnvironment as error:
-        result, exit_code = {"status": "unsupported", "valid": False, "reason": str(error)}, 2
+        result, exit_code = {"status": "unsupported", "valid": False, "reason": str(error),
+                             "failure_stage": progress["stage"]}, 2
     except Exception as error:  # noqa: BLE001 - emit a machine-readable standalone failure
         result, exit_code = {"status": "failed", "valid": False,
-                             "error_type": type(error).__name__, "reason": str(error)}, 1
+                             "error_type": type(error).__name__, "reason": str(error),
+                             "failure_stage": progress["stage"],
+                             # Frame source and exception text only; no locals,
+                             # binding values, configuration or private keys.
+                             "traceback": "".join(traceback.format_exception(error, limit=20))}, 1
     result["elapsed_seconds"] = round(time.monotonic() - started, 3)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return exit_code
