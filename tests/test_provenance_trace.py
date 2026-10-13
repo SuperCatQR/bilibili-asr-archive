@@ -5,6 +5,7 @@ import hashlib
 import json
 from contextlib import closing
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 
@@ -34,7 +35,7 @@ from tests.test_workflow_control_plane import _seed_part
 pytestmark = pytest.mark.usefixtures("enable_content_publication_for_tests")
 
 
-def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True):
+def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True, raw_kind=None):
     root = tmp_path / "archive"
     initialize_archive(root, with_source_observations=True)
     connection = connect_database(root / "archive.db")
@@ -44,6 +45,26 @@ def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True)
         with connection:
             part_id = SourceRepository(connection).upsert_video(SourceVideoMetadata(
                 ContentRef("youtube", "dQw4w9WgXcQ"), "English source", 2000, "UCcreator", "Creator", 17, "en", 2))
+    if raw_kind is not None:
+        from bili_asr.source_observations import PlatformObservation
+        from bili_asr.storage.source_observations import ObservationRepository
+        part = SourceRepository(connection).part(part_id)
+        ref = part["content_ref"]
+        payload = {"title": part["video_title"], "description": "Frozen raw detail\n中文", "duration": 2,
+                   "timestamp": part["pubdate"], "tags": ["raw-tag"], "thumbnail": "https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg",
+                   "private_unknown_field": {"nested": [True, None, 1, "exact 原始值"]}}
+        scope = {"externalVideoId": ref.external_video_id, "partIndex": ref.part_index}
+        if raw_kind == "creator-page":
+            payload = {"list": {"vlist": [{"bvid": ref.external_video_id, **payload}]}}
+            scope = {"creatorId": str(part["creator_external_id"]), "pageNumber": 1}
+        observation = PlatformObservation.capture(platform=platform, operation=raw_kind, endpoint="fixture/source",
+            scope=scope, extractor="provenance-test", extractor_version="1", payload=payload, observed_at=17)
+        with connection:
+            if platform == "youtube":
+                SourceRepository(connection).upsert_video(SourceVideoMetadata(ref, part["video_title"], 2000,
+                    "UCcreator", "Creator", part["pubdate"], "en", 17, observations=(observation,)))
+            else:
+                ObservationRepository(connection).append((observation,))
     content = b"exact private audio fixture"
     audio_sha = hashlib.sha256(content).hexdigest()
     root.joinpath("audio").mkdir()
@@ -85,7 +106,21 @@ def manuscript(tmp_path, platform="bilibili", *, automatic=False, evidence=True)
             proof_id, *_ = workflow._editorial_jobs(video_part_id=part_id, payload={"editorial_config": config.to_dict()},
                                                     prerequisite_job_id=producers[-1]["job_id"])
     else:
-        prepared = repository.prepare(stored.transcript_id, None, config)
+        if raw_kind is not None and platform == "bilibili":
+            from bili_asr.editorial_input_v2 import prepare_input_v2
+            from bili_asr.storage.metadata import MetadataRepository
+
+            # Build a new, explicitly receipt-bound input. Historical Bili DTOs
+            # remain unbound until the production acceptance recorder exists.
+            metadata = replace(MetadataRepository(connection).read_source_metadata(part_id),
+                codec_version=2, observation_bindings=((observation.observation_id,
+                    observation.envelope["payloadSha256"], digest(observation.envelope)),))
+            prepared = prepare_input_v2(repository.read_source(stored.transcript_id), None,
+                                       config, source_metadata=metadata)
+            with connection:
+                prepared = repository.store_input(prepared)
+        else:
+            prepared = repository.prepare(stored.transcript_id, None, config)
         proof_id, *_ = workflow.request_editorial(video_part_id=part_id, input_id=prepared["input_id"])
     result = executor.run()
     assert result.succeeded == 2 and result.failed == 0

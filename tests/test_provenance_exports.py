@@ -17,8 +17,10 @@ from tests.test_provenance_trace import manuscript
 pytestmark = pytest.mark.usefixtures("enable_content_publication_for_tests")
 
 
-def test_private_export_and_backup_keep_offline_chain_and_old_artifacts(tmp_path):
-    connection, root, revision, parent, release, _producers = manuscript(tmp_path)
+@pytest.mark.parametrize("platform", ["bilibili", "youtube"])
+def test_private_export_and_backup_keep_offline_chain_and_old_artifacts(tmp_path, platform):
+    connection, root, revision, parent, release, _producers = manuscript(tmp_path, platform,
+        raw_kind="details" if platform == "youtube" else None)
     with closing(connection):
         old = verify_release(connection, release["release_id"], (root,))[2]
         child = edit_edition(connection, edition_id=parent["edition_id"], markdown_text="Human corrected body.", actor="human", note="clarified")

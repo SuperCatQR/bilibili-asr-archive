@@ -268,6 +268,8 @@ def _verify_domain(node: dict, nodes: dict) -> None:
             from bili_asr.source_metadata import SourceMetadataSnapshot
             SourceMetadataSnapshot.from_dict(metadata)
         bindings = metadata.get("observationBindings", [])
+        if record["raw_observation_binding"] != ("verified_frozen" if bindings else "unavailable_unfrozen_history"):
+            raise ValueError("provenance: raw observation availability differs from frozen evidence")
         observations = _bound(node, nodes, "observation")
         recorded = sorted((item["identity"], item["record"]["payload_sha256"], item["record"]["envelope_sha256"])
                           for item in observations)
@@ -280,9 +282,11 @@ def _verify_domain(node: dict, nodes: dict) -> None:
             matched_video = scope.get("externalVideoId") == metadata["externalVideoId"]
             if not matched_video and envelope["platform"] == "bilibili" and envelope["operation"] == "creator-page":
                 payload = exact_json(observation["record"]["payload_json"])
-                matched_video = any(isinstance(item, dict) and item.get("bvid") == metadata["externalVideoId"]
-                                    for item in payload.get("list", {}).get("vlist", []))
-            if (envelope["platform"] != metadata["platform"] or not matched_video
+                listing = payload.get("list") if isinstance(payload, dict) else None
+                page = listing.get("vlist") if isinstance(listing, dict) else None
+                matched_video = isinstance(page, list) and any(isinstance(item, dict) and
+                    item.get("bvid") == metadata["externalVideoId"] for item in page)
+            if (envelope["state"] != "success" or envelope["platform"] != metadata["platform"] or not matched_video
                     or (scope.get("partIndex") is not None and scope["partIndex"] != metadata["partIndex"])):
                 raise ValueError("provenance: frozen observation belongs to another source")
     elif kind == "workflow-attempt":
