@@ -238,6 +238,11 @@ class MetadataIngestor:
         self._gateway = gateway
         self._source = BilibiliMetadataSource(gateway)
         self._repository = repository
+        from bili_asr.services.metadata_observations import bind_observations
+        self.raw_observations_available = bind_observations(gateway, repository)
+        self.metadata_capture_report = {
+            "rawHistory": "available" if self.raw_observations_available else "unavailable",
+            "requiredContract": "source-observations/v1", "capture": "explicit-endpoints"}
         self._preserve_cursor = False
 
     def replay_page(self, *, mid: int, page_number: int) -> IngestionRunResult:
@@ -383,6 +388,7 @@ class MetadataIngestor:
         tag_attempt_count = tag_success_count = tag_failure_count = 0
         tag_errors: dict[str, str | None] = {}
         tag_cache: OrderedDict[str, tuple[VideoTag, ...] | None] = OrderedDict()
+        tag_receipts = {}
         page_number = first_page
         verify_resume = start_page is None and first_page > 1
         while True:
@@ -450,6 +456,7 @@ class MetadataIngestor:
                 # so even a page larger than the cache persists every answer.
                 tags_by_video: dict[str, tuple[VideoTag, ...] | None] = {}
                 page_tag_errors: dict[str, str | None] = {}
+                page_tag_receipts = {}
                 for summary in summaries:
                     bvid = summary.bvid
                     if bvid in tags_by_video:
@@ -457,6 +464,8 @@ class MetadataIngestor:
                     if bvid in tag_cache:
                         tags_by_video[bvid] = tag_cache[bvid]
                         page_tag_errors[bvid] = tag_errors.get(bvid)
+                        if bvid in tag_receipts:
+                            page_tag_receipts[bvid] = tag_receipts[bvid]
                         tag_cache.move_to_end(bvid)
                         reused_count += 1
                         continue
@@ -472,6 +481,8 @@ class MetadataIngestor:
                     try:
                         read = await read_tags(self._gateway, bvid)
                         tags_by_video[bvid], tag_errors[bvid] = read.tags, read.error_code
+                        if read.source_receipt is not None:
+                            tag_receipts[bvid] = page_tag_receipts[bvid] = read.source_receipt
                     except GatewayError as error:
                         # Optional tag failures preserve the last stored set.
                         tags_by_video[bvid] = None
@@ -486,6 +497,7 @@ class MetadataIngestor:
                     if len(tag_cache) > TAG_CACHE_SIZE:
                         evicted, _ = tag_cache.popitem(last=False)
                         tag_errors.pop(evicted, None)
+                        tag_receipts.pop(evicted, None)
             except GatewayError as error:
                 failure_bvid, failure_operation = operation_bvid, operation_name
                 if operation_bvid is not None:
@@ -577,6 +589,7 @@ class MetadataIngestor:
                 {bvid: ("unavailable" if tags is None else "success_nonempty" if tags else "success_empty",
                          bounded_tag_error(page_tag_errors.get(bvid)) if tags is None else None)
                  for bvid, tags in tags_by_video.items()},
+                page_tag_receipts,
             )
             page_count += 1
             collected_page_count += 1
@@ -769,6 +782,7 @@ class MetadataIngestor:
         author: str | None,
         tags: dict[str, list[VideoTagRecord]],
         tag_observations: dict[str, tuple[str, str | None]],
+        tag_receipts: dict | None = None,
     ) -> None:
         """Record one collected page with its payload in the locked order.
 
@@ -851,6 +865,20 @@ class MetadataIngestor:
         # column: a collection that observed nothing moves neither the row nor
         # its ``updated_at`` stamp.
         user_record = None if author is None else _user_record(mid, finished_at, author)
+        accepted = {}
+        for summary in summaries:
+            values = accepted.setdefault(summary.bvid, {})
+            # Page storage retains the last duplicate summary, so selection
+            # follows that DTO rather than a raw-response timestamp.
+            values.update({receipt.field: receipt for receipt in summary.source_receipts})
+        for bvid, parts in parts_by_video.items():
+            receipts = {part.source_receipt for part in parts if part.source_receipt is not None}
+            if len(receipts) > 1:
+                raise ValueError("part DTOs carry different source selection receipts")
+            if receipts:
+                accepted.setdefault(bvid, {})["parts"] = next(iter(receipts))
+        for bvid, receipt in (tag_receipts or {}).items():
+            accepted.setdefault(bvid, {})["tags"] = receipt
         foreign_owners: dict[int, UserRecord] = {}
         unobserved_owners: dict[int, UserRecord] = {}
         for summary in summaries:
@@ -880,6 +908,7 @@ class MetadataIngestor:
             tag_observations=tag_observations,
             details=detail_records,
             preserve_unobserved_details=True,
+            accepted_receipts={bvid: tuple(values.values()) for bvid, values in accepted.items() if values},
             cursor=None if self._preserve_cursor else CursorRecord(
                 mid=mid,
                 next_page=page_number + 1,

@@ -37,8 +37,13 @@ class SourceRepository:
     def upsert_video(self, metadata: SourceVideoMetadata) -> int:
         """Register one YouTube processing unit in a caller-owned transaction."""
         require_universal_contract(self.connection)
+        from bili_asr.storage.source_observations import require_observations, ObservationRepository
+        if metadata.observations and require_observations(self.connection):
+            ObservationRepository(self.connection).append(metadata.observations)
         if metadata.ref.platform != "youtube" or metadata.ref.part_index != 0:
             raise ValueError("Bilibili metadata must use its existing provider repository")
+        from bili_asr.storage.source_projection import store_youtube_fields
+        store_youtube_fields(self.connection, metadata.observations)
         now = int(time.time()) if metadata.observed_at is None else metadata.observed_at
         creator_id = None
         if metadata.creator_external_id is not None:

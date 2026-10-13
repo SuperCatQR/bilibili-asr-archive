@@ -30,6 +30,7 @@ from bili_asr.source_metadata import valid_source_text
 from bili_asr.sources.models import GatewayError, GatewayResponseError, GatewayShapeError, SubtitleTrack, SubtitleSegment, SubtitleBodyRead
 from bili_asr.sources.protocols import SourceAccessObservation
 from bili_asr.source_video import SourceVideoMetadata
+from bili_asr.source_observations import PlatformObservation
 
 YT_DLP_VERSION = "2026.8.19"
 EJS_VERSION = "0.8.0"
@@ -158,6 +159,8 @@ class YoutubeSource:
             require_regular_file(cookie_file)
         self.command = command or (sys.executable, "-m", "yt_dlp")
         self._information: dict[ContentRef, dict] = {}
+        self._observations = {}
+        self._observation_sink = None
         self._captions: dict[ContentRef, tuple[YoutubeCaption, ...]] = {}
 
     def _run(self, arguments: list[str], ref: ContentRef, *, output_directory: Path) -> str:
@@ -199,18 +202,51 @@ class YoutubeSource:
             finally:
                 _kill(process)
 
+    def set_observation_sink(self, sink):
+        self._observation_sink = sink
+
+    def _capture_metadata(self, ref, payload=None, error=None):
+        try:
+            extractor_version = version("yt-dlp")
+        except PackageNotFoundError:
+            extractor_version = "unavailable"
+        arguments = dict(platform="youtube", operation="details", endpoint="yt-dlp/extract-info",
+            scope={"externalVideoId": ref.external_video_id, "partIndex": ref.part_index},
+            extractor="yt-dlp", extractor_version=extractor_version, payload=payload,
+            state="success" if error is None else "failed", error_code=None if error is None else error.code)
+        try:
+            observation = PlatformObservation.capture(**arguments)
+        except (ValueError, TypeError, RecursionError):
+            # Invalid JSON numbers cannot be invented as source facts. Record a
+            # bounded capture failure; existing valid common fields can still
+            # be projected without claiming a complete raw observation.
+            arguments.update(payload=None, state="failed", error_code="youtube_metadata_shape")
+            observation = PlatformObservation.capture(**arguments)
+        if self._observation_sink is not None:
+            self._observation_sink(observation)
+        if error is None:
+            self._observations[ref] = observation
+
     def _info(self, ref: ContentRef) -> dict:
         if ref not in self._information:
             with tempfile.TemporaryDirectory(prefix="bili-asr-youtube-probe-") as name:
                 try:
                     document = json.loads(self._run(["--dump-single-json", "--skip-download"], ref, output_directory=Path(name)))
+                except GatewayError as error:
+                    self._capture_metadata(ref, error=error)
+                    raise
                 except (json.JSONDecodeError, UnicodeError):
+                    self._capture_metadata(ref, error=GatewayResponseError(code="youtube_metadata_shape"))
                     raise GatewayResponseError(code="youtube_metadata_shape") from None
             if not isinstance(document, dict) or document.get("id") != ref.external_video_id or document.get("_type", "video") != "video":
+                self._capture_metadata(ref, payload=document, error=GatewayResponseError(code="youtube_identity_mismatch"))
                 raise GatewayResponseError(code="youtube_identity_mismatch")
             if document.get("is_live") or document.get("live_status") in {"is_live", "is_upcoming"}:
+                self._capture_metadata(ref, payload=document, error=GatewayResponseError(code="youtube_live_unsupported"))
                 raise GatewayResponseError(code="youtube_live_unsupported")
             self._information[ref] = document
+        if ref not in self._observations:
+            self._capture_metadata(ref, payload=self._information[ref])
         return self._information[ref]
 
     def metadata(self, ref: ContentRef) -> SourceVideoMetadata:
@@ -231,7 +267,7 @@ class YoutubeSource:
             return SourceVideoMetadata(ref, information.get("title"), max(1, round(duration * 1000)),
                 creator_external_id=information.get("channel_id"), creator_name=information.get("channel"),
                 published_at=None if timestamp is None else int(timestamp), original_language=information.get("language"),
-                observed_at=int(time.time()))
+                observed_at=self._observations[ref].envelope["observedAt"], observations=(self._observations[ref],))
         except (ValueError, TypeError, OverflowError):
             raise GatewayShapeError(code="youtube_metadata_shape") from None
 

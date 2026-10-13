@@ -56,6 +56,8 @@ def editorial_retry_facts(connection, jobs):
     local-precheck rows do not. A stored successful envelope may be replayed
     without sending a new request after the budget has been spent.
     """
+    from bili_asr.storage.editorial_call_budget import PHYSICAL_CALL_SQL
+
     selected = {job['job_id'] for job in jobs if job.get('kind') == 'proofread'}
     if not selected:
         return {}
@@ -82,8 +84,7 @@ def editorial_retry_facts(connection, jobs):
         ), provider_calls AS (
             SELECT m.rowid AS call_rowid,m.input_id,m.chunk_id,m.error_code,m.response_json IS NOT NULL AS has_response
             FROM editorial_model_calls m JOIN (SELECT DISTINCT input_id FROM selected) s ON s.input_id=m.input_id
-            WHERE coalesce(json_extract(m.request_json,'$.invocation_kind'),'provider')='provider'
-                AND coalesce(json_extract(m.response_json,'$.id'),'')<>'local-precheck'
+            WHERE {PHYSICAL_CALL_SQL}
         ), budgets AS (
             SELECT input_id,chunk_id,count(*) AS consumed,max(call_rowid) AS latest_rowid
             FROM provider_calls GROUP BY input_id,chunk_id

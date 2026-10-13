@@ -71,7 +71,13 @@ requirements. Doctor uses READ/query_only and neither changes profiles nor
 requeues tasks. `data_complete` and `runtime_ready` are separate: a compatible
 restored archive can be complete while models, credentials or GPU support remain
 unready. Reports list credential variable names, never values, and do not claim
-that authorization or model loading has been tested online.
+online credential verification or model-loading validation. Proofreading readiness resolves the exact
+frozen input (or the frozen automatic ASR-chain configuration): direct DeepSeek
+requires `DEEPSEEK_API_KEY`, OpenCode Go requires `OPENCODE_API_KEY`. Client
+execution and doctor share the endpoint policy. A missing/corrupt input,
+endpoint or configuration reports `editorial:invalid-frozen-config`; current
+global defaults never substitute for historical evidence. Environment probes
+record only whether the named variables contain nonblank values.
 
 `--runtime-bindings FILE` on inspect/plan/doctor and workers relocates model and
 aligner paths while preserving their original model IDs, exact revisions and

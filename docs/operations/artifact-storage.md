@@ -186,6 +186,7 @@ bili-asr artifacts policy-show --archive-root D:/archives/online > C:/plans/poli
 
 没有保存策略时返回完整默认配置，`mode=off`，不安排扫描或迁移。
 策略 JSON 对应发布的 `artifact-policy-v1` schema；`policy-set` 要求已安装 online 扩展，不执行 DDL。
+独立的压缩音频自动维护使用新的 [audio-retention.md](audio-retention.md) 中 `artifact-policy-v2`，其默认 `allow_delete=false`，必须明确开启删除；旧 v1 契约继续可用。
 从默认配置开始，先限定 `selection.kinds=["audio"]`、一个 `selection.part_ids` 或小范围业务选择，配置真实 `target_id`，使用 `mode=copy` 验证目标。
 各选择器与手动 inventory/plan 相同；空数组表示不限该维度。
 
@@ -227,6 +228,7 @@ POSIX 使用 flock、Windows 使用 LockFileEx；释放仍以具体 inode/文件
 `workflow supervise` 同样接受 storage target binding；目录位置仅属于当前运行配置，策略和快照不携带机器路径或凭据。
 
 预留按已知恢复成员大小、ASR PCM 工作量、配置的下载时长上界估计计算；它是协作进程的 admission control，不是文件系统硬配额。
+数据库预留与 ASR 私有输入的文件回执共享 `capacity` 内核锁，双方都计入两个账本的活跃字节；旧归档根与配置产物根的回执保守合计。未安装 online 扩展的归档仍使用私有输入回执；读取空间预算不安装任何 schema。只有对应 owner 内核锁已释放时才能退休预留，不按租约、PID、年龄或定时器猜测。详见 [ASR 输入身份与临时空间](audio-retention-policy.md#asr-的输入身份与临时空间)。
 应按实际 provider 最大码率调高下载系数并保留空间余量，外部进程的磁盘写入仍可能导致真实空间不足。压力未解除时禁止新增大下载；已有本地可用输入、字幕等不依赖新增大文件的工作可继续。
 完整 snapshot 保存 online 扩展及审计状态；恢复本身不启动策略或消费任务，也不解除生产 hold。
 

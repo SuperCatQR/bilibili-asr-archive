@@ -90,7 +90,7 @@ def test_cli_complete_release_lifecycle_and_private_review(rendered_archive, tmp
     assert invoke(capsys, archive, "export", "--out", str(output), actor=False)["count"] == 0
     release_a = invoke(capsys, archive, "publish", "--edition-id", edition_a["edition_id"])
     assert invoke(capsys, archive, "export", "--out", str(output), actor=False)["count"] == 1
-    catalog_a = json.loads((output / "catalog.json").read_text())
+    catalog_a = json.loads((output / "catalog.json").read_text(encoding="utf-8"))
     assert catalog_a["articles"][0]["releaseId"] == release_a["release_id"]
     old_body = (output / catalog_a["articles"][0]["file"]).read_bytes()
 
@@ -118,7 +118,7 @@ def test_cli_complete_release_lifecycle_and_private_review(rendered_archive, tmp
     release_b = invoke(capsys, archive, "publish", "--edition-id", edition_b["edition_id"],
                        "--expected-release-id", release_a["release_id"])
     assert invoke(capsys, archive, "export", "--out", str(output), actor=False)["count"] == 1
-    entry_b = json.loads((output / "catalog.json").read_text())["articles"][0]
+    entry_b = json.loads((output / "catalog.json").read_text(encoding="utf-8"))["articles"][0]
     assert entry_b["releaseId"] == release_b["release_id"]
     assert b"New test publication body." in (output / entry_b["file"]).read_bytes()
     assert invoke(capsys, archive, "publish", "--edition-id", edition_b["edition_id"])["idempotent"]

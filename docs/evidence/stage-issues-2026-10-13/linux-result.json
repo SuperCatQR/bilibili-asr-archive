@@ -1,0 +1,109 @@
+{
+  "phase": "complete",
+  "started_epoch": 1791870152.4769995,
+  "baseline": "b07c51c5e38ef9680572a393e185d5a77b61579e",
+  "ref": "codex/stage-issues-integration",
+  "shards": [
+    {
+      "index": 0,
+      "pid": 24556,
+      "exit_code": 0
+    },
+    {
+      "index": 1,
+      "pid": 24557,
+      "exit_code": 0
+    },
+    {
+      "index": 2,
+      "pid": 24558,
+      "exit_code": 0
+    },
+    {
+      "index": 3,
+      "pid": 24559,
+      "exit_code": 0
+    }
+  ],
+  "commit": "19b118e8c39323763630716ecf29000158ac1af1",
+  "python_version": "Python 3.12.15",
+  "elapsed_seconds": 742.06,
+  "totals": {
+    "total": 4486,
+    "passed": 4470,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 16
+  },
+  "plan_validation": {
+    "plans": 4,
+    "identical_assignment": true,
+    "collected": 4486,
+    "assigned": 4486,
+    "unique": 4486,
+    "duplicate_nodes": [],
+    "junit_matches_selected": true,
+    "complete": true
+  },
+  "reports": [
+    {
+      "index": 0,
+      "total": 972,
+      "passed": 972,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    {
+      "index": 1,
+      "total": 1165,
+      "passed": 1159,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 6,
+      "failures": []
+    },
+    {
+      "index": 2,
+      "total": 1043,
+      "passed": 1038,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 5,
+      "failures": []
+    },
+    {
+      "index": 3,
+      "total": 1306,
+      "passed": 1301,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 5,
+      "failures": []
+    }
+  ],
+  "coverage": {
+    "combine_exit_code": 0,
+    "json_exit_code": 0,
+    "totals": {
+      "covered_lines": 29488,
+      "num_statements": 33700,
+      "percent_covered": 85.06748307533094,
+      "percent_covered_display": "85.07",
+      "missing_lines": 4212,
+      "excluded_lines": 170,
+      "percent_statements_covered": 87.50148367952522,
+      "percent_statements_covered_display": "87.50",
+      "num_branches": 12682,
+      "num_partial_branches": 1936,
+      "covered_branches": 9968,
+      "missing_branches": 2714,
+      "percent_branches_covered": 78.59958997003628,
+      "percent_branches_covered_display": "78.60"
+    },
+    "gate_exit_code": 0,
+    "changed_gate_exit_code": 0
+  },
+  "success": true
+}

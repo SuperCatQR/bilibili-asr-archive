@@ -8,14 +8,17 @@ module allowed to import that package.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Protocol
 
-from bili_asr.contracts.values import integer as _integer, text as _text, caption_text as _caption_text
-
+from bili_asr.contracts.values import caption_text as _caption_text
+from bili_asr.contracts.values import integer as _integer
+from bili_asr.contracts.values import text as _text
 from bili_asr.error_codes import validate_error_code
-from bili_asr.platform_identity import ContentRef
+from bili_asr.metadata_acceptance import SourceFieldReceipt
 from bili_asr.metadata_policy import MetadataFieldObservation
+from bili_asr.platform_identity import ContentRef
+from bili_asr.source_metadata import valid_source_text
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +60,7 @@ class VideoSummary:
     # Participants verified against the video's detail response. ``mid``
     # remains the actual uploader, even on another participant's upload page.
     collaborator_mids: tuple[int, ...] = ()
+    source_receipts: tuple[SourceFieldReceipt, ...] = field(default=(), repr=False, compare=False)
 
     def __post_init__(self) -> None:
         _text(self.bvid, "bvid")
@@ -70,13 +74,17 @@ class VideoSummary:
         if self.pic is not None:
             _text(self.pic, "pic")
         if self.desc is not None:
-            _text(self.desc, "desc")
+            if not valid_source_text(self.desc, limit=65536, multiline=True):
+                raise ValueError("desc contains invalid source text")
         if self.tid is not None:
             _integer(self.tid, "tid", minimum=1)
         if not isinstance(self.collaborator_mids, tuple):
             raise TypeError("collaborator_mids must be a tuple")
         for collaborator_mid in self.collaborator_mids:
             _integer(collaborator_mid, "collaborator_mid", minimum=1)
+        if not isinstance(self.source_receipts, tuple) or any(
+                not isinstance(receipt, SourceFieldReceipt) for receipt in self.source_receipts):
+            raise TypeError("source_receipts must be typed source field receipts")
 
     @property
     def content_ref(self) -> ContentRef:
@@ -94,6 +102,7 @@ class VideoPart:
     cid: int
     title: str
     duration_ms: int
+    source_receipt: SourceFieldReceipt | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         _text(self.bvid, "bvid")
@@ -101,6 +110,8 @@ class VideoPart:
         _integer(self.cid, "cid", minimum=1)
         _text(self.title, "title")
         _integer(self.duration_ms, "duration_ms", minimum=1)
+        if self.source_receipt is not None and not isinstance(self.source_receipt, SourceFieldReceipt):
+            raise TypeError("source_receipt must be a typed source field receipt")
 
     @property
     def content_ref(self) -> ContentRef:
@@ -266,6 +277,7 @@ class TagRead:
 
     tags: tuple[VideoTag, ...] | None
     error_code: str | None = None
+    source_receipt: SourceFieldReceipt | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.tags is None:
@@ -276,6 +288,8 @@ class TagRead:
             raise TypeError("tags must be normalized video tags")
         elif self.error_code is not None:
             raise ValueError("a successful tag read cannot carry a failure code")
+        if self.source_receipt is not None and (self.tags is None or not isinstance(self.source_receipt, SourceFieldReceipt)):
+            raise ValueError("only successful tag reads may carry a typed receipt")
 
 
 class BilibiliGateway(Protocol):

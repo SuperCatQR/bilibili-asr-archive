@@ -21,6 +21,7 @@ def add_snapshot_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     save.add_argument("--compression", choices=("stored", "deflate"), default="stored",
                       help="Optional lossless ZIP deflate to reduce archive size; default stored")
     save.add_argument("--storage-target", action="append", help="Explicit TARGET_ID=DIRECTORY binding for offloaded objects")
+    save.add_argument("--baseline", type=Path, help="Save a differential against a verified full or incremental snapshot in the same repository")
     check = actions.add_parser("check", help="Verify snapshot hashes, database contract, and file references offline")
     check.set_defaults(database_policy=None)
     check.add_argument("--file", required=True, help="Snapshot ZIP to verify")
@@ -61,12 +62,20 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
             from bili_asr.services.artifact_access import parse_target_bindings
             roots = roots_for(args.archive_root, flag_value=args.artifact_root, require_writable=False)
             compression_options = {"compression": args.compression} if args.compression != "stored" else {}
-            report = save_snapshot(
-                Path(args.archive_root), Path(args.out),
-                artifact_root=roots.artifact_root if roots.configured else None,
-                storage_targets=parse_target_bindings(args.storage_target),
-                **compression_options,
-            )
+            if args.baseline is not None:
+                from bili_asr.services.maintenance_chain import save_delta
+                if args.storage_target:
+                    raise ValueError("delta backup requires materialized local objects; use full snapshot storage targets first")
+                report = save_delta(Path(args.archive_root), Path(args.out), args.baseline,
+                                    artifact_root=roots.artifact_root if roots.configured else None,
+                                    compression=args.compression)
+            else:
+                report = save_snapshot(
+                    Path(args.archive_root), Path(args.out),
+                    artifact_root=roots.artifact_root if roots.configured else None,
+                    storage_targets=parse_target_bindings(args.storage_target),
+                    **compression_options,
+                )
         elif args.snapshot_action == "check":
             report = check_snapshot(Path(args.file))
         elif args.snapshot_action == "inspect":

@@ -60,13 +60,19 @@ def secure_path(root: Path, relative_path: str, *, create_parents: bool = False)
     return target
 
 
-def read_artifact(relative_path: str, sha256: str, roots: Iterable[Path]) -> bytes:
+def read_artifact(relative_path: str, sha256: str, roots: Iterable[Path], *, max_bytes: int | None = None) -> bytes:
     """Read the first present exact artifact, rejecting corruption or links."""
     for root in roots:
         target = secure_path(Path(root), relative_path)
         if not target.exists():
             continue
-        data = target.read_bytes()
+        if max_bytes is None:
+            data = target.read_bytes()
+        else:
+            with target.open("rb") as stream:
+                data = stream.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise ValueError("manuscript-integrity: artifact exceeds reader byte limit")
         if hashlib.sha256(data).hexdigest() != sha256:
             raise ValueError("manuscript-integrity: artifact hash mismatch")
         try:

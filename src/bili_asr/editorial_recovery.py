@@ -7,6 +7,7 @@ from typing import Any
 
 from bili_asr.canonical_json import canonical
 from bili_asr.editorial import EditorialConfig, RevisionValidationError
+from bili_asr.editorial_budget import admit_request
 from bili_asr.workflow_errors import JobExecutionError
 
 RECOVERY_POLICY = "paragraph-reference-v1"
@@ -30,7 +31,7 @@ def recovery_request(original: dict[str, Any], previous: dict[str, Any] | None,
                               "max_physical_calls": 1 + config.max_chunk_regenerations,
                               "regeneration": 0}
     if previous is None:
-        return original, metadata
+        return admit_request(original, config), metadata
     stored = previous["stored_request"]
     prior_metadata = stored.get("recovery", {})
     diagnostic = stored.get("validation_diagnostic")
@@ -43,12 +44,12 @@ def recovery_request(original: dict[str, Any], previous: dict[str, Any] | None,
             "recovery_policy": RECOVERY_POLICY, "regeneration": ordinal,
             "validation_diagnostic": diagnostic,
             "instruction": "重新生成整个 editable chunk，保留精确覆盖和顺序。每段 evidence_refs 只能引用本段 allowed_issue_refs 的并集；无合法证据时用空列表。继续遵守原始所有规则。"})})
-        return request, metadata
+        return admit_request(request, config), metadata
     # An uncertain send or transport error consumed its reservation. Retry its
     # exact request (if budget remains), without inventing another diagnostic.
     resumed = dict(prior_metadata or metadata)
     resumed.update(policy=RECOVERY_POLICY, max_physical_calls=1 + config.max_chunk_regenerations)
-    return stored["request"], resumed
+    return admit_request(stored["request"], config), resumed
 
 
 def exhausted(chunk_id: str, consumed: int, maximum: int) -> JobExecutionError:

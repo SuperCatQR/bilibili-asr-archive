@@ -27,6 +27,11 @@ class MetadataRefreshService:
 
     def __init__(self, gateway: BilibiliGateway, repository: MetadataRepository):
         self.gateway, self.repository = gateway, repository
+        from bili_asr.services.metadata_observations import bind_observations
+        self.raw_observations_available = bind_observations(gateway, repository)
+        self.metadata_capture_report = {
+            "rawHistory": "available" if self.raw_observations_available else "unavailable",
+            "requiredContract": "source-observations/v1", "capture": "explicit-endpoints"}
 
     def refresh(self, bvids, *, operations=("summary", "details", "parts", "tags"),
                 policy: MetadataRefreshPolicy | None = None) -> tuple[MetadataRefreshOutcome, ...]:
@@ -132,6 +137,10 @@ class MetadataRefreshService:
                                 self.repository.upsert_part(VideoPartRecord(
                                     bvid, part.page_index, part.cid, part.title, part.duration_ms,
                                     "metadata_collected", started, _now()))
+                            receipts = {part.source_receipt for part in parts if part.source_receipt is not None}
+                            if len(receipts) > 1:
+                                raise ValueError("part DTOs carry different source selection receipts")
+                            self.repository.record_accepted_receipts(bvid, receipts, _now())
                             self.repository.record_metadata_attempt(bvid, operation, "present", started, _now())
                     else:
                         read = await read_tags(self.gateway, bvid)
@@ -139,6 +148,7 @@ class MetadataRefreshService:
                             raise GatewayError(read.error_code)
                         with self.repository.transaction():
                             self.repository.upsert_video_tags(bvid, [VideoTagRecord(bvid, tag.tag_id, tag.tag_name, tag.tag_type) for tag in read.tags])
+                            self.repository.record_accepted_receipts(bvid, () if read.source_receipt is None else (read.source_receipt,), _now())
                             self.repository.connection.execute(
                                 "INSERT INTO video_tag_observations VALUES (?, ?, ?, NULL, NULL) ON CONFLICT(bvid) DO UPDATE SET state=excluded.state, observed_at=excluded.observed_at, error_code=NULL, run_id=NULL",
                                 (bvid, "success_nonempty" if read.tags else "success_empty", _now()))
@@ -211,6 +221,8 @@ class MetadataRefreshService:
             else:
                 self.repository.observe_video_details(VideoDetailRecord(bvid, summary.pic, summary.desc, summary.tid, now), fields)
             self.repository.record_field_observations(bvid, operation, fields, now)
+            self.repository.record_accepted_receipts(bvid, tuple(receipt for receipt in summary.source_receipts
+                if receipt.field in {field.field for field in fields}), now)
             self.repository.record_metadata_attempt(bvid, operation, "present", started, now)
 
 

@@ -45,7 +45,8 @@ def _unique_object(pairs):
     return result
 
 
-def load_control_state(path: str | Path | None = None, *, no_control_state: bool = False) -> ControlState:
+def load_control_state(path: str | Path | None = None, *, no_control_state: bool = False,
+                       connection=None, now: int | None = None) -> ControlState:
     """Read known-empty controls only through an explicit declaration.
 
     Other operational state is ignored. Arbitrary hold reasons are never copied
@@ -65,6 +66,14 @@ def load_control_state(path: str | Path | None = None, *, no_control_state: bool
         raise ValueError("control state is unavailable or invalid") from None
     if not isinstance(state, dict):
         raise ValueError("control state must be an object")  # noqa: TRY004 - serialized input contract
+    if state.get("format") == "retry-control/v2":
+        from bili_asr.services.retry_control import validate_control
+        validate_control(state, connection=connection, now=now)
+        if connection is None:
+            raise ValueError("portable retry controls require archive scope verification")
+    elif "format" in state:
+        from bili_asr.services.retry_control import validate_legacy_typed
+        validate_legacy_typed(state)
     complete = "retry_holds" in state and "retry_ledger" in state
     holds, ledger = state.get("retry_holds", {}), state.get("retry_ledger", {})
     for items in (holds, ledger):
@@ -162,7 +171,8 @@ def guarded_retry_failed(workflow, *, part_ids=None, job_ids=None, kinds=None,
     elif override_reason is not None:
         raise ValueError("override reason requires manual override")
     captured_at = int(time.time()) if now is None else int(now)
-    control = load_control_state(control_state_path, no_control_state=no_control_state)
+    control = load_control_state(control_state_path, no_control_state=no_control_state,
+                                 connection=workflow.connection, now=captured_at)
     before = retry_candidates(workflow.connection, part_ids=part_ids, job_ids=job_ids, kinds=kinds,
                               failed_only=job_ids is None)
 
@@ -181,7 +191,8 @@ def guarded_retry_failed(workflow, *, part_ids=None, job_ids=None, kinds=None,
         report["decisions"] = decisions(before)
         return report
     with workflow.commit_guard.transaction():
-        current_control = load_control_state(control_state_path, no_control_state=no_control_state)
+        current_control = load_control_state(control_state_path, no_control_state=no_control_state,
+                                             connection=workflow.connection, now=captured_at)
         if current_control != control:
             raise ValueError("retry control state changed; inspect again")
         # Never add newly failed jobs to a batch that was inspected before locking.
@@ -199,7 +210,8 @@ def guarded_retry_failed(workflow, *, part_ids=None, job_ids=None, kinds=None,
                 count = requeue_decided_job(workflow.connection, row, now=captured_at)
                 report["requeued"] += count
                 decision["requeued"] = bool(count)
-        if load_control_state(control_state_path, no_control_state=no_control_state) != control:
+        if load_control_state(control_state_path, no_control_state=no_control_state,
+                              connection=workflow.connection, now=captured_at) != control:
             raise ValueError("retry control state changed; inspect again")
         report["decisions"] = result
     return report

@@ -4,9 +4,10 @@ from __future__ import annotations
 from bili_asr.manuscript_files import read_artifact
 
 
-def read_retained_text(connection, relative_path, sha256, roots):
+def read_retained_text(connection, relative_path, sha256, roots, *, max_bytes=None):
     """Read current local bytes, or identify the exact immutable group to restore."""
     try:
+        bounds = {} if max_bytes is None else {"max_bytes": max_bytes}
         installed = connection.execute("SELECT 1 FROM sqlite_master WHERE name='artifact_online_contract'").fetchone()
         if installed:
             from pathlib import Path
@@ -15,8 +16,8 @@ def read_retained_text(connection, relative_path, sha256, roots):
             from bili_asr.services.artifact_coordination import object_fence
             database = next(row[2] for row in connection.execute("PRAGMA database_list") if row[1] == "main")
             with object_fence(ArtifactRoots.of(Path(database).parent), sha256, exclusive=False):
-                return read_artifact(relative_path, sha256, roots)
-        return read_artifact(relative_path, sha256, roots)
+                return read_artifact(relative_path, sha256, roots, **bounds)
+        return read_artifact(relative_path, sha256, roots, **bounds)
     except ValueError as error:
         if "artifact is missing:" not in str(error):
             raise

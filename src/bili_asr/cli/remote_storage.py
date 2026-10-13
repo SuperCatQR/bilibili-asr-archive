@@ -9,7 +9,12 @@ from pathlib import Path
 
 from bili_asr.artifact_root import roots_for
 from bili_asr.diagnostics import write_stderr
-from bili_asr.remote_storage import RemoteStorageError, SSHDirectoryBackend, UnavailableBackend, read_ssh_binding
+from bili_asr.remote_storage import (
+    RemoteStorageError,
+    SSHDirectoryBackend,
+    UnavailableBackend,
+    read_ssh_binding,
+)
 from bili_asr.storage_targets import unique_json_object
 
 
@@ -38,6 +43,8 @@ def add_remote_parsers(subparsers: argparse._SubParsersAction, *, archive_root: 
             action.add_argument("--artifact-root")
             action.add_argument("--out", required=True)
             action.add_argument("--holds-file", help="Only version 1 holds mapping is accepted; arbitrary ops state is rejected")
+            action.add_argument("--retry-control-file", help="Explicitly project retry holds and spent budgets into scope-bound v2 evidence")
+            action.add_argument("--retry-control-lock", help="Declared coordination lock of the retry-control owner")
             action.add_argument("--remote-binding", action="append", help="Read instance identity offline; never connect during save")
         else:
             action.add_argument("--file", required=True)
@@ -58,7 +65,10 @@ def _cmd_remote(args):
             elif args.remote_action == "probe":
                 report = backend.probe()
             else:
-                from bili_asr.services.remote_artifacts import push_remote_package, restore_remote_artifact
+                from bili_asr.services.remote_artifacts import (
+                    push_remote_package,
+                    restore_remote_artifact,
+                )
                 roots = roots_for(args.archive_root, flag_value=args.artifact_root, require_writable=False)
                 if args.remote_action == "push":
                     report = push_remote_package(roots, Path(args.package), backend)
@@ -76,8 +86,12 @@ def _cmd_remote(args):
 
 
 def _cmd_reference(args):
-    from bili_asr.services.reference_backup import (check_reference_backup, plan_reference_restore,
-                                                   restore_reference_backup, save_reference_backup)
+    from bili_asr.services.reference_backup import (
+        check_reference_backup,
+        plan_reference_restore,
+        restore_reference_backup,
+        save_reference_backup,
+    )
     try:
         if args.reference_action == "save":
             roots = roots_for(args.archive_root, flag_value=args.artifact_root, require_writable=False)
@@ -94,7 +108,9 @@ def _cmd_reference(args):
                 if binding.target_id in instances or binding.instance_id is None:
                     raise ValueError("remote target needs one explicit instance binding")
                 instances[binding.target_id] = binding.instance_id
-            report = save_reference_backup(roots, Path(args.out), holds=holds, target_instances=instances)
+            report = save_reference_backup(roots, Path(args.out), holds=holds, target_instances=instances,
+                                           retry_control_path=Path(args.retry_control_file) if args.retry_control_file else None,
+                                           retry_control_lock=Path(args.retry_control_lock) if args.retry_control_lock else None)
         elif args.reference_action in {"check", "inspect"}:
             from bili_asr.services.artifact_access import parse_target_bindings
             online = getattr(args, "online", False)

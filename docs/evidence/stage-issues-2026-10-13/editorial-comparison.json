@@ -1,0 +1,293 @@
+{
+  "schema": "editorial-preset-comparison/v1",
+  "comparison_id": "40438ccb737192313c00930293da10d9e614d068e7802ec2e73f4744b579f8b4",
+  "source_input_id": "e5ba726b502775884e475193980e43648ac34bcb9763fd59f70600a8d2722d43",
+  "max_physical_calls": 4,
+  "physical_calls": 3,
+  "variants": {
+    "baseline-v1": {
+      "plan": {
+        "input_id": "671ebc87676ba366c60cab9aa32ba874de669597a915987cbbbfc33a84ee1bb6",
+        "snapshot_sha256": "671ebc87676ba366c60cab9aa32ba874de669597a915987cbbbfc33a84ee1bb6",
+        "budget_plan": {
+          "policy_version": "token-budget-v2",
+          "estimator": "serialized-request-utf8/3-v1",
+          "output_guard": "conservative-utf8-output-reserve/v1",
+          "preset": "baseline-v1",
+          "boundaries": [
+            0,
+            256,
+            300
+          ],
+          "cut_reasons": [
+            {
+              "capacity_end": 256,
+              "capacity_limits": [
+                "editable_segments"
+              ],
+              "logical_boundary": true
+            },
+            {
+              "capacity_end": 300,
+              "capacity_limits": [
+                "end_of_input"
+              ],
+              "logical_boundary": false
+            }
+          ],
+          "input_tokens": 480000,
+          "output_tokens": 163840,
+          "safety_tokens": 16384,
+          "max_chunk_segments": 256,
+          "max_chunk_characters": 20000,
+          "provider_capability": {
+            "status": "config_only",
+            "endpoint": "https://opencode.ai/zen/go/v1",
+            "model": "deepseek-v4.1-flash",
+            "context_tokens": 1048576,
+            "max_output_tokens": 163840
+          }
+        },
+        "planned_calls": 2,
+        "chunks": [
+          {
+            "chunk_id": "79d000e6fc2a28425f4b7a08bfd2eeea146550bdd70bfeb246571da4c1f6f2ec",
+            "start_ordinal": 0,
+            "end_ordinal": 256,
+            "budget": {
+              "method": "serialized-request-utf8/3-v1",
+              "request_bytes": 78189,
+              "request_tokens": 26063,
+              "system_prompt_tokens": 1755,
+              "editable_tokens": 8967,
+              "reference_tokens": 0,
+              "readonly_context_tokens": 25,
+              "estimated_output_bytes": 128460,
+              "estimated_output_tokens": 92686,
+              "policy_version": "token-budget-v2",
+              "output_guard_method": "conservative-utf8-output-reserve/v1",
+              "output_reserve_tokens": 128460
+            },
+            "capacity_end": 256,
+            "capacity_limits": [
+              "editable_segments"
+            ],
+            "logical_boundary": true
+          },
+          {
+            "chunk_id": "ee1f6ecbf7bdf3f280b122a9df4943c7f227ab36992d7028e535be181470e380",
+            "start_ordinal": 256,
+            "end_ordinal": 300,
+            "budget": {
+              "method": "serialized-request-utf8/3-v1",
+              "request_bytes": 19691,
+              "request_tokens": 6564,
+              "system_prompt_tokens": 1755,
+              "editable_tokens": 1640,
+              "reference_tokens": 0,
+              "readonly_context_tokens": 76,
+              "estimated_output_bytes": 30312,
+              "estimated_output_tokens": 23760,
+              "policy_version": "token-budget-v2",
+              "output_guard_method": "conservative-utf8-output-reserve/v1",
+              "output_reserve_tokens": 30312
+            },
+            "capacity_end": 300,
+            "capacity_limits": [
+              "end_of_input"
+            ],
+            "logical_boundary": false
+          }
+        ],
+        "physical_calls_max": 2,
+        "estimated_cost_range": {
+          "status": "unknown",
+          "reason": "no_dated_price_evidence"
+        },
+        "provider_usage": "unmeasured",
+        "semantic_quality": "not_reviewed"
+      },
+      "physical_calls": 2,
+      "retry_calls": 0,
+      "structure_complete": false,
+      "accepted_chunks": 0,
+      "structure_failures": 2,
+      "observed_latency_ms": 67483,
+      "missing_latency_counters": 0,
+      "usage": {
+        "prompt_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 2
+        },
+        "completion_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 2
+        },
+        "reasoning_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 2
+        },
+        "prompt_cache_hit_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 2
+        },
+        "prompt_cache_miss_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 2
+        }
+      },
+      "actual_cost": {
+        "status": "unknown",
+        "reason": "no_dated_price_evidence"
+      },
+      "estimated_cost_range": {
+        "status": "unknown",
+        "reason": "no_dated_price_evidence"
+      },
+      "calls": [
+        {
+          "ordinal": 1,
+          "chunk_id": "79d000e6fc2a28425f4b7a08bfd2eeea146550bdd70bfeb246571da4c1f6f2ec",
+          "request_sha256": "a44c375ff0ebdd3a4a6a21f0d43237d342013f7c46ede7a8d006cf7f14ce1926",
+          "endpoint": "https://opencode.ai/zen/go/v1",
+          "requested_model": "deepseek-v4.1-flash",
+          "outcome": "DeepSeekTransportError",
+          "latency_ms": 37296
+        },
+        {
+          "ordinal": 2,
+          "chunk_id": "ee1f6ecbf7bdf3f280b122a9df4943c7f227ab36992d7028e535be181470e380",
+          "request_sha256": "772c9a6bdc03e23772c56353df4616acf263428726cd57a04effbab3bac249e8",
+          "endpoint": "https://opencode.ai/zen/go/v1",
+          "requested_model": "deepseek-v4.1-flash",
+          "outcome": "DeepSeekTransportError",
+          "latency_ms": 30187
+        }
+      ],
+      "semantic_quality": "not_reviewed"
+    },
+    "large-v1": {
+      "plan": {
+        "input_id": "45a1e0db1c37124481cf67c49065db787424a3db77f336707047b41a3fd50071",
+        "snapshot_sha256": "45a1e0db1c37124481cf67c49065db787424a3db77f336707047b41a3fd50071",
+        "budget_plan": {
+          "policy_version": "token-budget-v2",
+          "estimator": "serialized-request-utf8/3-v1",
+          "output_guard": "conservative-utf8-output-reserve/v1",
+          "preset": "large-v1",
+          "boundaries": [
+            0,
+            300
+          ],
+          "cut_reasons": [
+            {
+              "capacity_end": 300,
+              "capacity_limits": [
+                "end_of_input"
+              ],
+              "logical_boundary": false
+            }
+          ],
+          "input_tokens": 480000,
+          "output_tokens": 163840,
+          "safety_tokens": 16384,
+          "max_chunk_segments": 2048,
+          "max_chunk_characters": 128000,
+          "provider_capability": {
+            "status": "config_only",
+            "endpoint": "https://opencode.ai/zen/go/v1",
+            "model": "deepseek-v4.1-flash",
+            "context_tokens": 1048576,
+            "max_output_tokens": 163840
+          }
+        },
+        "planned_calls": 1,
+        "chunks": [
+          {
+            "chunk_id": "7440ab7dee4776b876b319240dd5df8a7a706a453b8ff03dd005bdfff027e819",
+            "start_ordinal": 0,
+            "end_ordinal": 300,
+            "budget": {
+              "method": "serialized-request-utf8/3-v1",
+              "request_bytes": 90790,
+              "request_tokens": 30264,
+              "system_prompt_tokens": 1755,
+              "editable_tokens": 10607,
+              "reference_tokens": 0,
+              "readonly_context_tokens": 0,
+              "estimated_output_bytes": 149556,
+              "estimated_output_tokens": 107230,
+              "policy_version": "token-budget-v2",
+              "output_guard_method": "conservative-utf8-output-reserve/v1",
+              "output_reserve_tokens": 149556
+            },
+            "capacity_end": 300,
+            "capacity_limits": [
+              "end_of_input"
+            ],
+            "logical_boundary": false
+          }
+        ],
+        "physical_calls_max": 1,
+        "estimated_cost_range": {
+          "status": "unknown",
+          "reason": "no_dated_price_evidence"
+        },
+        "provider_usage": "unmeasured",
+        "semantic_quality": "not_reviewed"
+      },
+      "physical_calls": 1,
+      "retry_calls": 0,
+      "structure_complete": false,
+      "accepted_chunks": 0,
+      "structure_failures": 1,
+      "observed_latency_ms": 37233,
+      "missing_latency_counters": 0,
+      "usage": {
+        "prompt_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 1
+        },
+        "completion_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 1
+        },
+        "reasoning_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 1
+        },
+        "prompt_cache_hit_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 1
+        },
+        "prompt_cache_miss_tokens": {
+          "known_total": 0,
+          "missing_call_counters": 1
+        }
+      },
+      "actual_cost": {
+        "status": "unknown",
+        "reason": "no_dated_price_evidence"
+      },
+      "estimated_cost_range": {
+        "status": "unknown",
+        "reason": "no_dated_price_evidence"
+      },
+      "calls": [
+        {
+          "ordinal": 3,
+          "chunk_id": "7440ab7dee4776b876b319240dd5df8a7a706a453b8ff03dd005bdfff027e819",
+          "request_sha256": "add2078bbe70f39db9c9fcf1b3503817fcce16036be0b8804ab1fb35dd68d16b",
+          "endpoint": "https://opencode.ai/zen/go/v1",
+          "requested_model": "deepseek-v4.1-flash",
+          "outcome": "DeepSeekTransportError",
+          "latency_ms": 37233
+        }
+      ],
+      "semantic_quality": "not_reviewed"
+    }
+  },
+  "provider_capability": "not_verified",
+  "semantic_quality": "not_reviewed",
+  "default_preset": "baseline-v1"
+}

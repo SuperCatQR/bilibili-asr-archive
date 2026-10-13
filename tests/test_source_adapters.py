@@ -53,7 +53,7 @@ def test_content_ref_rejects_unrepresentable_identity(fields) -> None:
         ContentRef(**values)
 
 
-def test_runtime_ref_does_not_add_legacy_identity_or_dto_fields() -> None:
+def test_runtime_ref_preserves_legacy_identity_and_optional_receipt_default() -> None:
     identity = page_identity("BVtest", 2, 99, "第三分 P")
     assert identity.content_ref == ContentRef("bilibili", "BVtest", 2)
     assert identity.work_id == "BVtest:p2"
@@ -67,6 +67,7 @@ def test_runtime_ref_does_not_add_legacy_identity_or_dto_fields() -> None:
     assert asdict(part) == {
         "bvid": "BVtest", "page_index": 2, "cid": 99,
         "title": "第三分 P", "duration_ms": 1000,
+        "source_receipt": None,
     }
 
 

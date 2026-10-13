@@ -119,6 +119,10 @@ class EditorialRepository:
             comparison_config.setdefault("request_policy", config.request_policy)
             comparison_config.setdefault("temperature", None)
             comparison_config.setdefault("max_chunk_regenerations", 0 if config.request_policy == "legacy-v1" else 2)
+            comparison_config.setdefault("budget_policy", config.budget_policy)
+            if "budget_plan" not in snapshot and comparison_config["budget_policy"] == "legacy-v1":
+                comparison_config["budget_policy"] = config.budget_policy
+            comparison_config.setdefault("chunk_preset", "baseline-v1")
             if comparison_config != config.to_dict():
                 continue
             if (snapshot.get("video_part_id") != base.video_part_id or snapshot.get("base") != expected_base
@@ -194,24 +198,31 @@ class EditorialRepository:
 
     def physical_calls(self, input_id: str, chunk_id: str) -> list[dict[str, Any]]:
         """All sends, including unfinished/failed reservations, across attempts."""
+        from bili_asr.storage.editorial_call_budget import PHYSICAL_CALL_SQL
+        from bili_asr.storage.editorial_replay import ReplayEvidenceError, _stored_request
         rows = self.connection.execute(
-            "SELECT call_id,request_json,response_json,error_code FROM editorial_model_calls "
-            "WHERE input_id=? AND chunk_id=? ORDER BY rowid", (input_id, chunk_id))
+            f"SELECT m.call_id,m.input_id,m.chunk_id,m.request_json,m.response_json,m.error_code,"
+            f"{PHYSICAL_CALL_SQL} AS is_physical FROM editorial_model_calls m "
+            "WHERE m.input_id=? AND m.chunk_id=? ORDER BY m.rowid", (input_id, chunk_id))
         result = []
         for row in rows:
-            stored = json.loads(row["request_json"])
+            stored, _ = _stored_request(row)
             if "request" not in stored:
                 # Some historical packages stored the raw HTTP body. Preserve
                 # it and conservatively count its invocation as a send.
                 stored = {"request": stored}
             kind = stored.get("invocation_kind", "provider")
             if kind not in {"provider", "response_replay", "local_precheck"}:
-                raise ValueError("unknown editorial invocation kind")
+                raise ReplayEvidenceError(row["call_id"], "invocation_kind_invalid")
             if kind != "provider":
                 continue
-            response = None if row["response_json"] is None else json.loads(row["response_json"])
-            # Historical formatting rows predate explicit invocation kinds.
-            if response is not None and response.get("id") == "local-precheck":
+            try:
+                response = None if row["response_json"] is None else json.loads(row["response_json"])
+                if response is not None and not isinstance(response, dict):
+                    raise TypeError()
+            except (ValueError, TypeError):
+                raise ReplayEvidenceError(row["call_id"], "response_json_invalid") from None
+            if not row["is_physical"]:
                 continue
             result.append(dict(row, stored_request=stored, response=response))
         return result
@@ -336,24 +347,10 @@ class EditorialRepository:
         found = self.completed_call_record(request_fingerprint)
         return None if found is None else found["response"]
 
-    def completed_call_record(self, request_fingerprint: str) -> dict[str, Any] | None:
-        rows = self.connection.execute(
-            "SELECT call_id, input_id, chunk_id, request_json, response_json FROM editorial_model_calls "
-            "WHERE response_json IS NOT NULL AND error_code IS NULL "
-            "ORDER BY finished_at DESC, rowid DESC"
-        )
-        for row in rows:
-            try:
-                stored = json.loads(row["request_json"])
-                stored_fingerprint = stored.get("request_fingerprint")
-                if stored_fingerprint is None:
-                    stored_fingerprint = self.request_fingerprint(row["input_id"], row["chunk_id"], stored.get("request", stored))
-                if stored_fingerprint != request_fingerprint:
-                    continue
-                return {"call_id": row["call_id"], "response": json.loads(row["response_json"])}
-            except (AttributeError, TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("invalid stored editorial model response") from exc
-        return None
+    def completed_call_record(self, request_fingerprint: str, *, input_id: str | None = None,
+                              chunk_id: str | None = None) -> dict[str, Any] | None:
+        from bili_asr.storage.editorial_replay import completed_record
+        return completed_record(self.connection, request_fingerprint, input_id=input_id, chunk_id=chunk_id)
 
     def assert_lease(self, job: WorkflowJob) -> None:
         self.commit_guard.assert_lease(job)

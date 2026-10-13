@@ -16,6 +16,30 @@ from bili_asr.publication_models_v2 import content_from_ai_v2
 from bili_asr.source_metadata import SourceMetadataSnapshot
 
 
+FROZEN_CONFIG = {
+    "model": "deepseek-flash", "base_url": "https://api.deepseek.com",
+    "context_tokens": 1_048_576, "max_input_tokens": 480_000,
+    "max_output_tokens": 262_144, "safety_tokens": 16_384,
+    "context_segments": 1, "timeout_seconds": 1800, "thinking_mode": "enabled",
+    "reasoning_effort": "high", "top_p": 0.95, "temperature": None,
+    "request_policy": "deepseek-v2", "max_chunk_regenerations": 2,
+    "rule_version": "readable-prose-v2", "max_chunk_segments": 1,
+    "max_chunk_chars": 20_000,
+}
+
+
+class FrozenFixtureConfig(EditorialConfig):
+    """The exact 98904ed serialized settings, using the historical planner.
+
+    Today's writer includes a new token policy and preset. This fixture keeps
+    the original settings and layout so its captured hashes remain meaningful.
+    """
+
+    def to_dict(self):
+        values = super().to_dict()
+        return {key: values[key] for key in FROZEN_CONFIG}
+
+
 def frozen_case(version, prepare, content_builder, render_ai, render_publish):
     """Exercise input/reference IDs, escaping, metadata and paired output bytes."""
     body = [SimpleNamespace(start_ms=0, end_ms=900, text="Original <speech> 中文。"),
@@ -25,7 +49,9 @@ def frozen_case(version, prepare, content_builder, render_ai, render_publish):
     captions = [SimpleNamespace(start_ms=0, end_ms=800, text="Reference caption.")]
     reference = SimpleNamespace(transcript_id=8, video_part_id=3, source_kind="subtitle-cc",
                                 language="en", content_sha256=digest([s.text for s in captions]), segments=captions)
-    config = EditorialConfig(max_chunk_segments=1, context_segments=1)
+    config = FrozenFixtureConfig.from_snapshot(FROZEN_CONFIG)
+    assert config.budget_policy == "legacy-v1"
+    assert config.to_dict() == FROZEN_CONFIG
     if version == 1:
         prepared = prepare(base, reference, config, metadata={
             "title": "Original <title> 中文", "bvid": "BV1xx411c7mD", "page_index": 0})

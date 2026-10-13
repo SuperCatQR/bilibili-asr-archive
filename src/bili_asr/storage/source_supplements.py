@@ -63,7 +63,8 @@ def capture_description(connection, edition: dict) -> dict:
         (ref.external_video_id,)).fetchone()
     stamp = None
     if observed and observed[0] is not None:
-        if observed[1] is None or json.loads(observed[1]) != row[0]:
+        from bili_asr.metadata_acceptance import unpack_cache
+        if observed[1] is None or unpack_cache(observed[1])[0] != row[0]:
             raise ValueError("source-supplement: description disagrees with successful field observation")
         stamp = observed[0]
     evidence = {"version": 2, "platform": ref.platform, "externalVideoId": ref.external_video_id,

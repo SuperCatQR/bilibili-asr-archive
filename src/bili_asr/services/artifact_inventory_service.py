@@ -244,11 +244,9 @@ def _read_facts(database_path: Path) -> tuple[list[dict], list[dict], list[dict]
             "FROM workflow_jobs j ORDER BY j.job_id"
         )]
         job_map = {job["job_id"]: job for job in jobs}
-        for row in connection.execute(
-            "SELECT d.job_id,j.video_part_id FROM workflow_job_dependencies d "
-            "JOIN workflow_jobs j ON j.job_id=d.prerequisite_job_id WHERE j.kind='audio'"
-        ):
-            job_map[row["job_id"]].setdefault("audio_dependency_parts", []).append(row["video_part_id"])
+        from bili_asr.services.artifact_consumer_graph import consumer_part_rows
+        for job_id, part_id, _status, _updated_at, _running in consumer_part_rows(connection):
+            job_map[job_id].setdefault("audio_dependency_parts", []).append(part_id)
         pins: dict[str, list[dict]] = defaultdict(list)
         if "artifact_pins" in tables:
             for row in connection.execute("SELECT pin_id,object_id,reason FROM artifact_pins WHERE released_at IS NULL ORDER BY pin_id"):

@@ -23,6 +23,8 @@ def add_archive_parser(subparsers: argparse._SubParsersAction) -> None:
     preflight.add_argument("--format", choices=("json", "text"), default="json")
     initialize = actions.add_parser("init", help="Explicitly initialize an empty universal-v2 archive")
     initialize.add_argument("--target-root", required=True)
+    initialize.add_argument("--with-source-observations", action="store_true",
+                            help="Preserve private raw metadata with the explicit source-observations/v1 extension")
     initialize.set_defaults(database_policy=None)
     convert = actions.add_parser("migrate", help="Copy and validate a stopped Bilibili archive into a separate empty universal target")
     source = convert.add_mutually_exclusive_group(required=True)
@@ -61,6 +63,7 @@ def add_archive_parser(subparsers: argparse._SubParsersAction) -> None:
     upgraded = actions.add_parser("upgrade-check", help="Verify an unchanged upgrade installation baseline")
     upgraded.add_argument("--target-root", required=True)
     upgraded.add_argument("--plan-id", required=True)
+    upgraded.add_argument("--audit", action="store_true", help="Report history, current-fact and external-control drift without permitting baseline reuse")
     upgraded.set_defaults(database_policy=None)
 
 
@@ -76,7 +79,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         elif args.archive_action.startswith("upgrade-"):
             report = _cmd_upgrade(args)
         elif args.archive_action == "init":
-            report = initialize_archive(Path(args.target_root))
+            report = initialize_archive(Path(args.target_root), with_source_observations=args.with_source_observations)
         elif args.archive_action == "migration-check":
             report = check_migrated_archive(Path(args.target_root))
         elif args.archive_action == "migrate":
@@ -119,6 +122,9 @@ def _cmd_upgrade(args: argparse.Namespace) -> dict:
     if args.archive_action == "upgrade-paths":
         return {"format_version": 1, "upgrades": [asdict(edge) for edge in UPGRADE_EDGES]}
     if args.archive_action == "upgrade-check":
+        if args.audit:
+            from bili_asr.services.archive_upgrade import audit_upgrade
+            return audit_upgrade(Path(args.target_root), expected_plan_id=args.plan_id)
         return check_upgrade(Path(args.target_root), expected_plan_id=args.plan_id)
     if args.archive_action == "upgrade-apply":
         return apply_upgrade(json.loads(args.plan.read_text(encoding="utf-8")))

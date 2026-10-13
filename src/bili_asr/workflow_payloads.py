@@ -44,6 +44,10 @@ def validate_payload(kind: JobKind, payload: Mapping[str, Any], *,
         reference = payload.get("reference_transcript_id")
         if reference is not None:
             _positive_id(reference, "reference_transcript_id")
+        if "repair_of_job_id" in payload:
+            _text(payload["repair_of_job_id"], "repair_of_job_id")
+        if "repair_of_transcript_id" in payload:
+            _positive_id(payload["repair_of_transcript_id"], "repair_of_transcript_id")
     elif kind is JobKind.PUBLISH:
         _positive_id(payload.get("transcript_id"), "transcript_id")
         if "preserve_publication" in payload:
