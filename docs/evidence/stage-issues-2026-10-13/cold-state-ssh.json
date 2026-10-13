@@ -1,0 +1,33 @@
+{
+  "status": "passed",
+  "valid": true,
+  "checks": {
+    "transport": "real-paramiko-openssh-loopback",
+    "backend": "ssh-directory/v1",
+    "source_release_bytes": 14,
+    "original_sha256": "f89798e115f804c6192cce98116f80b67ebc2ed3cbd8e78d685e1701ac4ff91d",
+    "instance_id": "615fec1e9dc54ee693403289af277816",
+    "package_id": "8912ba88bd45e473405d94da0c79778c054a632693dfa404ca43cbbc0740dc21",
+    "package_sha256": "112a050d99cd1b40382b7196f8778d125c18d0ea944e3573c8592c46482732ac",
+    "replica_generation": 1,
+    "content_id": "529ac4d7a32ca7eae8043376191c9f8e10444fd8d2b53447d55f87509148aa2e",
+    "corrupt_remote_replica_rejected": true,
+    "task_ledger_uncompressed": true,
+    "ambient_credentials_disabled": true,
+    "remote_root_precreated": true,
+    "remote_agent_requires_project_pythonpath": false,
+    "source_and_cold_target_removed": true,
+    "sshd_stopped_before_offline_reads": true,
+    "offline_state_read": true,
+    "offline_detached_extract": true,
+    "failed_attempt_preserved": true,
+    "retry_hold_and_budget_bytes_preserved": true,
+    "all_table_ledgers_preserved": true,
+    "media_restored": false,
+    "media_restore_required": true,
+    "external_audio_references": 1,
+    "external_media_verified_now": false
+  },
+  "temporary_server_keys_and_directories_removed": true,
+  "elapsed_seconds": 4.575
+}

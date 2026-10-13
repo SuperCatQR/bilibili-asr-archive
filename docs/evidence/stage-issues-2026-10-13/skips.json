@@ -1,0 +1,66 @@
+[
+  {
+    "node": "tests.test_artifact_root_write_probe.test_audio_inventory_reuses_the_invocations_resolved_roots",
+    "reason": "derive-audio-inventory command was retired with the manifest queue"
+  },
+  {
+    "node": "tests.test_artifact_root_write_probe.test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock",
+    "reason": "legacy asr command was replaced by SQLite workflow handlers"
+  },
+  {
+    "node": "tests.test_audio_retention_policy.test_coordinator_respects_keep_audio_policy",
+    "reason": "archive execution now belongs to SQLite workflow jobs"
+  },
+  {
+    "node": "tests.test_live_metadata_smoke.test_live_smoke_fetch_meta_one_page_lands_normalized_rows",
+    "reason": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+  },
+  {
+    "node": "tests.test_proofread.test_cli_proofread_merge_publishes_and_counts",
+    "reason": "standalone proofread merge CLI was replaced by workflow rendering"
+  },
+  {
+    "node": "tests.test_proofread.test_cli_proofread_writes_under_proofread_work",
+    "reason": "standalone proofread CLI was replaced by workflow proofread jobs"
+  },
+  {
+    "node": "tests.test_live_subtitle_smoke.test_live_subtitle_probe_reports_one_real_part_inventory",
+    "reason": "live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+  },
+  {
+    "node": "tests.test_migration_source.test_standalone_reader_refuses_database_under_junction",
+    "reason": "Windows junction path semantics"
+  },
+  {
+    "node": "tests.test_quality.test_recorded_cue_fixture_still_exits_zero",
+    "reason": "legacy manifest-backed quality CLI was replaced by workflow quality evidence"
+  },
+  {
+    "node": "tests.test_workflow_scale.test_sqlite_planning_replay_and_attempt_history_at_scale[10001]",
+    "reason": "SQLite scale validation is opt-in: set BILI_SCALE=1"
+  },
+  {
+    "node": "tests.test_workflow_scale.test_sqlite_planning_replay_and_attempt_history_at_scale[1001]",
+    "reason": "SQLite scale validation is opt-in: set BILI_SCALE=1"
+  },
+  {
+    "node": "tests.test_audio_reclaim.test_coordinator_archive_stage_reclaims_audio",
+    "reason": "archive execution now belongs to SQLite workflow jobs"
+  },
+  {
+    "node": "tests.test_bilibili_api_gateway.test_live_smoke_single_public_page_for_archive_owner",
+    "reason": "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+  },
+  {
+    "node": "tests.test_ci_ffmpeg.test_ffmpeg_provisioning_verifies_tools_and_retries_another_mirror[failure]",
+    "reason": "Provisioning targets Ubuntu 24.04 CI runners"
+  },
+  {
+    "node": "tests.test_ci_ffmpeg.test_ffmpeg_provisioning_verifies_tools_and_retries_another_mirror[fallback]",
+    "reason": "Provisioning targets Ubuntu 24.04 CI runners"
+  },
+  {
+    "node": "tests.test_ci_ffmpeg.test_ffmpeg_provisioning_verifies_tools_and_retries_another_mirror[present]",
+    "reason": "Provisioning targets Ubuntu 24.04 CI runners"
+  }
+]
