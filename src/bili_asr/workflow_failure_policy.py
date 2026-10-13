@@ -72,6 +72,8 @@ _POLICIES = {
     "artifact_input_identity_mismatch": _ARTIFACT,
     "audio_missing": _ARTIFACT,
     "audio_digest_mismatch": _ARTIFACT,
+    "audio_generation_changed": _ARTIFACT,
+    "audio_input_space_unavailable": _ARTIFACT,
     "inference_timeout": FailurePolicy("inference_runtime", "manual", "inspect_inference_deadline_or_replace_profile"),
     "inference_session_failed": FailurePolicy("inference_runtime", "manual", "inspect_inference_runtime"),
     "ASRDependencyError": _CONFIG,
