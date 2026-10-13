@@ -156,6 +156,13 @@ def project_superset(observations: tuple[PlatformObservation, ...], *, platform:
     coverage: list[dict[str, Any]] = []
     for observation in observations:
         envelope = observation.envelope
+        # Application acceptance nodes are private selection evidence, never
+        # provider payloads or acquisition coverage. Their own codec verifies
+        # the distinct application owner before any provenance use.
+        if envelope["operation"] == "accepted-metadata":
+            from bili_asr.metadata_acceptance import acceptance_document
+            acceptance_document(observation)
+            continue
         if envelope["platform"] != platform:
             raise ValueError("mixed platform observation projection")
         if envelope["scope"].get("externalVideoId", external_video_id) != external_video_id:

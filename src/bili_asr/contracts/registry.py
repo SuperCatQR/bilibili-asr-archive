@@ -44,6 +44,11 @@ def _json(identity: str, filename: str, owner: str = "publication",
 
 
 _CONTRACTS = (
+    Contract("metadata-acceptance/v1", "sources", ("src/bili_asr/metadata_acceptance.py",
+             "src/bili_asr/sources/bilibili_metadata_codec.py", "src/bili_asr/storage/metadata_acceptance.py"),
+             ("sources.bilibili_api_gateway", "services.metadata_ingest", "services.metadata_refresh",
+              "storage.metadata", "storage.snapshots", "provenance-reader"),
+             ("validate", "accept", "read", "snapshot"), (UNIVERSAL_V2, "source-observations/v1")),
     Contract("source-observations/v1", "sources", ("src/bili_asr/source_observations.py",
              "src/bili_asr/storage/schema-source-observations.sql"),
              ("storage.source_observations", "storage.snapshots", "cli.source"),

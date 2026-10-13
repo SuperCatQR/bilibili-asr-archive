@@ -22,8 +22,9 @@ payload digest and acquisition envelope digest. A binding is emitted only when
 the original receipt exists and verifies. Archives without raw storage still
 retain known source fields, with an empty binding list to report unavailable raw
 evidence honestly. Old records without these fields remain unknown and keep v1.
-Bilibili snapshots retain v1 until the actual accepted DTO-to-field receipt is
-recorded. The available private raw history is never treated as proof of which
+Bilibili snapshots with newly recorded `metadata-acceptance/v1` DTO selections
+also use v2; historical plain caches retain v1 and unknown selection. The
+available private raw history is never treated as proof of which
 response supplied a frozen field. No timestamp or latest-response inference is
 used to manufacture bindings, and old frozen input/content hashes stay unchanged.
 

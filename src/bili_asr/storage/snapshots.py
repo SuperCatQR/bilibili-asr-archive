@@ -215,6 +215,10 @@ def validate_snapshot_database(database_path: Path, expected_contract: str | Non
                 cursor = connection.execute("SELECT DISTINCT external_id FROM source_metadata_observations WHERE platform='youtube'")
                 while batch := cursor.fetchmany(256):
                     read_youtube_fields_many(connection, tuple(row[0] for row in batch))
+                from bili_asr.storage.metadata_acceptance import read_bindings_many
+                cursor = connection.execute("SELECT DISTINCT external_id FROM source_metadata_observations WHERE platform='bilibili'")
+                while batch := cursor.fetchmany(256):
+                    read_bindings_many(connection, tuple(row[0] for row in batch))
             if expected_contract is not None and expected_contract != contract:
                 raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             integrity = connection.execute("PRAGMA integrity_check").fetchall()

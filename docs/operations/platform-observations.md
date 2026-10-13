@@ -53,6 +53,14 @@ erase the original response. Observation storage participates in full and
 reference snapshots as database state; backup validation verifies both recorded
 digests and the unchanged registered extension definition.
 
+New Bilibili DTO adoption also records private application-owned
+`metadata-acceptance/v1` nodes in this immutable store. They have a distinct
+operation, endpoint and extractor, and link the actual adopted field value to
+its provider receipt and pure normalizer. Superset projection excludes these
+nodes from `platformFields`, acquisition coverage and provider-history limits.
+See [Bilibili selection receipts](bilibili-metadata-acceptance.md) for atomic
+write semantics, frozen bindings and offline validation.
+
 Validation: original-response round trips on both platforms, real gateway/source
 ingestion seams, all registered extension upgrade edges, old frozen evidence
 preservation, missing/null/empty semantics, offline mapping revisions, scoped

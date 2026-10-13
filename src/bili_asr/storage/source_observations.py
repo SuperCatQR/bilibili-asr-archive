@@ -90,11 +90,18 @@ def verify_frozen_source_bindings(connection: sqlite3.Connection) -> None:
                         or envelope["payloadSha256"] != payload_digest or digest(envelope) != envelope_digest
                         or ("partIndex" in scope and scope["partIndex"] != source.ref.part_index)):
                     raise ValueError("frozen source observation digest or scope differs")
+                if envelope["operation"] == "accepted-metadata":
+                    from bili_asr.storage.metadata_acceptance import verify_acceptance_graph
+                    from bili_asr.metadata_acceptance import acceptance_document, validate_frozen_acceptance
+                    accepted = acceptance_document(observation)
+                    validate_frozen_acceptance(accepted, source)
+                    verify_acceptance_graph(connection, observation, owner_mid=int(source.creator_id))
+                    continue
                 if scope.get("externalVideoId") == source.ref.external_video_id:
                     continue
                 payload = json.loads(observation.payload_json or "null")
                 listing = payload.get("list") if isinstance(payload, dict) else None
-                page = listing.get("vlist") if isinstance(listing, dict) else None
+                page = listing.get("vlist") if isinstance(listing, dict) else listing
                 if (source.ref.platform != "bilibili" or envelope["operation"] != "creator-page"
                         or not isinstance(page, list) or not any(isinstance(item, dict) and
                             item.get("bvid") == source.ref.external_video_id for item in page)):
@@ -137,7 +144,10 @@ class ObservationRepository:
 
     def read_video(self, platform: str, external_video_id: str, *, limit: int = 1000,
                    observed_after: int | None = None, observed_before: int | None = None,
-                   payload_byte_limit: int = 64 * 1024 * 1024) -> tuple[PlatformObservation, ...]:
+                   payload_byte_limit: int = 64 * 1024 * 1024,
+                   include_acceptances: bool = True) -> tuple[PlatformObservation, ...]:
+        if type(include_acceptances) is not bool:
+            raise ValueError("acceptance selection must be explicit boolean")
         if type(limit) is not int or not 1 <= limit <= 10000:
             raise ValueError("observation read limit must be 1 to 10000")
         for stamp in (observed_after, observed_before):
@@ -156,9 +166,10 @@ class ObservationRepository:
             "(operation='creator-page' AND EXISTS(SELECT 1 FROM json_each(payload_json,'$.list.vlist') v "
             "WHERE CASE WHEN v.type='object' THEN json_extract(v.value,'$.bvid') END=?))) "
             "AND (? IS NULL OR observed_at>=?) AND (? IS NULL OR observed_at<=?) "
+            "AND (? OR operation<>'accepted-metadata') "
             "ORDER BY observed_at,rowid LIMIT ?",
             (platform, external_video_id, external_video_id, observed_after, observed_after,
-             observed_before, observed_before, limit + 1))
+             observed_before, observed_before, int(include_acceptances), limit + 1))
         observations: list[PlatformObservation] = []
         retained_bytes = 0
         for row in rows:
@@ -174,7 +185,7 @@ class ObservationRepository:
                  limit: int = 1000, observed_after: int | None = None,
                  observed_before: int | None = None) -> dict[str, Any]:
         report = project_superset(self.read_video(platform, external_video_id, limit=limit,
-            observed_after=observed_after, observed_before=observed_before), platform=platform,
+            observed_after=observed_after, observed_before=observed_before, include_acceptances=False), platform=platform,
             external_video_id=external_video_id, mapping_version=mapping_version)
         report["coverage"]["selection"] = {"observedAfterInclusive": observed_after,
             "observedBeforeInclusive": observed_before, "limit": limit}
@@ -184,7 +195,10 @@ class ObservationRepository:
         if not require_observations(self.connection):
             return
         for row in self.connection.execute("SELECT * FROM platform_observations"):
-            _validated_row(row)
+            observation = _validated_row(row)
+            if observation.envelope["operation"] == "accepted-metadata":
+                from bili_asr.storage.metadata_acceptance import verify_acceptance_graph
+                verify_acceptance_graph(self.connection, observation)
 
     def read_videos(self, platform: str, external_ids: tuple[str, ...]) -> dict[str, tuple[PlatformObservation, ...]]:
         """Bounded set read for frozen Bilibili metadata, without one query per part."""

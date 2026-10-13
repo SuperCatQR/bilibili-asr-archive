@@ -38,16 +38,24 @@ from bilibili_api.exceptions import (
     ResponseException,
     WbiRetryTimesExceedException,
 )
-from bilibili_api.user import API as USER_API, User, VideoOrder
+from bilibili_api.user import API as USER_API
+from bilibili_api.user import User, VideoOrder
 from bilibili_api.utils.network import Api
-from bilibili_api.video import API as VIDEO_API, Video
+from bilibili_api.video import API as VIDEO_API
+from bilibili_api.video import Video
 
+from bili_asr.bili_client import NAV_URL
 from bili_asr.config import resolve_proxy
 from bili_asr.request_budget import RequestScheduler
-from bili_asr.metadata_policy import MetadataFieldObservation
 from bili_asr.source_observations import PlatformObservation
-from bili_asr.sources.request_scope import sdk_settings_scope
-from bili_asr.bili_client import NAV_URL
+from bili_asr.sources.bilibili_metadata_codec import (
+    _complete_summary_from_detail,
+    _extract_page_items,
+    _normalize_video_parts,
+    _normalize_video_summary_item,
+    _normalize_video_tags,
+    _read_observed_total,
+)
 from bili_asr.sources.models import (
     GatewayAuthenticationError,
     GatewayDiagnostic,
@@ -62,11 +70,12 @@ from bili_asr.sources.models import (
     SubtitleTrack,
     TagRead,
     UserVideoPage,
-    VideoPart,
     VideoMetadataRead,
+    VideoPart,
     VideoSummary,
     VideoTag,
 )
+from bili_asr.sources.request_scope import sdk_settings_scope
 
 PACKAGE_DISTRIBUTION_NAME = "bilibili-api-python"
 PINNED_PACKAGE_VERSION = "17.4.2"
@@ -151,249 +160,26 @@ def _require_positive_argument(value: object, field: str) -> None:
         raise ValueError(f"{field} must be a positive integer")
 
 
-def _extract_page_items(response: object) -> list:
-    """Extract the video item array from the arc/search inner data."""
-
-    if not isinstance(response, Mapping):
-        raise GatewayShapeError(detail="response is not a mapping")
-    container = response.get("list")
-    if isinstance(container, Mapping):
-        items = container.get("vlist")
-        if not isinstance(items, list):
-            raise GatewayShapeError(detail="list.vlist is not an array")
-        return items
-    if isinstance(container, list):
-        return container
-    raise GatewayShapeError(detail="response has no video list")
 
 
-def _read_observed_total(response: Mapping) -> int | None:
-    """Read the total video count when the response carries it."""
-
-    page = response.get("page")
-    if page is None:
-        return None
-    if not isinstance(page, Mapping):
-        raise GatewayShapeError(detail="page is not a mapping")
-    count = page.get("count")
-    if count is None:
-        return None
-    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-        raise GatewayShapeError(detail="page.count is not a valid total")
-    return count
 
 
-def _read_pubdate(item: Mapping) -> int:
-    """Read the publish timestamp; ``created`` first, ``pubdate`` fallback."""
-
-    for field in ("created", "pubdate"):
-        value = item.get(field)
-        if value is not None:
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise GatewayShapeError(detail=f"{field} is not a timestamp")
-            return value
-    raise GatewayShapeError(detail="no publish timestamp")
 
 
-def _read_optional_aid(item: Mapping) -> int | None:
-    """Read the aid when present; absent stays absent, never speculative."""
-
-    value = item.get("aid")
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise GatewayShapeError(detail="aid is not a positive av number")
-    return value
 
 
-def _read_optional_text(
-    item: Mapping,
-    field: str,
-) -> str | None:
-    """Read a projected text value; field DTOs validate its own text rules.
-
-    Description permits prose line breaks, whereas URLs and names keep their
-    scalar validation. Unrepresentable prose is a shape error, never absence.
-    The raw observation keeps whitespace and explicit empty values separately.
-    """
-
-    value = item.get(field)
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise GatewayShapeError(detail=f"video item has no valid {field}")
-    text = value.strip()
-    return text or None
 
 
-def _read_optional_typeid(item: Mapping) -> int | None:
-    """Read the list item's ``typeid`` when present; absent stays absent.
-
-    The spelling is this endpoint's own — the view endpoint names the same
-    thing ``tid`` — and the DTO field keeps the stored column's name.  A
-    present-and-unusable value is a bounded shape error: the storage contract
-    checks ``tid IS NULL OR tid > 0``, and failing here keeps a bad category id
-    from surfacing as an ``IntegrityError`` inside a page transaction after the
-    rest of the page normalized cleanly.
-    """
-
-    value = item.get("typeid")
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise GatewayShapeError(detail="video item has no valid typeid")
-    return value
 
 
-def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSummary:
-    """Convert one vlist item into a validated summary DTO.
-
-    The uploader name is read when the item carries one and stays ``None`` when
-    it does not: absence is a fact about this response rather than something to
-    paper over here, because the placeholder the user record falls back to is
-    the ingestor's decision, not this boundary's.
-
-    The category and cover are read the same way, from the keys **this** list
-    endpoint uses (``typeid``/``pic``/``description``), and they are never
-    filled from a second call: the task stores what a response already received
-    carried, and an item that omitted them establishes nothing about them.
-    """
-
-    if not isinstance(item, Mapping):
-        raise GatewayShapeError(detail="video item is not a mapping")
-    bvid = item.get("bvid")
-    if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
-        raise GatewayShapeError(detail="video item has no valid bvid")
-    title = item.get("title")
-    if not isinstance(title, str) or not title.strip():
-        raise GatewayShapeError(detail="video item has no title")
-    owner_mid = item.get("mid")
-    if isinstance(owner_mid, bool) or not isinstance(owner_mid, int):
-        raise GatewayShapeError(detail="video item has no owner mid")
-    if owner_mid != requested_mid:
-        raise GatewayShapeError(
-            detail="video item owner mid does not match the requested user"
-        )
-    author = item.get("author")
-    if author is not None and (not isinstance(author, str) or not author.strip()):
-        # Present but unusable is a shape error, like the title's arm above;
-        # only the absent case is legitimate (see the docstring).
-        raise GatewayShapeError(detail="video item has no valid author")
-    try:
-        return VideoSummary(
-            bvid=bvid,
-            aid=_read_optional_aid(item),
-            title=title.strip(),
-            pubdate=_read_pubdate(item),
-            mid=owner_mid,
-            author=None if author is None else author.strip(),
-            pic=_read_optional_text(item, "pic"),
-            desc=_read_optional_text(item, "description"),
-            tid=_read_optional_typeid(item),
-        )
-    except (TypeError, ValueError) as exc:
-        # The DTO rejects text the storage contract cannot hold either — a title
-        # carrying a control character, for instance — and that is a bounded
-        # shape error at this boundary, like every sibling normalizer's, rather
-        # than a raw validation error escaping the gateway.
-        raise GatewayShapeError(detail="video item is not normalizable") from exc
 
 
-def _normalize_video_part_item(
-    item: object, bvid: str, video_title_fallback: str
-) -> VideoPart:
-    """Convert one pagelist element into a validated part DTO."""
-
-    if not isinstance(item, Mapping):
-        raise GatewayShapeError(detail="page item is not a mapping")
-    api_page = item.get("page")
-    if isinstance(api_page, bool) or not isinstance(api_page, int) or api_page < 1:
-        raise GatewayShapeError(detail="page item has no one-based page")
-    cid = item.get("cid")
-    if isinstance(cid, bool) or not isinstance(cid, int) or cid < 1:
-        raise GatewayShapeError(detail="page item has no positive cid")
-    part_title = item.get("part")
-    if not isinstance(part_title, str):
-        raise GatewayShapeError(detail="page item has no title")
-    # Display titles stay on one output line, but a valid upstream line break
-    # must not prevent every part on this metadata page from being collected.
-    part_title = re.sub(r"[\r\n]+", " ", part_title).strip()
-    if not part_title:
-        # Single-part uploads may carry an empty "part": the video's own title
-        # is the part's display label, like the upload UI shows.
-        part_title = video_title_fallback
-    duration_seconds = item.get("duration")
-    if (
-        isinstance(duration_seconds, bool)
-        or not isinstance(duration_seconds, (int, float))
-        or duration_seconds < 0
-    ):
-        raise GatewayShapeError(detail="page item has no duration")
-    try:
-        return VideoPart(
-            bvid=bvid,
-            page_index=api_page - 1,
-            cid=cid,
-            title=part_title,
-            duration_ms=math.floor(duration_seconds * 1000),
-        )
-    except (TypeError, ValueError) as exc:
-        raise GatewayShapeError(detail="page item is not normalizable") from exc
 
 
-def _normalize_video_parts(
-    pages: object, bvid: str, video_title_fallback: str = ""
-) -> tuple[VideoPart, ...]:
-    """Convert the pagelist array into validated part DTOs."""
-
-    if not isinstance(pages, list):
-        raise GatewayShapeError(detail="response is not an array")
-    if len(pages) > 1 or not video_title_fallback:
-        # A multi-part video must name every part itself; only a single-part
-        # upload may inherit the video title as its label.
-        video_title_fallback = ""
-    return tuple(
-        _normalize_video_part_item(item, bvid, video_title_fallback) for item in pages
-    )
 
 
-def _normalize_video_tags(entries: object) -> tuple[VideoTag, ...]:
-    """Convert the tag array into validated tag DTOs.
-
-    A video with no tags answers with an empty array, which is an honest
-    observation rather than a failure.  ``tag_id`` and ``tag_name`` are
-    required — an entry missing either cannot be identified or displayed, so
-    it is a bounded shape error rather than a dropped row: silently skipping
-    one would report "this video has N-1 tags" as if upstream had said so.
-    """
-
-    if not isinstance(entries, list):
-        raise GatewayShapeError(detail="tag response is not an array")
-    return tuple(_normalize_video_tag(entry) for entry in entries)
 
 
-def _normalize_video_tag(entry: object) -> VideoTag:
-    """Convert one documented tag entry into a validated tag DTO."""
-
-    if not isinstance(entry, Mapping):
-        raise GatewayShapeError(detail="tag entry is not a mapping")
-    tag_id = entry.get("tag_id")
-    if isinstance(tag_id, bool) or not isinstance(tag_id, int) or tag_id < 1:
-        raise GatewayShapeError(detail="tag entry has no positive tag_id")
-    tag_name = entry.get("tag_name")
-    if not isinstance(tag_name, str) or not tag_name.strip():
-        raise GatewayShapeError(detail="tag entry has no tag_name")
-    tag_type = entry.get("tag_type")
-    if not isinstance(tag_type, str) or not tag_type.strip():
-        raise GatewayShapeError(detail="tag entry has no tag_type")
-    try:
-        return VideoTag(
-            tag_id=tag_id,
-            tag_name=tag_name.strip(),
-            tag_type=tag_type.strip(),
-        )
-    except (TypeError, ValueError) as exc:
-        raise GatewayShapeError(detail="tag entry is not normalizable") from exc
 
 
 def _extract_subtitle_entries(response: object) -> list:
@@ -634,54 +420,6 @@ def _read_caption_milliseconds(entry: Mapping, field: str) -> int:
     return math.floor(milliseconds)
 
 
-def _complete_summary_from_detail(
-    summary: VideoSummary, detail: object
-) -> VideoSummary:
-    """Fill the summary's missing aid from its detail response.
-
-    Only ``aid`` is taken from the detail; every other field stays exactly as
-    the list response delivered it — the uploader name, category and cover
-    included, because the detail is not asked for them and this rebuild is the
-    only constructor between the page boundary and the ingestor.  Dropping
-    ``author`` here would silently discard a name the page did carry on exactly
-    the aid-less entries this path exists for, and the same holds for
-    ``pic``/``desc``/``tid``: the detail response does carry ``tid``/``pic``/
-    ``desc``, but filling them from it would make these fields come from a
-    second call on some entries and the page on others, which is the
-    distinction the task exists to keep.  A detail owned by another user, or
-    one naming another video, is a bounded shape error.
-    """
-
-    if not isinstance(detail, Mapping):
-        raise GatewayShapeError(detail="detail is not a mapping")
-    detail_aid = detail.get("aid")
-    if isinstance(detail_aid, bool) or not isinstance(detail_aid, int) or detail_aid < 1:
-        raise GatewayShapeError(detail="detail has no aid")
-    detail_owner = detail.get("owner")
-    detail_mid = None
-    if isinstance(detail_owner, Mapping):
-        candidate = detail_owner.get("mid")
-        if isinstance(candidate, int) and not isinstance(candidate, bool):
-            detail_mid = candidate
-    if detail_mid is None or detail_mid != summary.mid:
-        raise GatewayShapeError(
-            detail="detail owner mid does not match the summary"
-        )
-    detail_bvid = detail.get("bvid")
-    if not isinstance(detail_bvid, str) or detail_bvid != summary.bvid:
-        raise GatewayShapeError(detail="detail bvid does not match the summary")
-    return VideoSummary(
-        bvid=summary.bvid,
-        aid=detail_aid,
-        title=summary.title,
-        pubdate=summary.pubdate,
-        mid=summary.mid,
-        author=summary.author,
-        pic=summary.pic,
-        desc=summary.desc,
-        tid=summary.tid,
-        collaborator_mids=summary.collaborator_mids,
-    )
 
 
 class BilibiliApiGateway:
@@ -748,11 +486,13 @@ class BilibiliApiGateway:
                     state="denied" if isinstance(error, GatewayAuthenticationError) else "failed",
                     error_code=error.code))
             raise
+        observation = None
         if self._observation_sink is not None:
-            self._observation_sink(PlatformObservation.capture(
+            observation = PlatformObservation.capture(
                 platform="bilibili", operation=capture_operation, endpoint=endpoint, scope=scope,
-                extractor=PACKAGE_DISTRIBUTION_NAME, extractor_version=self.get_package_version(), payload=payload))
-        return payload
+                extractor=PACKAGE_DISTRIBUTION_NAME, extractor_version=self.get_package_version(), payload=payload)
+            self._observation_sink(observation)
+        return payload, observation
 
     async def _pace(self) -> None:
         """Sleep the per-row metadata delay before one upstream call.
@@ -800,7 +540,7 @@ class BilibiliApiGateway:
             # to arc/search, which obscures authentication behind risk control.
             await self._validate_credentials("validate_metadata_credentials")
             self._metadata_credential_checked = True
-        response = await self._read_metadata(
+        response, observation = await self._read_metadata(
             "get_user_video_page",
             lambda: self._fetch_user_video_page(mid, page_number, page_size),
             scope={"creatorId": str(mid), "pageNumber": page_number, "pageSize": page_size},
@@ -808,7 +548,13 @@ class BilibiliApiGateway:
         )
         summaries: list[VideoSummary] = []
         verified: dict[str, VideoSummary] = {}
-        for item in _extract_page_items(response):
+        from bili_asr.sources.bilibili_metadata_codec import (
+            bind_completed,
+            bind_summary,
+        )
+        items = _extract_page_items(response)
+        prefix = "/list/vlist/" if isinstance(response.get("list"), Mapping) else "/list/"
+        for index, item in enumerate(items):
             owner_mid = item.get("mid") if isinstance(item, Mapping) else None
             if (
                 isinstance(owner_mid, int)
@@ -820,9 +566,10 @@ class BilibiliApiGateway:
                 # Validate the actual owner first, then require independent
                 # detail evidence of the requested user's participation.
                 summary = _normalize_video_summary_item(item, owner_mid)
+                summary = bind_summary(summary, observation, item, prefix + str(index))
                 if summary.bvid not in verified:
                     await self._pace()
-                    detail = await self._read_metadata(
+                    detail, detail_observation = await self._read_metadata(
                         "get_completed_video_summary",
                         lambda: Video(
                             bvid=summary.bvid, credential=self._credential
@@ -834,6 +581,7 @@ class BilibiliApiGateway:
                             detail="video owner mid differs without verified participation"
                         )
                     completed = _complete_summary_from_detail(summary, detail)
+                    completed = bind_completed(completed, detail_observation)
                     if summary.aid is not None and completed.aid != summary.aid:
                         raise GatewayShapeError(detail="collaboration detail aid mismatch")
                     staff = detail.get("staff")
@@ -854,7 +602,7 @@ class BilibiliApiGateway:
                     )
                 summaries.append(verified[summary.bvid])
             else:
-                summaries.append(_normalize_video_summary_item(item, mid))
+                summaries.append(bind_summary(_normalize_video_summary_item(item, mid), observation, item, prefix + str(index)))
         try:
             return UserVideoPage(
                 mid=mid, page_number=page_number, videos=tuple(summaries),
@@ -871,12 +619,13 @@ class BilibiliApiGateway:
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         await self._pace()
-        pages = await self._read_metadata(
+        pages, observation = await self._read_metadata(
             "get_video_parts",
             lambda: Video(bvid=bvid, credential=self._credential).get_pages(),
             scope={"externalVideoId": bvid}, capture_operation="parts", endpoint="video/info/pages",
         )
-        return _normalize_video_parts(pages, bvid, video_title_fallback)
+        from bili_asr.sources.bilibili_metadata_codec import bind_parts
+        return bind_parts(_normalize_video_parts(pages, bvid, video_title_fallback), observation, bvid, video_title_fallback)
 
     async def get_completed_video_summary(self, summary: VideoSummary) -> VideoSummary:
         """Fill a summary's missing aid through its detail response.
@@ -890,14 +639,15 @@ class BilibiliApiGateway:
         if summary.aid is not None:
             return summary
         await self._pace()
-        detail = await self._read_metadata(
+        detail, observation = await self._read_metadata(
             "get_completed_video_summary",
             lambda: Video(
                 bvid=summary.bvid, credential=self._credential
             ).get_info(),
             scope={"externalVideoId": summary.bvid}, capture_operation="details", endpoint="video/info/detail",
         )
-        return _complete_summary_from_detail(summary, detail)
+        from bili_asr.sources.bilibili_metadata_codec import bind_completed
+        return bind_completed(_complete_summary_from_detail(summary, detail), observation)
 
     async def get_video_metadata(self, bvid: str) -> VideoMetadataRead:
         """Read a full source observation for explicit historical refresh.
@@ -908,32 +658,14 @@ class BilibiliApiGateway:
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         await self._pace()
-        detail = await self._read_metadata("get_completed_video_summary", lambda: Video(
+        detail, observation = await self._read_metadata("get_completed_video_summary", lambda: Video(
             bvid=bvid, credential=self._credential).get_info(), scope={"externalVideoId": bvid},
             capture_operation="details", endpoint="video/info/detail")
-        if not isinstance(detail, Mapping) or detail.get("bvid") != bvid or not isinstance(detail.get("owner"), Mapping):
-            raise GatewayShapeError()
-        owner = detail["owner"]
-        item = {"bvid": bvid, "aid": detail.get("aid"), "title": detail.get("title"),
-                "mid": owner.get("mid"), "author": owner.get("name"),
-                "pubdate": detail.get("pubdate"), "pic": detail.get("pic"),
-                "description": detail.get("desc"), "typeid": detail.get("tid")}
-        summary = _normalize_video_summary_item(item, owner.get("mid"))
-        fields = []
-        for field, key in (("title", "title"), ("pubdate", "pubdate"), ("aid", "aid"),
-                           ("pic", "pic"), ("desc", "desc"), ("tid", "tid")):
-            value = detail.get(key)
-            if key not in detail or value is None:
-                state, value = "missing", None
-            elif isinstance(value, str) and not value.strip():
-                state, value = "empty", None
-            else:
-                value = getattr(summary, field)
-                state = "present" if value is not None else "missing"
-            fields.append(MetadataFieldObservation(field, state, value))
-        parts = (_normalize_video_parts(detail["pages"], bvid, summary.title)
-                 if "pages" in detail else None)
-        return VideoMetadataRead(summary, tuple(fields), parts)
+        from bili_asr.sources.bilibili_metadata_codec import (
+            bind_metadata,
+            normalize_video_metadata,
+        )
+        return bind_metadata(normalize_video_metadata(detail, bvid), observation)
 
     async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None:
         """Compatibility surface; acquisition uses the independent typed read."""
@@ -990,7 +722,7 @@ class BilibiliApiGateway:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         await self._pace()
         try:
-            response = await self._read_metadata(
+            response, observation = await self._read_metadata(
                 "get_video_tags",
                 lambda: Api(
                     url=_TAG_ENDPOINT["url"],
@@ -1012,7 +744,12 @@ class BilibiliApiGateway:
             # said. Only the bounded category is retained for caller-owned
             # observation evidence; the original exception is not re-raised.
             return TagRead(None, error.code)
-        return TagRead(_normalize_video_tags(response))
+        from bili_asr.metadata_acceptance import SourceFieldReceipt
+        from bili_asr.sources.bilibili_metadata_codec import tags_value
+        tags = _normalize_video_tags(response)
+        receipt = None if observation is None else SourceFieldReceipt.create(field="tags", value=tags_value(tags),
+            observation=observation, pointer="", normalizer="bilibili-tags/v1", context={"bvid": bvid})
+        return TagRead(tags, source_receipt=receipt)
 
     async def get_subtitle_tracks(
         self, bvid: str, cid: int
