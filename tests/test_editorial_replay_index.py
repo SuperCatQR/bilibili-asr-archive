@@ -31,7 +31,13 @@ from bili_asr.storage.snapshots import (
     validate_snapshot_database,
 )
 from bili_asr.storage.workflow import JobKind, WorkflowRepository
-from tests.test_ai_editorial import database, envelope, no_changes  # noqa: F401
+from tests.test_ai_editorial import (  # noqa: F401
+    FakeClient,
+    database,
+    envelope,
+    no_changes,
+    runtime,
+)
 
 
 def seed(database):
@@ -151,6 +157,25 @@ def test_matched_bad_evidence_fails_with_call_id_but_unrelated_damage_does_not(d
     with pytest.raises(ReplayEvidenceError) as error:
         completed_record(database, fingerprint, input_id=input_id, chunk_id=chunk_id)
     assert error.value.safe_details == {"stage": "response_replay", "reason_code": "response_json_invalid", "call_id": call_id}
+
+
+def test_replay_damage_is_queryable_on_the_failed_workflow_without_a_new_provider_send(database, tmp_path):
+    _, _, _, call_id, _ = seed(database)
+    workflow = WorkflowRepository(database)
+    job_id = database.execute("SELECT a.job_id FROM workflow_attempts a JOIN editorial_model_calls c USING(attempt_id) WHERE c.call_id=?",
+                              (call_id,)).fetchone()[0]
+    workflow.fail(job_id, worker_id="replay-fixture", error_code="fixture-before-replay")
+    workflow.requeue_failed(job_ids=[job_id])
+    with database:
+        database.execute("UPDATE editorial_model_calls SET response_json='bad-json' WHERE call_id=?", (call_id,))
+    client = FakeClient()
+    _, _, _, executor = runtime(database, tmp_path, client)
+    assert executor.run().failed == 1 and client.requests == []
+    row = database.execute("SELECT error_code,result_json FROM workflow_attempts WHERE job_id=? ORDER BY rowid DESC LIMIT 1", (job_id,)).fetchone()
+    assert row["error_code"] == "editorial_replay_evidence_invalid"
+    assert json.loads(row["result_json"])["diagnostic"] == {
+        "stage": "response_replay", "reason_code": "response_json_invalid", "call_id": call_id}
+    assert database.execute("SELECT COUNT(*) FROM editorial_model_calls").fetchone()[0] == 1
 
 
 def test_index_installation_rolls_back_and_explicit_partial_recovery_checks_every_ddl(database):

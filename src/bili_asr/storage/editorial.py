@@ -198,22 +198,28 @@ class EditorialRepository:
 
     def physical_calls(self, input_id: str, chunk_id: str) -> list[dict[str, Any]]:
         """All sends, including unfinished/failed reservations, across attempts."""
+        from bili_asr.storage.editorial_replay import ReplayEvidenceError, _stored_request
         rows = self.connection.execute(
-            "SELECT call_id,request_json,response_json,error_code FROM editorial_model_calls "
+            "SELECT call_id,input_id,chunk_id,request_json,response_json,error_code FROM editorial_model_calls "
             "WHERE input_id=? AND chunk_id=? ORDER BY rowid", (input_id, chunk_id))
         result = []
         for row in rows:
-            stored = json.loads(row["request_json"])
+            stored, _ = _stored_request(row)
             if "request" not in stored:
                 # Some historical packages stored the raw HTTP body. Preserve
                 # it and conservatively count its invocation as a send.
                 stored = {"request": stored}
             kind = stored.get("invocation_kind", "provider")
             if kind not in {"provider", "response_replay", "local_precheck"}:
-                raise ValueError("unknown editorial invocation kind")
+                raise ReplayEvidenceError(row["call_id"], "invocation_kind_invalid")
             if kind != "provider":
                 continue
-            response = None if row["response_json"] is None else json.loads(row["response_json"])
+            try:
+                response = None if row["response_json"] is None else json.loads(row["response_json"])
+                if response is not None and not isinstance(response, dict):
+                    raise TypeError()
+            except (ValueError, TypeError):
+                raise ReplayEvidenceError(row["call_id"], "response_json_invalid") from None
             # Historical formatting rows predate explicit invocation kinds.
             if response is not None and response.get("id") == "local-precheck":
                 continue

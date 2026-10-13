@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from bili_asr.canonical_json import digest
 from bili_asr.storage.schema_contract import SchemaContractError, schema_resource
+from bili_asr.workflow_errors import JobExecutionError
 
 POLICY = "editorial-replay-index/v1"
 FINGERPRINT = "CASE WHEN json_valid(request_json) THEN json_extract(request_json, '$.request_fingerprint') END"
@@ -14,12 +15,11 @@ ACCEPTED = "response_json IS NOT NULL AND error_code IS NULL"
 MAX_LEGACY_ROWS = 256
 
 
-class ReplayEvidenceError(ValueError):
+class ReplayEvidenceError(JobExecutionError, ValueError):
     error_code = "editorial_replay_evidence_invalid"
 
     def __init__(self, call_id, reason):
-        self.safe_details = {"stage": "response_replay", "reason_code": reason, "call_id": call_id}
-        super().__init__(f"invalid stored editorial call {call_id}: {reason}")
+        super().__init__(self.error_code, {"stage": "response_replay", "reason_code": reason, "call_id": call_id})
 
 
 @lru_cache(maxsize=1)
