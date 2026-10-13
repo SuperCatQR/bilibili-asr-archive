@@ -15,6 +15,16 @@ def _cmd_editorial(args) -> int:
     from bili_asr.publication_export import export_editorial
 
     try:
+        if args.editorial_action == "replay-index":
+            from bili_asr.storage.editorial_replay import install_indexes
+            with closing(archive_connection(args.archive_root, readonly=False)) as connection:
+                print_result(install_indexes(connection, recover=args.recover), "json")
+            return 0
+        if args.editorial_action == "call-integrity":
+            from bili_asr.storage.editorial_replay import integrity_report
+            with closing(archive_connection(args.archive_root)) as connection:
+                print_result(integrity_report(connection, limit=args.limit), "json")
+            return 0
         if args.editorial_action == "plan":
             from dataclasses import replace
 
@@ -48,6 +58,14 @@ def _cmd_editorial(args) -> int:
 def add_editorial_parser(subparsers, *, archive_root: str) -> None:
     parser = subparsers.add_parser("editorial", help="Export AI 合成稿件 and 校验参照稿件 for internal review")
     actions = parser.add_subparsers(dest="editorial_action", required=True)
+    replay = actions.add_parser("replay-index", help="Explicitly install exactly validated derived response-reuse indexes")
+    _common(replay, archive_root)
+    from bili_asr.archive_modes import ArchiveAccessMode
+    replay.set_defaults(database_policy=ArchiveAccessMode.WRITE)
+    replay.add_argument("--recover", action="store_true", help="Complete a partial group only when every present DDL matches")
+    integrity = actions.add_parser("call-integrity", help="Locate malformed call JSON without blocking unrelated requests")
+    _common(integrity, archive_root)
+    integrity.add_argument("--limit", type=int, default=100)
     plan = actions.add_parser("plan", help="Compare chunk presets over one immutable saved input without calling a model")
     _common(plan, archive_root)
     plan.add_argument("--input-id", required=True)

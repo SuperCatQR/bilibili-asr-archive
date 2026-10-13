@@ -124,7 +124,8 @@ def _validate_objects(connection: sqlite3.Connection, contract: dict[str, Any]) 
             raise MigrationSourceError(f"legacy source contract is incompatible at {name}")
     extras = set(actual) - set(required)
     derived: set[str] = set()
-    for group in contract["derived_groups"]:
+    from bili_asr.storage.editorial_replay import derived_group
+    for group in (*contract["derived_groups"], derived_group()):
         names = set(group["objects"])
         present = names & extras
         if not present:

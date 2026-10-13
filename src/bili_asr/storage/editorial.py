@@ -340,24 +340,10 @@ class EditorialRepository:
         found = self.completed_call_record(request_fingerprint)
         return None if found is None else found["response"]
 
-    def completed_call_record(self, request_fingerprint: str) -> dict[str, Any] | None:
-        rows = self.connection.execute(
-            "SELECT call_id, input_id, chunk_id, request_json, response_json FROM editorial_model_calls "
-            "WHERE response_json IS NOT NULL AND error_code IS NULL "
-            "ORDER BY finished_at DESC, rowid DESC"
-        )
-        for row in rows:
-            try:
-                stored = json.loads(row["request_json"])
-                stored_fingerprint = stored.get("request_fingerprint")
-                if stored_fingerprint is None:
-                    stored_fingerprint = self.request_fingerprint(row["input_id"], row["chunk_id"], stored.get("request", stored))
-                if stored_fingerprint != request_fingerprint:
-                    continue
-                return {"call_id": row["call_id"], "response": json.loads(row["response_json"])}
-            except (AttributeError, TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("invalid stored editorial model response") from exc
-        return None
+    def completed_call_record(self, request_fingerprint: str, *, input_id: str | None = None,
+                              chunk_id: str | None = None) -> dict[str, Any] | None:
+        from bili_asr.storage.editorial_replay import completed_record
+        return completed_record(self.connection, request_fingerprint, input_id=input_id, chunk_id=chunk_id)
 
     def assert_lease(self, job: WorkflowJob) -> None:
         self.commit_guard.assert_lease(job)

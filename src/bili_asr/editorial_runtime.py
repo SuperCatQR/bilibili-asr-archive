@@ -90,7 +90,7 @@ class EditorialWorkflowHandlers:
             bounded = config.request_policy == "deepseek-v2"
             request, recovery = recovery_request(original, calls[-1] if calls else None, config) if bounded else (original, None)
             fingerprint = self.repository.request_fingerprint(input_id, chunk_id, request)
-            cached = self.repository.completed_call_record(fingerprint)
+            cached = self.repository.completed_call_record(fingerprint, input_id=input_id, chunk_id=chunk_id)
             # The owned transaction reserves a physical invocation before HTTP;
             # replay and local formatting rows never consume that budget.
             call_id = self.repository.begin_call(job, input_id, chunk_id, request,
