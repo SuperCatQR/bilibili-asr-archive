@@ -29,7 +29,7 @@ youtube = [
     "yt-dlp-ejs==0.8.0",
 ]
 dev = [
-    "mypy>=1.19,<2",
+    "mypy>=1.19,<3",
     # The light members of the ASR stack.  The test double exercises the real audio path,
     # which calls numpy/soundfile/soxr directly; of the three, only soundfile and soxr are
     # declared in the [asr] extra — numpy arrives transitively through both, and is named
