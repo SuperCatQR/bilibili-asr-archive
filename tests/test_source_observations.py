@@ -68,6 +68,25 @@ def test_raw_unknown_nested_types_null_and_repeated_observations_roundtrip(tmp_p
         assert [item.payload_json for item in ObservationRepository(connection).read_video(platform, REF.external_video_id)] == [first.payload_json, second.payload_json]
 
 
+def test_raw_receipts_and_contract_marker_reject_insert_or_replace(tmp_path):
+    root = tmp_path / "archive"
+    initialize_archive(root, with_source_observations=True)
+    first = _observation({"title": "Original"})
+    with closing(connect_database(root / "archive.db")) as connection:
+        assert connection.execute("PRAGMA recursive_triggers").fetchone()[0] == 0
+        with connection:
+            ObservationRepository(connection).append((first, first))
+        row = tuple(connection.execute("SELECT * FROM platform_observations").fetchone())
+        replacement = (*row[:5], row[5] + 1, *row[6:])
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute("INSERT OR REPLACE INTO platform_observations VALUES (?,?,?,?,?,?,?,?,?)", replacement)
+        connection.rollback()
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute("INSERT OR REPLACE INTO platform_observation_contract VALUES (1,1)")
+        connection.rollback()
+        assert ObservationRepository(connection).get(first.observation_id) == first
+
+
 def test_projection_preserves_namespaces_sources_and_missing_empty_failed_states():
     payload = {"description": "Original", "tags": ["Known"], "categories": ["Education"],
                "chapters": [{"title": "Chapter", "start_time": 0}], "view_count": 12}

@@ -20,7 +20,13 @@ CREATE TRIGGER platform_observation_contract_no_update BEFORE UPDATE ON platform
 BEGIN SELECT RAISE(ABORT, 'immutable observation contract'); END;
 CREATE TRIGGER platform_observation_contract_no_delete BEFORE DELETE ON platform_observation_contract
 BEGIN SELECT RAISE(ABORT, 'immutable observation contract'); END;
+CREATE TRIGGER platform_observation_contract_no_replace BEFORE INSERT ON platform_observation_contract
+WHEN EXISTS (SELECT 1 FROM platform_observation_contract WHERE singleton = NEW.singleton)
+BEGIN SELECT RAISE(ABORT, 'immutable observation contract'); END;
 CREATE TRIGGER platform_observations_no_update BEFORE UPDATE ON platform_observations
 BEGIN SELECT RAISE(ABORT, 'immutable platform observation'); END;
 CREATE TRIGGER platform_observations_no_delete BEFORE DELETE ON platform_observations
+BEGIN SELECT RAISE(ABORT, 'immutable platform observation'); END;
+CREATE TRIGGER platform_observations_no_replace BEFORE INSERT ON platform_observations
+WHEN EXISTS (SELECT 1 FROM platform_observations WHERE observation_id = NEW.observation_id)
 BEGIN SELECT RAISE(ABORT, 'immutable platform observation'); END;
