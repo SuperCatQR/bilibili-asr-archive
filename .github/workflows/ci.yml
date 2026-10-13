@@ -354,7 +354,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/.coverage-venv/bin" >> "$GITHUB_PATH"
 
       - name: Download shard coverage data
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           # A failed-job rerun may leave successful shards on an older attempt.
           # Every attempt in one run uses the same commit; combine them all.
@@ -391,7 +391,7 @@ jobs:
 
       - name: Download pytest diagnostics
         if: ${{ !cancelled() }}
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: pytest-diagnostics-${{ github.run_id }}-*
           path: pytest-diagnostics
