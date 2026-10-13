@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bili_asr.canonical_json import canonical, digest
-from bili_asr.source_observations import PlatformObservation
+
+if TYPE_CHECKING:
+    from bili_asr.source_observations import PlatformObservation
 
 CONTRACT = "metadata-acceptance/v1"
 OPERATION = "accepted-metadata"

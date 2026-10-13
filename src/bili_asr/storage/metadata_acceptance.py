@@ -20,9 +20,9 @@ from bili_asr.sources.bilibili_metadata_codec import (
     receipt_values,
     verify_source_receipt,
 )
-from bili_asr.storage.source_observations import (
-    ObservationRepository,
+from bili_asr.storage.observation_rows import (
     _validated_row,
+    append_observations,
     require_observations,
 )
 
@@ -132,7 +132,7 @@ def record_acceptance(connection, bvid: str, receipts: Iterable[SourceFieldRecei
             scope={"externalVideoId": bvid}, extractor="bili-asr", extractor_version=CONTRACT,
             observed_at=observed_at, payload={"version": CONTRACT, "externalVideoId": bvid, "fields": [document]})
         adoptions.append((document, acceptance))
-    ObservationRepository(connection).append(acceptance for _, acceptance in adoptions)
+    append_observations(connection, (acceptance for _, acceptance in adoptions))
     for document, acceptance in adoptions:
         field = document["field"]
         raw = originals[document["source"]["observationId"]]
