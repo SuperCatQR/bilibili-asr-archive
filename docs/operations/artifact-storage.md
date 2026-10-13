@@ -227,6 +227,7 @@ POSIX 使用 flock、Windows 使用 LockFileEx；释放仍以具体 inode/文件
 `workflow supervise` 同样接受 storage target binding；目录位置仅属于当前运行配置，策略和快照不携带机器路径或凭据。
 
 预留按已知恢复成员大小、ASR PCM 工作量、配置的下载时长上界估计计算；它是协作进程的 admission control，不是文件系统硬配额。
+数据库预留与 ASR 私有输入的文件回执共享 `capacity` 内核锁，双方都计入两个账本的活跃字节；旧归档根与配置产物根的回执保守合计。未安装 online 扩展的归档仍使用私有输入回执；读取空间预算不安装任何 schema。只有对应 owner 内核锁已释放时才能退休预留，不按租约、PID、年龄或定时器猜测。详见 [ASR 输入身份与临时空间](audio-retention-policy.md#asr-的输入身份与临时空间)。
 应按实际 provider 最大码率调高下载系数并保留空间余量，外部进程的磁盘写入仍可能导致真实空间不足。压力未解除时禁止新增大下载；已有本地可用输入、字幕等不依赖新增大文件的工作可继续。
 完整 snapshot 保存 online 扩展及审计状态；恢复本身不启动策略或消费任务，也不解除生产 hold。
 

@@ -33,6 +33,8 @@ bili-asr workflow status --archive-root archive --jobs
 
 每次推理使用 `audio/.workflow-audio-input-<id>.<suffix>` 独立私有文件，始终写到 `ArtifactRoots.write_base`，读取正确的 legacy fallback 不会向只读候选根写私有文件或预留。Linux 优先使用文件系统 FICLONE 写时复制；不支持时流式复制一次压缩音频，内存缓冲上限 1 MiB。复制前通过内核锁和持久预留回执，在实际写盘预留整份输入大小及 64 MiB 安全余量；空间不足以 `audio_input_space_unavailable` 停止。非 CoW 文件系统的临时磁盘峰值增加一份输入音频，多个同时执行的 profile 分别计入预留。正常返回、异常、取消和失租都会删除本次私有文件并释放预留，不修改源 inode 的权限或历史状态。
 
+ASR 私有输入回执与可选 online 扩展的下载、恢复、解码数据库预留使用同一个 `capacity` 内核锁，并在两种准入方向都扣减双方的活跃预留。配置产物根与旧归档根的文件回执一并计入，避免同一文件系统上更换 root 后漏算；不同文件系统也按保守总量判断。未安装 online 表时继续使用文件回执，不自动安装扩展。回执正常退出时消失，需要再次取得其 owner 独占锁后才能按零计算；缺失但 owner 仍活跃或活跃回执损坏都会拒绝准入。同线程嵌套预留仍保留外层 owner 的字节。数据库退休只记录 `released_at`，保留原身份、大小和 owner；文件回执退休不删除崩溃留下的音频。每次扫描最多接受 4096 条活跃数据库预留和 4096 个文件回执；超过上限以 `reservation-scan-limit` 拒绝本次准入，不截断计费或按零计算，需先检查并退休已结束的预留。
+
 推理后、转录登记前再次验证私有字节与源文件代次，包括 inode、大小、mtime 与变更时间；Windows 使用 NTFS ChangeTime 而非创建时间。原文件名被替换时模型仍读私有旧字节，但本次提交保守地拒绝变化代次。原位写后恢复原字节和 mtime 也不能掩盖 ABA 变化。并发 profile 的私有文件不会互相改变源 inode 的变更时间。catalog 的 consumer pin 保持到读取和提交结束。
 
 历史 dependency 缺少 hash 时不补造旧下载身份：新 evidence 记录 `audio.verification.status=observed-only`、本次 observed SHA/大小、验证时间和代次摘要，原 dependency 保持不变；有 hash 则记录 `matched`。来源可读者应区分“匹配旧获取身份”和“只观测本次输入”。

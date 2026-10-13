@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from bili_asr.artifact_inventory import stream_hash
 from bili_asr.artifact_root import ArtifactRoots, iter_audio_paths
+from bili_asr.file_generation import stream_generation as _generation
 from bili_asr.path_policy import confined_audio_file, confined_audio_path
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 from bili_asr.workflow_errors import JobExecutionError
@@ -53,30 +54,6 @@ class VerifiedAudioInput:
                 "stage": "after-inference", "reason": "source-generation-unavailable"}) from None
         if source_generation != self.source_generation:
             raise _generation_changed("after-inference", self.source_generation, source_generation)
-
-
-def _generation(source) -> tuple[int, ...]:
-    """Include change time: restoring content/mtime must not hide an ABA write."""
-    info = os.fstat(source.fileno())
-    value = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-    if os.name == "nt":
-        # Python's Windows st_ctime is creation time. NTFS ChangeTime is the
-        # metadata/content change clock and also changes after SetFileTime.
-        import ctypes
-        import msvcrt
-        from ctypes import wintypes
-        class FileBasicInfo(ctypes.Structure):
-            _fields_ = [(name, ctypes.c_longlong) for name in
-                        ("CreationTime", "LastAccessTime", "LastWriteTime", "ChangeTime")] + [
-                        ("FileAttributes", wintypes.DWORD)]
-        basic = FileBasicInfo()
-        read = ctypes.WinDLL("kernel32", use_last_error=True).GetFileInformationByHandleEx
-        read.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-        read.restype = wintypes.BOOL
-        if not read(msvcrt.get_osfhandle(source.fileno()), 0, ctypes.byref(basic), ctypes.sizeof(basic)):
-            raise ctypes.WinError(ctypes.get_last_error())
-        value += (basic.ChangeTime,)
-    return value
 
 
 def _generation_sha256(generation: tuple[int, ...]) -> str:
@@ -164,7 +141,8 @@ def verified_audio_input(connection: sqlite3.Connection, roots: ArtifactRoots, p
         try:
             with confined_audio_file(base, key) as source_path, open(source_path, "rb") as source:
                 source_generation = _generation(source)
-                reservation.enter_context(reserve_input_space(roots, roots.write_base, source_generation[2], checkpoint))
+                reservation.enter_context(reserve_input_space(
+                    roots, roots.write_base, source_generation[2], checkpoint, connection=connection))
                 with fixed.open("xb") as destination:
                     size, sha256 = _clone_or_copy(source, destination, checkpoint)
                 after = _generation(source)

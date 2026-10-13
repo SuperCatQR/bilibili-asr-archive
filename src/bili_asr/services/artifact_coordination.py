@@ -14,6 +14,7 @@ from contextlib import contextmanager
 
 from bili_asr.archive_maintenance import ArchiveBusyError
 from bili_asr.artifact_fences import object_fence, resource_fence
+from bili_asr.services.local_space import reserved_local_bytes
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 
 
@@ -43,15 +44,6 @@ def reconcile_consumer_pins(connection, roots) -> int:
     return count
 
 
-def _retire_dead_reservations(connection, roots):
-    for identity, in connection.execute("SELECT reservation_id FROM artifact_reservations WHERE released_at IS NULL").fetchall():
-        try:
-            with resource_fence(roots, "reservation:" + identity, exclusive=True), connection:
-                connection.execute("UPDATE artifact_reservations SET released_at=? WHERE reservation_id=? AND released_at IS NULL", (int(time.time()), identity))
-        except ArchiveBusyError:
-            continue
-
-
 @contextmanager
 def reserve_local_space(connection, roots, byte_count: int, *, owner: str, minimum_free_bytes: int = 0):
     """Reserve peak added bytes across restores/downloads, without lease expiry."""
@@ -61,10 +53,7 @@ def reserve_local_space(connection, roots, byte_count: int, *, owner: str, minim
     scope = "local-artifacts" if roots.configured else "local"
     with resource_fence(roots, "reservation:" + identity, exclusive=False):
         with resource_fence(roots, "capacity", exclusive=True):
-            _retire_dead_reservations(connection, roots)
-            # Different root bindings can share one filesystem. Conservatively
-            # count both scopes instead of treating their names as disk identity.
-            reserved = connection.execute("SELECT COALESCE(SUM(byte_count),0) FROM artifact_reservations WHERE released_at IS NULL").fetchone()[0]
+            reserved = reserved_local_bytes(connection, roots)
             if shutil.disk_usage(roots.write_base).free - reserved - byte_count < minimum_free_bytes:
                 raise ValueError("artifact_space_reserved: insufficient unreserved local space")
             with connection:
