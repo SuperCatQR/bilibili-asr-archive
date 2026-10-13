@@ -31,7 +31,7 @@ bili-asr workflow status --archive-root archive --jobs
 
 无论是否启用可选 artifact catalog，每次 ASR 都对照精确成功 AUDIO prerequisite 的 SHA-256 和已登记大小，按 1 MiB 分块读取并检查取消、失租和停止期限。坏的产物根副本不会遮住归档根中身份正确的副本。输入不存在、摘要/大小不一致或文件代次变化，会留下新的失败尝试，不改写先前成功下载、转录或 ASR evidence；恢复后显式重试失败消费者即可复用原下载。
 
-每次推理使用 `audio/.workflow-audio-input-<id>.<suffix>` 独立私有文件。Linux 优先使用文件系统 FICLONE 写时复制；不支持时流式复制一次压缩音频，内存缓冲上限 1 MiB。复制前通过内核锁和持久预留回执，预留整份输入大小及 64 MiB 安全余量；空间不足以 `audio_input_space_unavailable` 停止。非 CoW 文件系统的临时磁盘峰值增加一份输入音频，多个同时执行的 profile 分别计入预留。正常返回、异常、取消和失租都会删除本次私有文件并释放预留，不修改源 inode 的权限或历史状态。
+每次推理使用 `audio/.workflow-audio-input-<id>.<suffix>` 独立私有文件，始终写到 `ArtifactRoots.write_base`，读取正确的 legacy fallback 不会向只读候选根写私有文件或预留。Linux 优先使用文件系统 FICLONE 写时复制；不支持时流式复制一次压缩音频，内存缓冲上限 1 MiB。复制前通过内核锁和持久预留回执，在实际写盘预留整份输入大小及 64 MiB 安全余量；空间不足以 `audio_input_space_unavailable` 停止。非 CoW 文件系统的临时磁盘峰值增加一份输入音频，多个同时执行的 profile 分别计入预留。正常返回、异常、取消和失租都会删除本次私有文件并释放预留，不修改源 inode 的权限或历史状态。
 
 推理后、转录登记前再次验证私有字节与源文件代次，包括 inode、大小、mtime 与变更时间；Windows 使用 NTFS ChangeTime 而非创建时间。原文件名被替换时模型仍读私有旧字节，但本次提交保守地拒绝变化代次。原位写后恢复原字节和 mtime 也不能掩盖 ABA 变化。并发 profile 的私有文件不会互相改变源 inode 的变更时间。catalog 的 consumer pin 保持到读取和提交结束。
 

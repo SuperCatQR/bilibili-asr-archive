@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from bili_asr.artifact_inventory import stream_hash
 from bili_asr.artifact_root import ArtifactRoots, iter_audio_paths
-from bili_asr.path_policy import confined_audio_file
+from bili_asr.path_policy import confined_audio_file, confined_audio_path
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
 from bili_asr.workflow_errors import JobExecutionError
 
@@ -156,12 +156,15 @@ def verified_audio_input(connection: sqlite3.Connection, roots: ArtifactRoots, p
     from bili_asr.services.asr_input_space import reserve_input_space
     for base, key, candidate in iter_audio_paths(roots, keys):
         checkpoint()
-        fixed = base / "audio" / f".workflow-audio-input-{uuid4().hex}{candidate.suffix}"
+        fixed_key = f"audio/.workflow-audio-input-{uuid4().hex}{candidate.suffix}"
+        fixed = confined_audio_path(roots.write_base, fixed_key, require_exists=False)
+        if fixed is None:
+            raise JobExecutionError("audio_input_space_unavailable", {"reason": "private-input-directory-unavailable"})
         reservation = ExitStack()
         try:
             with confined_audio_file(base, key) as source_path, open(source_path, "rb") as source:
                 source_generation = _generation(source)
-                reservation.enter_context(reserve_input_space(roots, base, source_generation[2], checkpoint))
+                reservation.enter_context(reserve_input_space(roots, roots.write_base, source_generation[2], checkpoint))
                 with fixed.open("xb") as destination:
                     size, sha256 = _clone_or_copy(source, destination, checkpoint)
                 after = _generation(source)
