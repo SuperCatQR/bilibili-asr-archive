@@ -203,12 +203,18 @@ def validate_snapshot_database(database_path: Path, expected_contract: str | Non
                     "content-rights-v1 extension is incomplete: missing " + ", ".join(missing)
                 )
             rights = bool(existing_rights_objects)
-            from bili_asr.storage.source_observations import require_observations, ObservationRepository
+            from bili_asr.storage.source_observations import require_observations, ObservationRepository, verify_frozen_source_bindings
             observations = require_observations(connection)
             required, contract = _current_contract(runtime_contract(connection), require_import_extension(connection),
                                                    require_supplement_extension(connection), require_artifact_catalog(connection),
                                                    require_artifact_online(connection), rights, observations)
             ObservationRepository(connection).verify()
+            verify_frozen_source_bindings(connection)
+            if runtime_contract(connection) == "universal-v2":
+                from bili_asr.storage.source_projection import read_youtube_fields_many
+                cursor = connection.execute("SELECT DISTINCT external_id FROM source_metadata_observations WHERE platform='youtube'")
+                while batch := cursor.fetchmany(256):
+                    read_youtube_fields_many(connection, tuple(row[0] for row in batch))
             if expected_contract is not None and expected_contract != contract:
                 raise SnapshotDatabaseError("snapshot database contract is unsupported by this build")
             integrity = connection.execute("PRAGMA integrity_check").fetchall()

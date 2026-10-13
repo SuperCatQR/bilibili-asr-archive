@@ -82,7 +82,7 @@ def _validate_article(article: object, *, draft: bool = False, catalog_version: 
 
 def _validate_article_semantics(article: dict, *, draft: bool, catalog_version: int) -> dict:
     """Check domain identities and file relations after structural validation."""
-    universal = catalog_version == 3 and isinstance(article, dict) and article.get("contentVersion") == 2
+    universal = catalog_version in {3, 4} and isinstance(article, dict) and article.get("contentVersion") == 2
     # JSON Schema patterns use search semantics: `$` can match before a final
     # newline. Preserve the original exact identity checks at this boundary.
     hashes = ("aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256")
@@ -271,8 +271,8 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
                 raise ExportSnapshotError("invalid rights notice")
         if profile is not None:
             from bili_asr.publication_origin_contract import validate_origins
-            if catalog["schemaVersion"] != 3 or "origins.json" not in expected_files:
-                raise ExportSnapshotError("origin profile requires catalog v3 and origins.json")
+            if catalog["schemaVersion"] not in {3, 4} or "origins.json" not in expected_files:
+                raise ExportSnapshotError("origin profile requires catalog v3/v4 and origins.json")
             origins = read_json(directory / "origins.json")
             _contract_json(profile, origins)
             if origins["contractProfile"] != profile:

@@ -837,6 +837,46 @@
       "schema": "source-metadata-v1.schema.json"
     },
     {
+      "identity": "youtube-source-fields/v1",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/storage/source_projection.py"
+      ],
+      "consumers": [
+        "storage.sources",
+        "storage.metadata",
+        "search_index.source_store"
+      ],
+      "capabilities": [
+        "write",
+        "read"
+      ],
+      "dependencies": [
+        "universal-v2",
+        "source-observations/v1"
+      ],
+      "schema": null
+    },
+    {
+      "identity": "source-metadata/v2",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/contracts/schemas/source-metadata-v2.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "source-metadata/v1"
+      ],
+      "schema": "source-metadata-v2.schema.json"
+    },
+    {
       "identity": "publication-catalog/v2",
       "owner": "publication",
       "authority": [
@@ -912,6 +952,46 @@
         "source-metadata/v1"
       ],
       "schema": "publication-draft-catalog-v3.schema.json"
+    },
+    {
+      "identity": "publication-catalog/v4",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/schemas/publication-catalog-v4.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "publication-catalog/v3",
+        "source-metadata/v2"
+      ],
+      "schema": "publication-catalog-v4.schema.json"
+    },
+    {
+      "identity": "publication-draft-catalog/v4",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/schemas/publication-draft-catalog-v4.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "publication-draft-catalog/v3",
+        "source-metadata/v2"
+      ],
+      "schema": "publication-draft-catalog-v4.schema.json"
     },
     {
       "identity": "publication-export-manifest/v1",

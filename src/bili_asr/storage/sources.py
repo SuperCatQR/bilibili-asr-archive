@@ -42,6 +42,8 @@ class SourceRepository:
             ObservationRepository(self.connection).append(metadata.observations)
         if metadata.ref.platform != "youtube" or metadata.ref.part_index != 0:
             raise ValueError("Bilibili metadata must use its existing provider repository")
+        from bili_asr.storage.source_projection import store_youtube_fields
+        store_youtube_fields(self.connection, metadata.observations)
         now = int(time.time()) if metadata.observed_at is None else metadata.observed_at
         creator_id = None
         if metadata.creator_external_id is not None:

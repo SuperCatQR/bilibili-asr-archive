@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import hashlib
+import json
 import sqlite3
 from collections.abc import Iterable
 from typing import Any
@@ -66,6 +67,40 @@ def _validated_row(row: Any) -> PlatformObservation:
     return observation
 
 
+def verify_frozen_source_bindings(connection: sqlite3.Connection) -> None:
+    """Verify historical v2 references, even after current facts have refreshed."""
+    from bili_asr.source_metadata import SourceMetadataSnapshot
+
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    sources = (("editorial_inputs", "prepared_json", "$.snapshot.metadata.source_metadata"),
+               ("publication_editions", "content_json", "$.source.metadata"))
+    repository = ObservationRepository(connection)
+    for table, column, pointer in sources:
+        if table not in tables:
+            continue
+        query = (f"SELECT json_extract({column},?) FROM {table} WHERE CASE WHEN json_valid({column}) "
+                 f"THEN json_extract({column},?) END='source-metadata-v2'")
+        for row in connection.execute(query, (pointer, pointer + ".version")):
+            source = SourceMetadataSnapshot.from_dict(json.loads(row[0]))
+            for identity, payload_digest, envelope_digest in source.observation_bindings:
+                observation = repository.get(identity)
+                envelope = observation.envelope
+                scope = envelope["scope"]
+                if (envelope["platform"] != source.ref.platform or envelope["state"] != "success"
+                        or envelope["payloadSha256"] != payload_digest or digest(envelope) != envelope_digest
+                        or ("partIndex" in scope and scope["partIndex"] != source.ref.part_index)):
+                    raise ValueError("frozen source observation digest or scope differs")
+                if scope.get("externalVideoId") == source.ref.external_video_id:
+                    continue
+                payload = json.loads(observation.payload_json or "null")
+                listing = payload.get("list") if isinstance(payload, dict) else None
+                page = listing.get("vlist") if isinstance(listing, dict) else None
+                if (source.ref.platform != "bilibili" or envelope["operation"] != "creator-page"
+                        or not isinstance(page, list) or not any(isinstance(item, dict) and
+                            item.get("bvid") == source.ref.external_video_id for item in page)):
+                    raise ValueError("frozen source observation belongs to a different video")
+
+
 class ObservationRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
@@ -119,7 +154,7 @@ class ObservationRepository:
         rows = self.connection.execute(
             "SELECT * FROM platform_observations WHERE platform=? AND (external_video_id=? OR "
             "(operation='creator-page' AND EXISTS(SELECT 1 FROM json_each(payload_json,'$.list.vlist') v "
-            "WHERE json_extract(v.value,'$.bvid')=?))) "
+            "WHERE CASE WHEN v.type='object' THEN json_extract(v.value,'$.bvid') END=?))) "
             "AND (? IS NULL OR observed_at>=?) AND (? IS NULL OR observed_at<=?) "
             "ORDER BY observed_at,rowid LIMIT ?",
             (platform, external_video_id, external_video_id, observed_after, observed_after,
@@ -150,3 +185,37 @@ class ObservationRepository:
             return
         for row in self.connection.execute("SELECT * FROM platform_observations"):
             _validated_row(row)
+
+    def read_videos(self, platform: str, external_ids: tuple[str, ...]) -> dict[str, tuple[PlatformObservation, ...]]:
+        """Bounded set read for frozen Bilibili metadata, without one query per part."""
+        if len(external_ids) > 256 or len(set(external_ids)) != len(external_ids):
+            raise ValueError("observation batch requires at most 256 distinct video IDs")
+        result: dict[str, list[PlatformObservation]] = {identity: [] for identity in external_ids}
+        if not external_ids or not require_observations(self.connection):
+            return {identity: () for identity in external_ids}
+        marks = ",".join("?" for _ in external_ids)
+        rows = self.connection.execute(
+            f"SELECT * FROM platform_observations WHERE platform=? AND (external_video_id IN ({marks}) OR "
+            f"(operation='creator-page' AND EXISTS(SELECT 1 FROM json_each(payload_json,'$.list.vlist') v "
+            f"WHERE CASE WHEN v.type='object' THEN json_extract(v.value,'$.bvid') END IN ({marks})))) ORDER BY observed_at,rowid LIMIT 10001",
+            (platform, *external_ids, *external_ids))
+        byte_count = 0
+        for count, row in enumerate(rows):
+            observation = _validated_row(row)
+            byte_count += len(observation.envelope_json.encode("utf-8")) + len((observation.payload_json or "").encode("utf-8"))
+            if count == 10000 or byte_count > 64 * 1024 * 1024:
+                raise ValueError("observation batch budget exceeded")
+            envelope = observation.envelope
+            identity = envelope["scope"].get("externalVideoId")
+            if identity in result:
+                result[identity].append(observation)
+            elif envelope["operation"] == "creator-page":
+                import json
+                payload = json.loads(observation.payload_json or "null")
+                listing = payload.get("list") if isinstance(payload, dict) else None
+                page = listing.get("vlist") if isinstance(listing, dict) else None
+                if isinstance(page, list):
+                    membership = {item.get("bvid") for item in page if isinstance(item, dict) and isinstance(item.get("bvid"), str)}
+                    for matching in result.keys() & membership:
+                        result[matching].append(observation)
+        return {identity: tuple(values) for identity, values in result.items()}

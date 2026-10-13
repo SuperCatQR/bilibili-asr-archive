@@ -139,14 +139,7 @@ class MetadataRepository:
     def read_source_metadata(self, video_part_id: int) -> SourceMetadataSnapshot:
         """Read one frozen-input candidate without modifying the archive."""
         if self.observations_supported():
-            from bili_asr.storage.sources import SourceRepository
-            part = SourceRepository(self.connection).part(video_part_id)
-            if part["platform"] != "bilibili":
-                return SourceMetadataSnapshot(
-                    part["content_ref"], part["video_title"], part["creator_external_id"],
-                    part["creator_name"], part["pubdate"], part["observed_at"],
-                    part_title=part["title"], duration_ms=part["duration_ms"],
-                )
+            return self._read_source_metadata_batch((video_part_id,))[0][video_part_id]
         row = self.connection.execute(
             """SELECT p.bvid, p.page_index, p.title AS part_title, p.duration_ms,
                       v.title, v.mid, v.aid, v.pubdate, v.updated_at,
@@ -261,24 +254,35 @@ class MetadataRepository:
                 tag_states = {row["bvid"]: row["state"] for row in self.connection.execute(
                     f"SELECT bvid,state FROM video_tag_observations WHERE bvid IN ({tag_marks})", bvids,
                 )}
+        from bili_asr.storage.source_projection import read_youtube_fields_many
+        youtube_ids = tuple(dict.fromkeys(row["external_video_id"] for row in rows if row["platform"] == "youtube"))
+        youtube = read_youtube_fields_many(self.connection, youtube_ids) if youtube_ids else {}
         snapshots = {
             int(row["video_part_id"]): SourceMetadataSnapshot(
                 ContentRef(row["platform"], row["external_video_id"], row["page_index"]),
                 row["title"], row["creator_id"], row["creator_name"], row["pubdate"], row["observed_at"],
-                row["desc"], row["pic"], row["tid"], tuple(tags.get(row["external_video_id"], ()))
-                if row["platform"] == "bilibili" else (), row["aid"], row["part_title"], row["duration_ms"],
+                row["desc"] if row["platform"] == "bilibili" else youtube[row["external_video_id"]].description,
+                row["pic"] if row["platform"] == "bilibili" else youtube[row["external_video_id"]].cover_url,
+                row["tid"], tuple(tags.get(row["external_video_id"], ()))
+                if row["platform"] == "bilibili" else youtube[row["external_video_id"]].tags,
+                row["aid"], row["part_title"], row["duration_ms"],
+                2 if row["platform"] == "youtube" and youtube[row["external_video_id"]].observed_fields else 1,
+                () if row["platform"] == "bilibili"
+                    else youtube[row["external_video_id"]].bindings,
             ) for row in rows
         } if include_source_metadata else {}
         fields = {
             int(row["video_part_id"]): {
-                "video_description": row["desc"],
+                "video_description": row["desc"] if row["platform"] == "bilibili" else youtube[row["external_video_id"]].description,
                 "uploader_mid": row["mid"] if row["platform"] == "bilibili" else None,
                 "uploader_name": row["creator_name"],
                 "video_tags": list(tags.get(row["external_video_id"], ()))
-                    if row["platform"] == "bilibili" else [],
+                    if row["platform"] == "bilibili" else list(youtube[row["external_video_id"]].tags),
                 "video_tags_state": tag_states.get(row["external_video_id"])
-                    if row["platform"] == "bilibili" else None,
-                "video_details_observed_at": row["details_observed_at"],
+                    if row["platform"] == "bilibili" else {"present": "success_nonempty", "empty": "success_empty",
+                         "missing": "unknown", "unavailable": "unavailable", "denied": "denied"}.get(youtube[row["external_video_id"]].tag_state),
+                "video_details_observed_at": row["details_observed_at"] if row["platform"] == "bilibili"
+                    else youtube[row["external_video_id"]].details_observed_at,
             } for row in rows
         }
         return ({part_id: snapshots[part_id] for part_id in part_ids}
