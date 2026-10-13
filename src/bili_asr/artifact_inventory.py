@@ -6,6 +6,7 @@ these rules. Recorded relative paths and selected read-base order are retained.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 import os
 from pathlib import Path
 import re
@@ -119,13 +120,24 @@ def collect_artifacts(bases: tuple[Path, ...]) -> dict[str, Path]:
     return found
 
 
-def stream_hash(source: BinaryIO, destination: BinaryIO | None = None) -> tuple[int, str]:
+def stream_hash(source: BinaryIO, destination: BinaryIO | None = None, *,
+                checkpoint: Callable[[], None] | None = None) -> tuple[int, str]:
     digest = hashlib.sha256()
     size = 0
-    while chunk := source.read(_CHUNK_SIZE):
+    while True:
+        if checkpoint is not None:
+            checkpoint()
+        chunk = source.read(_CHUNK_SIZE)
+        if not chunk:
+            break
         digest.update(chunk)
         size += len(chunk)
         if destination is not None:
-            destination.write(chunk)
+            remaining = memoryview(chunk)
+            while remaining:
+                written = destination.write(remaining)
+                if not written:
+                    raise OSError("cannot complete artifact copy")
+                remaining = remaining[written:]
     return size, digest.hexdigest()
 

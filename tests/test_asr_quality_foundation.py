@@ -250,10 +250,11 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
     audio_path = tmp_path / "audio" / "test.m4a"
     audio_path.parent.mkdir()
     audio_path.write_bytes(b"fake audio; decoder is substituted")
+    audio_sha256 = hashlib.sha256(audio_path.read_bytes()).hexdigest()
     for _ in range(2):
         job = repository.claim("test", kinds=(JobKind.SUBTITLE, JobKind.AUDIO))
         repository.finish(job.job_id, worker_id="test",
-                          result={"storage_key": "audio/test.m4a", "sha256": "f" * 64} if job.kind is JobKind.AUDIO else {})
+                          result={"storage_key": "audio/test.m4a", "sha256": audio_sha256} if job.kind is JobKind.AUDIO else {})
     job = repository.claim("test")
     assert job.kind is JobKind.ASR
     evidence = assemble_diagnostics([{"completed": True, "decoded_s": 1, "chunks": [],
@@ -284,6 +285,6 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
     assert seen[0].aligner_revision == "align-commit"
     stored = TranscriptRepository(database).read_asr_evidence(result["run_id"], 1)
     assert stored["config_sha256"] == repository.profile_digest(profile_id)
-    assert stored["audio"]["sha256"] == "f" * 64
+    assert stored["audio"]["sha256"] == audio_sha256
     assert stored["diagnostics"] == evidence
     assert result["quality"] == evidence["quality"]

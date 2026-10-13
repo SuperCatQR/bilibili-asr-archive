@@ -22,7 +22,7 @@ from uuid import uuid4
 
 from bili_asr import archive, asr, bili_client
 from bili_asr.artifact_inventory import stream_hash
-from bili_asr.artifact_root import ArtifactRoots, resolve_audio_path, usable_audio_path
+from bili_asr.artifact_root import ArtifactRoots, usable_audio_path
 from bili_asr.asr.session import AsrInferenceSession, InferenceRequest
 from bili_asr.formatting import duration_s_from_ms, pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
@@ -30,6 +30,7 @@ from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
 from bili_asr.services.workflow_audio_access import retained_audio, verified_local_audio
+from bili_asr.services.workflow_audio_input import VerifiedAudioInput, verified_audio_input
 from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
 from bili_asr.sources.bilibili_source import BilibiliAudioSource
 from bili_asr.storage import (
@@ -257,29 +258,29 @@ class ArchiveWorkflowHandlers:
 
     def local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
         from bili_asr.services.artifact_coordination import consumer_pin
+        from contextlib import nullcontext
+        decode_job_payload(job)
+        self._inference_checkpoint(job)
+        part = self._part(job)
+        audio_result = self.repository.dependency_result(job, JobKind.AUDIO)
         retained = retained_audio(self.connection, job.video_part_id,
-                                  self.repository.dependency_result(job, JobKind.AUDIO))
-        if retained is None:
-            return self._local_asr(job)
-        with consumer_pin(self.connection, self.artifact_roots, retained["object_id"],
-                          owner=f"asr:{job.job_id}:{job.attempt_count}"):
-            return self._local_asr(job)
+                                  audio_result)
+        pin = (nullcontext() if retained is None else
+               consumer_pin(self.connection, self.artifact_roots, retained["object_id"],
+                            owner=f"asr:{job.job_id}:{job.attempt_count}"))
+        with pin, verified_audio_input(self.connection, self.artifact_roots, int(part["video_part_id"]),
+                                      audio_result, retained=retained,
+                                      checkpoint=lambda: self._inference_checkpoint(job)) as audio_input:
+            return self._local_asr(job, audio_input, retained)
 
-    def _local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
+    def _local_asr(self, job: WorkflowJob, audio_input: VerifiedAudioInput,
+                   retained: Mapping[str, Any] | None) -> Mapping[str, Any]:
         decode_job_payload(job)
         self.repository.assert_lease(job)
         if job.profile_id is None:
             raise RuntimeError("missing_profile")
         part = self._part(job)
-        audio_result = self.repository.dependency_result(job, JobKind.AUDIO)
-        storage_key = audio_result.get("storage_key")
-        if not isinstance(storage_key, str) or not storage_key:
-            raise RuntimeError("audio_result_missing_storage_key")
-        retained = retained_audio(self.connection, int(part["video_part_id"]), audio_result)
-        audio_path = (verified_local_audio(self.connection, self.artifact_roots, retained) if retained is not None
-                      else resolve_audio_path(self.artifact_roots, storage_key))
-        if audio_path is None:
-            raise RuntimeError("audio_missing")
+        audio_result, audio_path = audio_input.evidence, audio_input.path
         profile = self.repository.profile(job.profile_id)
         config, binding_identity = self.config_resolver(profile.asr_config())
         inference_request = InferenceRequest(job.job_id, job.lease_owner or "", job.attempt_count,
@@ -335,7 +336,8 @@ class ArchiveWorkflowHandlers:
                 diagnostics_reader = getattr(runner, "diagnostics", None)
                 if callable(diagnostics_reader):
                     diagnostics = diagnostics_reader()
-            self.repository.assert_lease(job)
+            audio_input.assert_unchanged()
+            self._inference_checkpoint(job)
             records = tuple(
                 TranscriptSegmentRecord(
                     start_ms=round(float(cue["start"]) * 1000),

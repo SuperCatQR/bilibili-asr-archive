@@ -30,3 +30,11 @@ def test_classification_does_not_change_original_code():
     code = "deepseek_http_402"
     assert "error_code" not in failure_policy(code).as_dict()
     assert code == "deepseek_http_402"
+
+
+@pytest.mark.parametrize("code", ["audio_generation_changed", "audio_input_space_unavailable"])
+def test_audio_input_integrity_and_capacity_failures_require_explicit_repair(code):
+    policy = failure_policy(code)
+    assert policy.category == "artifact_unavailable"
+    assert policy.recommended_action == "restore_artifacts_then_retry"
+    assert not policy.automatic_retry
