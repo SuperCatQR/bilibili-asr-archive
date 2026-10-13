@@ -163,7 +163,12 @@ def _automatic_editorial(session, config, base_id):
     while True:
         asr = workflow.claim("producer", kinds=(JobKind.ASR,))
         assert asr is not None
-        workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": base_id})
+        run_id = f"editorial-fixture-{base_id}"
+        if session.connection.execute("SELECT 1 FROM acquisition_runs WHERE run_id=?", (run_id,)).fetchone() is None:
+            from tests.support.asr_quality import measured_fixture_evidence
+            with session.connection:
+                measured_fixture_evidence(session.connection, EditorialRepository(session.connection).read_source(base_id))
+        workflow.finish(asr.job_id, worker_id="producer", result={"transcript_id": base_id, "run_id": run_id})
         if asr.profile_id == profile:
             break
     proof = session.connection.execute("SELECT job_id FROM workflow_jobs WHERE kind='proofread' "
