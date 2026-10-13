@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
-import time
 from contextlib import ExitStack, contextmanager
 from pathlib import Path, PurePosixPath
 
@@ -21,14 +20,18 @@ from bili_asr.artifact_packages import (
     package_manifest,
 )
 from bili_asr.artifact_root import ArtifactRoots
+from bili_asr.services.artifact_consumer_graph import (
+    consumer_job_ids,
+    has_live_consumer,
+)
 from bili_asr.services.artifact_inventory_service import (
     ArtifactSelection,
     inventory_artifacts,
     validate_offload_plan,
 )
 from bili_asr.services.artifact_release import release_copy
-from bili_asr.storage.artifact_releases import ArtifactReleaseRepository
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
+from bili_asr.storage.artifact_releases import ArtifactReleaseRepository
 from bili_asr.storage_targets import open_directory_target
 
 
@@ -127,6 +130,25 @@ def _package_evidence(catalog, target, operation_id):
     return identities
 
 
+def _reusable_package(catalog, target, batch, version, level):
+    if version == 1:
+        return None
+    rows = catalog.connection.execute(
+        "SELECT DISTINCT p.* FROM artifact_packages p JOIN artifact_replicas r "
+        "ON p.package_id=r.package_id AND p.target_id=r.target_id AND p.relative_key=r.relative_key "
+        "WHERE r.object_id=? AND r.target_id=? AND r.presence='present' ORDER BY p.verified_at DESC",
+        (batch[0].object_id, target.target_id))
+    for row in rows:
+        target.check()
+        checked = check_artifact_package(target.root / row["relative_key"], expected_sha256=row["sha256"])
+        if checked["format_version"] != version or checked.get("compression", {}).get("level") != level:
+            continue
+        members = {entry["object_id"]: entry for entry in checked["objects"]}
+        if all(source.object_id in members and members[source.object_id]["size_bytes"] == source.size_bytes for source in batch):
+            return checked
+    return None
+
+
 def _result(connection, operation_id, *, released_bytes=0):
     operation = dict(connection.execute("SELECT * FROM artifact_transfers WHERE transfer_id=?", (operation_id,)).fetchone())
     counts = dict(connection.execute("SELECT state,COUNT(*) FROM artifact_transfer_items WHERE transfer_id=? GROUP BY state", (operation_id,)))
@@ -149,18 +171,14 @@ def _live_hold(connection, obj, external_holds):
     keys = {obj["object_id"], *(f"part:{part}" for part in parts),
             *(f"path:{ref['path']}" for ref in obj["references"])}
     for part in parts:
-        keys.update(row[0] for row in connection.execute("SELECT job_id FROM workflow_jobs WHERE video_part_id=? UNION SELECT d.job_id FROM workflow_job_dependencies d JOIN workflow_jobs j ON j.job_id=d.prerequisite_job_id WHERE j.video_part_id=?", (part, part)))
+        keys.update(consumer_job_ids(connection, part))
     return any(holds.get(key) for key in keys)
 
 
 def _live_consumers(connection, obj):
     parts = {ref["part_id"] for ref in obj["references"] if ref["part_id"] is not None}
     for part in parts:
-        if connection.execute(
-            "SELECT 1 FROM workflow_jobs j WHERE (j.video_part_id=? OR EXISTS (SELECT 1 FROM workflow_job_dependencies d "
-            "JOIN workflow_jobs p ON p.job_id=d.prerequisite_job_id WHERE d.job_id=j.job_id AND p.video_part_id=? AND p.kind='audio')) "
-            "AND (j.status!='succeeded' OR EXISTS(SELECT 1 FROM workflow_attempts a WHERE a.job_id=j.job_id AND a.outcome='running')) LIMIT 1",
-            (part, part)).fetchone():
+        if has_live_consumer(connection, part):
             return True
     return False
 
@@ -187,7 +205,8 @@ def _recheck_target_object(catalog, target, operation_id, identity):
     return path, generation
 
 
-def _release_intents(catalog, roots, target, plan, operation_id, external_holds, *, current_inventory=None, policy_guard=None):
+def _release_intents(catalog, roots, target, plan, operation_id, external_holds, *, current_inventory=None, policy_guard=None,
+                     release_verifier=None, release_progress=None):
     identities = _package_evidence(catalog, target, operation_id)
     current = current_inventory if current_inventory is not None else _inventory(roots, plan, external_holds)
     retention = {obj["sha256"]: obj["retention_reasons"] for obj in current["objects"] if obj["sha256"]}
@@ -223,11 +242,14 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
                 ArtifactReleaseRepository(catalog.connection).isolate(operation_id, copy_id)
 
         verified_target = []
-        def before_delete(identity=intent["object_id"], evidence=verified_target):
+        replica_guard = []
+        def before_delete(identity=intent["object_id"], evidence=verified_target, replicas=replica_guard):
             evidence[:] = _recheck_target_object(catalog, target, operation_id, identity)
+            if release_verifier is not None:
+                replicas[:] = [release_verifier(catalog.connection, identity)]
 
         @contextmanager
-        def deletion_guard(identity=intent["object_id"], evidence=verified_target):
+        def deletion_guard(identity=intent["object_id"], evidence=verified_target, replicas=replica_guard):
             # Hashing has finished. Serialize the final queue/pin observation
             # and short filesystem commit against newly enqueued consumers.
             catalog.connection.execute("BEGIN IMMEDIATE")
@@ -240,6 +262,8 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
                 target.check()
                 if not evidence or capture_source_generation(evidence[0]) != evidence[1]:
                     raise ValueError("verified target generation changed before deletion")
+                if replicas:
+                    replicas[0]()
                 yield
             finally:
                 catalog.connection.rollback()
@@ -248,6 +272,8 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
                                json.loads(intent["source_generation_json"]), allow_delete=not held,
                                isolated=isolated, before_delete=before_delete, deletion_guard=deletion_guard)
         released_bytes += outcome["released_bytes"]
+        if release_progress is not None:
+            release_progress(outcome)
         with catalog.connection:
             ArtifactReleaseRepository(catalog.connection).record_outcome(operation_id, intent["copy_id"], outcome["state"])
             if outcome["state"] == "released":
@@ -282,7 +308,8 @@ def _transfer_fences(roots, plan, *, online, external_holds):
 
 def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, mode: str = "copy",
                        external_holds=None, max_bytes: int = 1024**3, max_objects: int = 1000,
-                       _online: bool = False, _policy_guard=None) -> dict:
+                       _online: bool = False, _policy_guard=None, _package_version: int = 1,
+                       _compression_level: int = 6, _release_verifier=None, _release_progress=None) -> dict:
     """Execute a frozen audio plan with exclusive archive access and bounded batches."""
     validate_offload_plan(plan)
     if mode not in {"copy", "offload"}:
@@ -293,7 +320,10 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
     if not plan["items"]:
         raise ValueError("plan contains no eligible artifact copies")
     target = open_directory_target(target_root, plan["target_id"], roots=roots)
+    package_options = {"format_version": _package_version, "compression_level": _compression_level}
     operation_id = f"{mode}-{plan['plan_sha256']}"
+    if _package_version != 1:
+        operation_id += f"-v{_package_version}-deflate{_compression_level}"
     with _transfer_fences(roots, plan, online=_online, external_holds=external_holds):
         connection = open_archive_connection(roots.archive_root, mode=ArchiveAccessMode.WRITE, artifact_roots=roots)
         try:
@@ -307,7 +337,8 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                 _package_evidence(catalog, target, operation_id)
                 return _result(connection, operation_id)
             if connection.execute("SELECT 1 FROM artifact_release_intents WHERE transfer_id=?", (operation_id,)).fetchone():
-                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, policy_guard=_policy_guard)
+                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, policy_guard=_policy_guard,
+                                        release_verifier=_release_verifier, release_progress=_release_progress)
             _revalidate(roots, plan, external_holds, plan["items"])
             if mode == "offload" and any(catalog.pinned(item["sha256"]) for item in plan["items"]):
                 raise ValueError("selected audio is pinned")
@@ -316,11 +347,17 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                 path = Path(item["root"]) / item["path"]
                 sources.setdefault(item["sha256"], PackageSource(item["sha256"], path, item["path"], item["sha256"], item["size"], capture_source_generation(path)))
             batches = package_batches(sources.values(), max_bytes=max_bytes, max_objects=max_objects)
-            missing_batches = [batch for index, batch in enumerate(batches) if not (
-                target.root / "packages" / f"artifact-{package_manifest(batch, operation_id, plan['plan_sha256'], index)['package_id']}.zip"
+            reusable = {index: _reusable_package(catalog, target, batch, _package_version, _compression_level)
+                        for index, batch in enumerate(batches)}
+            missing_batches = [batch for index, batch in enumerate(batches) if reusable[index] is None and not (
+                target.root / "packages" / f"artifact-{package_manifest(batch, operation_id, plan['plan_sha256'], index, **package_options)['package_id']}.zip"
             ).exists()]
             missing_objects = [source for batch in missing_batches for source in batch]
-            needed = sum(source.size_bytes for source in missing_objects) + max(64 * 1024**2, len(missing_objects) * 4096)
+            payload = sum(source.size_bytes for source in missing_objects)
+            # DEFLATE can expand incompressible input. Reserve a deliberately
+            # conservative 1% beyond payload, separately from ZIP/manifest cost.
+            expansion = (payload + 99) // 100 if _package_version == 2 else 0
+            needed = payload + expansion + max(64 * 1024**2, len(missing_objects) * 4096)
             if missing_batches and shutil.disk_usage(target.root).free < needed:
                 raise ValueError("storage target lacks space for payload and package overhead")
             with connection:
@@ -332,8 +369,8 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                     if _policy_guard is not None:
                         _policy_guard()
                     target.check()
-                    checked = create_artifact_package(target.root, batch, operation_id=operation_id,
-                                                      plan_sha256=plan["plan_sha256"], batch_index=index)
+                    checked = reusable[index] or create_artifact_package(target.root, batch, operation_id=operation_id,
+                                                      plan_sha256=plan["plan_sha256"], batch_index=index, **package_options)
                     selected = [item for item in plan["items"] if item["sha256"] in {source.object_id for source in batch}]
                     _register_package(catalog, target, checked, operation_id, roots, selected)
                 if mode == "copy":
@@ -353,7 +390,8 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                             source_replica_id=source_id,
                             source_generation=capture_source_generation(Path(item["root"]) / item["path"]))
                     catalog.set_transfer_state(operation_id, "releasing")
-                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, current_inventory=current, policy_guard=_policy_guard)
+                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, current_inventory=current,
+                                        policy_guard=_policy_guard, release_verifier=_release_verifier, release_progress=_release_progress)
             except (ValueError, OSError, sqlite3.Error):
                 with connection:
                     catalog.set_transfer_state(operation_id, "failed", error_code="transfer_interrupted")
