@@ -21,14 +21,33 @@ bili-asr check-asr-env --backend hcu --cache-root /srv/bili-asr-cache
 只读检查不解析或下载 Hub 缓存，保持 unverified，由加载/预热验证。
 
 ```bash
-# 显式有界子进程，仅分配张量并执行精度矩阵运算
+# 显式有界子进程，执行精度矩阵运算并导入 runner 所需模型类
 bili-asr check-asr-env --backend hcu --probe-gpu --probe-timeout 20
 ```
 
 探测按所选设备实际执行两个模型配置的精度，不以 BF16 属性代替运算。
 hcu 必须得到海光设备身份；torch.cuda 接口不构成厂商支持证明。
 超时/崩溃/无效响应只报告有界类别，不导出第三方 stderr。
-探测通过仍标 model_execution=not_run；加载与预热属于运行入口。
+model_class_import 单独报告实际 Torch / transformers 模型类导入结果。GPU 运算通过而
+模型类导入失败时保留 gpu.status=passed、model_class_import.status=failed，并整体 blocked。
+失败只导出 missing/incompatible 类别和白名单根异常类别，完整异常链保留在 runner 的
+Python cause 中；不导出第三方异常文本。探测通过仍标 model_execution=not_run；
+加载、真实短音频识别及强制对齐验收属于运行入口，不能用 pip check 或 GPU 运算代替。
+
+## 依赖兼容边界（#439）
+
+`[asr]` 和 `uv.lock` 冻结 transformers 5.17.0 / huggingface-hub 1.31.0。
+CUDA 验收组合为 Python 3.12、Torch 2.5.1+cu121、CUDA 12.1；ROCm Torch 按
+`docs/wsl-rocm-gpu.md` 单独安装，不能让安装器替换为通用 Torch wheel。
+Torch 仍由宿主提供，不在通用锁文件内。`uv sync --extra asr --inexact --locked`
+保留已部署的 Torch。重新解析或使用 pip 安装也受上述版本边界约束。
+
+PR #397 的 transformers 5.19.0 在 Torch 2.5.1 上实测模型类 lazy import 失败：
+根异常为 `AttributeError`（Torch 缺少 accelerator），外层为 ModuleNotFoundError。
+依赖已安装时现在报告 ASRRuntimeCompatibilityError 并保留根异常链，而不是缺少 extra。
+不通过补造 Torch API 绕过故障。未来升级须在隔离环境同步审查 HF 依赖图，记录实际版本、
+固定 checkpoint revision、输入/输出哈希，依次验收真实类导入、GPU 精度运算、短音频
+识别和强制对齐、完整音频质量及 WebVTT。仅安装成功、pip check 或 mock 单测不能解除冻结。
 
 ## 领取之前准备模型
 

@@ -177,17 +177,9 @@ def _load_qwen_models(**kwargs: Any) -> _ModelSet:
     run cannot use.
     """
 
-    try:
-        import torch
-        from transformers import (
-            AutoModelForMultimodalLM,
-            AutoModelForTokenClassification,
-            AutoProcessor,
-        )
-    except ImportError as exc:
-        raise _dependency_errors.ASRDependencyError(
-            f"Qwen3-ASR support is not installed; run: {_dependency_constants._INSTALL_HINT}"
-        ) from exc
+    from .runtime_import import import_model_classes
+
+    torch, AutoModelForMultimodalLM, AutoModelForTokenClassification, AutoProcessor = import_model_classes()
 
     model_name = kwargs["model_name"]
     aligner_name = kwargs["aligner_name"]

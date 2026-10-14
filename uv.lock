@@ -227,6 +227,7 @@ dependencies = [
 [package.optional-dependencies]
 asr = [
     { name = "accelerate" },
+    { name = "huggingface-hub" },
     { name = "librosa" },
     { name = "soundfile" },
     { name = "soxr" },
@@ -260,6 +261,7 @@ requires-dist = [
     { name = "bilibili-api-python", specifier = "==17.4.2" },
     { name = "coverage", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=7.10.6" },
     { name = "curl-cffi", specifier = ">=0.16" },
+    { name = "huggingface-hub", marker = "extra == 'asr'", specifier = "==1.31.0" },
     { name = "jsonschema", specifier = ">=4.25,<5" },
     { name = "librosa", marker = "extra == 'asr'", specifier = ">=1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19,<3" },
@@ -276,7 +278,7 @@ requires-dist = [
     { name = "soundfile", marker = "extra == 'dev'", specifier = ">=0.12" },
     { name = "soxr", marker = "extra == 'asr'", specifier = ">=0.5" },
     { name = "soxr", marker = "extra == 'dev'", specifier = ">=0.5" },
-    { name = "transformers", marker = "extra == 'asr'", specifier = ">=5.13" },
+    { name = "transformers", marker = "extra == 'asr'", specifier = "==5.17.0" },
     { name = "wheel", marker = "extra == 'dev'" },
     { name = "yt-dlp", extras = ["default"], marker = "extra == 'youtube'", specifier = "==2026.8.19" },
     { name = "yt-dlp-ejs", marker = "extra == 'youtube'", specifier = "==0.8.0" },
