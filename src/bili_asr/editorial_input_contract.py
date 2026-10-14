@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from bili_asr.canonical_json import canonical
+from bili_asr.editorial_provider import OPENCODE_GO_ENDPOINTS
 
 RULE_VERSION = "readable-prose-v2"
 # DeepSeek's tokenizer is not bundled with the worker.  Three UTF-8 bytes per
@@ -105,7 +106,7 @@ class EditorialConfig:
             raise ValueError("unsupported editorial chunk preset")
         if self.base_url.rstrip("/") not in {
             "https://api.deepseek.com",
-            "https://opencode.ai/zen/go/v1",
+            *OPENCODE_GO_ENDPOINTS,
         }:
             raise ValueError("unsupported editorial API endpoint")
         if self.thinking_mode not in {"enabled", "disabled"}:

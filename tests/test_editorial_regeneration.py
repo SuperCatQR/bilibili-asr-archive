@@ -56,7 +56,9 @@ def queued(connection, root, client, config=None):
     return workflow, repository, handlers, executor, prepared, job_id
 
 
-@pytest.mark.parametrize("endpoint", ["https://api.deepseek.com", "https://opencode.ai/zen/go/v1"])
+@pytest.mark.parametrize("endpoint", ["https://api.deepseek.com",
+                                       "https://opencode.ai/inference/go/v1",
+                                       "https://opencode.ai/zen/go/v1"])
 def test_versioned_request_modes_have_only_effective_parameters(endpoint):
     config = EditorialConfig(base_url=endpoint)
     body = request_body({}, config)

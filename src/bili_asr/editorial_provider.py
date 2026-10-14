@@ -9,9 +9,14 @@ class EditorialProvider:
     opencode_session: bool = False
 
 
+OPENCODE_GO_ENDPOINT = "https://opencode.ai/inference/go/v1"
+OPENCODE_GO_LEGACY_ENDPOINT = "https://opencode.ai/zen/go/v1"
+OPENCODE_GO_ENDPOINTS = frozenset({OPENCODE_GO_ENDPOINT, OPENCODE_GO_LEGACY_ENDPOINT})
+
 _PROVIDERS = {
     "https://api.deepseek.com": EditorialProvider("deepseek", "DEEPSEEK_API_KEY"),
-    "https://opencode.ai/zen/go/v1": EditorialProvider("opencode", "OPENCODE_API_KEY", True),
+    OPENCODE_GO_ENDPOINT: EditorialProvider("opencode", "OPENCODE_API_KEY", True),
+    OPENCODE_GO_LEGACY_ENDPOINT: EditorialProvider("opencode", "OPENCODE_API_KEY", True),
 }
 CREDENTIAL_NAMES = frozenset(policy.credential_name for policy in _PROVIDERS.values())
 

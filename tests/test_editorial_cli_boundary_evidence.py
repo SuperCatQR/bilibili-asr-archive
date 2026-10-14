@@ -21,7 +21,8 @@ database = editorial_database
 
 
 @pytest.mark.parametrize("endpoint", [None, False, {}, "http://api.deepseek.com",
-    "https://api.deepseek.com.attacker.test", "https://opencode.ai/zen/go/v2"])
+    "https://api.deepseek.com.attacker.test", "https://opencode.ai/zen/go/v2",
+    "https://opencode.ai/inference/go/v2"])
 def test_unknown_endpoint_never_selects_a_credential(endpoint):
     with pytest.raises(ValueError, match="unsupported editorial API endpoint"):
         editorial_provider(endpoint)
@@ -29,6 +30,7 @@ def test_unknown_endpoint_never_selects_a_credential(endpoint):
 
 @pytest.mark.parametrize("endpoint,required,unrelated", [
     ("https://api.deepseek.com/", "DEEPSEEK_API_KEY", "OPENCODE_API_KEY"),
+    ("https://opencode.ai/inference/go/v1/", "OPENCODE_API_KEY", "DEEPSEEK_API_KEY"),
     ("https://opencode.ai/zen/go/v1/", "OPENCODE_API_KEY", "DEEPSEEK_API_KEY"),
 ])
 def test_unrelated_credential_cannot_authorize_an_endpoint(monkeypatch, endpoint, required, unrelated):

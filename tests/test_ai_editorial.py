@@ -344,15 +344,17 @@ def test_missing_key_does_not_make_network_request(monkeypatch):
         client.close()
 
 
+@pytest.mark.parametrize("endpoint_path", ["inference/go/v1", "zen/go/v1"])
 @responses.activate
-def test_opencode_endpoint_uses_own_key_and_stable_session(monkeypatch):
+def test_opencode_endpoint_uses_own_key_and_stable_session(monkeypatch, endpoint_path):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "direct-secret")
     monkeypatch.setenv("OPENCODE_API_KEY", "go-secret")
+    endpoint = f"https://opencode.ai/{endpoint_path}"
     config = EditorialConfig(model="deepseek-v4.1-flash",
-                             base_url="https://opencode.ai/zen/go/v1/")
+                             base_url=endpoint + "/")
     chunk = prepare_input(record(), None, config)["chunks"][0]
     request = request_body(chunk, config)
-    responses.post("https://opencode.ai/zen/go/v1/chat/completions", json=envelope(no_changes(chunk)))
+    responses.post(endpoint + "/chat/completions", json=envelope(no_changes(chunk)))
     responses.post("https://api.deepseek.com/chat/completions", json=envelope(no_changes(chunk)))
     client = DeepSeekClient()
     try:
@@ -378,7 +380,7 @@ def test_opencode_requires_own_key(monkeypatch):
     client = DeepSeekClient()
     try:
         with pytest.raises(DeepSeekError, match="OPENCODE_API_KEY is not configured"):
-            client.complete({}, EditorialConfig(base_url="https://opencode.ai/zen/go/v1"))
+            client.complete({}, EditorialConfig(base_url="https://opencode.ai/inference/go/v1"))
         assert not responses.calls
     finally:
         client.close()

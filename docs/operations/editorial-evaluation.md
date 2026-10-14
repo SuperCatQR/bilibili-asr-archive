@@ -74,7 +74,7 @@ of temperature or effort.
 PYTHONPATH=src python scripts/evaluate_editorial.py \
   --database /path/to/private/archive.db --call-id SAVED_CALL_ID \
   --allow-paid-calls --ledger /path/to/private/experiment.db \
-  --endpoint https://opencode.ai/zen/go/v1 --model deepseek-v4.1-flash \
+  --endpoint https://opencode.ai/inference/go/v1 --model deepseek-v4.1-flash \
   > /path/to/sanitized-report.json
 ```
 
