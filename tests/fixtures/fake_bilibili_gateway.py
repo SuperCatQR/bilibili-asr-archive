@@ -1110,6 +1110,10 @@ def fake_gateway_seam(monkeypatch) -> FakeGateway:
     instead of the module the handler imports from.
     """
 
+    # This seam is an explicitly offline test provider.  Its opaque policy
+    # references are test labels, never live authorization or credentials.
+    monkeypatch.setenv("BILI_PLATFORM_ACCESS_REFERENCE", "test:offline-platform")
+    monkeypatch.setenv("BILI_CONTENT_PROCESSING_REFERENCE", "test:offline-content")
     gateway = FakeGateway()
     gateway_module = importlib.import_module(GATEWAY_ADAPTER_MODULE)
 

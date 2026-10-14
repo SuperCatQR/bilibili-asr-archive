@@ -217,6 +217,7 @@ _CONTRACTS = (
     _json("editorial-import-export-manifest/v1", "editorial-import-export-manifest.schema.json",
           dependencies=(IMPORT_EXTENSION, "editorial-export-manifest/v1")),
     _json("editorial-review/v1", "editorial-review.schema.json"),
+    _json("editorial-source-lineage/v1", "editorial-source-lineage-v1.schema.json"),
     _json("editorial-review-universal/v1", "editorial-review-universal.schema.json", dependencies=("ai-draft-v2",)),
     _json("publication-series/v1", "publication-series.schema.json"),
     _json("publication-series-editorial/v1", "publication-series-editorial.schema.json"),

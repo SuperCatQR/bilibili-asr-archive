@@ -9,6 +9,10 @@ class ASRDependencyError(RuntimeError):
     """The optional ASR dependency (transformers/torch) is missing or unusable."""
 
 
+class ASRRuntimeCompatibilityError(ASRDependencyError):
+    """Installed ASR modules cannot import the required model classes."""
+
+
 class ASRModelError(RuntimeError):
     """The configured checkpoint could not be loaded, or the run could not transcribe."""
 

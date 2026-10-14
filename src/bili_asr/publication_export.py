@@ -429,13 +429,15 @@ def export_editorial(
             "SELECT * FROM publication_events WHERE edition_id = ? ORDER BY event_id", (edition_id,),
         )]
         row = connection.execute(
-            "SELECT r.quality_status, r.created_at, i.prepared_json FROM editorial_revisions r "
+            "SELECT r.quality_status, r.created_at, r.blocks_json, i.prepared_json FROM editorial_revisions r "
             "JOIN editorial_inputs i ON i.input_id = r.input_id WHERE r.revision_id = ?",
             (revision_id,),
         ).fetchone()
         if row is None:
             raise ExportSnapshotError("selected AI revision has no fixed input")
         prepared = json.loads(row["prepared_json"])
+        from bili_asr.editorial_lineage import source_lineage
+        lineage = source_lineage(prepared, json.loads(row["blocks_json"]), revision_id=revision_id)
         from bili_asr.storage.archive_contracts import frozen_version
         version = frozen_version(connection, "input", prepared["input_id"])
         ai_content = (content_from_ai_v2 if version == 2 else content_from_ai)(prepared, baseline)
@@ -447,6 +449,7 @@ def export_editorial(
             "config": prepared["snapshot"]["config"],
             "promptSha256": prepared["snapshot"]["prompt_sha256"],
             "artifactSha256": {name: hashlib.sha256(value).hexdigest() for name, value in artifacts.items()},
+            "sourceLineage": lineage,
         }
         review_document = {
             "schemaVersion": 1,

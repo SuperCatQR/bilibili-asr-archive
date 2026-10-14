@@ -33,6 +33,7 @@ _EXPORTS = {
     'coverage_verdict': ('bili_asr.asr.coverage', 'coverage_verdict'),
     'transcribed_coverage': ('bili_asr.asr.coverage', 'transcribed_coverage'),
     'ASRDependencyError': ('bili_asr.asr.errors', 'ASRDependencyError'),
+    'ASRRuntimeCompatibilityError': ('bili_asr.asr.errors', 'ASRRuntimeCompatibilityError'),
     'ASRModelError': ('bili_asr.asr.errors', 'ASRModelError'),
     'AudioDecodeError': ('bili_asr.asr.errors', 'AudioDecodeError'),
     'evidence_guard_hotwords': ('bili_asr.asr.hotwords', 'evidence_guard_hotwords'),

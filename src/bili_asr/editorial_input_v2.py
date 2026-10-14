@@ -27,6 +27,17 @@ Do not add headings, metadata, explanations or Markdown fences to the JSON respo
 """
 
 
+SOURCE_SUPPORT_RULE = """Every substantive claim, example, causal relation, quotation, name, number and negation
+in paragraph text must be supported by that paragraph's declared segment_ids.
+Adjacent paragraphs, other chunks and readonly_context aid understanding only;
+never borrow their substantive content. To merge meaning, expand the paragraph's
+consecutive segment_ids accordingly. Compare the draft against its declared source
+before returning it: do not anticipate the next paragraph or repeat borrowed claims.
+If support is uncertain, report an issue on that paragraph; issues=[] is not proof
+that semantic source support has been verified."""
+HISTORICAL_MULTILINGUAL_PROMPT = MULTILINGUAL_PROMPT
+
+
 
 def prepare_input_v2(base, reference, config, *, source_metadata) -> dict[str, Any]:
     if reference and (base.video_part_id != reference.video_part_id
@@ -39,6 +50,7 @@ def prepare_input_v2(base, reference, config, *, source_metadata) -> dict[str, A
     matches = {segment["segment_id"]: [ref for ref in refs if ref["start_ms"] < segment["end_ms"]
                                       and ref["end_ms"] > segment["start_ms"]] for segment in body}
     assigned = {ref["segment_id"] for values in matches.values() for ref in values}
+    prompt = HISTORICAL_MULTILINGUAL_PROMPT if config.budget_policy == "legacy-v1" else MULTILINGUAL_PROMPT + SOURCE_SUPPORT_RULE
     snapshot = {
         "video_part_id": base.video_part_id,
         "base": {"transcript_id": base.transcript_id, "content_sha256": base.content_sha256,
@@ -47,8 +59,8 @@ def prepare_input_v2(base, reference, config, *, source_metadata) -> dict[str, A
             "content_sha256": reference.content_sha256, "source_kind": reference.source_kind,
             "language": reference.language, "segments": refs},
         "config": config.to_dict(), "metadata": {"title": source_metadata.title, "source_metadata": source_metadata.to_dict()},
-        "source_rule_version": "multilingual-prose-v2", "system_prompt": MULTILINGUAL_PROMPT,
-        "prompt_sha256": digest(MULTILINGUAL_PROMPT),
+        "source_rule_version": "multilingual-prose-v2", "system_prompt": prompt,
+        "prompt_sha256": digest(prompt),
         "unassigned_reference_ids": [ref["segment_id"] for ref in refs if ref["segment_id"] not in assigned],
     }
     if config.budget_policy != "legacy-v1":

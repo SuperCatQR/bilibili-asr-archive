@@ -10,6 +10,52 @@ import sys
 import pytest
 
 
+@pytest.mark.parametrize("operator_policy", [None, "1"])
+def test_legacy_policy_fixture_preserves_operator_environment_for_live_probes(
+    tmp_path: Path, operator_policy: str | None,
+) -> None:
+    """The actual autouse fixture keeps live policy and offline mode separate."""
+    source_fixture = Path(__file__).with_name("conftest.py")
+    (tmp_path / "conftest.py").write_text(
+        "import importlib.util\n"
+        f"spec = importlib.util.spec_from_file_location('source_policy', {str(source_fixture)!r})\n"
+        "source = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(source)\n"
+        "enable_content_publication_for_legacy_flows = source.enable_content_publication_for_legacy_flows\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\nmarkers =\n    live_smoke: live gate\n", encoding="utf-8",
+    )
+    (tmp_path / "test_consumer.py").write_text(
+        "import os\nimport pytest\n"
+        "@pytest.mark.live_smoke\n"
+        "def test_live_environment():\n"
+        f"    assert os.environ.get('BILI_COMPLIANCE_ENABLED') == {operator_policy!r}\n"
+        "    assert os.environ.get('BILI_PUBLICATION_ENABLED') == 'operator-value'\n"
+        "    assert os.environ.get('BILI_PLATFORM_ACCESS_REFERENCE') == 'operator:platform'\n"
+        "    assert os.environ.get('BILI_CONTENT_PROCESSING_REFERENCE') == 'operator:content'\n"
+        "def test_offline_legacy_environment():\n"
+        "    assert os.environ.get('BILI_COMPLIANCE_ENABLED') == '1'\n"
+        "    assert os.environ.get('BILI_PUBLICATION_ENABLED') == '1'\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.pop("BILI_COMPLIANCE_ENABLED", None)
+    if operator_policy is not None:
+        env["BILI_COMPLIANCE_ENABLED"] = operator_policy
+    env["BILI_PUBLICATION_ENABLED"] = "operator-value"
+    env["BILI_PLATFORM_ACCESS_REFERENCE"] = "operator:platform"
+    env["BILI_CONTENT_PROCESSING_REFERENCE"] = "operator:content"
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "test_consumer.py"],
+        cwd=tmp_path, env=env, text=True, capture_output=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 passed" in result.stdout
+
+
 @pytest.mark.parametrize("marker_name,env_var", [
     ("live_smoke", "BILI_LIVE_SMOKE"),
     ("scale", "BILI_SCALE"),

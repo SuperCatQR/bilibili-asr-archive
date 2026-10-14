@@ -52,7 +52,11 @@ dev = [
 asr = [
     # Qwen3-ASR has native transformers support from 5.13.0, which is the whole engine: the
     # decoder for text and the forced aligner for per-character timings.
-    "transformers>=5.13",
+    # Freeze the real CUDA-tested graph. Transformers 5.19 fails model-class
+    # import on the supported CUDA Torch 2.5.1 host (#439); pip check cannot detect it.
+    # Upgrade these together only after real class import and ASR/alignment acceptance.
+    "transformers==5.17.0",
+    "huggingface-hub==1.31.0",
     # ``device_map=`` (the loader path both checkpoints use) requires accelerate.
     "accelerate>=1.0",
     # Reading archived audio; processors receive decoded 16 kHz waveform arrays.

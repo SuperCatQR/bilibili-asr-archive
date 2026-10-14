@@ -79,6 +79,7 @@ _POLICIES = {
     "inference_timeout": FailurePolicy("inference_runtime", "manual", "inspect_inference_deadline_or_replace_profile"),
     "inference_session_failed": FailurePolicy("inference_runtime", "manual", "inspect_inference_runtime"),
     "ASRDependencyError": _CONFIG,
+    "ASRRuntimeCompatibilityError": _CONFIG,
     "ASRModelError": FailurePolicy("inference_runtime", "blocked", "verify_model_configuration"),
     "AudioDecodeError": FailurePolicy("source_quality", "repair", "verify_audio_decode"),
     "RuntimeCacheError": _CONFIG,

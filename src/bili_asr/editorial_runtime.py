@@ -16,6 +16,7 @@ from bili_asr.deepseek import (
     request_body,
 )
 from bili_asr.editorial import EditorialConfig, local_revision, validate_revision
+from bili_asr.editorial_lineage import lineage_summary, source_lineage
 from bili_asr.editorial_quality import check_source_quality
 from bili_asr.editorial_recovery import diagnostic_for_error, recovery_request
 from bili_asr.manuscript_files import stage_artifact
@@ -69,7 +70,9 @@ class EditorialWorkflowHandlers:
                 continue
             self._proofread_chunk(job, prepared, chunk, config)
         revision_id = self.repository.commit_revision(job, prepared)
-        result: dict[str, Any] = {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
+        result: dict[str, Any] = {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"]),
+                                  "source_lineage": lineage_summary(source_lineage(
+                                      prepared, self.repository.revision(revision_id)[1], revision_id=revision_id))}
         if "source_selection" in prepared:
             result["source_selection"] = prepared["source_selection"]
         return result

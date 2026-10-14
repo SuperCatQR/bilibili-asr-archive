@@ -609,6 +609,89 @@ def test_fetch_meta_unexpected_error_is_bounded_exit_two_no_traceback(
     assert "Traceback" not in err
 
 
+@pytest.mark.parametrize("evidence", [None, "https://private.invalid/?secret=policy-sentinel"])
+def test_fetch_meta_rejects_missing_platform_evidence_as_configuration_error(
+    tmp_root: str,
+    bilibili_api_seam,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    evidence: str | None,
+) -> None:
+    """A local strict-policy refusal is exit 1, before any upstream call.
+
+    This is deliberately separate from the gateway-failure tests below:
+    missing evidence is a local configuration decision, while an upstream
+    response (including anonymous HTTP 412/risk control) is a bounded gateway
+    outcome with exit 2 and page evidence.
+    """
+
+    monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
+    monkeypatch.delenv("BILI_PLATFORM_ACCESS_REQUIRE_EVIDENCE", raising=False)
+    monkeypatch.delenv("BILI_PLATFORM_ACCESS_REFERENCE", raising=False)
+    monkeypatch.delenv("BILI_CONTENT_PROCESSING_REFERENCE", raising=False)
+    if evidence is not None:
+        monkeypatch.setenv("BILI_PLATFORM_ACCESS_REFERENCE", evidence)
+
+    assert main(["fetch-meta", "--archive-root", tmp_root]) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == (
+        "fetch-meta: platform access configuration rejected; "
+        "set valid BILI_PLATFORM_ACCESS_REFERENCE and "
+        "BILI_CONTENT_PROCESSING_REFERENCE\n"
+    )
+    assert "unexpected error" not in err
+    assert "Traceback" not in err
+    assert "policy-sentinel" not in out + err
+    assert bilibili_api_seam.calls == []
+    assert bilibili_api_seam.api_requests == []
+    assert not os.path.exists(os.path.join(tmp_root, "archive.db"))
+
+
+def test_targeted_fetch_meta_rejects_local_policy_without_touching_archive(
+    tmp_root: str, bilibili_api_seam, monkeypatch, capsys,
+) -> None:
+    connection = open_database(tmp_root)
+    connection.close()
+    database = os.path.join(tmp_root, "archive.db")
+    with open(database, "rb") as stream:
+        before = stream.read()
+    monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
+    monkeypatch.delenv("BILI_PLATFORM_ACCESS_REFERENCE", raising=False)
+    monkeypatch.delenv("BILI_CONTENT_PROCESSING_REFERENCE", raising=False)
+
+    assert main(["fetch-meta", "--archive-root", tmp_root, "--bvid", "BV1LOCALPOL1"]) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert "platform access configuration rejected" in err
+    assert "unexpected error" not in err
+    assert bilibili_api_seam.calls == []
+    assert bilibili_api_seam.api_requests == []
+    with open(database, "rb") as stream:
+        assert stream.read() == before
+
+
+def test_fetch_meta_late_platform_refusal_keeps_safe_configuration_diagnostic(
+    tmp_root: str, bilibili_api_seam, monkeypatch, capsys,
+) -> None:
+    """Do not leak policy exception text if policy changes after preflight."""
+    from bili_asr.platform_access import PlatformAccessError
+
+    class RefusingIngestor:
+        def __init__(self, gateway, repository):
+            pass
+
+        def collect_user_pages(self, **kwargs):
+            raise PlatformAccessError("private-policy-sentinel")
+
+    monkeypatch.setattr("bili_asr.services.MetadataIngestor", RefusingIngestor)
+    assert main(["fetch-meta", "--archive-root", tmp_root]) == 1
+    out, err = capsys.readouterr()
+    assert "platform access configuration rejected" in err
+    assert "private-policy-sentinel" not in out + err
+    assert "unexpected error" not in err
+
+
 @pytest.mark.parametrize("fail_upstream", [False, True], ids=["success", "failure"])
 def test_fetch_meta_never_writes_legacy_sidecars(
     tmp_root: str, bilibili_api_seam, fail_upstream: bool, capsys: pytest.CaptureFixture[str]

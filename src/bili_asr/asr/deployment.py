@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import hashlib
-from importlib.metadata import PackageNotFoundError, version
 import json
 import ntpath
 import os
-from pathlib import Path
 import platform
 import re
 import subprocess
 import sys
+from dataclasses import asdict
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 from .config import ASRConfig
 
-
-PACKAGES = ("bili-asr", "torch", "transformers", "accelerate", "numpy", "soundfile", "soxr", "triton")
+PACKAGES = ("bili-asr", "torch", "transformers", "huggingface-hub", "tokenizers",
+            "accelerate", "numpy", "soundfile", "soxr", "triton")
 
 
 def installed_versions() -> dict[str, str | None]:
@@ -41,7 +41,7 @@ def _checkpoint(path: str, revision: str | None) -> dict:
 
 def deployment_report(config: ASRConfig, *, backend: str, cache_root: str | None = None,
                       check_gpu: bool = False, timeout_seconds: float = 20) -> dict:
-    """Inspect configuration; an explicit probe runs only allocation/arithmetic."""
+    """Inspect configuration; an explicit probe imports classes and executes tensors."""
     if backend not in ("cuda", "rocm", "hcu"):
         raise ValueError("unsupported deployment backend")
     if re.fullmatch(r"(?:cpu|cuda|rocm)(?::[0-9]+)?", config.device) is None:
@@ -56,6 +56,7 @@ def deployment_report(config: ASRConfig, *, backend: str, cache_root: str | None
               "model": _checkpoint(config.model_name, config.model_revision),
               "aligner": _checkpoint(config.aligner_name, config.aligner_revision),
               "model_execution": "not_run", "gpu": {"status": "unverified"},
+              "model_class_import": {"status": "unverified"},
               "cache": {"configured": cache_root is not None, "state": "unverified"}}
     missing = [name for name in ("torch", "transformers", "accelerate") if packages[name] is None]
     report["missing_packages"] = missing
@@ -71,10 +72,24 @@ def deployment_report(config: ASRConfig, *, backend: str, cache_root: str | None
             payload = json.loads(child.stdout)
             # Accept only known fields; stderr and arbitrary child text are never exported.
             allowed = {"status", "backend", "torch", "cuda", "hip", "device",
-                       "precision_execution", "model_execution", "error_type"}
+                       "precision_execution", "model_execution", "error_type", "gpu_status",
+                       "model_class_import", "runtime_error", "root_cause_type"}
             if not isinstance(payload, dict) or set(payload) - allowed or payload.get("status") not in ("passed", "failed"):
                 raise ValueError("invalid device report")
-            report["gpu"] = payload if child.returncode == 0 else {"status": "failed", "reason": "device_probe_failed"}
+            if child.returncode == 0 and payload["status"] == "passed" and payload.get("model_class_import") == "passed":
+                report["gpu"] = {key: value for key, value in payload.items() if key != "model_class_import"}
+                report["model_class_import"] = {"status": "passed"}
+            elif (child.returncode != 0 and payload["status"] == "failed" and payload.get("gpu_status") == "passed"
+                  and payload.get("model_class_import") == "failed" and payload.get("runtime_error") in {"missing", "incompatible"}
+                  and payload.get("root_cause_type") in {"ModuleNotFoundError", "ImportError", "AttributeError", "OSError",
+                                                        "RuntimeError", "ValueError", "Exception"}):
+                report["gpu"] = {key: value for key, value in payload.items()
+                                 if key in allowed - {"gpu_status", "model_class_import", "runtime_error", "root_cause_type"}}
+                report["gpu"]["status"] = "passed"
+                report["model_class_import"] = {"status": "failed", "reason": "runtime_" + payload["runtime_error"],
+                                                "root_cause_type": payload["root_cause_type"]}
+            else:
+                report["gpu"] = {"status": "failed", "reason": "device_probe_failed"}
         except subprocess.TimeoutExpired:
             report["gpu"] = {"status": "failed", "reason": "device_probe_timeout"}
         except (OSError, ValueError):
@@ -84,7 +99,7 @@ def deployment_report(config: ASRConfig, *, backend: str, cache_root: str | None
                               (not report[name]["config_present"] or not report[name]["readable"])
                               for name in ("model", "aligner")):
         report["state"] = "blocked"
-    if report["gpu"]["status"] == "failed":
+    if report["gpu"]["status"] == "failed" or report["model_class_import"]["status"] == "failed":
         report["state"] = "blocked"
     # Deliberately no ready claim: neither offline inspection nor a tensor
     # probe has loaded both models or completed an ASR/alignment sentinel.

@@ -1,10 +1,13 @@
-"""Explicit tensor execution probe, intended to run in a bounded child."""
+"""Explicit GPU execution and model-class import probe in a bounded child."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
+
+from .errors import ASRDependencyError, ASRRuntimeCompatibilityError
+from .runtime_import import import_model_classes, root_error_type
 
 
 def probe_gpu(backend: str, *, device: str = "cuda", dtypes: tuple[str, ...] = ("bfloat16",)) -> dict:
@@ -47,7 +50,14 @@ def main() -> int:
     except Exception as exc:  # The parent receives only a bounded category, never driver credentials/paths.
         print(json.dumps({"status": "failed", "error_type": type(exc).__name__[:64]}))
         return 1
-    print(json.dumps({"status": "passed", **report}))
+    try:
+        import_model_classes()
+    except ASRDependencyError as exc:
+        print(json.dumps({"status": "failed", **report, "gpu_status": "passed",
+                          "model_class_import": "failed", "root_cause_type": root_error_type(exc),
+                          "runtime_error": "incompatible" if isinstance(exc, ASRRuntimeCompatibilityError) else "missing"}))
+        return 1
+    print(json.dumps({"status": "passed", **report, "model_class_import": "passed"}))
     return 0
 
 

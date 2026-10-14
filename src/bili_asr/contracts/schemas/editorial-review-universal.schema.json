@@ -113,6 +113,7 @@
         "promptSha256": {
           "$ref": "#/$defs/sha256"
         },
+        "sourceLineage": {"$ref": "editorial-source-lineage-v1.schema.json"},
         "artifactSha256": {
           "type": "object",
           "additionalProperties": false,
