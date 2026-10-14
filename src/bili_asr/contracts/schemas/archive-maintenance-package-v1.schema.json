@@ -23,7 +23,7 @@
         "file_count": {"type": "integer", "minimum": 1},
         "total_bytes": {"type": "integer", "minimum": 0},
         "runtime_policy": {"const": "archive-runtime-v1"},
-        "excluded": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "category"], "properties": {"path": {"$ref": "#/$defs/text"}, "category": {"enum": ["credentials", "legacy-operational-manifest", "sqlite-sidecar", "model-weights", "operational-logs", "cache", "runtime-fence", "asr-input-reservation"]}, "state": {"type": "string", "minLength": 1, "maxLength": 128}, "count": {"type": "integer", "minimum": 0}, "base": {"type": "string", "minLength": 1}}}}
+        "excluded": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "category"], "properties": {"path": {"$ref": "#/$defs/text"}, "category": {"enum": ["credentials", "legacy-operational-manifest", "sqlite-sidecar", "model-weights", "operational-logs", "cache", "runtime-fence", "asr-input-reservation", "runtime-export-lock"]}, "state": {"type": "string", "minLength": 1, "maxLength": 128}, "count": {"type": "integer", "minimum": 0}, "base": {"type": "string", "minLength": 1}}}}
       }
     },
     "selection": {"oneOf": [

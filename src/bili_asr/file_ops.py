@@ -9,10 +9,14 @@ import os
 import stat
 import sys
 import tempfile
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO
+
+EXPORT_LOCK_MARKER = b"bili-asr-export-lock-v1\n"
+_EXPORT_LOCKS = threading.local()
 
 
 class FileOperationError(ValueError):
@@ -145,12 +149,24 @@ def _open_initialized_lock(path: Path, flags: int, marker: bytes) -> int:
 
 
 @contextmanager
-def exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
+def exclusive_lock(output: Path, *, blocking: bool = False, existing_only: bool = False) -> Iterator[None]:
+    """Hold the product export lock; probes never initialize a missing lock.
+
+    Acquisitions are deliberately non-reentrant, including on systems whose
+    kernel lock API permits another descriptor in the same thread to succeed.
+    The stable lock inode is retained when the lease ends.
+    """
     path = output.parent / f".{output.name}.export.lock"
     checked_path(path)
     flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
-    marker = b"bili-asr-export-lock-v1\n"
-    descriptor = _open_initialized_lock(path, flags, marker)
+    marker = EXPORT_LOCK_MARKER
+    held = getattr(_EXPORT_LOCKS, "held", None)
+    if held is None:
+        held = _EXPORT_LOCKS.held = set()
+    identity = os.path.normcase(os.fspath(path.absolute()))
+    if identity in held:
+        raise FileOperationError("another export holds the output lock")
+    descriptor = os.open(path, flags) if existing_only else _open_initialized_lock(path, flags, marker)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise FileOperationError("export lock is not a regular file")
@@ -174,6 +190,14 @@ def exclusive_lock(output: Path, *, blocking: bool = False) -> Iterator[None]:
         actual_marker = os.read(descriptor, len(marker) + 1)
         if actual_marker != marker:
             raise FileOperationError("export lock file is unmanaged or damaged")
-        yield
+        opened, current = os.fstat(descriptor), path.lstat()
+        if (opened.st_nlink != 1 or current.st_nlink != 1
+                or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
+            raise FileOperationError("export lock identity changed or has multiple links")
+        held.add(identity)
+        try:
+            yield
+        finally:
+            held.remove(identity)
     finally:
         os.close(descriptor)

@@ -64,3 +64,44 @@ def test_snapshot_runtime_exclusions_are_validated_by_same_policy(tmp_path, chan
     _rewrite_snapshot(original, forged, mutate_manifest=change)
     with pytest.raises(ValueError):
         check_snapshot(forged)
+
+
+@pytest.mark.parametrize("tampering", ["unpaired", "policy", "boundary", "plain-native-policy"])
+def test_selected_observation_policy_has_exact_declaration_shape(tmp_path, tampering):
+    root = tmp_path / "source"
+    _seed_archive(root)
+    original = tmp_path / "selected.zip"
+    package.export_package(root, original, part_ids=[1])
+
+    def change(document):
+        selection = document["selection"]
+        selection["observation_policy"] = "source-observations-closure/v1"
+        if tampering != "unpaired":
+            selection["observation_boundary"] = {"shared_creator_pages": [], "raw_observation_rows": 0}
+        if tampering == "policy":
+            selection["observation_policy"] = "future-policy/v2"
+        elif tampering == "boundary":
+            selection["observation_boundary"]["raw_observation_rows"] = True
+
+    forged = _rewrite_package(original, tmp_path / "forged.zip", change)
+    with pytest.raises(ValueError):
+        package.verify_package(forged)
+
+
+def test_managed_import_lock_exclusion_cannot_name_an_arbitrary_file(tmp_path):
+    from bili_asr.file_ops import exclusive_lock
+    root = tmp_path / "source"
+    _seed_archive(root)
+    with exclusive_lock(root / "preserved-body-import"):
+        pass
+    original = tmp_path / "stopped-import.zip"
+    package.export_package(root, original)
+    assert package.verify_package(original)["valid"]
+
+    def change(document):
+        entry = next(item for item in document["source"]["excluded"] if item["category"] == "runtime-export-lock")
+        entry["path"] = "arbitrary-user-history.json"
+
+    forged = _rewrite_package(original, tmp_path / "forged.zip", change)
+    with pytest.raises(ValueError, match="runtime exclusion"):
+        package.verify_package(forged)

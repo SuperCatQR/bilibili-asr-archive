@@ -18,10 +18,12 @@ from bili_asr.artifact_inventory import (
     require_no_links,
     require_regular_file,
 )
+from bili_asr.file_ops import exclusive_lock
 
 RUNTIME_POLICY = "archive-runtime-v1"
 ARTIFACT_RUNTIME = ".artifact-runtime"
 ASR_INPUT_RESERVATIONS = ".asr-input-reservations"
+PRESERVED_IMPORT_LOCK = ".preserved-body-import.export.lock"
 _FENCE = re.compile(r"^\.([0-9a-f]{64})\.archive-maintenance\.lock$")
 _RESERVATION = re.compile(r"^([0-9a-f]{32})\.json$")
 _MAX_RECEIPT_BYTES = 64 * 1024
@@ -116,6 +118,15 @@ def inspect_runtime_root(root: Path) -> list[dict]:
     except ArtifactInventoryError as exc:
         raise RuntimeRootPolicyError(str(exc)) from exc
     result: list[dict] = []
+    lock = base / PRESERVED_IMPORT_LOCK
+    if lock.exists() or lock.is_symlink():
+        try:
+            require_no_links(lock)
+            require_regular_file(lock)
+            with exclusive_lock(base / "preserved-body-import", existing_only=True):
+                result.append(_entry(lock, "runtime-export-lock", state="stopped-export-lock"))
+        except (OSError, ValueError) as exc:
+            raise RuntimeRootPolicyError("preserved body import export lock is active or damaged") from exc
     for name, inspector, category in (
         (ARTIFACT_RUNTIME, _fence_entries, "runtime-fence"),
         (ASR_INPUT_RESERVATIONS, _reservation_entries, "asr-input-reservation"),
@@ -169,6 +180,8 @@ def validate_runtime_exclusions(entries: list[dict]) -> None:
             expected = ("runtime-fence", "empty-runtime-directory", 0)
         elif path == ASR_INPUT_RESERVATIONS:
             expected = ("asr-input-reservation", "empty-runtime-directory", 0)
+        elif path == PRESERVED_IMPORT_LOCK:
+            expected = ("runtime-export-lock", "stopped-export-lock", 1)
         elif path.startswith(ARTIFACT_RUNTIME + "/") and _FENCE.fullmatch(path[len(ARTIFACT_RUNTIME) + 1:]):
             expected = ("runtime-fence", "stopped-runtime-fence", 1)
         else:
@@ -182,7 +195,7 @@ def validate_runtime_exclusions(entries: list[dict]) -> None:
 
 
 __all__ = [
-    "ARTIFACT_RUNTIME", "ASR_INPUT_RESERVATIONS", "RUNTIME_POLICY",
+    "ARTIFACT_RUNTIME", "ASR_INPUT_RESERVATIONS", "PRESERVED_IMPORT_LOCK", "RUNTIME_POLICY",
     "RuntimeRootPolicyError", "inspect_runtime_root", "inspect_runtime_roots",
     "validate_runtime_exclusions",
 ]

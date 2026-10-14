@@ -26,6 +26,7 @@ from bili_asr.artifact_inventory import (
 from bili_asr.services.runtime_root_policy import (
     ARTIFACT_RUNTIME,
     ASR_INPUT_RESERVATIONS,
+    PRESERVED_IMPORT_LOCK,
     RuntimeRootPolicyError,
     inspect_runtime_root,
 )
@@ -95,7 +96,7 @@ def _root_entries(base: Path, archive: Path, product: Path) -> list[dict]:
             continue  # The configured root is inspected separately.
         elif entry in product.parents and product.is_relative_to(archive) and product != archive:
             excluded.extend(_root_entries(entry, archive, product))
-        elif entry.name in {ARTIFACT_RUNTIME, ASR_INPUT_RESERVATIONS} and entry.is_dir():
+        elif entry.name == PRESERVED_IMPORT_LOCK or (entry.name in {ARTIFACT_RUNTIME, ASR_INPUT_RESERVATIONS} and entry.is_dir()):
             excluded.extend({**item, "base": str(base)} for item in runtime
                              if item["path"] == entry.name or item["path"].startswith(entry.name + "/"))
         elif entry.name in ARTIFACT_DIRECTORIES and entry.is_dir():

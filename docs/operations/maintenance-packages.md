@@ -27,7 +27,9 @@ must be reapplied only when package and target fingerprints still match.
 Completed workers may leave `.artifact-runtime` and `.asr-input-reservations`
 in the archive. Package export, snapshot and task-state backup share
 `archive-runtime-v1`: empty runtime directories and stopped, empty fence files
-have explicit exclusion receipts. Active fences, any reservation receipt,
+have explicit exclusion receipts. The managed `.preserved-body-import.export.lock`
+is also excluded only after its marker and stopped lock state are verified.
+Active fences, any reservation receipt,
 malformed entries, links and unknown root files refuse capture. Backup does not
 remove runtime state. Old packages without these optional declarations remain
 readable.

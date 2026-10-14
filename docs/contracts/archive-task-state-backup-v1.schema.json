@@ -62,7 +62,7 @@
       "type": "array",
       "items": {"type": "object", "additionalProperties": false, "required": ["path", "category", "state", "count"], "properties": {
         "path": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "category": {"enum": ["runtime-fence", "asr-input-reservation"]},
+        "category": {"enum": ["runtime-fence", "asr-input-reservation", "runtime-export-lock"]},
         "state": {"type": "string", "minLength": 1, "maxLength": 128},
         "count": {"type": "integer", "minimum": 0},
         "base": {"type": "string", "minLength": 1, "maxLength": 4096}

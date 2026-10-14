@@ -291,9 +291,9 @@ def extract_task_state(snapshot: Path, stage: Path) -> dict:
         version = manifest.get("format") if isinstance(manifest, dict) else None
         if version not in {FORMAT, REFERENCE_FORMAT}:
             raise ValueError("unsupported task-state manifest version")
-        validate_json(version, manifest)
         if ("runtime_policy" in manifest) != ("runtime_exclusions" in manifest):
             raise ValueError("task-state runtime policy and exclusions must appear together")
+        validate_json(version, manifest)
         if "runtime_exclusions" in manifest:
             validate_runtime_exclusions(manifest["runtime_exclusions"])
         if (manifest.get("profile") != "task-state"

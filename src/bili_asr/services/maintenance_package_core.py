@@ -332,7 +332,7 @@ def _validate_manifest(document: dict) -> None:
             or ("runtime_policy" in source and source["runtime_policy"] != RUNTIME_POLICY)):
         raise ValueError("invalid maintenance source provenance")
     runtime_entries = [item for item in source["excluded"]
-                       if item.get("category") in {"runtime-fence", "asr-input-reservation"}]
+                       if item.get("category") in {"runtime-fence", "asr-input-reservation", "runtime-export-lock"}]
     if runtime_entries and source.get("runtime_policy") != RUNTIME_POLICY:
         raise ValueError("maintenance runtime exclusions require an explicit policy")
     validate_runtime_exclusions(runtime_entries)
