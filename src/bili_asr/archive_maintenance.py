@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import stat
 import threading
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
 
 
 class ArchiveAccessError(ValueError):
@@ -43,8 +43,8 @@ def _release_access(held: dict[str, _AccessLease], key: str, lease: _AccessLease
 
 def _windows_lock(fd: int, *, exclusive: bool):
     import ctypes
-    from ctypes import wintypes
     import msvcrt
+    from ctypes import wintypes
 
     class Overlapped(ctypes.Structure):
         _fields_ = [
@@ -83,6 +83,7 @@ def _windows_lock(fd: int, *, exclusive: bool):
 @contextmanager
 def archive_access(
     root: str | os.PathLike[str], *, exclusive: bool = False, create_root: bool = True,
+    reentrant: bool = True,
 ) -> Iterator[None]:
     """Refuse conflicting access without serializing independent workflow workers.
 
@@ -90,6 +91,8 @@ def archive_access(
     atomically publish an archive without moving or replacing the lock inode.
     ``create_root`` permits a missing root and creates only its parent directory.
     Programmatic writers must hold shared access across their entire operation.
+    ``reentrant=False`` is an activity probe: an access lease already held by
+    this thread is a conflict even if an ordinary nested access could reuse it.
     """
     requested = Path(root)
     if requested.is_symlink():
@@ -111,6 +114,8 @@ def archive_access(
         _HELD.locks = held
     if key in held:
         lease = held[key]
+        if not reentrant:
+            raise ArchiveBusyError("archive_busy: non-reentrant probe found active access")
         if exclusive and not lease.exclusive:
             raise ArchiveBusyError("archive_busy: cannot upgrade active writer access")
         # Independently opened connections may close in either order. Keep the

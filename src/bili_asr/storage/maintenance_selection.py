@@ -23,6 +23,21 @@ from bili_asr.storage.snapshots import (
 from bili_asr.storage.snapshots import _identifier as quote
 from bili_asr.storage.upgrade_evidence import readonly
 
+
+def _registered_contract(connection: sqlite3.Connection, kind: str) -> tuple[dict, str, bool]:
+    """Only native, observation and content-rights schemas have a row closure.
+
+    Other registered extensions remain valid for full export, but their
+    archive-wide receipts cannot safely be split by this selector.
+    """
+    from bili_asr.storage.source_observations import require_observations
+
+    observations = require_observations(connection)
+    rights = connection.execute("SELECT 1 FROM sqlite_master WHERE name='content_rights_events' AND type='table'").fetchone() is not None
+    expected, fingerprint = _current_contract(kind, observations=observations, rights=rights)
+    return expected, fingerprint, observations
+
+
 _OWNED = {
     ("transcript_segments", "transcript_id"),
     ("workflow_attempts", "job_id"), ("workflow_job_dependencies", "job_id"),
@@ -85,9 +100,9 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
     validate_snapshot_database(source)
     with closing(readonly(source)) as origin:
         kind = runtime_contract(origin)
-        expected, _ = _current_contract(kind)
+        expected, _, has_observations = _registered_contract(origin, kind)
         if _schema(origin) != expected:
-            raise ValueError("selective export supports native schemas only; extensions and derived indexes require full export")
+            raise ValueError("selective export supports native schemas only with source-observations/v1 and content-rights-v1; other extensions require full export")
         if "migration_records" in expected and origin.execute("SELECT 1 FROM migration_records LIMIT 1").fetchone():
             raise ValueError("selective export cannot split whole-archive migration evidence; use full export")
         objects = list(origin.execute("SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name"))
@@ -143,7 +158,7 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
                 else:
                     continue
                 explicit_rows[name] = add(name, clause, arguments)
-        for table in ("archive_contract", "manuscript_contract"):
+        for table in ("archive_contract", "manuscript_contract", "platform_observation_contract"):
             if table in columns:
                 add(table, "1")
         fks = []
@@ -156,8 +171,11 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
                 condition = " AND ".join(f"c.{quote(row[3])}=p.{quote(row[4])}" for row in rows)
                 fks.append((name, parent, condition, (name, rows[0][3]) in _OWNED))
         examined = set()
+        observation_boundary = {"shared_creator_pages": [], "raw_observation_rows": 0}
         while True:
             changed = 0
+            if "content_rights_events" in columns:
+                changed += add("content_rights_events", f"video_part_id IN (SELECT video_part_id FROM source.video_parts WHERE rowid IN (SELECT id FROM {keep('video_parts')}))")
             if scope is not None and "publication_editions" in columns and "publication_heads" in columns:
                 changed += add("publication_heads", f"video_part_id IN (SELECT video_part_id FROM source.publication_editions WHERE rowid IN (SELECT id FROM {keep('publication_editions')}))")
             # Every newly introduced part includes its complete history.
@@ -170,16 +188,11 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
                                                            "editorial_model_calls", "editorial_chunk_results", "editorial_input_versions",
                                                            "workflow_asr_profile_configs", "publication_edition_reviews", "publication_content_versions"}):
                     changed += add(child, f"rowid IN (SELECT c.rowid FROM source.{quote(child)} c JOIN source.{quote(parent)} p ON {condition} WHERE p.rowid IN (SELECT id FROM {keep(parent)}))")
-            # Observation tables intentionally have no authority FKs.
-            if scope is None and "source_metadata_observations" in columns:
-                for name in ("source_metadata_observations", "metadata_refresh_attempts"):
-                    if name not in columns:
-                        continue
-                    names = columns[name]
-                    if "bvid" in names:
-                        changed += add(name, f"bvid IN (SELECT bvid FROM source.videos WHERE rowid IN (SELECT id FROM {keep('videos')}))")
-                    elif "platform" in names and "external_id" in names:
-                        changed += add(name, f"EXISTS (SELECT 1 FROM source.source_videos v WHERE v.rowid IN (SELECT id FROM {keep('source_videos')}) AND v.platform={quote(name)}.platform AND v.external_id={quote(name)}.external_id)")
+            # Raw receipts have no authority FKs. Their explicit closure also
+            # follows adopted caches and frozen source metadata references.
+            from bili_asr.storage.maintenance_observations import close_observations
+            changed += close_observations(connection, columns, keep, add,
+                                          has_observations=has_observations)
             for table, column in (("workflow_jobs", "payload_json"), ("workflow_attempts", "result_json"),
                                   ("transcript_asr_evidence", "evidence_json")):
                 for rowid, raw in connection.execute(f"SELECT rowid,{quote(column)} FROM source.{quote(table)} WHERE rowid IN (SELECT id FROM {keep(table)})"):
@@ -224,6 +237,15 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
         for obj, _, sql in objects:
             if obj != "table":
                 connection.execute(sql)
+        if "platform_observations" in columns:
+            observation_boundary["shared_creator_pages"] = [row[0] for row in connection.execute(
+                f"SELECT observation_id FROM source.platform_observations "
+                f"WHERE operation='creator-page' AND rowid IN (SELECT id FROM {keep('platform_observations')}) "
+                "ORDER BY observation_id"
+            )]
+            observation_boundary["raw_observation_rows"] = connection.execute(
+                f"SELECT COUNT(*) FROM {keep('platform_observations')}"
+            ).fetchone()[0]
         connection.commit()
         if connection.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("selected closure contains a dangling foreign key")
@@ -233,4 +255,8 @@ def select_database(source: Path, destination: Path, *, part_ids: list[int], bvi
     if scope is not None:
         result.update({"policy": "native-explicit-scope-fk-owned-json/v2", "scope": scope,
                        "explicit_row_counts": explicit_rows})
+    if has_observations:
+        result["observation_policy"] = "source-observations-closure/v1"
+        observation_boundary["shared_creator_pages"].sort()
+        result["observation_boundary"] = observation_boundary
     return result

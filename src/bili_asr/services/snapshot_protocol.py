@@ -146,8 +146,20 @@ def _read_manifest(bundle: zipfile.ZipFile) -> dict[str, object]:
     except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise SnapshotError("snapshot manifest is not valid JSON") from exc
     required = {"format", "format_version", "snapshot_id", "created_at", "producer_version", "database_contract", "files"}
-    if not isinstance(manifest, dict) or set(manifest) != required:
+    allowed = required | {"runtime_policy", "excluded"}
+    if not isinstance(manifest, dict) or not required <= set(manifest) or not set(manifest) <= allowed:
         raise SnapshotError("snapshot manifest has invalid fields")
+    if ("runtime_policy" in manifest or "excluded" in manifest):
+        if manifest.get("runtime_policy") != "archive-runtime-v1" or not isinstance(manifest.get("excluded"), list):
+            raise SnapshotError("snapshot runtime exclusion policy is invalid")
+        from bili_asr.services.runtime_root_policy import (
+            RuntimeRootPolicyError,
+            validate_runtime_exclusions,
+        )
+        try:
+            validate_runtime_exclusions(manifest["excluded"])
+        except RuntimeRootPolicyError as exc:
+            raise SnapshotError("snapshot runtime exclusion entry is invalid") from exc
     if manifest["format"] != _FORMAT or type(manifest["format_version"]) is not int or manifest["format_version"] != _FORMAT_VERSION:
         raise SnapshotError("unsupported snapshot format or version")
     try:

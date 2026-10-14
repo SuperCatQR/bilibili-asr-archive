@@ -79,6 +79,7 @@
           "type": "integer",
           "minimum": 0
         },
+        "runtime_policy": {"const": "archive-runtime-v1"},
         "excluded": {
           "type": "array",
           "items": {
@@ -99,9 +100,14 @@
                   "sqlite-sidecar",
                   "model-weights",
                   "operational-logs",
-                  "cache"
+                  "cache",
+                  "runtime-fence",
+                  "asr-input-reservation", "runtime-export-lock"
                 ]
-              }
+              },
+              "state": {"type": "string", "minLength": 1, "maxLength": 128},
+              "count": {"type": "integer", "minimum": 0},
+              "base": {"type": "string", "minLength": 1}
             }
           }
         }
@@ -122,6 +128,18 @@
         },
         "policy": {
           "type": "string"
+        },
+        "observation_policy": {
+          "const": "source-observations-closure/v1"
+        },
+        "observation_boundary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shared_creator_pages", "raw_observation_rows"],
+          "properties": {
+            "shared_creator_pages": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "raw_observation_rows": {"type": "integer", "minimum": 0}
+          }
         }
       }
     },

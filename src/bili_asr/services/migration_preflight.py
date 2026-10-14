@@ -2,25 +2,46 @@
 
 from __future__ import annotations
 
-from contextlib import closing
-from dataclasses import asdict
 import hashlib
 import json
 import os
-from pathlib import Path
 import sqlite3
+from contextlib import closing
+from dataclasses import asdict
+from pathlib import Path
 
 from bili_asr.archive_maintenance import ArchiveAccessError
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
 from bili_asr.artifact_inventory import (
-    ArtifactInventoryError, ARTIFACT_DIRECTORIES, check_artifact_collisions, collect_artifacts,
-    require_no_links, portable_artifact_parts, require_regular_file, stream_hash, is_temporary_artifact,
+    ARTIFACT_DIRECTORIES,
+    ArtifactInventoryError,
+    check_artifact_collisions,
+    collect_artifacts,
+    is_temporary_artifact,
+    portable_artifact_parts,
+    require_no_links,
+    require_regular_file,
+    stream_hash,
+)
+from bili_asr.services.runtime_root_policy import (
+    ARTIFACT_RUNTIME,
+    ASR_INPUT_RESERVATIONS,
+    PRESERVED_IMPORT_LOCK,
+    RuntimeRootPolicyError,
+    inspect_runtime_root,
 )
 from bili_asr.storage.migration_artifacts import (
-    LEGACY_BUNDLE_NAMES, LEGACY_BUNDLE_SCHEMA, LEGACY_MARKER, MigrationArtifactError,
-    legacy_artifact_references, legacy_object,
+    LEGACY_BUNDLE_NAMES,
+    LEGACY_BUNDLE_SCHEMA,
+    LEGACY_MARKER,
+    MigrationArtifactError,
+    legacy_artifact_references,
+    legacy_object,
 )
-from bili_asr.storage.migration_source import MigrationSourceError, inspect_migration_source
+from bili_asr.storage.migration_source import (
+    MigrationSourceError,
+    inspect_migration_source,
+)
 
 
 class MigrationPreflightError(ValueError):
@@ -66,6 +87,7 @@ def _database_state(path: Path) -> tuple:
 
 def _root_entries(base: Path, archive: Path, product: Path) -> list[dict]:
     excluded = []
+    runtime = inspect_runtime_root(base)
     for entry in sorted(base.iterdir()):
         require_no_links(entry)
         if entry.name == "archive.db" and base == archive:
@@ -74,6 +96,9 @@ def _root_entries(base: Path, archive: Path, product: Path) -> list[dict]:
             continue  # The configured root is inspected separately.
         elif entry in product.parents and product.is_relative_to(archive) and product != archive:
             excluded.extend(_root_entries(entry, archive, product))
+        elif entry.name == PRESERVED_IMPORT_LOCK or (entry.name in {ARTIFACT_RUNTIME, ASR_INPUT_RESERVATIONS} and entry.is_dir()):
+            excluded.extend({**item, "base": str(base)} for item in runtime
+                             if item["path"] == entry.name or item["path"].startswith(entry.name + "/"))
         elif entry.name in ARTIFACT_DIRECTORIES and entry.is_dir():
             continue
         elif entry.name in _EXCLUDED_FILES and entry.is_file():
@@ -203,7 +228,8 @@ def migration_preflight(source_root: Path, *, artifact_root: Path | None = None)
                            "file_count": len(files), "file_bytes": sum(item["size"] for item in files)},
                 "excluded": excluded, "shadowed": shadowed, "recovery_candidates": recovery,
             }
-    except (MigrationSourceError, MigrationArtifactError, ArtifactInventoryError, ArchiveAccessError) as exc:
+    except (MigrationSourceError, MigrationArtifactError, ArtifactInventoryError,
+            ArchiveAccessError, RuntimeRootPolicyError) as exc:
         raise MigrationPreflightError(str(exc)) from exc
     except (OSError, sqlite3.Error) as exc:
         raise MigrationPreflightError("cannot inspect legacy source safely") from exc

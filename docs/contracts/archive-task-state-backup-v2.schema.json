@@ -3,6 +3,7 @@
   "$id": "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/archive-task-state-backup-v2.schema.json",
   "type": "object",
   "additionalProperties": false,
+  "dependentRequired": {"runtime_policy": ["runtime_exclusions"], "runtime_exclusions": ["runtime_policy"]},
   "required": [
     "format",
     "profile",
@@ -56,6 +57,17 @@
         "bilibili-v1",
         "universal-v2"
       ]
+    },
+    "runtime_policy": {"const": "archive-runtime-v1"},
+    "runtime_exclusions": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": false, "required": ["path", "category", "state", "count"], "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "category": {"enum": ["runtime-fence", "asr-input-reservation", "runtime-export-lock"]},
+        "state": {"type": "string", "minLength": 1, "maxLength": 128},
+        "count": {"type": "integer", "minimum": 0},
+        "base": {"type": "string", "minLength": 1, "maxLength": 4096}
+      }}
     },
     "producer_version": {
       "type": "string",

@@ -33,6 +33,10 @@ from bili_asr.services.migration_preflight import (
     _identity,
     _root_entries,
 )
+from bili_asr.services.runtime_root_policy import (
+    RUNTIME_POLICY,
+    validate_runtime_exclusions,
+)
 from bili_asr.services.snapshot_protocol import (
     _check_bundle_markers,
     _check_references,
@@ -94,7 +98,7 @@ def _inventory(root: Path, product: Path) -> tuple[dict, dict[str, Path]]:
     with closing(readonly(database)) as connection:
         contract = runtime_contract(connection)
     value = {"runtime_contract": contract, "database_schema_sha256": schema_digest,
-             "files": records, "excluded": [{"path": entry["path"], "category": entry["category"]} for entry in excluded]}
+             "files": records, "excluded": excluded, "runtime_policy": RUNTIME_POLICY}
     return {**value, "fingerprint": digest(value)}, files
 
 
@@ -317,14 +321,21 @@ def _validate_manifest(document: dict) -> None:
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValueError("invalid maintenance creation timestamp") from exc
     source = document["source"]
-    if (not isinstance(source, dict) or set(source) != {"runtime_contract", "database_schema_sha256", "excluded", "fingerprint", "file_count", "total_bytes"}
+    if (not isinstance(source, dict) or not {"runtime_contract", "database_schema_sha256", "excluded", "fingerprint", "file_count", "total_bytes"} <= set(source)
+            or set(source) - {"runtime_contract", "database_schema_sha256", "excluded", "fingerprint", "file_count", "total_bytes", "runtime_policy"}
             or source["runtime_contract"] not in {"bilibili-v1", "universal-v2"}
             or not isinstance(source["fingerprint"], str) or not _HASH.fullmatch(source["fingerprint"])
             or not isinstance(source["database_schema_sha256"], str) or not _CONTRACT.fullmatch(source["database_schema_sha256"])
             or type(source["file_count"]) is not int or source["file_count"] < 1
             or type(source["total_bytes"]) is not int or source["total_bytes"] < 0
-            or not isinstance(source["excluded"], list)):
+            or not isinstance(source["excluded"], list)
+            or ("runtime_policy" in source and source["runtime_policy"] != RUNTIME_POLICY)):
         raise ValueError("invalid maintenance source provenance")
+    runtime_entries = [item for item in source["excluded"]
+                       if item.get("category") in {"runtime-fence", "asr-input-reservation", "runtime-export-lock"}]
+    if runtime_entries and source.get("runtime_policy") != RUNTIME_POLICY:
+        raise ValueError("maintenance runtime exclusions require an explicit policy")
+    validate_runtime_exclusions(runtime_entries)
     selection = document["selection"]
     if not isinstance(selection, dict):
         raise ValueError("invalid maintenance selection")  # noqa: TRY004 - persisted contract validation
@@ -335,7 +346,10 @@ def _validate_manifest(document: dict) -> None:
         if version2:
             from bili_asr.storage.maintenance_scope import scope as validate_scope
             specification = selection.get("scope")
-            if (set(selection) != {"mode", "policy", "requested_part_ids", "resolved_part_ids", "requested_bvids", "scope", "explicit_row_counts", "excluded_artifacts"}
+            allowed = {"mode", "policy", "requested_part_ids", "resolved_part_ids", "requested_bvids", "scope", "explicit_row_counts", "excluded_artifacts",
+                       "observation_policy", "observation_boundary"}
+            required_selection = allowed - {"observation_policy", "observation_boundary"}
+            if (not required_selection <= set(selection) <= allowed
                     or selection.get("policy") != "native-explicit-scope-fk-owned-json/v2" or not isinstance(specification, dict)
                     or validate_scope(**specification) != specification or specification["profile"] != document["profile"]):
                 raise ValueError("unsupported maintenance scoped selection")
@@ -346,11 +360,26 @@ def _validate_manifest(document: dict) -> None:
                 raise ValueError("invalid explicit scope accounting")
             for path in excluded:
                 portable_artifact_parts(path)
-        elif (set(selection) != {"mode", "policy", "requested_part_ids", "resolved_part_ids", "requested_bvids"}
+        elif (not set(selection) <= {"mode", "policy", "requested_part_ids", "resolved_part_ids", "requested_bvids",
+                                     "observation_policy", "observation_boundary"}
                 or selection["policy"] != "native-full-part-history-fk-owned-json/v1"
                 or not isinstance(selection["requested_bvids"], list)
                 or any(not isinstance(value, str) or not value for value in selection["requested_bvids"])):
             raise ValueError("unsupported maintenance selected policy")
+        if ("observation_policy" in selection) != ("observation_boundary" in selection):
+            raise ValueError("maintenance observation policy and boundary must appear together")
+        if "observation_policy" in selection:
+            if selection["observation_policy"] != "source-observations-closure/v1":
+                raise ValueError("unsupported maintenance observation policy")
+            boundary = selection.get("observation_boundary")
+            if (not isinstance(boundary, dict)
+                    or set(boundary) != {"shared_creator_pages", "raw_observation_rows"}
+                    or not isinstance(boundary["shared_creator_pages"], list)
+                    or boundary["shared_creator_pages"] != sorted(set(boundary["shared_creator_pages"]))
+                    or any(not isinstance(value, str) or not value for value in boundary["shared_creator_pages"])
+                    or type(boundary["raw_observation_rows"]) is not int
+                    or boundary["raw_observation_rows"] < 0):
+                raise ValueError("invalid maintenance observation boundary")
         for key in ("requested_part_ids", "resolved_part_ids"):
             values = selection[key]
             if not isinstance(values, list) or (not values and not version2) or any(type(value) is not int or value < 1 for value in values) or values != sorted(set(values)):
@@ -397,6 +426,36 @@ def inspect_package(package: Path) -> dict:
     return {"operation": "maintenance-inspect", "valid": True, "payload_verified": False, "manifest": manifest}
 
 
+def _validate_observation_selection(database: Path, selection: dict) -> None:
+    """Bind explicit selective-export boundaries to the actual database rows.
+
+    Older native packages and full exports have no observation boundary. A
+    selected database with the extension must declare the policy even when its
+    observation table is empty, so rehashing a stripped manifest cannot erase
+    the promise to preserve whole shared creator-page payloads.
+    """
+    if selection["mode"] != "selected":
+        return
+    from bili_asr.storage.source_observations import require_observations
+
+    with closing(readonly(database)) as connection:
+        has_observations = require_observations(connection)
+        declared = "observation_policy" in selection
+        if has_observations != declared:
+            raise ValueError("maintenance selected observation policy does not match database")
+        if not has_observations:
+            return
+        if selection["observation_policy"] != "source-observations-closure/v1":
+            raise ValueError("unsupported maintenance observation policy")
+        actual = {
+            "raw_observation_rows": connection.execute("SELECT COUNT(*) FROM platform_observations").fetchone()[0],
+            "shared_creator_pages": [row[0] for row in connection.execute(
+                "SELECT observation_id FROM platform_observations WHERE operation='creator-page' ORDER BY observation_id")],
+        }
+        if selection.get("observation_boundary") != actual:
+            raise ValueError("maintenance selected observation boundary differs from database")
+
+
 def _extract(package: Path, stage: Path, *, artifacts: bool = True) -> dict:
     require_regular_file(package)
     with zipfile.ZipFile(package) as bundle:
@@ -416,6 +475,7 @@ def _extract(package: Path, stage: Path, *, artifacts: bool = True) -> dict:
         _check_bundle_markers(bundle, {entry["path"]: entry for entry in manifest["files"]})
     database = stage / "archive.db"
     validate_snapshot_database(database, expected_contract=manifest["database_contract"])
+    _validate_observation_selection(database, manifest["selection"])
     refuse_unfinished(database)
     if table_ledger(database) != manifest["tables"]:
         raise ValueError("maintenance typed table ledger mismatch")

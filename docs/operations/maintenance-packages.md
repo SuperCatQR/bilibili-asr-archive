@@ -24,6 +24,35 @@ model identity fails closed because rewriting prepared JSON, segment references,
 publication paths or content hashes would change historical evidence. The plan
 must be reapplied only when package and target fingerprints still match.
 
+Completed workers may leave `.artifact-runtime` and `.asr-input-reservations`
+in the archive. Package export, snapshot and task-state backup share
+`archive-runtime-v1`: empty runtime directories and stopped, empty fence files
+have explicit exclusion receipts. The managed `.preserved-body-import.export.lock`
+is also excluded only after its marker and stopped lock state are verified.
+Active fences, any reservation receipt,
+malformed entries, links and unknown root files refuse capture. Backup does not
+remove runtime state. Old packages without these optional declarations remain
+readable.
+
+Selective export supports the registered `source-observations/v1` extension and
+publication content-rights events as part of the native dependency closure.
+`source-observations-closure/v1` preserves selected raw payloads, field receipts,
+acceptances and frozen editorial/publication bindings without rewriting them.
+A shared creator-page response stays whole; `observation_boundary` records its
+observation IDs and the raw row count. Unselected sibling videos do not become
+owned histories merely because their fields occur in that raw page. Import
+verification compares this boundary to the actual database, including when a
+manifest digest has been recomputed. Adopted video-wide parts metadata can expand
+the requested part set; `resolved_part_ids` records that closure. Other extensions
+still require full export until their selection semantics are defined.
+
+Merge suspends only the five registered Bilibili-to-source projection triggers
+inside its staging transaction. Identity guards remain enabled; exact trigger
+SQL is restored and the complete database is validated before commit. Repeated
+merges reuse natural creator/video/part identities, while conflicting frozen
+history continues to refuse the merge. Staging validation currently serializes
+one database image in memory; production-size throughput remains unbenchmarked.
+
 `maintenance delta-save` creates a stored or deflated file-level differential
 against a full package, another differential, or a legacy `snapshot save` ZIP.
 The chain stores its baseline container hash, content ID, changed files and
@@ -165,7 +194,7 @@ See `archive-upgrades.md` for historical/current-fact audit and rollback rules.
 | 1: no business writes during inspect/verify; bounded diagnostics | `_extract`, `verify_package`, JSON error code `maintenance-validation-failed` | package corruption matrix rejects DB/hash/manifest/extra/path/duplicate/compression damage before target creation |
 | 1: public/private/full distinction, verifiable receipts | `export_public_profile`, `verify_public_backup`, v2 import receipt | public profile tests prove no database and rights-gated current release export; import receipt binds exact plan and baseline |
 | 2: profiles and selectable metadata/tags/workflow/transcript/editorial/publication | `scope`, `select_database`, `export`, `import-plan`, `backup-policy` | metadata/tag scope test; same-scope import test; status/time/part scope tests; closure preserves original typed values and rowid |
-| 2: artifact type/directory/time/status and explicit vs closure | `filter_artifacts`, `predicate`, manifest `explicit_row_counts` / `resolved_part_ids` / `excluded_artifacts` | missing required artifact causes explicit failure; time-zero result is a valid empty native database; registered native schemas only, unknown extension selector semantics refuse |
+| 2: artifact type/directory/time/status and explicit vs closure | `filter_artifacts`, `predicate`, manifest `explicit_row_counts` / `resolved_part_ids` / `excluded_artifacts` | missing required artifact causes explicit failure; time-zero result is a valid empty native database; registered native, source-observations and content-rights closure; other extension selector semantics refuse |
 | 2: no silent missing FK/transcript/publication dependency | selected closure + bundle/reference verification | cross-part FK and JSON identity tests; public heads included whenever publication editions selected; referenced artifact filters fail |
 | 2: import dry run counts/hashes/ID mappings/new/replace/merge | v2 `plan_import`, `_build`, `merge_database`, `import-plan --strategy` | real frozen part1/part2 merge and replace tests; collision fixture refuses rewriting frozen identities; integer mappings are previewed for safe ordinary identities |
 | 2: idempotency, stage resume, source and target drift | `apply_import`, `check_import`, persistent converted/copying/verified/installed checkpoint | interrupted copy resume test; repeated receipt reuse; target/package drift refusal; hardlink test preserves external inode |

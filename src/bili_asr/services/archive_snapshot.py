@@ -31,6 +31,12 @@ from bili_asr.artifact_inventory import (
 from bili_asr.artifact_inventory import (
     stream_hash as _stream_hash,
 )
+from bili_asr.services.migration_preflight import _root_entries
+from bili_asr.services.runtime_root_policy import (
+    RUNTIME_POLICY,
+    RuntimeRootPolicyError,
+    inspect_runtime_roots,
+)
 from bili_asr.services.snapshot_protocol import (
     SnapshotError,
     _absolute,
@@ -117,10 +123,17 @@ def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None =
             raise SnapshotError(f"snapshot output already exists: {output}")
         output.parent.mkdir(parents=True, exist_ok=True)
         with ArchiveSession(root, mode=ArchiveAccessMode.MAINTENANCE).access():
+            product = bases[0]
+            for base in bases:
+                _root_entries(base, root, product)
             source_database = root / "archive.db"
             _regular_file(source_database)
             validate_snapshot_database(source_database)
             _refuse_active_jobs(source_database)
+            try:
+                runtime_exclusions = inspect_runtime_roots(bases)
+            except RuntimeRootPolicyError as exc:
+                raise SnapshotError(str(exc)) from exc
             artifacts = _collect_artifacts(bases)
             with tempfile.TemporaryDirectory(prefix=f".{output.name}.snapshot-stage-", dir=output.parent) as temporary:
                 stage = Path(temporary)
@@ -170,6 +183,8 @@ def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None =
                         "producer_version": __version__,
                         "database_contract": contract,
                         "files": files,
+                        "runtime_policy": RUNTIME_POLICY,
+                        "excluded": runtime_exclusions,
                     }
                     encoded = json.dumps(manifest, ensure_ascii=True, indent=2).encode("utf-8")
                     if len(encoded) > _MANIFEST_LIMIT:
@@ -177,6 +192,8 @@ def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None =
                     bundle.writestr(_MANIFEST_NAME, encoded)
                 with zipfile.ZipFile(archive, "r") as bundle:
                     _check_bundle_markers(bundle, {file["path"]: file for file in files})
+                for base in bases:
+                    _root_entries(base, root, product)
                 with archive.open("r+b") as source:
                     os.fsync(source.fileno())
                 # Both primitives atomically refuse a concurrently created output.
