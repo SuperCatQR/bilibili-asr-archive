@@ -26,7 +26,14 @@ from bili_asr.artifact_inventory import (
 )
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.services import maintenance_package_core as package
+from bili_asr.services.migration_preflight import _root_entries
 from bili_asr.services.retry_maintenance_io import maintenance_lock
+from bili_asr.services.runtime_root_policy import (
+    RUNTIME_POLICY,
+    RuntimeRootPolicyError,
+    inspect_runtime_roots,
+    validate_runtime_exclusions,
+)
 from bili_asr.storage.archive_contracts import runtime_contract
 from bili_asr.storage.maintenance_selection import table_ledger
 from bili_asr.storage.snapshots import required_artifacts, validate_snapshot_database
@@ -147,6 +154,10 @@ def save_task_state(source_root: Path, output: Path, *, artifact_root=None, exte
                     media_policy="local-required", local_targets=None, remote_backends=None) -> dict:
     root, out = package.absolute(source_root), package.absolute(output)
     product = root if artifact_root is None else package.absolute(artifact_root)
+    try:
+        runtime_exclusions = inspect_runtime_roots(tuple(dict.fromkeys((product, root))))
+    except RuntimeRootPolicyError as exc:
+        raise ValueError(str(exc)) from exc
     components = validate_components(external_components)
     if media_policy not in {"local-required", "verified-references"}:
         raise ValueError("unknown task-state media policy")
@@ -167,6 +178,9 @@ def save_task_state(source_root: Path, output: Path, *, artifact_root=None, exte
         for lock_path in sorted({item["lock_path"] for item in components}):
             resources.enter_context(maintenance_lock(Path(lock_path)))
         resources.enter_context(ArchiveSession(root, mode=ArchiveAccessMode.READ).access())
+        for base in tuple(dict.fromkeys((product, root))):
+            _root_entries(base, root, product)
+        runtime_exclusions = inspect_runtime_roots(tuple(dict.fromkeys((product, root))))
         with tempfile.TemporaryDirectory(prefix=".task-state-", dir=out.parent) as temporary:
             stage = Path(temporary) / "state"
             stage.mkdir()
@@ -219,6 +233,10 @@ def save_task_state(source_root: Path, output: Path, *, artifact_root=None, exte
                 if entry["available"] and package._record(entry["path"], physical[entry["path"]]) != {k: entry[k] for k in ("path", "size", "sha256")}:
                     raise ValueError("task-state audio identity changed across capture")
             references.finish()
+            for base in tuple(dict.fromkeys((product, root))):
+                _root_entries(base, root, product)
+            if inspect_runtime_roots(tuple(dict.fromkeys((product, root)))) != runtime_exclusions:
+                raise ValueError("runtime exclusions changed across task-state capture")
             if backup_job_state is not None:
                 evidence = stage / "control-state" / "backup-job.json"
                 evidence.parent.mkdir(exist_ok=True)
@@ -228,6 +246,7 @@ def save_task_state(source_root: Path, output: Path, *, artifact_root=None, exte
                 files.append(package._record("control-state/backup-job.json", evidence))
             value = {"format": FORMAT, "profile": "task-state", "container": {"compression": "stored", "encryption": None},
                      "database_contract": contract, "runtime_contract": runtime, "producer_version": __version__,
+                     "runtime_policy": RUNTIME_POLICY, "runtime_exclusions": runtime_exclusions,
                      "source": {"root": str(root), "database_schema_sha256": contract}, "files": sorted(files, key=lambda item: item["path"]),
                      "tables": table_ledger(stage / "archive.db"), "media_dependencies": media,
                      "inactive_archive": True, "media_self_contained": False, "restore_policy": RESTORE_POLICY,
@@ -273,8 +292,14 @@ def extract_task_state(snapshot: Path, stage: Path) -> dict:
         if version not in {FORMAT, REFERENCE_FORMAT}:
             raise ValueError("unsupported task-state manifest version")
         validate_json(version, manifest)
+        if ("runtime_policy" in manifest) != ("runtime_exclusions" in manifest):
+            raise ValueError("task-state runtime policy and exclusions must appear together")
+        if "runtime_exclusions" in manifest:
+            validate_runtime_exclusions(manifest["runtime_exclusions"])
         if (manifest.get("profile") != "task-state"
                 or manifest.get("runtime_contract") not in {"bilibili-v1", "universal-v2"}
+                or ("runtime_policy" in manifest and manifest.get("runtime_policy") != RUNTIME_POLICY)
+                or ("runtime_exclusions" in manifest and not isinstance(manifest.get("runtime_exclusions"), list))
                 or manifest.get("container") != {"compression": "stored", "encryption": None}
                 or manifest.get("inactive_archive") is not True or manifest.get("media_self_contained") is not False
                 or manifest.get("restore_policy") != RESTORE_POLICY
