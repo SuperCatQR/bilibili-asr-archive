@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from bili_asr.canonical_json import canonical, digest
 from bili_asr.editorial_input_contract import (
+    HISTORICAL_SYSTEM_PROMPT,
     RULE_VERSION,
     SYSTEM_PROMPT,
     TOKEN_ESTIMATE_BYTES,
@@ -91,6 +92,7 @@ def prepare_input(base: TranscriptRecord, reference: TranscriptRecord | None,
     body, refs = segments(base), segments(reference) if reference else []
     if not body:
         raise ValueError("base transcript has no segments")
+    prompt = HISTORICAL_SYSTEM_PROMPT if config.budget_policy == "legacy-v1" else SYSTEM_PROMPT
     snapshot = {
         "video_part_id": base.video_part_id,
         "base": {"transcript_id": base.transcript_id, "content_sha256": base.content_sha256,
@@ -98,7 +100,7 @@ def prepare_input(base: TranscriptRecord, reference: TranscriptRecord | None,
         "reference": None if reference is None else {
             "transcript_id": reference.transcript_id, "content_sha256": reference.content_sha256,
             "source_kind": reference.source_kind, "language": reference.language, "segments": refs},
-        "config": config.to_dict(), "system_prompt": SYSTEM_PROMPT, "prompt_sha256": digest(SYSTEM_PROMPT),
+        "config": config.to_dict(), "system_prompt": prompt, "prompt_sha256": digest(prompt),
     }
     if metadata is not None:
         snapshot["metadata"] = dict(metadata)
@@ -131,7 +133,7 @@ def prepare_input(base: TranscriptRecord, reference: TranscriptRecord | None,
         # Keep these fields as frozen, inspectable planning data.  The request
         # adapter still serializes the complete chunk, while the worker can
         # aggregate actual provider usage against these estimates later.
-        chunk["budget_estimate"] = estimate_chunk_budget(chunk, max_output_tokens=config.max_output_tokens)
+        chunk["budget_estimate"] = estimate_chunk_budget(chunk, system_prompt=prompt, max_output_tokens=config.max_output_tokens)
         return chunk
 
     def fits(chunk: dict[str, Any]) -> bool:

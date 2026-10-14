@@ -176,6 +176,10 @@ def test_review_export_exact_baseline_parent_diff_and_review_target(manuscript, 
     assert data["editionId"] == edition["edition_id"] and data["reviewStatus"] == "in-review"
     assert data["reviews"][0]["content_sha256"] == edition["content_sha256"]
     assert data["parentEditionId"] == parent["edition_id"]
+    lineage = data["ai"]["sourceLineage"]
+    assert lineage["revision_id"] == revision_id and lineage["semantic_status"] == "unverified"
+    assert lineage["review_required"] and lineage["human_review_status"] == "not_reviewed"
+    assert lineage["paragraphs"][0]["declared_source_range"]["semantic_support"] == "unverified"
     assert "request_json" not in str(data) and "response_json" not in str(data)
     assert b"Human amended body" in (output / "differences/ai.patch").read_bytes()
     assert b"Changed title" in (output / "differences/parent.patch").read_bytes()

@@ -1399,6 +1399,23 @@
       "schema": "editorial-review.schema.json"
     },
     {
+      "identity": "editorial-source-lineage/v1",
+      "owner": "publication",
+      "authority": [
+        "src/bili_asr/contracts/schemas/editorial-source-lineage-v1.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [],
+      "schema": "editorial-source-lineage-v1.schema.json"
+    },
+    {
       "identity": "editorial-review-universal/v1",
       "owner": "publication",
       "authority": [

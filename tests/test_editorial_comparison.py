@@ -154,6 +154,8 @@ def test_named_semantic_review_is_immutable_and_agent_review_is_distinct(tmp_pat
     packet_path = tmp_path / "private-review.json"
     write_review_packet(ledger, packet_path)
     packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    assert all(value["semantic_status"] == "unverified" and value["review_required"]
+               for value in packet["source_lineage"].values())
     review = packet["review_template"]
     with pytest.raises(ValueError, match="named reviewer|name its reviewer"):
         record_review(ledger, review, tmp_path / "record.json")
@@ -176,6 +178,11 @@ def test_incomplete_or_absent_outputs_cannot_claim_review_passed(tmp_path):
     ledger = tmp_path / "comparison.db"
     compare(source(), ledger, Provider(broken=True), maximum=2)
     report = comparison_report(ledger)
+    packet_path = tmp_path / "incomplete-review.json"
+    write_review_packet(ledger, packet_path)
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    assert all(value == {"structure_status": "incomplete", "semantic_status": "unverified", "review_required": True}
+               for value in packet["source_lineage"].values())
     review = {"comparison_id": report["comparison_id"], "reviewer_kind": "human", "reviewer": "fixture",
               "reviewed_at": "2026-10-13T12:00:00+08:00", "rubric": {preset: {
                   criterion: {"verdict": "pass", "notes": "fixture"} for criterion in RUBRIC} for preset in PRESETS}}

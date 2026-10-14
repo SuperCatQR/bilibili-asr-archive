@@ -15,8 +15,9 @@ from datetime import datetime
 from pathlib import Path
 
 from bili_asr.deepseek import DeepSeekClient, normalize_usage, parse_response
-from bili_asr.editorial import EditorialConfig, canonical, digest
+from bili_asr.editorial import EditorialConfig, canonical, digest, validate_revision
 from bili_asr.editorial_budget import plan_report, replan, require_frozen_plan
+from bili_asr.editorial_lineage import source_lineage
 from bili_asr.editorial_quality import check_source_quality
 from bili_asr.services.editorial_evaluation import _sum_usage, validation_result
 from bili_asr.services.editorial_provider_evaluation import (
@@ -243,8 +244,26 @@ def write_review_packet(ledger: Path, output: Path):
     with closing(_open_ledger(ledger)) as connection:
         manifest = _read_manifest(connection)
         report = _report(connection, manifest)
+    lineage = {}
+    for preset, prepared in manifest["candidates"].items():
+        variant = report["variants"][preset]
+        if variant["structure_complete"]:
+            paragraphs = iter(variant["accepted_paragraphs"])
+            blocks = []
+            for chunk in prepared["chunks"]:
+                count = len(chunk["editable_segments"])
+                selected, covered = [], 0
+                while covered < count:
+                    paragraph = next(paragraphs)
+                    selected.append(paragraph)
+                    covered += len(paragraph["segment_ids"])
+                blocks.extend(validate_revision(chunk, {"chunk_id": chunk["chunk_id"], "paragraphs": selected}))
+            lineage[preset] = source_lineage(prepared, blocks)
+        else:
+            lineage[preset] = {"structure_status": "incomplete", "semantic_status": "unverified", "review_required": True}
     packet = {"schema": "editorial-preset-review/v1", "comparison_id": digest(manifest),
               "source_input_id": manifest["source"]["input_id"], "source_snapshot": manifest["source"]["snapshot"],
+              "source_lineage": lineage,
               "report": report, "review_template": {"comparison_id": digest(manifest), "reviewer_kind": "human",
                 "reviewer": "", "reviewed_at": "", "rubric": {preset: {criterion: {"verdict": "not_reviewed", "notes": ""}
                         for criterion in RUBRIC} for preset in PRESETS}}}
