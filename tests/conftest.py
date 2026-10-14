@@ -277,8 +277,17 @@ def enable_content_publication_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def enable_content_publication_for_legacy_flows(monkeypatch):
-    """Keep existing compliance regressions running in strict mode."""
+def enable_content_publication_for_legacy_flows(monkeypatch, request):
+    """Keep legacy compliance tests strict without changing live probes.
+
+    Live smoke tests are an explicit operator mode.  Their process
+    environment is the source of truth for access policy (including a real
+    operator reference), so this legacy compatibility fixture must not inject
+    strict-mode variables into them.  All other historical tests retain the
+    strict policy they were written to exercise.
+    """
+    if request.node.get_closest_marker("live_smoke") is not None:
+        return
     monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
     monkeypatch.setenv("BILI_PUBLICATION_ENABLED", "1")
 

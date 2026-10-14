@@ -311,6 +311,14 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
     exit_code = main(_bounded_live_argv(tmp_root))
     out, err = capsys.readouterr()
 
+    if exit_code == 1:
+        pytest.fail(
+            "live smoke was refused by local configuration (exit 1); "
+            "check the operator access policy and actual "
+            "BILI_PLATFORM_ACCESS_REFERENCE / "
+            "BILI_CONTENT_PROCESSING_REFERENCE before retrying"
+        )
+
     assert os.path.isfile(os.path.join(tmp_root, "archive.db"))
     for relative in LEGACY_SIDECAR_PATHS:
         assert not os.path.exists(os.path.join(tmp_root, relative))
@@ -513,6 +521,50 @@ def test_anonymous_arm_accepts_the_documented_bounded_codes(error_code):
 
     assert error_code in ANONYMOUS_BOUNDED_ERROR_CODES
     _assert_anonymous_error_code_is_documented(error_code)
+
+
+def test_anonymous_http_412_preserves_bounded_failure_without_cursor(
+    tmp_root, bilibili_api_seam, monkeypatch, capsys,
+):
+    """A real gateway seam distinguishes HTTP 412 from local policy denial."""
+    for variable in (
+        "BILI_COMPLIANCE_ENABLED", "BILI_PLATFORM_ACCESS_REQUIRE_EVIDENCE",
+        "BILI_PLATFORM_ACCESS_REFERENCE", "BILI_CONTENT_PROCESSING_REFERENCE",
+        SESSDATA_ENV_VAR,
+    ):
+        monkeypatch.delenv(variable, raising=False)
+    bilibili_api_seam.videos_error = FakeNetworkException(412, UPSTREAM_ERROR_TEXT)
+    assert main(_bounded_live_argv(tmp_root)) == 2
+    out, err = capsys.readouterr()
+    assert "metadata gateway failure (rate_limited)" in err
+    assert "platform access configuration rejected" not in err
+    assert "unexpected error" not in err
+    assert bilibili_api_seam.calls.count("space.arc.search(pn=1, ps=30)") == 1
+    connection = open_database(tmp_root)
+    try:
+        assert _assert_bounded_failure_rows(connection, LIVE_SMOKE_MID) == "rate_limited"
+        assert connection.execute("SELECT outcome FROM ingestion_runs").fetchone()[0] == "risk_interrupted"
+        _assert_no_credential_or_playback_leaks(out + err, persisted_row_text(connection))
+    finally:
+        connection.close()
+
+
+def test_strict_live_policy_refusal_is_a_loud_local_configuration_failure(
+    tmp_root, bilibili_api_seam, monkeypatch, capsys,
+):
+    monkeypatch.setenv("BILI_COMPLIANCE_ENABLED", "1")
+    monkeypatch.delenv("BILI_PLATFORM_ACCESS_REFERENCE", raising=False)
+    monkeypatch.delenv("BILI_CONTENT_PROCESSING_REFERENCE", raising=False)
+    monkeypatch.setattr(
+        "tests.test_live_metadata_smoke._pinned_package_version",
+        lambda: PINNED_PACKAGE_VERSION,
+    )
+    with pytest.raises(pytest.fail.Exception, match="refused by local configuration"):
+        test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
+            tmp_root, capsys, opt_in_gate=None,
+        )
+    assert bilibili_api_seam.api_requests == []
+    assert not os.path.exists(os.path.join(tmp_root, "archive.db"))
 
 
 @pytest.mark.parametrize(

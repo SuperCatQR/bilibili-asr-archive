@@ -165,6 +165,8 @@ def test_legacy_tag_refresh_cli_reports_contract_guidance_without_requests(legac
     from bili_asr.cli import main
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
     gateway = Gateway()
+    monkeypatch.setenv("BILI_PLATFORM_ACCESS_REFERENCE", "test:offline-platform")
+    monkeypatch.setenv("BILI_CONTENT_PROCESSING_REFERENCE", "test:offline-content")
     monkeypatch.setattr(BilibiliApiGateway, "get_video_metadata", gateway.get_video_metadata)
     assert main(["fetch-meta", "--archive-root", str(legacy_archive), "--bvid", "BVtest"]) == 1
     output = capsys.readouterr()

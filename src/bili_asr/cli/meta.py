@@ -10,11 +10,18 @@ from bili_asr.config import MetadataConfigError, load_metadata_config, redact_se
 from bili_asr.diagnostics import write_stderr
 from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
 
+_PLATFORM_ACCESS_DIAGNOSTIC = (
+    "fetch-meta: platform access configuration rejected; "
+    "set valid BILI_PLATFORM_ACCESS_REFERENCE and "
+    "BILI_CONTENT_PROCESSING_REFERENCE"
+)
+
 
 def _cmd_fetch_meta(args) -> int:
     """Collect Bilibili metadata into the SQLite archive database."""
     from bili_asr.services import MetadataIngestor
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
+    from bili_asr.platform_access import PlatformAccessError, require_platform_access
     from bili_asr.storage import MetadataRepository
     from bili_asr.metadata_policy import MetadataRefreshPolicy
     from bili_asr.request_budget import RequestScheduler
@@ -39,6 +46,11 @@ def _cmd_fetch_meta(args) -> int:
         write_stderr(f"fetch-meta: no archive database at {config.archive_root}; --resume requires a stored cursor")
         return 1
     try:
+        require_platform_access()
+    except PlatformAccessError:
+        write_stderr(_PLATFORM_ACCESS_DIAGNOSTIC)
+        return 1
+    try:
         connection = open_archive_connection(config.archive_root, mode=ArchiveAccessMode.BOOTSTRAP)
     except (OSError, sqlite3.Error) as exc:
         write_stderr(f"fetch-meta: invalid --archive-root {config.archive_root} ({type(exc).__name__})")
@@ -60,6 +72,12 @@ def _cmd_fetch_meta(args) -> int:
             incremental=config.incremental,
             refresh_policy=MetadataRefreshPolicy(config.refresh_mode, config.ttl_seconds),
         )
+    except PlatformAccessError:
+        # Keep a local policy/configuration refusal distinct from a gateway failure
+        # (exit 2), and never echo the exception text because future policy
+        # implementations may include deployment-specific details.
+        write_stderr(_PLATFORM_ACCESS_DIAGNOSTIC)
+        return 1
     except Exception:
         write_stderr("fetch-meta: unexpected error")
         return 2
@@ -112,6 +130,7 @@ def _cmd_refresh_meta(args) -> int:
     from bili_asr.services.metadata_refresh import MetadataRefreshService
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
     from bili_asr.storage import MetadataRepository, SchemaContractError
+    from bili_asr.platform_access import PlatformAccessError, require_platform_access
     if getattr(args, "operation_retries", 0) != 0:
         write_stderr("fetch-meta: --operation-retries applies only to paginated collection")
         return 1
@@ -125,6 +144,7 @@ def _cmd_refresh_meta(args) -> int:
         scheduler = RequestScheduler(max_requests=args.request_budget, request_seconds=args.request_timeout,
                                      total_seconds=args.run_timeout)
         policy = MetadataRefreshPolicy(args.refresh_mode, args.ttl_seconds)
+        require_platform_access()
         connection = open_archive_connection(args.archive_root, mode=ArchiveAccessMode.WRITE)
         try:
             service = MetadataRefreshService(BilibiliApiGateway(sessdata=resolve_sessdata(
@@ -136,6 +156,9 @@ def _cmd_refresh_meta(args) -> int:
                 outcomes.extend(service.refresh(args.bvid, operations=args.fields or ("summary", "details", "parts", "tags"), policy=policy))
         finally:
             connection.close()
+    except PlatformAccessError:
+        write_stderr(_PLATFORM_ACCESS_DIAGNOSTIC)
+        return 1
     except SchemaContractError as error:
         write_stderr(f"fetch-meta: {error}")
         return 1

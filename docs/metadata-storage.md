@@ -185,7 +185,14 @@ bili-asr fetch-meta --archive-root archive --start-page 3 --limit-pages 1
 bili-asr fetch-meta --archive-root archive --incremental --refresh-mode missing
 ```
 
-内部异常打印固定 `fetch-meta: unexpected error` 并退出 `2`。最后一次已提交页保留，run 可能停在 running；先用 `runs` 和 `status` 检查现有证据。`runs` 包含 running rows，按 started_at 降序、run_id 降序稳定列出，默认不限行数，`--limit` 必须为正整数。
+本地访问策略拒绝会打印固定的配置诊断并退出 `1`：
+`fetch-meta: platform access configuration rejected; set valid BILI_PLATFORM_ACCESS_REFERENCE and BILI_CONTENT_PROCESSING_REFERENCE`。
+该路径在建立上游请求前结束，不应被解释为平台 HTTP 412 或其他网关失败。
+`BILI_LIVE_SMOKE=1` 的测试按操作者提供的环境运行；通用历史测试 fixture 不再
+对 `live_smoke` 测试注入 `BILI_COMPLIANCE_ENABLED` 或 `BILI_PUBLICATION_ENABLED`。
+如操作者启用了严格模式，仍必须提供实际的访问与处理证据引用；缺失时 live smoke
+明确失败为本地配置拒绝，不跳过为匿名平台风控，也不写入虚构的授权引用。
+其他内部异常打印固定 `fetch-meta: unexpected error` 并退出 `2`。最后一次已提交页保留，run 可能停在 running；先用 `runs` 和 `status` 检查现有证据。`runs` 包含 running rows，按 started_at 降序、run_id 降序稳定列出，默认不限行数，`--limit` 必须为正整数。
 
 ### 刷新事实与保留事实
 
@@ -361,7 +368,7 @@ publish CLI 会在请求前解析完整 ID 集合并确认每个 part 有候选�
 
 ## 诊断与离线契约验证
 
-`fetch-meta` 的 `0` 表示 complete 或 limited，`1` 表示参数/根目录/恢复配置错误，`2` 表示 gateway failure 或内部异常。`workflow plan/publish/cancel/retry` 的可识别选择或 schema 错误为 `1`；`workflow run` 在 failed 非零时为 `1`，仅取消不作为 failure。输出 `succeeded/failed/cancelled/idle` 表达本次执行结果，不表示整个 corpus 已归档。`workflow run` 的未被转换的内部异常和底层 SQLite/I/O 错误没有统一的额外退出码保证。
+`fetch-meta` 的 `0` 表示 complete 或 limited，`1` 表示参数/根目录/恢复配置错误或本地访问策略拒绝，`2` 表示 gateway failure 或内部异常。`workflow plan/publish/cancel/retry` 的可识别选择或 schema 错误为 `1`；`workflow run` 在 failed 非零时为 `1`，仅取消不作为 failure。输出 `succeeded/failed/cancelled/idle` 表达本次执行结果，不表示整个 corpus 已归档。`workflow run` 的未被转换的内部异常和底层 SQLite/I/O 错误没有统一的额外退出码保证。
 
 顶层 `status`、`runs` 及 workflow 查询对不存在、无法打开或 schema 不兼容的数据库给出 bounded 诊断。它们使用 READ，不修复损坏库、不补 schema、不刷新视图；冻结旧库和索引兼容读取由各自的明确契约入口负责。`verify` 默认将声明发布后的产物缺失/损坏作为 defect 并退出 `1`，未发布内容作为 backlog；strict 模式也将 backlog 计为失败。coverage 只有通过对应 bundle v2/v3 完整性检查的全部数据成员才计为 complete。
 
