@@ -62,12 +62,18 @@ def normalize_usage(envelope: dict[str, Any], *, latency_ms: int | None = None) 
     usage = usage if isinstance(usage, dict) else {}
     details = usage.get("completion_tokens_details")
     details = details if isinstance(details, dict) else {}
+    prompt_details = usage.get("prompt_tokens_details")
+    prompt_details = prompt_details if isinstance(prompt_details, dict) else {}
+    cached_tokens = _nonnegative_int(prompt_details.get("cached_tokens"))
+    cache_hit = _nonnegative_int(usage.get("prompt_cache_hit_tokens"))
     summary: dict[str, Any] = {
         "provider_request_id": envelope.get("id") if isinstance(envelope.get("id"), str) else None,
         "model": envelope.get("model") if isinstance(envelope.get("model"), str) else None,
         "prompt_tokens": _nonnegative_int(usage.get("prompt_tokens")),
         "completion_tokens": _nonnegative_int(usage.get("completion_tokens")),
-        "prompt_cache_hit_tokens": _nonnegative_int(usage.get("prompt_cache_hit_tokens")),
+        "total_tokens": _nonnegative_int(usage.get("total_tokens")),
+        "cached_tokens": cached_tokens,
+        "prompt_cache_hit_tokens": cache_hit if cache_hit is not None else cached_tokens,
         "prompt_cache_miss_tokens": _nonnegative_int(usage.get("prompt_cache_miss_tokens")),
         "reasoning_tokens": _nonnegative_int(details.get("reasoning_tokens")),
     }

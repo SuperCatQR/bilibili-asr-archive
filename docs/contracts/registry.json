@@ -1416,6 +1416,43 @@
       "schema": "editorial-source-lineage-v1.schema.json"
     },
     {
+      "identity": "editorial-issue-review/v1",
+      "owner": "editorial",
+      "authority": [
+        "src/bili_asr/contracts/schemas/editorial-issue-review-v1.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [],
+      "schema": "editorial-issue-review-v1.schema.json"
+    },
+    {
+      "identity": "editorial-sample-evidence/v1",
+      "owner": "editorial",
+      "authority": [
+        "src/bili_asr/contracts/schemas/editorial-sample-evidence-v1.schema.json"
+      ],
+      "consumers": [
+        "export_snapshot",
+        "external-reader"
+      ],
+      "capabilities": [
+        "validate",
+        "export"
+      ],
+      "dependencies": [
+        "editorial-source-lineage/v1",
+        "editorial-issue-review/v1"
+      ],
+      "schema": "editorial-sample-evidence-v1.schema.json"
+    },
+    {
       "identity": "editorial-review-universal/v1",
       "owner": "publication",
       "authority": [

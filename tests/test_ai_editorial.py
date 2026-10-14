@@ -278,6 +278,7 @@ def test_normalize_usage_accepts_provider_optional_fields_and_rejects_bad_latenc
     assert value == {
         "provider_request_id": "req-123", "model": "deepseek-flash",
         "prompt_tokens": 10, "completion_tokens": 20,
+        "total_tokens": None, "cached_tokens": None,
         "prompt_cache_hit_tokens": 4, "prompt_cache_miss_tokens": 6,
         "reasoning_tokens": 7, "latency_ms": 321,
     }
