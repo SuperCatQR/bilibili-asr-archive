@@ -32,6 +32,14 @@ def test_classification_does_not_change_original_code():
     assert code == "deepseek_http_402"
 
 
+def test_installed_asr_runtime_failure_requires_configuration_repair():
+    policy = failure_policy("ASRRuntimeCompatibilityError")
+    assert policy.category == "configuration"
+    assert policy.retry_policy == "blocked"
+    assert policy.recommended_action == "restore_configuration_then_retry"
+    assert not policy.automatic_retry
+
+
 @pytest.mark.parametrize("code", ["audio_generation_changed", "audio_input_space_unavailable"])
 def test_audio_input_integrity_and_capacity_failures_require_explicit_repair(code):
     policy = failure_policy(code)
