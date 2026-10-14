@@ -27,5 +27,3 @@ def test_export_lock_refuses_path_replacement_between_open_and_admission(tmp_pat
     monkeypatch.setattr(Path, "lstat", replaced_identity)
     with pytest.raises(file_ops.FileOperationError, match="identity changed"), file_ops.exclusive_lock(output, existing_only=True):
         pytest.fail("a replaced lock must not admit a lease")
-
-
