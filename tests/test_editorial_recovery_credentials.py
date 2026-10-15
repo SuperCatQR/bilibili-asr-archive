@@ -20,8 +20,13 @@ from bili_asr.storage.workflow import WorkflowRepository
 from tests.test_ai_editorial import insert_record, record
 from tests.test_workflow_control_plane import _seed_part
 
-ENDPOINTS = ("https://api.deepseek.com", "https://opencode.ai/zen/go/v1/")
-EXPECTED_CREDENTIALS = {ENDPOINTS[0]: "DEEPSEEK_API_KEY", ENDPOINTS[1]: "OPENCODE_API_KEY"}
+ENDPOINTS = ("https://api.deepseek.com", "https://opencode.ai/inference/go/v1/",
+             "https://opencode.ai/zen/go/v1/")
+EXPECTED_CREDENTIALS = {
+    ENDPOINTS[0]: "DEEPSEEK_API_KEY",
+    ENDPOINTS[1]: "OPENCODE_API_KEY",
+    ENDPOINTS[2]: "OPENCODE_API_KEY",
+}
 
 
 def seed(root, endpoints=ENDPOINTS):
