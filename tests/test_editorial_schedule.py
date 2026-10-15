@@ -45,6 +45,69 @@ def test_unknown_calendar_keeps_weekday_guard_and_reports_it(policy):
     assert not result["calendar_year_known"]
 
 
+def test_opencode_relay_routes_only_the_provider_host(tmp_path):
+    import requests
+    args = SimpleNamespace(ops_root=tmp_path)
+    (tmp_path / "network.json").write_text(json.dumps({"opencode_https_proxy": "http://127.0.0.1:18443"}))
+    with requests.Session() as session:
+        runner.configure_opencode_session(args, session)
+        assert requests.utils.select_proxy("https://opencode.ai/inference/go/v1/models", session.proxies) == "http://127.0.0.1:18443"
+        assert requests.utils.select_proxy("https://www.gov.cn/notice", session.proxies) is None
+        assert requests.utils.select_proxy("https://api.deepseek.com/chat/completions", session.proxies) is None
+
+
+def test_removing_network_config_clears_relay_for_existing_session(tmp_path):
+    import requests
+    args = SimpleNamespace(ops_root=tmp_path)
+    network = tmp_path / "network.json"
+    network.write_text(json.dumps({"opencode_https_proxy": "http://127.0.0.1:18443"}))
+    with requests.Session() as session:
+        session.proxies["https://another.example"] = "http://127.0.0.1:9999"
+        runner.configure_opencode_session(args, session)
+        network.unlink()
+        runner.configure_opencode_session(args, session)
+        assert "https://opencode.ai" not in session.proxies
+        assert session.proxies["https://another.example"] == "http://127.0.0.1:9999"
+
+
+@pytest.mark.parametrize("proxy", ["http://example.com:18443", "https://127.0.0.1:18443",
+                                    "http://user:secret@127.0.0.1:18443", "http://127.0.0.1:18443/path"])
+def test_opencode_relay_rejects_non_loopback_or_credential_urls(tmp_path, proxy):
+    (tmp_path / "network.json").write_text(json.dumps({"opencode_https_proxy": proxy}))
+    with pytest.raises(ValueError, match="loopback"):
+        runner.configure_opencode_session(SimpleNamespace(ops_root=tmp_path), SimpleNamespace(proxies={}))
+
+
+@pytest.mark.parametrize(("status", "models", "ready"), [
+    (200, [{"id": "deepseek-v4.1-flash"}], True),
+    (200, [{"id": "other-model"}], False),
+    (503, [], False),
+])
+def test_health_probe_uses_relay_and_requires_available_model(tmp_path, policy, monkeypatch, status, models, ready):
+    import requests
+
+    config = tmp_path / "policy.json"
+    config.write_text(json.dumps(policy), encoding="utf-8")
+    (tmp_path / "network.json").write_text(json.dumps({"opencode_https_proxy": "http://127.0.0.1:18443"}))
+    monkeypatch.setenv("OPENCODE_API_KEY", "test-key")
+    monkeypatch.setattr(runner, "load_environment", lambda _: None)
+    calls = []
+
+    def get(session, url, **options):
+        assert session.proxies == {"https://opencode.ai": "http://127.0.0.1:18443"}
+        assert options["allow_redirects"] is False
+        assert options["headers"] == {"Authorization": "Bearer test-key"}
+        calls.append(url)
+        return SimpleNamespace(status_code=status, json=lambda: {"data": models})
+
+    monkeypatch.setattr(requests.Session, "get", get)
+    report = runner.probe(SimpleNamespace(policy=config, ops_root=tmp_path))
+    assert report["ready"] is ready
+    assert report["http_status"] == status
+    assert calls == [policy["provider_base_url"] + "/models"]
+    assert "test-key" not in json.dumps(report)
+
+
 def test_gate_blocks_stale_wrong_provider_and_low_disk(tmp_path, policy, monkeypatch):
     import shutil
     config = tmp_path / "policy.json"
