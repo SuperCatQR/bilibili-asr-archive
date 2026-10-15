@@ -40,7 +40,7 @@ _EXPORTS = {
     'filter_hotwords': ('bili_asr.asr.hotwords', 'filter_hotwords'),
     'ASRInferenceTimeoutError': ('bili_asr.asr.runner', 'ASRInferenceTimeoutError'),
     'ASRRunner': ('bili_asr.asr.runner', 'ASRRunner'),
-    'transcribe_with_timeout': ('bili_asr.asr.runner', 'transcribe_with_timeout'),
+    'transcribe_with_timeout': ('bili_asr.asr.session', 'transcribe_with_timeout'),
     'two_pass_transcribe': ('bili_asr.asr.runner', 'two_pass_transcribe'),
 }
 

@@ -12,10 +12,23 @@ STRATEGY_DEFAULTS = {
     "asr_cache_implementation": "default", "asr_compile": False, "aligner_compile": False,
     "compile_max_buckets": 2, "compile_max_input_tokens": 4096, "compile_max_output_tokens": 2048,
 }
+# Persisted omission/reconstruction rules are deliberately independent of
+# runtime policy defaults. Tuning the supervisor cannot change old v2 bytes.
+DEADLINE_DEFAULTS = {
+    "inference_timeout_policy": "fixed", "inference_max_rtf": 0.25,
+    "inference_startup_seconds": 300.0, "inference_hard_cap_seconds": 14400.0,
+    "inference_no_progress_seconds": 600.0,
+}
 
 def encode_profile(values: dict) -> str:
     values = dict(values)
     values.pop("profile_key", None)
+    deadline = {name: values.pop(name) for name in DEADLINE_DEFAULTS}
+    for name in deadline:
+        if name != "inference_timeout_policy":
+            deadline[name] = float(deadline[name])
+    if deadline != DEADLINE_DEFAULTS:
+        values["deadline"] = {"schema_version": 1, **deadline}
     # Default profiles retain their exact v2 bytes and digest. Explicit
     # precision is a versioned extension inside the existing v2 envelope.
     precision = {name: values.pop(name) for name in ("model_dtype", "aligner_dtype")}
@@ -44,6 +57,15 @@ def decode_profile(config_json: str) -> dict:
     values = json.loads(config_json)
     if values.pop("schema_version") != 2:
         raise ValueError("unsupported ASR profile schema")
+    deadline = values.pop("deadline", None)
+    if set(values) & set(DEADLINE_DEFAULTS):
+        raise ValueError("ASR deadline fields require the versioned extension")
+    values.update(DEADLINE_DEFAULTS)
+    if deadline is not None:
+        if (not isinstance(deadline, dict) or set(deadline) != set(DEADLINE_DEFAULTS) | {"schema_version"}
+                or type(deadline["schema_version"]) is not int or deadline["schema_version"] != 1):
+            raise ValueError("unsupported ASR deadline schema")
+        values.update({name: deadline[name] for name in DEADLINE_DEFAULTS})
     precision = values.pop("precision", None)
     if precision is not None:
         if (not isinstance(precision, dict)

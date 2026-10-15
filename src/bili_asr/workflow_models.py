@@ -59,6 +59,11 @@ class AsrProfile:
     aligner_revision: str | None = None
     chunk_seconds: float = 180.0
     inference_timeout_seconds: float = 1800.0
+    inference_timeout_policy: str = "fixed"
+    inference_max_rtf: float = 0.25
+    inference_startup_seconds: float = 300.0
+    inference_hard_cap_seconds: float = 14400.0
+    inference_no_progress_seconds: float = 600.0
     hotwords: tuple[str, ...] = ()
     offline: bool = True
     model_id: str | None = None
@@ -89,7 +94,8 @@ class AsrProfile:
         values.pop("profile_key")
         values["model_revision"] = self.model_revision or None
         ASRConfig(**values)  # Reject bool/string values before numeric normalization.
-        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second", "batch_max_audio_seconds"):
+        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second", "batch_max_audio_seconds",
+                     "inference_max_rtf", "inference_startup_seconds", "inference_hard_cap_seconds", "inference_no_progress_seconds"):
             values[name] = float(values[name])
         return ASRConfig(**values)
 

@@ -44,6 +44,11 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     plan.add_argument("--language", default=None)
     plan.add_argument("--chunk-seconds", type=float, default=None)
     plan.add_argument("--inference-timeout", type=float, default=None)
+    plan.add_argument("--inference-timeout-policy", choices=("fixed", "audio-scaled"), default=None)
+    plan.add_argument("--inference-max-rtf", type=float, default=None)
+    plan.add_argument("--inference-startup-seconds", type=float, default=None)
+    plan.add_argument("--inference-hard-cap-seconds", type=float, default=None)
+    plan.add_argument("--inference-no-progress-seconds", type=float, default=None)
     plan.add_argument("--hotword", action="append", default=None)
     plan.add_argument("--model-id", default=None)
     plan.add_argument("--offline", action=argparse.BooleanOptionalAction, default=None)
@@ -487,6 +492,8 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 overrides = {}
                 for name in ("model", "model_revision", "aligner", "aligner_revision",
                              "device", "language", "chunk_seconds", "inference_timeout",
+                             "inference_timeout_policy", "inference_max_rtf", "inference_startup_seconds",
+                             "inference_hard_cap_seconds", "inference_no_progress_seconds",
                              "hotword", "offline", "model_id", "tokens_per_second",
                              "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype",
                              "asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",

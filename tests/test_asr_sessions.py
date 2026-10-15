@@ -31,6 +31,21 @@ class ProcessRunner:
 
     def transcribe(self, path, *, bust_cache=False):
         self.calls += 1
+        from bili_asr.asr.runner import _progress
+        if path in {"progressing", "progress-then-hang", "heartbeats"}:
+            _progress("model_ready")
+            for _ in range(8):
+                time.sleep(.1)
+                _progress("decode" if path == "heartbeats" else "chunk_complete")
+                if path == "progress-then-hang":
+                    time.sleep(20)
+        if path == "os-error":
+            _progress("decode")
+            raise OSError(errno.EMFILE, "sensitive .env SESSDATA password")
+        if path == "sqlite-error":
+            import sqlite3
+            _progress("align")
+            sqlite3.connect("file:/absent-sensitive-secret-parent/archive.db?mode=rw", uri=True)
         if path == "hang":
             time.sleep(20)
         if path == "error":
@@ -163,6 +178,60 @@ def test_cancellation_during_inflight_request_discards_result_and_reaps_process(
         assert evidence["calls"] == 1
     finally:
         session.close()
+
+
+def test_real_progress_keeps_long_work_alive_but_stalled_work_and_heartbeats_are_reaped():
+    config = ASRConfig(model_name="offline", device="cpu", inference_timeout_policy="audio-scaled",
+        inference_timeout_seconds=6, inference_startup_seconds=5, inference_hard_cap_seconds=10,
+        inference_no_progress_seconds=.35)
+    session = AsrInferenceSession(runner_factory=ProcessRunner)
+    try:
+        result, _ = invoke(session, "progressing", config=config, timeout=6)
+        assert result[0][0]["text"].startswith("progressing")
+        with pytest.raises(ASRInferenceTimeoutError) as caught:
+            invoke(session, "progressing", config=config, timeout=.45)
+        assert caught.value.safe_details["reason"] == "total_deadline"
+        assert session._process is None
+        for path in ("progress-then-hang", "heartbeats"):
+            with pytest.raises(ASRInferenceTimeoutError) as caught:
+                invoke(session, path, config=config, timeout=6)
+            assert caught.value.safe_details["reason"] == "no_progress"
+            assert session._process is None
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("path,expected", [("os-error", {"errno": errno.EMFILE, "errno_name": "EMFILE", "phase": "decode"}),
+    ("sqlite-error", {"sqlite_errorcode": 14, "sqlite_errorname": "SQLITE_CANTOPEN", "phase": "align"}),
+    ("crash", {"exit_code": 9, "reason": "child_exited", "phase": "ipc"})])
+def test_spawn_failures_keep_safe_system_facts_without_exception_text(path, expected):
+    session = AsrInferenceSession(runner_factory=ProcessRunner)
+    try:
+        with pytest.raises(InferenceSessionError) as caught:
+            invoke(session, path)
+        assert expected.items() <= caught.value.safe_details.items()
+        assert "sensitive" not in repr(caught.value.safe_details) + str(caught.value)
+        assert session._process is None
+    finally:
+        session.close()
+
+
+def test_legacy_one_shot_uses_the_same_filtered_process_protocol(monkeypatch):
+    from bili_asr.asr import session as session_module
+    from bili_asr.asr.session import transcribe_with_timeout
+    created = []
+    def factory(*, persistent):
+        session = AsrInferenceSession(persistent=persistent, runner_factory=ProcessRunner)
+        created.append(session)
+        return session
+    monkeypatch.setattr(session_module, "AsrInferenceSession", factory)
+    with pytest.raises(InferenceSessionError) as caught:
+        transcribe_with_timeout(ASRConfig(model_name="offline", device="cpu"), "os-error",
+            paired_subtitle_text=None, timeout_seconds=8)
+    assert caught.value.safe_details["errno"] == errno.EMFILE
+    assert caught.value.safe_details["phase"] == "decode"
+    assert "sensitive" not in str(caught.value) + repr(caught.value.safe_details)
+    assert not created[0].persistent and created[0]._process is None
 
 
 def test_runner_construction_failure_is_sanitized_at_the_process_boundary(capfd):

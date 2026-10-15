@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import multiprocessing as _multiprocessing
 import os
-import queue as _queue
 import time
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
@@ -25,139 +23,18 @@ from bili_asr.asr.preparation import DecodeInputs, InputPrefetch, ProcessorReuse
 from bili_asr.asr.execution import clock_anchor, execution_policy, hardware_evidence
 from bili_asr.asr.backend import HuggingFaceBackend, InferenceBackend
 from bili_asr.asr.batching import BatchExecutor
+from bili_asr.exception_diagnostics import DiagnosedFailure
+from .progress import _progress, set_progress_hook as set_progress_hook
 
-_PROGRESS_HOOK: Callable[[str], None] | None = None
 
-
-class ASRInferenceTimeoutError(TimeoutError):
+class ASRInferenceTimeoutError(TimeoutError, DiagnosedFailure):
     """A child process exceeded the hard inference deadline."""
 
     error_code = "inference_timeout"
 
-
-def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_text: str | None, result_queue: Any, artifact_context=None) -> None:
-    """Run model loading, decoding, and forced alignment outside the worker process."""
-
-    try:
-        runner = ASRRunner(config)
-        from bili_asr.artifact_child import child_artifact_access
-        with child_artifact_access(artifact_context, audio_path):
-            segments = two_pass_transcribe(
-                runner, audio_path, paired_subtitle_text=paired_subtitle_text
-            )
-        result_queue.put(
-            {
-                "ok": True,
-                "segments": segments,
-                "provenance": runner.provenance(),
-                "coverage": runner.transcribed_coverage(),
-                "diagnostics": runner.diagnostics(),
-            }
-        )
-    # The process boundary reports even SystemExit/KeyboardInterrupt so the
-    # supervisor does not wait for the full inference deadline after exit.
-    except BaseException as exc:  # noqa: BLE001
-        result_queue.put(
-            {"ok": False, "error_type": type(exc).__name__, "error": str(exc)[:512]}
-        )
-
-
-def transcribe_with_timeout(
-    config: Any,
-    audio_path: str,
-    *,
-    paired_subtitle_text: str | None,
-    timeout_seconds: float,
-    diagnostics_sink: dict[str, Any] | None = None,
-    artifact_context: dict | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any] | None]:
-    """Run one ASR attempt in a killable child process.
-
-    A Python thread cannot interrupt a blocked ROCm kernel.  The workflow
-    worker therefore uses this boundary for CUDA/ROCm profiles: the parent
-    waits for a bounded result, terminates the child on timeout, and lets the
-    normal workflow failure path persist a retryable ``inference_timeout``.
-    """
-
-    if timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be positive")
-    context = _multiprocessing.get_context("spawn")
-    result_queue = context.Queue(maxsize=1)
-    process = context.Process(
-        target=_isolated_transcribe_worker,
-        args=(config, audio_path, paired_subtitle_text, result_queue, artifact_context),
-        name="bili-asr-inference",
-    )
-    process.start()
-    deadline = time.monotonic() + timeout_seconds
-    result: dict[str, Any] | None = None
-    timed_out = False
-    try:
-        # Drain while the child is alive.  Joining first can deadlock when a
-        # large segment list is still flushing through multiprocessing.Queue.
-        exit_deadline: float | None = None
-        while result is None:
-            try:
-                result = result_queue.get(timeout=0.05)
-                break
-            except _queue.Empty:
-                alive = process.is_alive()
-                now = time.monotonic()
-                if alive and now >= deadline:
-                    timed_out = True
-                    break
-                if not alive:
-                    exit_deadline = exit_deadline or now + 1.0
-                    if now >= exit_deadline:
-                        break
-        if timed_out:
-            process.terminate()
-            process.join(timeout=5)
-            if process.is_alive():
-                process.kill()
-                process.join()
-            raise ASRInferenceTimeoutError(
-                f"ASR inference exceeded {timeout_seconds:g}s and the child process was terminated"
-            )
-        process.join(timeout=1)
-        if result is None:
-            raise RuntimeError(
-                f"isolated ASR worker exited without a result (exit code {process.exitcode})"
-            )
-    finally:
-        result_queue.close()
-        result_queue.join_thread()
-    if not result.get("ok"):
-        error_type = str(result.get("error_type") or "ASRModelError")
-        message = str(result.get("error") or "isolated ASR worker failed")
-        raise RuntimeError(f"{error_type}: {message}")
-    if diagnostics_sink is not None:
-        diagnostics_sink.clear()
-        diagnostics_sink.update(result.get("diagnostics") or {})
-    return (
-        list(result["segments"]),
-        dict(result["provenance"]),
-        result.get("coverage"),
-    )
-
-
-def set_progress_hook(hook: Callable[[str], None] | None) -> None:
-    """Install the optional process-supervisor heartbeat callback."""
-
-    global _PROGRESS_HOOK
-    _PROGRESS_HOOK = hook
-
-
-def _progress(phase: str) -> None:
-    hook = _PROGRESS_HOOK
-    if hook is None:
-        return
-    try:
-        hook(phase)
-    except OSError:
-        # The parent may have stopped supervising after a worker failure.  The
-        # inference path must still fail normally instead of masking its error.
-        set_progress_hook(None)
+    def __init__(self, message="ASR inference deadline elapsed", *, reason="total_deadline"):
+        super().__init__(message)
+        self.set_failure_details({"phase": "inference", "reason": reason})
 
 
 class _ModelSet(NamedTuple):
@@ -558,6 +435,7 @@ class ASRRunner:
         # reader happens to import first.  The readers are part of the same extra, so their absence
         # is reported the same way.
         models = self._get_models()
+        _progress("model_ready")
         report["timings_s"]["model_load"] = time.perf_counter() - load_clock
         self._trace_stage("model_load", load_clock)
         report["environment"] = _dependency_diagnostics.runtime_environment()
@@ -620,6 +498,7 @@ class ASRRunner:
             chunks = _dependency_audio._split_audio(samples, _dependency_constants.SAMPLE_RATE, self.config.chunk_seconds)
             report["timings_s"]["split"] = time.perf_counter() - split_clock
             self._trace_stage("split", split_clock)
+            _progress("audio_ready")
             if not chunks:
                 self._last_characters = None
                 self._last_transcribed_segments = None
@@ -696,6 +575,7 @@ class ASRRunner:
                     chunk_report["decode_batch_index"] = batch_result.get("decode_batch_index")
                 prepared_inputs = None
                 decode_kwargs.clear()
+                _progress("decoded")
                 chunk_report["text"] = text
                 chunk_report["language"] = language
                 chunk_report["generation"] = dict(self._last_generation)
@@ -705,6 +585,7 @@ class ASRRunner:
                     # Preserve an explicit empty-output observation. It may be
                     # silence or missing speech; no VAD evidence is fabricated.
                     chunk_report["flags"].append("empty-output")
+                    _progress("chunk_complete")
                     continue
                 if language.strip():
                     languages.add(language.strip())
@@ -716,6 +597,7 @@ class ASRRunner:
                 else:
                     raw_units = batch_result["raw_units"]
                     chunk_report["align_batch_index"] = batch_result.get("align_batch_index")
+                _progress("aligned")
                 chunk_report["alignment"] = _dependency_diagnostics.alignment_evidence(
                     raw_units, len(audio) / _dependency_constants.SAMPLE_RATE
                 )
@@ -731,7 +613,13 @@ class ASRRunner:
                     }
                     for unit in raw_units
                 ]
-                pieces.extend(_dependency_alignment._thread_text(text, units))
+                chunk_pieces = _dependency_alignment._thread_text(text, units)
+                matching = _dependency_alignment.threading_evidence(text, raw_units, chunk_pieces)
+                chunk_report["alignment"].update(matching)
+                if matching["unmatched_text_characters"] or matching["extra_alignment_units"]:
+                    chunk_report["flags"].append("unmatched-alignment-text")
+                pieces.extend(chunk_pieces)
+                _progress("chunk_complete")
             cues = _dependency_alignment._aligned_cues(pieces)
             # The pieces are the character-level truth and the cues are the published text; the
             # record is the former projected onto the latter, so the two cannot disagree.

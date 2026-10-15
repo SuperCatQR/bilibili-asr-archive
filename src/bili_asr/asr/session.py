@@ -23,8 +23,25 @@ from pathlib import Path
 from .config import ASRConfig
 from .execution import clock_anchor
 from .runner import ASRInferenceTimeoutError, ASRRunner, two_pass_transcribe
+from .progress import set_progress_hook
+from .deadlines import ProgressWatchdog
+from bili_asr.exception_diagnostics import DiagnosedFailure, capture_failure, filter_failure_details
 
 _DECODER_GUARDS: list[subprocess.Popen] = []
+
+
+def transcribe_with_timeout(config: Any, audio_path: str, *, paired_subtitle_text: str | None,
+                            timeout_seconds: float, diagnostics_sink: dict[str, Any] | None = None,
+                            artifact_context: dict | None = None):
+    """One-shot inference uses the same filtered, killable session protocol."""
+    session = AsrInferenceSession(persistent=False)
+    try:
+        return session.transcribe(config, audio_path,
+            request=InferenceRequest("standalone-inference", "standalone", 1, "standalone", {}),
+            paired_subtitle_text=paired_subtitle_text, timeout_seconds=timeout_seconds,
+            diagnostics_sink=diagnostics_sink, artifact_context=artifact_context)
+    finally:
+        session.close()
 
 
 def _warmup_digest(path: str | None) -> str | None:
@@ -44,10 +61,14 @@ def _warmup_digest(path: str | None) -> str | None:
     return hashlib.sha256(data).hexdigest()
 
 
-class InferenceSessionError(RuntimeError):
+class InferenceSessionError(RuntimeError, DiagnosedFailure):
     """A session failed without disclosing model paths or third-party errors."""
 
     error_code = "inference_session_failed"
+
+    def __init__(self, message, *, diagnostic=None):
+        super().__init__(message)
+        self.set_failure_details(diagnostic or {"phase": "ipc"})
 
 
 @dataclass(frozen=True)
@@ -112,6 +133,17 @@ def _session_worker(config, commands, responses, generation, runner_factory, pre
             envelope = {key: command[key] for key in ("protocol", "generation", "request_id", "identity")}
             if command["protocol"] != 1 or command["generation"] != generation:
                 return
+            progress_state = {"sequence": 0, "phase": "model_load"}
+            def progress(phase):
+                phases = {"load": "model_load", "decode": "decode", "align": "align",
+                          "model_ready": "audio_prepare", "audio_ready": "decode",
+                          "decoded": "align", "aligned": "align", "chunk_complete": "decode"}
+                progress_state["phase"] = phases.get(phase, "inference")
+                if phase in {"model_ready", "audio_ready", "decoded", "aligned", "chunk_complete"}:
+                    progress_state["sequence"] += 1
+                    responses.put({**envelope, "progress": {"phase": phase,
+                                   "sequence": progress_state["sequence"]}})
+            set_progress_hook(progress)
             try:
                 if runner is None:
                     if cache_root is not None:
@@ -143,9 +175,12 @@ def _session_worker(config, commands, responses, generation, runner_factory, pre
                                "provenance": runner.provenance(), "coverage": runner.transcribed_coverage(),
                                "diagnostics": runner.diagnostics()})
             except BaseException as exc:  # noqa: BLE001 - complete the process protocol on model errors.
-                responses.put({**envelope, "ok": False, "error_type": type(exc).__name__[:64]})
+                responses.put({**envelope, "ok": False,
+                               "diagnostic": capture_failure(exc, phase=progress_state["phase"])})
                 # A failure may leave CUDA state or task-local state corrupt. Never reuse it.
                 return
+            finally:
+                set_progress_hook(None)
     finally:
         if runner is not None:
             runner.release()
@@ -200,9 +235,14 @@ class AsrInferenceSession:
             raise
         self._key = key
 
-    def _receive(self, envelope: dict, deadline: float, checkpoint: Callable[[], None]) -> dict:
+    def _receive(self, envelope: dict, deadline: float, checkpoint: Callable[[], None],
+                 watchdog: ProgressWatchdog | None = None) -> dict:
         while True:
             checkpoint()
+            if watchdog is not None:
+                reason = watchdog.expired(time.monotonic())
+                if reason is not None:
+                    raise ASRInferenceTimeoutError(reason=reason)
             if time.monotonic() >= deadline:
                 raise ASRInferenceTimeoutError("ASR session deadline elapsed")
             try:
@@ -213,14 +253,22 @@ class AsrInferenceSession:
                 try:
                     result = self._responses.get(timeout=min(0.2, max(0.001, deadline - time.monotonic())))
                 except queue.Empty:
-                    raise InferenceSessionError("ASR session exited without a result") from None
+                    raise InferenceSessionError("ASR session exited without a result",
+                        diagnostic={"phase": "ipc", "reason": "child_exited",
+                                    "exit_code": self._process.exitcode}) from None
             if not isinstance(result, dict) or any(result.get(key) != value for key, value in envelope.items()):
-                raise InferenceSessionError("ASR session response identity mismatch")
+                raise InferenceSessionError("ASR session response identity mismatch",
+                    diagnostic={"phase": "ipc", "reason": "response_identity_mismatch"})
             checkpoint()
             if time.monotonic() >= deadline:
                 raise ASRInferenceTimeoutError("ASR result arrived after the request deadline")
+            if "progress" in result:
+                if watchdog is not None and not watchdog.observe(result["progress"], time.monotonic()):
+                    raise InferenceSessionError("invalid ASR progress response", diagnostic={"phase": "ipc"})
+                continue
             if not result.get("ok"):
-                raise InferenceSessionError("ASR session failed; restart required")
+                raise InferenceSessionError("ASR session failed; restart required",
+                                            diagnostic=filter_failure_details(result.get("diagnostic")))
             return result
 
     def prepare(self, config: ASRConfig, *, request: InferenceRequest, timeout_seconds: float,
@@ -295,10 +343,14 @@ class AsrInferenceSession:
             start = time.monotonic()
             parent_clock = clock_anchor()
             deadline = start + timeout_seconds
+            scaled = config.inference_timeout_policy == "audio-scaled"
+            watchdog = ProgressWatchdog(started=start, total_seconds=timeout_seconds,
+                startup_seconds=config.inference_startup_seconds if scaled else None,
+                no_progress_seconds=config.inference_no_progress_seconds if scaled else None)
             self._commands.put({**envelope, "audio_path": audio_path,
                                 "artifact_context": artifact_context,
                                 "paired_subtitle_text": paired_subtitle_text}, timeout=min(1, timeout_seconds))
-            result = self._receive(envelope, deadline, checkpoint)
+            result = self._receive(envelope, deadline, checkpoint, watchdog)
             diagnostics = dict(result.get("diagnostics") or {})
             diagnostics["session"] = {"schema_version": 1, "generation": self._generation,
                 "request_id": request_id, "identity": request.identity(), "reused": reused,

@@ -79,6 +79,11 @@ class ASRConfig:
     hotwords: tuple[str, ...] = _dependency_constants.DEFAULT_HOTWORDS
     chunk_seconds: float = _dependency_constants.DEFAULT_CHUNK_SECONDS
     inference_timeout_seconds: float = _dependency_constants.DEFAULT_INFERENCE_TIMEOUT_SECONDS
+    inference_timeout_policy: str = "fixed"
+    inference_max_rtf: float = 0.25
+    inference_startup_seconds: float = 300.0
+    inference_hard_cap_seconds: float = 14400.0
+    inference_no_progress_seconds: float = 600.0
     tokens_per_second: float = _dependency_constants._MAX_NEW_TOKENS_PER_AUDIO_SECOND
     min_new_tokens: int = _dependency_constants._MIN_NEW_TOKENS
     second_pass_use_cache: bool = False
@@ -169,6 +174,8 @@ class ASRConfig:
             or self.inference_timeout_seconds <= 0
         ):
             raise ValueError("inference_timeout_seconds must be finite and positive")
+        from .deadlines import validate_deadline_config
+        validate_deadline_config(self)
         if not isinstance(self.hotwords, tuple) or any(
             not isinstance(term, str) or not term.strip() for term in self.hotwords
         ):

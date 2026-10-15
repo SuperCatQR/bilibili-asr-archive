@@ -140,10 +140,12 @@ class BatchExecutor:
         return True
 
     def _decode_serial(self, items: list[dict]) -> None:
+        from .progress import _progress
         for item in items:
             self.runner._trace_chunk_index = item["chunk_index"]
             text, language = self.runner._transcribe_chunk(self.models, item["audio"], bust_cache=self.bust_cache)
             item.update(text=text, language=language, generation=dict(self.runner._last_generation))
+            _progress("decoded")
 
     def _decode(self, items: list[dict]) -> None:
         started = time.perf_counter()
@@ -160,6 +162,8 @@ class BatchExecutor:
 
     def _decode_native(self, items: list[dict]) -> None:
         import torch
+        from .progress import _progress
+        _progress("decode")
 
         # Admission before expensive feature extraction. The exact mask budget
         # is checked again below; this estimate never truncates a singleton.
@@ -211,14 +215,19 @@ class BatchExecutor:
             item.update(text=_clean_text(text[index]), language=str(parsed[index].get("language") or ""),
                 generation=evidence,
                 decode_batch_index=batch_id)
+        _progress("decoded")
 
     def _align_serial(self, items: list[dict]) -> None:
+        from .progress import _progress
         for item in items:
             self.runner._trace_chunk_index = item["chunk_index"]
             item["raw_units"] = self.runner._align_chunk(self.models, item["audio"], item["text"], item["language"])
+            _progress("aligned")
 
     def _align(self, items: list[dict]) -> None:
         import torch
+        from .progress import _progress
+        _progress("align")
 
         started = time.perf_counter()
         try:
@@ -259,6 +268,7 @@ class BatchExecutor:
                                            "chunk_indices": [item["chunk_index"] for item in items]})
             for item, value in zip(items, units, strict=True):
                 item.update(raw_units=list(value), align_batch_index=batch_id)
+            _progress("aligned")
         finally:
             self.timings["align"] += time.perf_counter() - started
             self._trace("batch_align", started, items)
