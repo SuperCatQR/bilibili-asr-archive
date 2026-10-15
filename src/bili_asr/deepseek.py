@@ -143,30 +143,45 @@ class DeepSeekClient:
 def parse_response(envelope: dict[str, Any]) -> Any:
     try:
         choice = envelope["choices"][0]
-        if not isinstance(choice, dict) or "finish_reason" not in choice:
+        if not isinstance(choice, dict):
             raise ValueError("invalid choice")
-        if choice["finish_reason"] != "stop":
-            usage = envelope.get("usage")
-            usage = usage if isinstance(usage, dict) else {}
-            details = usage.get("completion_tokens_details")
-            details = details if isinstance(details, dict) else {}
-            numbers = {"prompt_tokens": usage.get("prompt_tokens"),
-                       "completion_tokens": usage.get("completion_tokens"),
-                       "reasoning_tokens": details.get("reasoning_tokens")}
-            diagnosis = {key: value for key, value in numbers.items()
-                         if type(value) is int and 0 <= value < 2**63}
-            diagnosis["length_exceeded"] = choice["finish_reason"] == "length"
-            message = choice.get("message")
-            message = message if isinstance(message, dict) else {}
-            for name, field in (("output_chars", "content"), ("reasoning_chars", "reasoning_content")):
-                value = message.get(field)
-                diagnosis[name] = len(value) if isinstance(value, str) else 0
+        # Provider strings are untrusted. Only this finite vocabulary may cross
+        # the safe diagnostic boundary; preserve the original in its envelope.
+        raw_reason = choice.get("finish_reason")
+        reason = (raw_reason if isinstance(raw_reason, str) and raw_reason in {
+            "stop", "length", "content_filter", "tool_calls", "function_call"}
+            else "missing" if raw_reason is None else "unknown")
+        usage = envelope.get("usage")
+        usage = usage if isinstance(usage, dict) else {}
+        details = usage.get("completion_tokens_details")
+        details = details if isinstance(details, dict) else {}
+        numbers = {"prompt_tokens": usage.get("prompt_tokens"),
+                   "completion_tokens": usage.get("completion_tokens"),
+                   "reasoning_tokens": details.get("reasoning_tokens")}
+        diagnosis = {key: value for key, value in numbers.items()
+                     if type(value) is int and 0 <= value < 2**63}
+        diagnosis.update(finish_reason=reason, length_exceeded=reason == "length")
+        message = choice.get("message")
+        message = message if isinstance(message, dict) else {}
+        for name, field in (("output_chars", "content"), ("reasoning_chars", "reasoning_content")):
+            value = message.get(field)
+            diagnosis[name] = len(value) if isinstance(value, str) else 0
+        if reason == "length":
             raise DeepSeekError("DeepSeek output is truncated or unfinished", error_code="deepseek_output_truncated",
                                 stage="response_parse", reason_code="unfinished_output", **diagnosis)
+        if reason == "content_filter":
+            raise DeepSeekError("DeepSeek declined the output", error_code="deepseek_content_filtered",
+                                stage="response_parse", reason_code="content_filtered", **diagnosis)
+        if reason in {"tool_calls", "function_call"}:
+            raise DeepSeekError("DeepSeek returned an unsupported completion", error_code="deepseek_unsupported_completion",
+                                stage="response_parse", reason_code="unsupported_finish_reason", **diagnosis)
+        if reason != "stop":
+            raise DeepSeekError("DeepSeek completion did not finish", error_code="deepseek_output_interrupted",
+                                stage="response_parse", reason_code=reason + "_finish_reason", **diagnosis)
         content = choice["message"]["content"]
         if not isinstance(content, str) or not content.strip():
             raise DeepSeekError("DeepSeek output is empty", error_code="deepseek_empty_output",
-                                stage="response_parse", reason_code="empty_output")
+                                stage="response_parse", reason_code="empty_output", **diagnosis)
     except (KeyError, IndexError, TypeError, ValueError):
         raise DeepSeekError("DeepSeek output is not a valid JSON revision", error_code="deepseek_invalid_envelope",
                             stage="response_parse", reason_code="invalid_envelope") from None

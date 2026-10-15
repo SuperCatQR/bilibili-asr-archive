@@ -51,6 +51,12 @@ def _project(row: dict, *, control, now: int, replacements: list[dict], prerequi
                replacements_truncated=row['replacement_count'] > len(replacements),
                prerequisites_truncated=row['prerequisite_count'] > len(prerequisites))
     row['policy'] = _policy(row['error_code'])
+    derived_code = None if editorial_retry is None else editorial_retry.get('reason')
+    if derived_code in {'deepseek_content_filtered', 'deepseek_unsupported_completion', 'deepseek_output_interrupted'}:
+        # Keep historical codes and diagnostics intact. This finite, explicitly
+        # labelled projection comes from replaying the preserved envelope.
+        row['provider_termination'] = {'error_code': derived_code,
+            'diagnostic_source': 'stored_response_replay', 'policy': _policy(derived_code)}
     decision_input = {**row, 'latest_finished_at': None if attempt is None else attempt['finished_at'],
                       'editorial_retry': editorial_retry}
     row['retry_decision'] = decide_retry(decision_input, control_state=control, now=now,
@@ -65,7 +71,9 @@ def _recovery(row: dict) -> dict:
     alternative = None
     action = row['policy']['recommended_action']
     job_arg = shlex.quote(row['job_id'])
-    if row['status'] == 'failed' and row['kind'] == 'proofread' and (
+    if row.get('provider_termination'):
+        action = row['provider_termination']['policy']['recommended_action']
+    elif row['status'] == 'failed' and row['kind'] == 'proofread' and (
             row['policy']['retry_policy'] == 'repair' or row['policy']['category'] == 'revision_validation'):
         command = f'bili-asr workflow repair-proofread --archive-root <archive-root> --job-id {job_arg}'
         if code == 'editorial_source_repetition':

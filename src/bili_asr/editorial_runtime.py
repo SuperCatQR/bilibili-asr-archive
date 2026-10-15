@@ -18,7 +18,7 @@ from bili_asr.deepseek import (
 from bili_asr.editorial import EditorialConfig, local_revision, validate_revision
 from bili_asr.editorial_lineage import lineage_summary, source_lineage
 from bili_asr.editorial_quality import check_source_quality
-from bili_asr.editorial_recovery import diagnostic_for_error, recovery_request
+from bili_asr.editorial_recovery import diagnostic_for_error, provider_recovery_blocker, recovery_request
 from bili_asr.manuscript_files import stage_artifact
 from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
 from bili_asr.storage.editorial import EditorialRepository, template_for_input
@@ -50,7 +50,7 @@ class EditorialWorkflowHandlers:
         self.workflow.assert_lease(job)
         from bili_asr.services.editorial_application import freeze_job_input
         prepared = freeze_job_input(self.repository, self.workflow, job)
-        run_id = None
+        run_id = prepared.get("source_selection", {}).get("run_id")
         if "asr_job_id" in job.payload:
             result = self.repository.connection.execute(
                 "SELECT result_json FROM workflow_attempts WHERE job_id=? AND outcome='succeeded' "
@@ -93,6 +93,9 @@ class EditorialWorkflowHandlers:
             self.workflow.assert_lease(job)
             self.workflow.renew_lease(job, lease_seconds=config.timeout_seconds + 300)
             calls = self.repository.physical_calls(input_id, chunk_id)
+            blocker = provider_recovery_blocker(calls[-1] if calls else None)
+            if blocker is not None:
+                raise blocker
             bounded = config.request_policy == "deepseek-v2"
             request, recovery = recovery_request(original, calls[-1] if calls else None, config) if bounded else (original, None)
             fingerprint = self.repository.request_fingerprint(input_id, chunk_id, request)

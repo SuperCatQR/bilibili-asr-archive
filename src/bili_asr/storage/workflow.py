@@ -504,6 +504,30 @@ class WorkflowRepository:
         ids, created = self._enqueue_specs(specs, existing_ids={} if external is None else {external: prerequisite_job_id})
         return ids[specs[0].key], ids[specs[1].key], bool(created.get(JobKind.PROOFREAD)), bool(created.get(JobKind.RENDER_DOCUMENT))
 
+    def enqueue_editorial_recovery(self, *, video_part_id: int, input_id: str,
+                                    previous_proofread_job_id: str, previous_render_job_id: str,
+                                    replacement_asr_job_id: str, replacement_attempt_id: str,
+                                    replacement_run_id: str) -> tuple[str, str, bool, bool]:
+        """New frozen consumers with explicit provenance; old edges stay intact."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("editorial recovery enqueue requires a write transaction")
+        self.require_cancellation_contract()
+        self._require_editorial_contract()
+        specs = (
+            JobSpec("recovery-proof", JobKind.PROOFREAD, video_part_id,
+                    {"input_id": input_id, "repair_of_job_id": previous_proofread_job_id,
+                     "replacement_asr_job_id": replacement_asr_job_id,
+                     "replacement_attempt_id": replacement_attempt_id,
+                     "replacement_run_id": replacement_run_id}, prerequisites=("recovery-asr",)),
+            JobSpec("recovery-render", JobKind.RENDER_DOCUMENT, video_part_id,
+                    {"template_version": "auto", "repair_of_job_id": previous_render_job_id},
+                    prerequisites=("recovery-proof",),
+                    payload_references=(("proofread_job_id", "recovery-proof"),)),
+        )
+        ids, created = self._enqueue_specs(specs, existing_ids={"recovery-asr": replacement_asr_job_id})
+        return (ids["recovery-proof"], ids["recovery-render"],
+                bool(created.get(JobKind.PROOFREAD)), bool(created.get(JobKind.RENDER_DOCUMENT)))
+
     def bind_editorial_render(self, proof_id: str, template: str) -> None:
         """Finalize unattempted placeholders without rewriting execution history."""
         if template not in {"ai-draft-v1", "ai-draft-v2"}:

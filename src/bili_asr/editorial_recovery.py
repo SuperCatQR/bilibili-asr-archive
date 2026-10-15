@@ -24,6 +24,25 @@ def diagnostic_for_error(error: Exception) -> dict[str, Any] | None:
     return dict(details) if recoverable(details) else None
 
 
+def provider_recovery_blocker(previous: dict[str, Any] | None) -> JobExecutionError | None:
+    """Saved filter/protocol terminations never authorize another paid send.
+
+    Historical generic errors stay untouched: this is explicitly a derived
+    diagnosis over their preserved envelope, shared by execution and status.
+    """
+    if previous is None or previous.get("response") is None:
+        return None
+    from bili_asr.deepseek import DeepSeekError, parse_response
+    try:
+        parse_response(previous["response"])
+    except DeepSeekError as error:
+        if error.error_code in {"deepseek_content_filtered", "deepseek_unsupported_completion",
+                                "deepseek_output_interrupted"}:
+            return JobExecutionError(error.error_code, dict(error.safe_details,
+                diagnostic_source="stored_response_replay", previous_call_id=previous["call_id"]))
+    return None
+
+
 def recovery_request(original: dict[str, Any], previous: dict[str, Any] | None,
                      config: EditorialConfig) -> tuple[dict[str, Any], dict[str, Any]]:
     """Reconstruct the next request from durable evidence after a restart."""
