@@ -126,7 +126,7 @@ PACKAGE_HTTP_CLIENT_CANONICAL_NAMES = frozenset({"curl-cffi", "httpx", "aiohttp"
 ALLOWED_PACKAGE_IMPORTS = {
     "bilibili_api": {"Credential", "request_settings"},
     "bilibili_api.user": {"API", "User", "VideoOrder"},
-    "bilibili_api.utils.network": {"Api"},
+    "bilibili_api.utils.network": {"Api", "lazy_settings", "session_pool"},
     "bilibili_api.video": {"API", "Video"},
     "bilibili_api.exceptions": {
         "ApiException",
@@ -1551,8 +1551,8 @@ def test_pacing_sleeps_before_every_per_row_metadata_call(bilibili_api_seam):
     per video: back-to-back that is the ~90-call burst that trips risk
     control.  One paced gateway runs all three legs for three videos (nine
     upstream calls) and every call must be preceded by exactly one pacing
-    sleep in the documented inter-page range (``0.8-1.6 s``; the zero-jitter
-    seam pins the observed value to the 0.8 s floor).
+    sleep in the configured inter-operation range (``3-5 s``; the zero-jitter
+    seam pins the observed value to the 3 s floor).
     """
 
     gateway, sleeps = _load_paced_gateway()
@@ -1565,7 +1565,7 @@ def test_pacing_sleeps_before_every_per_row_metadata_call(bilibili_api_seam):
         "video.tags",
     ] * 3
     assert len(sleeps) == len(bilibili_api_seam.calls)
-    assert all(0.8 <= delay <= 1.6 for delay in sleeps)
+    assert all(3.0 <= delay <= 5.0 for delay in sleeps)
 
 
 def test_completed_summary_short_circuit_skips_pacing(bilibili_api_seam):
@@ -1588,7 +1588,7 @@ def test_offline_seam_records_default_pacing_without_real_waits(bilibili_api_sea
 
     assert len(bilibili_api_seam.pacing_delays) == 9
     assert len(bilibili_api_seam.calls) == 9
-    assert all(0.8 <= delay <= 1.6 for delay in bilibili_api_seam.pacing_delays)
+    assert all(3.0 <= delay <= 5.0 for delay in bilibili_api_seam.pacing_delays)
 
 
 def test_pacing_default_sleeper_is_awaitable_without_blocking():
@@ -2843,7 +2843,7 @@ def test_fake_seam_exposes_only_documented_metadata_surface():
 
     assert _public_names(modules["bilibili_api.user"]) == ["API", "User", "VideoOrder"]
     assert _public_names(modules["bilibili_api.video"]) == ["API", "Video"]
-    assert _public_names(modules["bilibili_api.utils.network"]) == ["Api"]
+    assert _public_names(modules["bilibili_api.utils.network"]) == ["Api", "lazy_settings", "session_pool"]
     assert _public_names(modules["bilibili_api.exceptions"]) == sorted(
         ALLOWED_EXCEPTION_NAMES
     )
@@ -4503,3 +4503,68 @@ def test_live_smoke_single_public_page_for_archive_owner(tmp_root, opt_in_gate):
             assert cid >= 1 and duration_ms >= 1
     finally:
         connection.close()
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_gateway_releases_sdk_clients_across_repeated_event_loops(bilibili_api_seam, fail):
+    """The real gateway wires cleanup around successful and rejected calls."""
+    network = importlib.import_module("bilibili_api.utils.network")
+    network.session_pool["transport"] = {}
+    network.lazy_settings["transport"] = {}
+    gateway = _load_gateway()
+    clients = []
+
+    class Client:
+        closed = False
+
+        async def close(self):
+            await asyncio.sleep(0)
+            self.closed = True
+
+    async def request():
+        loop = asyncio.get_running_loop()
+
+        async def upstream():
+            client = Client()
+            clients.append(client)
+            network.session_pool["transport"][loop] = client
+            network.lazy_settings["transport"][loop] = {}
+            if fail:
+                raise ValueError("upstream detail must stay private")
+            return "ok"
+
+        if fail:
+            with pytest.raises(GatewayTransportError):
+                await gateway._await_upstream("get_subtitle_tracks", upstream)
+        else:
+            assert await gateway._await_upstream("get_subtitle_tracks", upstream) == "ok"
+        assert clients[-1].closed
+        assert network.session_pool["transport"] == {}
+        assert network.lazy_settings["transport"] == {}
+
+    for _ in range(20):
+        asyncio.run(request())
+    assert len(clients) == 20
+
+
+def test_gateway_maps_client_cleanup_failures_without_exposing_upstream_text(bilibili_api_seam):
+    network = importlib.import_module("bilibili_api.utils.network")
+    network.session_pool["transport"] = {}
+    network.lazy_settings["transport"] = {}
+    gateway = _load_gateway()
+
+    class Client:
+        async def close(self):
+            raise RuntimeError("CREDENTIAL-THAT-MUST-NOT-LEAK")
+
+    async def request():
+        async def upstream():
+            loop = asyncio.get_running_loop()
+            network.session_pool["transport"][loop] = Client()
+            return "ok"
+        with pytest.raises(GatewayTransportError) as error:
+            await gateway._await_upstream("get_subtitle_tracks", upstream)
+        assert "CREDENTIAL-THAT-MUST-NOT-LEAK" not in str(error.value)
+        assert network.session_pool["transport"] == {}
+        assert network.lazy_settings["transport"] == {}
+    asyncio.run(request())

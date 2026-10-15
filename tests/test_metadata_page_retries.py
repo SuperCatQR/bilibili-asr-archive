@@ -88,7 +88,7 @@ def test_cli_retries_rate_control_then_collects_the_same_page_once(
     assert retry_waits[:2] == [30, 60]
     # Normal parts and tag pacing is still paid once per endpoint.
     assert len(retry_waits) == 4
-    assert all(0.8 <= delay <= 1.6 for delay in retry_waits[2:])
+    assert all(3.0 <= delay <= 5.0 for delay in retry_waits[2:])
     assert len(script.calls) == 5
     assert all("pn=1" in call for call in script.calls[:3])
     connection = open_database(tmp_root)
