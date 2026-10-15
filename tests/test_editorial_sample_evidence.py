@@ -206,7 +206,8 @@ def test_measured_producer_admission_is_posthoc_and_does_not_certify_ai_output(s
 
 
 @pytest.mark.parametrize("damage", ["different-transcript", "different-source", "wrong-run", "coverage-missing",
-                                    "multiple-producers", "old-policy", "backward-cue"])
+                                    "multiple-producers", "old-policy", "backward-cue", "wrong-part",
+                                    "unsupported-schema", "embedded-identity", "coverage-part", "invalid-coverage"])
 def test_missing_ambiguous_or_bad_producer_evidence_never_becomes_usable(sample, damage):
     export = producer_export(sample)
     expected = "unknown"
@@ -216,12 +217,24 @@ def test_missing_ambiguous_or_bad_producer_evidence_never_becomes_usable(sample,
     elif damage == "coverage-missing": export["rows"]["transcript_coverage_attestations"] = []
     elif damage == "multiple-producers": export["rows"]["transcript_asr_evidence"] *= 2
     elif damage == "old-policy": export["rows"]["workflow_quality_assessments"] = [{"status": "unusable"}]
+    elif damage == "wrong-part": export["rows"]["transcript_asr_evidence"][0]["video_part_id"] = 999
+    elif damage == "unsupported-schema":
+        export["rows"]["transcript_asr_evidence"][0]["evidence_json"] = json.dumps({"schema_version": 2})
+    elif damage == "embedded-identity":
+        export["rows"]["transcript_asr_evidence"][0]["evidence_json"] = json.dumps({
+            "schema_version": 1, "run_id": "foreign"})
+    elif damage == "coverage-part": export["rows"]["transcript_coverage_attestations"][0]["video_part_id"] = 999
+    elif damage == "invalid-coverage": export["rows"]["transcript_coverage_attestations"][0]["coverage_short"] = True
     else:
         export["rows"]["transcript_coverage_attestations"][0]["produced_s"] = 0.5
         expected = "unusable"
     write(sample / "producer-quality-posthoc.json", export)
-    if damage in ("different-transcript", "different-source"):
+    if damage in ("different-transcript", "different-source", "wrong-part", "embedded-identity",
+                  "coverage-part", "invalid-coverage"):
         with pytest.raises(ValueError): analyze_sample(sample)
+    elif damage == "unsupported-schema":
+        result = analyze_sample(sample)[0]
+        assert result["source_quality"]["producer_admission"] == expected
     else:
         result = analyze_sample(sample)[0]
         assert result["source_quality"]["producer_admission"] == expected
