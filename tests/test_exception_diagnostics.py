@@ -17,6 +17,10 @@ from bili_asr.workflow_models import AsrPolicy, JobKind
 from tests.test_workflow_control_plane import _profile, _seed_part
 
 
+class ConnectError(RuntimeError):
+    pass
+
+
 def _domain_failures():
     from bili_asr.deepseek import DeepSeekError
     from bili_asr.editorial import RevisionValidationError
@@ -26,7 +30,55 @@ def _domain_failures():
             (BudgetExceeded(3, ["input_token_limit"]), "editorial_budget_exceeded"),
             (RevisionValidationError("sensitive transcript"), "RevisionValidationError"),
             (DeepSeekError("sensitive provider body", error_code="deepseek_http_402"), "deepseek_http_402"),
-            (type("ExternalError", (RuntimeError,), {"error_code": "sensitive-secret"})("secret"), "Exception")]
+            (ConnectError("sensitive transport URL?token=secret"), "ConnectError"),
+            (type("ExternalError", (RuntimeError,), {"error_code": "sensitive-secret"})("secret"), "Exception"),
+            (type("SensitiveTransportClassName", (RuntimeError,), {"error_code": "ConnectError"})("sensitive transport"), "Exception")]
+
+
+@pytest.mark.parametrize("name,category,retry_policy,automatic_retry", [
+    (name, "transient", "automatic", True) for name in (
+        "TimeoutException", "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
+        "PoolTimeout", "NetworkError", "RemoteProtocolError", "DeepSeekTransportError")
+] + [("RuntimeCacheError", "configuration", "blocked", False)])
+def test_registered_class_codes_keep_their_existing_policy(name, category, retry_policy, automatic_retry):
+    from bili_asr.workflow_failure_diagnostics import execution_failure
+    from bili_asr.workflow_failure_policy import failure_policy
+
+    error = type(name, (RuntimeError,), {"error_code": "sensitive-forged-code"})(
+        "sensitive endpoint?token=secret")
+    details = {"phase": "workflow_execution", "exception_type": name}
+    assert capture_failure(error) == details
+    code, diagnostic = execution_failure(error)
+    assert (code, diagnostic) == (name, details)
+    policy = failure_policy(code)
+    assert (policy.category, policy.retry_policy, policy.automatic_retry) == (
+        category, retry_policy, automatic_retry)
+    assert "sensitive" not in json.dumps((code, diagnostic))
+
+
+def test_actual_domain_adapters_keep_their_error_codes():
+    from bili_asr.asr.runtime_cache import RuntimeCacheError
+    from bili_asr.deepseek import DeepSeekTransportError
+    from bili_asr.workflow_failure_diagnostics import execution_failure
+
+    assert execution_failure(DeepSeekTransportError("sensitive transport", error_code="deepseek_transport_failed"))[0] == (
+        "deepseek_transport_failed")
+    assert execution_failure(RuntimeCacheError("sensitive cache path")) == ("RuntimeCacheError", {
+        "phase": "workflow_execution", "exception_type": "RuntimeCacheError"})
+
+
+def test_legacy_connect_error_stays_named_without_granting_arbitrary_retry_codes():
+    from bili_asr.workflow_failure_diagnostics import execution_failure
+
+    secret = "sensitive private endpoint?token=secret"
+    details = {"phase": "workflow_execution", "exception_type": "ConnectError"}
+    assert capture_failure(ConnectError(secret)) == details
+    assert execution_failure(ConnectError(secret)) == ("ConnectError", details)
+    assert filter_failure_details({**details, "message": secret, "error_code": secret}) == details
+    unknown = type("SensitiveTransportClassName", (RuntimeError,), {"error_code": "ConnectError"})(secret)
+    assert execution_failure(unknown) == ("Exception", {
+        "phase": "workflow_execution", "exception_type": "Exception"})
+    assert "sensitive" not in json.dumps(execution_failure(unknown))
 
 
 def test_os_error_and_invalid_child_fields_are_allowlisted():

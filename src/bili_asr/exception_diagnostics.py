@@ -10,10 +10,14 @@ from bili_asr.workflow_errors import safe_job_details
 
 _PHASES = frozenset({"workflow_execution", "model_load", "audio_prepare", "decode", "align",
                      "inference", "startup", "ipc", "result_admission", "result_commit", "failure_persistence"})
+# Fixed historical class codes preserve retry/hold policy without accepting
+# arbitrary class names, messages or error_code attributes.
 _TYPES = frozenset({"Exception", "BaseException", "ValueError", "TypeError", "RuntimeError",
     "AssertionError", "KeyError", "IndexError", "OverflowError", "MemoryError", "OSError",
     "PermissionError", "FileNotFoundError", "FileExistsError", "NotADirectoryError",
     "IsADirectoryError", "BrokenPipeError", "ConnectionError", "TimeoutError",
+    "TimeoutException", "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
+    "PoolTimeout", "NetworkError", "RemoteProtocolError", "DeepSeekTransportError", "RuntimeCacheError",
     "OperationalError", "IntegrityError", "DatabaseError", "ProgrammingError", "DataError",
     "InterfaceError", "NotSupportedError", "SystemExit", "KeyboardInterrupt",
     "ASRDependencyError", "ASRRuntimeCompatibilityError", "ASRModelError", "AudioDecodeError",
