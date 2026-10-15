@@ -42,6 +42,21 @@ def admission(args):
     return gate(args.policy, args.ops_root / "provider-health.json", args.archive_root)
 
 
+def configure_opencode_session(args, session):
+    """Apply an optional loopback relay only to the OpenCode destination."""
+    network = args.ops_root / "network.json"
+    if not network.exists():
+        session.proxies.pop("https://opencode.ai", None)
+        return
+    from urllib.parse import urlsplit
+    proxy = json.loads(network.read_text(encoding="utf-8"))["opencode_https_proxy"]
+    parsed = urlsplit(proxy)
+    if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port
+            or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment):
+        raise ValueError("OpenCode relay must be an HTTP proxy on loopback")
+    session.proxies["https://opencode.ai"] = proxy
+
+
 def install_worker_gates(args):
     """Adapters are scoped to this child; the installed library stays untouched."""
     from bili_asr.deepseek import DeepSeekClient
@@ -75,6 +90,7 @@ def install_worker_gates(args):
             attempt_checkpoint(active["job"])
             time.sleep(1)
         attempt_checkpoint(active["job"])
+        configure_opencode_session(args, client.session)
         return complete(client, request, config)
 
     WorkflowRepository.claim = scheduled_claim
@@ -94,6 +110,7 @@ def probe(args):
         return {**result, "reason": "missing_opencode_key"}
     try:
         with requests.Session() as session:
+            configure_opencode_session(args, session)
             response = session.get(policy["provider_base_url"].rstrip("/") + "/models",
                                    headers={"Authorization": "Bearer " + key},
                                    timeout=(8, 10), allow_redirects=False)

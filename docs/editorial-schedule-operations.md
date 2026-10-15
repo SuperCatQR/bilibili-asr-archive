@@ -70,3 +70,29 @@ and verified holiday calendars before production use; an empty calendar keeps
 the weekday blackout until the official-calendar refresh succeeds.
 The CLI `--at <aware ISO timestamp>` checks calendar behavior offline without
 claiming jobs or contacting the model provider.
+
+If the server cannot reach OpenCode but the operator's machine can, the optional
+`opencode_ssh_relay.py` runs on that machine with `--daemon`, SSH host/port,
+the verified SSH fingerprint, and an absolute `--state-dir`. It reads the SSH
+password interactively and passes it to the detached process over stdin; it does
+not save the password. The relay binds only `127.0.0.1:18443` on the server,
+accepts only CONNECT to `opencode.ai:443`, and carries the original verified TLS
+connection. No API key or transcript is logged or decrypted by the relay.
+Install the project's `remote` extra on this machine for Paramiko. Supply
+`--fingerprint` as the verified SSH key fingerprint's lowercase hexadecimal
+bytes, without colon separators. The relay admits at most 16 concurrent tunnels
+and closes excess channels instead of accumulating an unbounded queue.
+
+To opt in, save `network.json` beside the scheduler's `policy.json` containing
+`{"opencode_https_proxy":"http://127.0.0.1:18443"}`. Both the provider probe and
+editorial requests use this host-specific proxy. Other provider endpoints,
+calendar downloads, and the ASR processes retain their existing networking.
+The operator's machine must remain online. SSH reconnects automatically while
+the relay process is alive. Its state directory contains `state.json`,
+`relay.pid`, and `relay.log`; create its `STOP` file to drain and stop it.
+When the relay becomes unavailable the scheduler's provider health gate blocks
+new requests. Existing in-flight requests can still fail and retain their normal
+workflow attempt evidence. Removing `network.json` also clears the relay on an
+existing worker session before its next model call. To remove the relay, remove
+`network.json` and stop
+the local relay after the server's direct route has been verified.
