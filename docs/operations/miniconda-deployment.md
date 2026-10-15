@@ -204,3 +204,10 @@ acceptance; it is not certified by the earlier trial.
 
 See also the official [Conda environment guidance](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
 and [conda run reference](https://docs.conda.io/projects/conda/en/latest/commands/run.html).
+
+## Release identity and controlled rollout
+
+Use the [complete-release procedure](production-release.md) for production
+updates, loaded-worker identity, drift detection and rollback. The environment
+environment setup does not by itself attest that an already running PID loaded a
+candidate wheel.

@@ -137,7 +137,7 @@ class WorkflowApplication:
             source_registry=None, warmup_audio: str | None = None,
             warmup_timeout_seconds: float = 300, cache_root: str | None = None,
             cache_max_bytes: int = 10 * 1024**3, storage_targets: dict[str, Path] | None = None) -> ExecutionSummary:
-        from contextlib import ExitStack
+        from contextlib import ExitStack, contextmanager
 
         from bili_asr.editorial_runtime import EditorialWorkflowHandlers
         from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
@@ -188,7 +188,17 @@ class WorkflowApplication:
             from bili_asr.workflow_shutdown import WorkerShutdown
             shutdown = resources.enter_context(WorkerShutdown(
                 stop, drain_file=drain_file, timeout=drain_timeout_seconds).install())
+            from bili_asr.services.worker_health import WorkerHealth
+            health = resources.enter_context(WorkerHealth(
+                Path(self.session.archive_root), role=role or ("editorial" if only_editorial else "mixed"),
+                stop=stop))
+            @contextmanager
+            def attempt_scope():
+                with health.attempt(), shutdown.attempt():
+                    yield
             def prepare(candidate, checkpoint):
+                if candidate.profile_id is not None:
+                    health.profile(self.repository.profile_digest(candidate.profile_id))
                 if not only_editorial:
                     archive.prepare_candidate(candidate, checkpoint, timeout_seconds=warmup_timeout_seconds,
                                               audio_path=warmup_audio)
@@ -202,7 +212,7 @@ class WorkflowApplication:
                 kinds=tuple(registered) if selected is None else tuple(dict.fromkeys(selected)),
                 drain_requested=shutdown.requested,
                 drain_timeout_seconds=drain_timeout_seconds,
-                drain_checkpoint=shutdown.checkpoint, attempt_scope=shutdown.attempt,
+                drain_checkpoint=shutdown.checkpoint, attempt_scope=attempt_scope,
                 prepare_candidate=prepare if not only_editorial and gpu_session != "legacy" else None,
                 candidate_access=access)
             succeeded = failed = cancelled = blocked = 0

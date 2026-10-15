@@ -6,7 +6,12 @@ import argparse
 from importlib import import_module
 import sys
 import types
-from bili_asr.cli.parser import build_parser
+
+
+def build_parser():
+    # Verify the release before importing command modules from the installation.
+    from bili_asr.cli.parser import build_parser as create_parser
+    return create_parser()
 
 
 def _dispatch_command(args: argparse.Namespace) -> int:
@@ -25,6 +30,12 @@ def _main(
     _asr_worker: bool = False,
 ) -> int:
     """Invoke parser and dispatcher with explicit module-level test seams."""
+    from bili_asr.release_identity import ReleaseIdentityError, require_expected_build
+    try:
+        require_expected_build()
+    except ReleaseIdentityError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
