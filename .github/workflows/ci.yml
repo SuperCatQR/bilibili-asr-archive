@@ -153,7 +153,7 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          uv sync --locked --extra dev
+          uv sync --locked --extra dev --extra remote
           # Isolated installation tests also build an offline wheel with pip.
           uv pip install --python .venv/bin/python pip "setuptools>=69" wheel
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
