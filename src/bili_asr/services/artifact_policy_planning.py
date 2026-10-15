@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import time
 
-from bili_asr.services.artifact_inventory_service import plan_artifact_offload
+from bili_asr.services.artifact_inventory_service import plan_artifact_copy, plan_artifact_offload
 
 
-def bounded_plan(inventory, config):
+def bounded_plan(inventory, config, *, purpose="offload"):
     # Freeze complete connected groups; sharing one object joins their members.
     candidates = {copy["copy_id"]: copy for copy in inventory["copies"] if copy["candidate"]}
     membership = {}
@@ -43,8 +43,12 @@ def bounded_plan(inventory, config):
         selected.update(copy["copy_id"] for copy in copies)
         total += added
         objects.update(incoming)
-    filtered = {**inventory, "copies": [{**copy, "selected": copy["copy_id"] in selected} for copy in inventory["copies"]]}
+    # Preserve the selected but guarded rows in the preview. Batch limits
+    # exclude otherwise eligible rows; they must not hide release blockers.
+    filtered = {**inventory, "copies": [{**copy, "selected": copy["copy_id"] in selected
+        or (copy["selected"] and bool(copy["blockers"]))} for copy in inventory["copies"]]}
     physical = {copy["physical_id"]: copy["size"] for copy in candidates.values() if copy["copy_id"] in selected}
     filtered["summary"] = {**inventory["summary"], "reclaimable_content_bytes": sum(physical.values()),
         "target_payload_bytes": total, "restore_workspace_bytes": max((copy["size"] for copy in candidates.values() if copy["copy_id"] in selected), default=0)}
-    return plan_artifact_offload(filtered, target_id=config["target_id"])
+    planner = {"copy": plan_artifact_copy, "offload": plan_artifact_offload}[purpose]
+    return planner(filtered, target_id=config["target_id"])

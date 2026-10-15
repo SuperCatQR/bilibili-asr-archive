@@ -17,6 +17,7 @@ from bili_asr.services.artifact_inventory_service import (
     ArtifactSelection,
     inventory_artifacts,
     plan_artifact_offload,
+    plan_artifact_copy,
 )
 from bili_asr.services.artifact_restore import restore_artifact
 from bili_asr.storage.artifact_catalog import ArtifactCatalog
@@ -86,6 +87,63 @@ def test_copy_offload_restore_reuse_preserves_all_domain_facts(archive):
     assert restored["verified_bytes"] == len(archive.data)
     assert (archive.root / "audio/input.m4a").read_bytes() == archive.data
     assert domain_facts(archive) == before
+
+
+@pytest.mark.parametrize("copy_contract", [False, True])
+@pytest.mark.parametrize("transfer_state", ["complete", "failed"])
+def test_seeded_copy_release_intent_is_rejected_without_touching_source(archive, copy_contract, transfer_state):
+    from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+    from bili_asr.storage.artifact_releases import ArtifactReleaseRepository
+    frozen = (plan_artifact_copy(inventory_artifacts(archive.root / "archive.db", archive.roots,
+        deep=True, external_holds={}), target_id="cold") if copy_contract else plan(archive))
+    copied = transfer(archive, frozen)
+    operation_id = copied["operation"]["transfer_id"]
+    item = frozen["items"][0]
+    generation = service.capture_source_generation(archive.root / item["path"])
+    with ArchiveSession(archive.root, mode=ArchiveAccessMode.WRITE) as session:
+        connection = session.connection
+        source_id = connection.execute("SELECT source_replica_id FROM artifact_transfer_items WHERE transfer_id=?", (operation_id,)).fetchone()[0]
+        values = dict(transfer_id=operation_id, copy_id=item["copy_id"], object_id=item["sha256"],
+            source_target_id="local", source_key=item["path"],
+            quarantine_key=service._quarantine_key(item["path"], operation_id, item["copy_id"]),
+            source_replica_id=source_id, source_generation=generation)
+        with pytest.raises(ValueError, match="require an offload transfer"):
+            ArtifactReleaseRepository(connection).plan(**values)
+        # Simulate an old/manual invalid journal bypassing the repository API.
+        with connection:
+            connection.execute("INSERT INTO artifact_release_intents VALUES (?,?,?,?,?,?,?,?, 'planned',1,1)",
+                (operation_id, item["copy_id"], item["sha256"], "local", item["path"],
+                 values["quarantine_key"], source_id, json.dumps(generation)))
+            connection.execute("UPDATE artifact_transfers SET state=? WHERE transfer_id=?", (transfer_state, operation_id))
+        with pytest.raises(ValueError, match="copy transfer cannot execute"):
+            service._release_intents(ArtifactCatalog(connection), archive.roots, None, frozen,
+                operation_id, {}, mode="copy")
+    with pytest.raises(ValueError, match="copy transfer cannot execute"):
+        transfer(archive, frozen, mode="copy")
+    assert (archive.root / "audio/input.m4a").read_bytes() == archive.data
+    assert not list((archive.root / "audio").glob(".artifact-release-*"))
+    with sqlite3.connect(archive.root / "archive.db") as connection:
+        assert connection.execute("SELECT state FROM artifact_release_intents WHERE transfer_id=?", (operation_id,)).fetchone()[0] == "planned"
+
+
+def test_release_helper_defends_schema_and_persisted_transfer_kind(archive):
+    from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+    frozen = plan(archive)
+    with ArchiveSession(archive.root, mode=ArchiveAccessMode.WRITE) as session:
+        catalog = ArtifactCatalog(session.connection)
+        with session.connection:
+            catalog.register_target("cold")
+            catalog.begin_transfer("offload-" + frozen["plan_sha256"], kind="copy",
+                plan_sha256=frozen["plan_sha256"], target_id="cold")
+        with pytest.raises(ValueError, match="matching persisted offload authority"):
+            service._release_intents(catalog, archive.roots, None, frozen,
+                "offload-" + frozen["plan_sha256"], {}, mode="offload")
+        copy = plan_artifact_copy(inventory_artifacts(archive.root / "archive.db", archive.roots,
+            deep=True, external_holds={}), target_id="cold")
+        with pytest.raises(ValueError, match="copy transfer cannot execute"):
+            service._release_intents(catalog, archive.roots, None, copy,
+                "offload-" + frozen["plan_sha256"], {}, mode="offload")
+    assert (archive.root / "audio/input.m4a").read_bytes() == archive.data
 
 
 @pytest.mark.parametrize("stage", ["copy", "register", "reread"])

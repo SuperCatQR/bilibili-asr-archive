@@ -13,6 +13,7 @@ from bili_asr.artifact_packages import (
 from bili_asr.contracts.json_schema import ContractValidationError, validate_json
 from bili_asr.services.artifact_inventory_service import (
     inventory_artifacts,
+    plan_artifact_copy,
     plan_artifact_offload,
 )
 from tests.test_artifact_transfer import archive as artifact_archive
@@ -31,6 +32,7 @@ def documents(archive):
                            len(archive.data), capture_source_generation(path))
     package = package_manifest((source,), "fixture", plan["plan_sha256"], 0)
     return {"artifact-inventory-v1": inventory, "artifact-offload-plan-v1": plan,
+            "artifact-copy-plan-v1": plan_artifact_copy(inventory, target_id="cold"),
             "artifact-package-v1": package}
 
 
@@ -40,7 +42,7 @@ def test_actual_inventory_plan_and_package_validate_offline(archive):
         validate_json(identity, json.loads(json.dumps(value)))
 
 
-@pytest.mark.parametrize("identity", ["artifact-inventory-v1", "artifact-offload-plan-v1", "artifact-package-v1"])
+@pytest.mark.parametrize("identity", ["artifact-inventory-v1", "artifact-offload-plan-v1", "artifact-copy-plan-v1", "artifact-package-v1"])
 @pytest.mark.parametrize("change", ["unknown", "missing", "wrong_type"])
 def test_artifact_schema_rejects_unknown_missing_and_bad_fields(archive, identity, change):
     value = deepcopy(documents(archive)[identity])
@@ -50,7 +52,7 @@ def test_artifact_schema_rejects_unknown_missing_and_bad_fields(archive, identit
         value.pop(next(iter(value)))
     elif identity == "artifact-inventory-v1":
         value["copies"][0]["candidate"] = "false"
-    elif identity == "artifact-offload-plan-v1":
+    elif identity in {"artifact-offload-plan-v1", "artifact-copy-plan-v1"}:
         value["items"][0]["sha256"] += "\n"
     else:
         value["objects"][0]["sha256"] += "\n"

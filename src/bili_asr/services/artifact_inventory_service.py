@@ -42,6 +42,7 @@ from bili_asr.storage.database import connect_database
 
 INVENTORY_SCHEMA = "artifact-inventory-v1"
 PLAN_SCHEMA = "artifact-offload-plan-v1"
+COPY_PLAN_SCHEMA = "artifact-copy-plan-v1"
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _CHUNK = 1024 * 1024
 _OFFLINE_ERRORS = {errno.EIO, errno.ENODEV, errno.ENXIO, errno.ENOTCONN, errno.ESTALE}
@@ -590,8 +591,37 @@ def inventory_artifacts(
                             "Executors must recheck holds, consumers, source identities and capacity before releasing bytes."]}
 
 
+def copy_candidate_inventory(inventory: Mapping[str, Any]) -> dict[str, Any]:
+    """Select stable bytes for an additional replica, preserving release guards.
+
+    Consumers, pins and external retention holds forbid removing bytes. They
+    do not forbid making another verified copy. Identity, complete-group and
+    physical safety checks still apply, and no source release uses this view.
+    """
+    copies = []
+    for copy in inventory["copies"]:
+        blockers = [reason for reason in copy["blockers"] if not (
+            reason.startswith(("consumer:", "persistent_pin:", "external_hold:"))
+            or reason in {"external_hold_unverified", "audio_consumer_unfinished"})]
+        copies.append({**copy, "blockers": blockers, "candidate": copy["selected"] and not blockers})
+    payload = {copy["sha256"]: copy["size"] for copy in copies if copy["candidate"]}
+    return {**inventory, "copies": copies, "summary": {**inventory["summary"],
+        "candidate_copies": sum(copy["candidate"] for copy in copies),
+        "reclaimable_content_bytes": 0, "target_payload_bytes": sum(payload.values()),
+        "restore_workspace_bytes": max(payload.values(), default=0)}}
+
+
+def plan_artifact_copy(inventory: Mapping[str, Any], *, target_id: str) -> dict[str, Any]:
+    """Freeze non-destructive copying; this contract never authorizes offload."""
+    return _plan_artifact(copy_candidate_inventory(inventory), target_id=target_id, schema=COPY_PLAN_SCHEMA)
+
+
 def plan_artifact_offload(inventory: Mapping[str, Any], *, target_id: str) -> dict[str, Any]:
     """Freeze verified candidate copies and all reasons into a hashed preview."""
+    return _plan_artifact(inventory, target_id=target_id, schema=PLAN_SCHEMA)
+
+
+def _plan_artifact(inventory: Mapping[str, Any], *, target_id: str, schema: str) -> dict[str, Any]:
     if inventory.get("schema") != INVENTORY_SCHEMA or inventory.get("integrity_depth") != "deep":
         raise ArtifactInventoryServiceError("a frozen offload plan requires a deep inventory")
     if not isinstance(target_id, str) or not target_id.strip():
@@ -609,7 +639,7 @@ def plan_artifact_offload(inventory: Mapping[str, Any], *, target_id: str) -> di
                             "versions": sorted({ref["version"] for identity in object_ids for ref in objects[identity]["references"]})})
         else:
             held.append({"copy_id": copy["copy_id"], "root": copy["root"], "path": copy["path"], "reasons": copy["blockers"], "object_ids": object_ids})
-    body = {"schema": PLAN_SCHEMA, "target_id": target_id, "selection": inventory["selection"],
+    body = {"schema": schema, "target_id": target_id, "selection": inventory["selection"],
             "database_contract": inventory["database_contract"], "integrity_depth": "deep",
             "external_holds_verified": inventory["external_holds_verified"], "items": items, "held": held,
             "estimate": {key: inventory["summary"][key] for key in ("reclaimable_content_bytes", "target_payload_bytes", "restore_workspace_bytes")},
@@ -624,7 +654,7 @@ def validate_offload_plan(plan: Mapping[str, Any]) -> None:
     expected_keys = {"schema", "target_id", "selection", "database_contract", "integrity_depth", "external_holds_verified",
                      "items", "held", "estimate", "requires_execution_revalidation", "plan_sha256"}
     try:
-        if set(plan) != expected_keys or plan["schema"] != PLAN_SCHEMA or plan["integrity_depth"] != "deep":
+        if set(plan) != expected_keys or plan["schema"] not in {PLAN_SCHEMA, COPY_PLAN_SCHEMA} or plan["integrity_depth"] != "deep":
             raise ValueError("unsupported plan shape")
         if not isinstance(plan["target_id"], str) or not plan["target_id"].strip() or plan["requires_execution_revalidation"] is not True:
             raise ValueError("invalid target or execution guard")
@@ -642,7 +672,7 @@ def validate_offload_plan(plan: Mapping[str, Any]) -> None:
         estimate = plan["estimate"]
         if not isinstance(estimate, dict) or set(estimate) != {"reclaimable_content_bytes", "target_payload_bytes", "restore_workspace_bytes"} or any(type(value) is not int or value < 0 for value in estimate.values()):
             raise ValueError("invalid space estimate")
-        if plan["items"] and not plan["external_holds_verified"]:
+        if plan["schema"] == PLAN_SCHEMA and plan["items"] and not plan["external_holds_verified"]:
             raise ValueError("unverified holds cannot permit candidates")
         seen = set()
         for item in plan["items"]:

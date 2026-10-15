@@ -21,6 +21,8 @@ from bili_asr.services.artifact_coordination import (
 )
 from bili_asr.services.artifact_inventory_service import (
     ArtifactSelection,
+    COPY_PLAN_SCHEMA,
+    copy_candidate_inventory,
     inventory_artifacts,
     validate_offload_plan,
 )
@@ -64,14 +66,21 @@ def _retarget(plan, target_id):
 
 def _plans(connection, inventory, config, pressure, now):
     from bili_asr.services.artifact_policy_planning import bounded_plan
-    inventory, clocks = _clock_and_pending(connection, inventory)
-    eligible = {**inventory, "copies": [{**copy, "candidate": copy["candidate"]
-        and clocks.get(copy["copy_id"], now) <= now - config["minimum_age_seconds"]} for copy in inventory["copies"]]}
-    backup = bounded_plan(eligible, config)
+    release_inventory, clocks = _clock_and_pending(connection, inventory)
+    # Stable content can be copied while queued/failed consumers retain the
+    # source. Completion clocks and consumer guards apply only to release.
+    backup = bounded_plan(copy_candidate_inventory(inventory), config, purpose="copy")
     backed_up = {item["copy_id"] for item in backup["items"]}
-    release_inventory = {**eligible, "copies": [{**copy, "candidate": copy["candidate"] and (pressure
-        or clocks.get(copy["copy_id"], now) <= now - config["local_retention_seconds"])
-        and copy["copy_id"] in backed_up} for copy in eligible["copies"]]}
+    releases = []
+    for copy in release_inventory["copies"]:
+        blockers = list(copy["blockers"])
+        if clocks.get(copy["copy_id"], now) > now - config["minimum_age_seconds"]:
+            blockers.append("audio_minimum_age")
+        if not pressure and clocks.get(copy["copy_id"], now) > now - config["local_retention_seconds"]:
+            blockers.append("audio_local_retention_age")
+        releases.append({**copy, "blockers": sorted(set(blockers)),
+            "candidate": copy["candidate"] and not blockers and copy["copy_id"] in backed_up})
+    release_inventory = {**release_inventory, "copies": releases}
     release = bounded_plan(release_inventory, config)
     return {"format": "audio-retention-plan/v1", "backup": backup, "release": release,
             "pressure_active": bool(pressure)}
@@ -169,8 +178,26 @@ def run_audio_retention_once(roots, *, policy_id, target_root, storage_targets, 
                     frozen = json.loads(prior["plan_json"]) if resume else _plans(connection, inventory, config, pressure, time.time())
                     if frozen.get("format") != "audio-retention-plan/v1":
                         raise ValueError("unsupported persisted audio retention plan")
+                    if frozen["backup"]["schema"] != COPY_PLAN_SCHEMA:
+                        # Older frozen plans coupled copy admission to release.
+                        # Restore journal-owned isolation before re-planning;
+                        # never reinterpret an old release intent as a copy.
+                        from bili_asr.services.audio_retention_recovery import restore_isolated_audio
+                        restored = restore_isolated_audio(connection, roots, frozen["release"],
+                            compression_level=config["compression_level"])
+                        report["legacy_plan_replanned"] = frozen["backup"]["plan_sha256"]
+                        if restored:
+                            inventory = inventory_artifacts(session.database_path, roots, deep=True,
+                                selection=ArtifactSelection(**{key: tuple(values) for key, values in config["selection"].items()}),
+                                external_holds=external_holds() if callable(external_holds) else external_holds, progress=progress)
+                        frozen = _plans(connection, inventory, config, pressure, time.time())
                     report.update(local_audio_bytes_before=local_bytes, free_bytes=free,
                         pressure_active=bool(pressure), scan={"bytes_read": sum(seen.values()), "elapsed_seconds": time.monotonic() - started})
+                    report["copy_backlog"] = {"objects": len({item["sha256"] for item in frozen["backup"]["items"]}),
+                        "bytes": frozen["backup"]["estimate"]["target_payload_bytes"], "held": frozen["backup"]["held"],
+                        "scope": "selected_batch"}
+                    report["copy_selection"] = dict(report["copy_backlog"])
+                    report["release_blockers"] = frozen["release"]["held"]
                     payload = frozen["backup"]["estimate"]["target_payload_bytes"]
                     report["target_temporary_space_upper_bound_bytes"] = payload + (payload + 99) // 100 + max(
                         64 * 1024**2, len(frozen["backup"]["items"]) * 4096)
@@ -194,6 +221,12 @@ def run_audio_retention_once(roots, *, policy_id, target_root, storage_targets, 
                         report.update(state="complete", backups=transfers, object_receipts=[
                             {"object_id": identity, "original_byte_size": size, "verified_target_ids": list(target_ids)}
                             for identity, size in sorted({item["sha256"]: item["size"] for item in backup["items"]}.items())])
+                        report["copy_backlog"].update(objects=0, bytes=0)
+                        copied_ids = {item["copy_id"] for item in backup["items"]}
+                        release_guarded = any(item["copy_id"] in copied_ids and reason != "audio_local_retention_age"
+                            for item in frozen["release"]["held"] for reason in item["reasons"])
+                        if report["delete_authorized"] and release_guarded and not frozen["release"]["items"]:
+                            report.update(state="blocked", reason="audio_release_guarded")
                         if report["delete_authorized"] and frozen["release"]["items"]:
                             guard()
                             def released(outcome):

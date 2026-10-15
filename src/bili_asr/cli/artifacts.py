@@ -53,6 +53,8 @@ def add_artifacts_parser(subparsers: argparse._SubParsersAction, *, archive_root
             action.add_argument("--deep", action="store_true", help="Read and hash bytes; the default only observes readable paths")
         else:
             action.add_argument("--target-id", required=True, help="Logical storage target identity")
+            action.add_argument("--purpose", choices=("offload", "copy"), default="offload",
+                help="Copy freezes stable bytes even while retained; a copy plan never authorizes deletion")
     upgrade = actions.add_parser("upgrade", help="Preserve an archive in a separate target and install artifact storage explicitly")
     upgrade.set_defaults(database_policy=None)
     upgrade.add_argument("--archive-root", required=True, help="Stopped source archive")
@@ -263,7 +265,7 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
             from bili_asr.services.artifact_inventory_service import (
                 ArtifactSelection,
                 inventory_artifacts,
-                plan_artifact_offload,
+                plan_artifact_offload, plan_artifact_copy,
             )
             selection = ArtifactSelection(kinds=tuple(args.kind or ()), platforms=tuple(args.platform or ()),
                                           creator_ids=tuple(args.creator_id or ()), video_ids=tuple(args.video_id or ()),
@@ -273,7 +275,8 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
                                          selection=selection, external_holds=_external_holds(args),
                                          max_bytes_per_second=args.max_bytes_per_second)
             if args.artifacts_action == "plan":
-                report = plan_artifact_offload(report, target_id=args.target_id)
+                planner = plan_artifact_copy if args.purpose == "copy" else plan_artifact_offload
+                report = planner(report, target_id=args.target_id)
             if args.out:
                 _write_report(Path(args.out), report, roots)
         print(json.dumps(report, ensure_ascii=False, sort_keys=True))

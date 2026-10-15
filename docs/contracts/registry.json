@@ -176,6 +176,25 @@
       "schema": "archive-reference-backup-v2.schema.json"
     },
     {
+      "identity": "metadata-supervision/v1",
+      "owner": "sources",
+      "authority": [
+        "src/bili_asr/services/metadata_supervision.py"
+      ],
+      "consumers": [
+        "cli.meta",
+        "operator-tools"
+      ],
+      "capabilities": [
+        "validate",
+        "read",
+        "write",
+        "retry-decision"
+      ],
+      "dependencies": [],
+      "schema": null
+    },
+    {
       "identity": "metadata-acceptance/v1",
       "owner": "sources",
       "authority": [
@@ -515,6 +534,28 @@
         "artifact-inventory-v1"
       ],
       "schema": "artifact-offload-plan-v1.schema.json"
+    },
+    {
+      "identity": "artifact-copy-plan-v1",
+      "owner": "storage",
+      "authority": [
+        "src/bili_asr/services/artifact_inventory_service.py"
+      ],
+      "consumers": [
+        "cli.artifacts",
+        "services.artifact_transfer",
+        "services.audio_retention"
+      ],
+      "capabilities": [
+        "validate",
+        "read",
+        "write"
+      ],
+      "dependencies": [
+        "artifact-storage-v1",
+        "artifact-inventory-v1"
+      ],
+      "schema": "artifact-copy-plan-v1.schema.json"
     },
     {
       "identity": "artifact-package-v1",
