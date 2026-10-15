@@ -5,6 +5,9 @@ the production OpenCode relay work on top of main `3d5ed3a`). The server is
 powered off; the implementation and offline acceptance happen locally.
 Historical production snapshots in the [review](../evidence/production-failure-review-2026-10-15.md)
 are evidence of the problems, not fresh runtime status.
+Implementation, independent baseline comparisons, candidate identity and
+remaining host acceptance are recorded in the
+[verification record](../evidence/production-reliability-verification-2026-10-15.md).
 
 ## Architecture and invariants
 
