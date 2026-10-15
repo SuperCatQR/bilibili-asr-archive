@@ -87,6 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_meta.add_argument("--request-budget", type=int, default=10000, help="Total upstream operation attempts including retries")
     fetch_meta.add_argument("--request-timeout", type=float, default=30)
     fetch_meta.add_argument("--run-timeout", type=float, default=14400)
+    fetch_meta.add_argument("--supervised", action="store_true", help="Run one bounded metadata cycle with durable no-progress/backoff admission")
+    fetch_meta.add_argument("--supervision-state", help="Durable supervision JSON path; default: ARCHIVE/.metadata-supervision/MID.json")
+    fetch_meta.add_argument("--supervision-policy", help="Metadata supervision policy JSON; changes require reviewed new state")
+    fetch_meta.add_argument("--supervision-status", action="store_true", help="Inspect durable supervision without upstream access; implies --supervised")
 
     fetch_tags = subparsers.add_parser("fetch-tags", help="Refresh original tags for archived videos")
     fetch_tags.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
