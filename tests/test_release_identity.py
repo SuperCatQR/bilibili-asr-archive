@@ -53,6 +53,57 @@ def test_guard_rejects_wrong_expected_release(attested_package):
         identity.require_expected_build("f" * 64)
 
 
+@pytest.mark.parametrize("field,value", [
+    ("schema_version", 2), ("source_commit", "not-a-commit"),
+    ("lock_sha256", None), ("build_id", "invalid"),
+    ("files", {}), ("files", []), ("files", {"extra.txt": "a" * 64}),
+    ("build_id", "f" * 64),
+])
+def test_invalid_manifest_never_attests_a_release(attested_package, field, value):
+    _, manifest = attested_package
+    with pytest.raises(identity.ReleaseIdentityError):
+        identity.validate_manifest({**manifest, field: value})
+
+
+@pytest.mark.parametrize("value", [None, {}, {"unexpected": True}])
+def test_manifest_requires_exact_schema(value):
+    with pytest.raises(identity.ReleaseIdentityError, match="invalid build manifest"):
+        identity.validate_manifest(value)
+
+
+def test_invalid_source_identity_is_rejected_before_hashing(tmp_path):
+    with pytest.raises(identity.ReleaseIdentityError, match="invalid release identity"):
+        identity.create_manifest(tmp_path, "not-a-commit", "b" * 64)
+
+
+def test_inventory_ignores_bytecode_but_rejects_nonfiles(tmp_path):
+    cache = tmp_path / "__pycache__"
+    cache.mkdir()
+    (cache / "injected.py").write_text("ignored")
+    assert identity.package_files(tmp_path) == {}
+    (tmp_path / "invalid.py").mkdir()
+    with pytest.raises(identity.ReleaseIdentityError, match="unsupported file"):
+        identity.package_files(tmp_path)
+
+
+@pytest.mark.parametrize("contents", ["not json", " " * (2 * 1024 * 1024 + 1)],
+                         ids=["malformed-json", "oversized-manifest"])
+def test_invalid_disk_manifest_is_reported_without_loading_it(attested_package, contents):
+    root, _ = attested_package
+    (root / identity.MANIFEST_NAME).write_text(contents, encoding="utf-8")
+    assert identity._capture() == (None, "invalid_manifest")
+    assert identity.build_status()["state"] == "disk_drift"
+
+
+def test_unreadable_package_fails_closed(attested_package, monkeypatch):
+    def unreadable(_root):
+        raise OSError("private filesystem details")
+    monkeypatch.setattr(identity, "package_files", unreadable)
+    assert identity.build_status()["state"] == "disk_unreadable"
+    with pytest.raises(identity.ReleaseIdentityError, match="disk_unreadable"):
+        identity.require_expected_build()
+
+
 @pytest.mark.parametrize("name", ["../secret.py", "/secret.py", "a\\secret.py", "a//b.py"])
 def test_manifest_rejects_unsafe_file_inventory(attested_package, name):
     _, manifest = attested_package

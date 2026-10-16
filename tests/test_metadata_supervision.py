@@ -9,7 +9,7 @@ from dataclasses import replace
 import pytest
 
 from bili_asr.cli.main import main
-from bili_asr.services.metadata_ingest import MetadataIngestor
+from bili_asr.services.metadata_ingest import IngestionRunResult, MetadataIngestor
 from bili_asr.services.metadata_supervision import MetadataSupervisionPolicy, MetadataSupervisor
 from bili_asr.services.retry_maintenance_io import MaintenanceBusyError, maintenance_lock
 from bili_asr.sources.models import GatewayAuthenticationError, GatewayRateLimited, UserVideoPage
@@ -36,6 +36,185 @@ def supervision(tmp_path):
         policy=policy(), clock=lambda: clock[0])
     yield root, repository, clock, gateway, supervisor
     connection.close()
+
+
+@pytest.mark.parametrize("version", [2, True, 1.0])
+def test_policy_rejects_unknown_or_noninteger_versions(version):
+    with pytest.raises(ValueError, match="unsupported metadata supervision policy version"):
+        MetadataSupervisionPolicy(version=version)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("maximum_consecutive_no_progress", 0),
+    ("maximum_no_progress_seconds", -1),
+    ("maximum_wait_seconds", True),
+    ("initial_backoff_seconds", 1.5),
+    ("maximum_backoff_seconds", "3600"),
+    ("maximum_pages_per_cycle", 0),
+])
+def test_policy_rejects_invalid_budget_values(field, value):
+    with pytest.raises(ValueError, match="positive integers: " + field):
+        MetadataSupervisionPolicy(**{field: value})
+
+
+def test_policy_rejects_inverted_backoff_bounds():
+    with pytest.raises(ValueError, match="backoff bounds are inverted"):
+        MetadataSupervisionPolicy(initial_backoff_seconds=11, maximum_backoff_seconds=10)
+
+
+@pytest.mark.parametrize("field", ["maximum_pages_per_cycle", "maximum_consecutive_no_progress"])
+def test_policy_caps_request_and_retry_counts(field):
+    with pytest.raises(ValueError, match="bound exceeds 100"):
+        MetadataSupervisionPolicy(**{field: 101})
+
+
+def test_policy_file_preserves_explicit_bounds_and_supplies_defaults(tmp_path):
+    path = tmp_path / "supervision-policy.json"
+    path.write_text(json.dumps({"maximum_pages_per_cycle": 100, "maximum_consecutive_no_progress": 100,
+        "initial_backoff_seconds": 10, "maximum_backoff_seconds": 10}), encoding="utf-8")
+    assert MetadataSupervisionPolicy.from_file(str(path)) == MetadataSupervisionPolicy(
+        maximum_pages_per_cycle=100, maximum_consecutive_no_progress=100,
+        initial_backoff_seconds=10, maximum_backoff_seconds=10)
+
+
+def test_policy_file_rejects_unknown_fields_instead_of_silently_ignoring_them(tmp_path):
+    path = tmp_path / "supervision-policy.json"
+    path.write_text('{"maximum_page_per_cycle": 1}', encoding="utf-8")
+    with pytest.raises(ValueError, match="unknown metadata supervision policy field"):
+        MetadataSupervisionPolicy.from_file(path)
+
+
+@pytest.mark.parametrize("mid", [0, -1, True, str(MID)])
+def test_invalid_creator_is_rejected_before_state_or_collection(supervision, mid):
+    _, repo, _, gateway, supervisor = supervision
+    with pytest.raises(ValueError, match="mid must be positive"):
+        supervisor.collect(MetadataIngestor(gateway, repo), mid=mid)
+    assert not supervisor.state_path.exists()
+    assert gateway.page_calls == []
+    assert repo.connection.execute("SELECT COUNT(*) FROM ingestion_runs").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("damage,message", [
+    ("missing_field", "unsupported metadata supervision state"),
+    ("unknown_field", "unsupported metadata supervision state"),
+    ("format", "unsupported metadata supervision state"),
+    ("state", "invalid metadata supervision state"),
+    ("policy_hash", "policy changed"),
+])
+def test_damaged_state_is_preserved_and_stops_collection(supervision, damage, message):
+    _, repo, _, gateway, supervisor = supervision
+    state = supervisor.inspect(MID)
+    if damage == "missing_field":
+        del state["last_run_id"]
+    elif damage == "unknown_field":
+        state["unexpected_field"] = 1
+    elif damage == "format":
+        state["format"] = "metadata-supervision/v2"
+    elif damage == "state":
+        state["state"] = "completed"
+    else:
+        state["policy_sha256"] = "0" * 64
+    supervisor.state_path.write_text(json.dumps(state), encoding="utf-8")
+    before = supervisor.state_path.read_bytes()
+    with pytest.raises(ValueError, match=message):
+        supervisor.collect(MetadataIngestor(gateway, repo), mid=MID)
+    assert supervisor.state_path.read_bytes() == before
+    assert gateway.page_calls == []
+    assert repo.connection.execute("SELECT COUNT(*) FROM ingestion_runs").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("field,value", [
+    ("monitoring_started_at", -1),
+    ("updated_at", True),
+    ("next_action_at", float("inf")),
+    ("accumulated_wait_seconds", float("nan")),
+    ("no_progress_wait_seconds", "0"),
+    ("last_progress_at", -1),
+    ("last_progress_at", True),
+    ("wait_accounted_at", float("inf")),
+    ("wait_accounted_at", "0"),
+])
+def test_invalid_durable_clocks_preserve_evidence_and_stop_collection(supervision, field, value):
+    _, repo, _, gateway, supervisor = supervision
+    state = supervisor.inspect(MID)
+    state[field] = value
+    supervisor.state_path.write_text(json.dumps(state), encoding="utf-8")
+    before = supervisor.state_path.read_bytes()
+    with pytest.raises(ValueError, match="invalid metadata supervision clock: " + field):
+        supervisor.collect(MetadataIngestor(gateway, repo), mid=MID)
+    assert supervisor.state_path.read_bytes() == before
+    assert gateway.page_calls == []
+
+
+def test_clock_rollback_does_not_rewrite_cooldown_or_admit_a_request(supervision):
+    _, repo, clock, gateway, supervisor = supervision
+    first = supervisor.collect(MetadataIngestor(gateway, repo), mid=MID)
+    assert first.supervision["next_action_at"] == 110
+    before = supervisor.state_path.read_bytes()
+    clock[0] = 99
+    with pytest.raises(ValueError, match="clock moved backwards"):
+        supervisor.collect(MetadataIngestor(gateway, repo), mid=MID)
+    assert supervisor.state_path.read_bytes() == before
+    assert len(gateway.page_calls) == 1
+
+
+@pytest.mark.parametrize("page_limit", [0, -1, True, 1.5, "1"])
+def test_invalid_page_limits_are_rejected_before_state_or_collection(supervision, page_limit):
+    _, repo, _, gateway, supervisor = supervision
+    with pytest.raises(ValueError, match="invalid supervised page limit"):
+        supervisor.collect(MetadataIngestor(gateway, repo), mid=MID, page_limit=page_limit)
+    assert not supervisor.state_path.exists()
+    assert gateway.page_calls == []
+
+
+@pytest.mark.parametrize("exception_type", [RuntimeError, KeyboardInterrupt])
+def test_collection_exception_is_persisted_and_rethrown_before_restart(supervision, monkeypatch, exception_type):
+    root, repo, clock, gateway, supervisor = supervision
+    ingestor = MetadataIngestor(gateway, repo)
+    failure = exception_type("private interruption detail")
+
+    def interrupted(**_options):
+        clock[0] = 105
+        raise failure
+
+    monkeypatch.setattr(ingestor, "collect_user_pages", interrupted)
+    with pytest.raises(exception_type) as raised:
+        supervisor.collect(ingestor, mid=MID)
+    assert raised.value is failure
+    persisted = json.loads(supervisor.state_path.read_text(encoding="utf-8"))
+    assert persisted["state"] == "needs_attention"
+    assert persisted["error_code"] == "supervision_interrupted"
+    assert persisted["consecutive_no_progress"] == 1
+    assert persisted["active_attempt"] is None and persisted["updated_at"] == 105
+    assert persisted["last_progress_at"] is None and persisted["accumulated_wait_seconds"] == 0
+    assert "private interruption detail" not in supervisor.state_path.read_text(encoding="utf-8")
+    restarted = MetadataSupervisor(repo, archive_root=root, state_path=supervisor.state_path,
+        policy=policy(), clock=lambda: 110)
+    blocked = restarted.collect(MetadataIngestor(gateway, repo), mid=MID)
+    assert blocked.result is None and blocked.supervision["consecutive_no_progress"] == 1
+    assert gateway.page_calls == []
+
+
+def test_wrong_creator_result_is_rejected_and_incomplete_attempt_reconciles_on_restart(supervision, monkeypatch):
+    root, repo, _, gateway, supervisor = supervision
+    ingestor = MetadataIngestor(gateway, repo)
+    wrong_result = IngestionRunResult(run_id="wrong-creator", mid=MID + 1, outcome="limited",
+        next_cursor=None, page_count=0, video_count=0, part_count=0, error_code=None, collected_page_count=0)
+    monkeypatch.setattr(ingestor, "collect_user_pages", lambda **_options: wrong_result)
+    with pytest.raises(ValueError, match="result scope mismatch"):
+        supervisor.collect(ingestor, mid=MID)
+    persisted = json.loads(supervisor.state_path.read_text(encoding="utf-8"))
+    assert persisted["state"] == "running" and persisted["mid"] == MID
+    assert persisted["last_run_id"] is None and persisted["last_progress_at"] is None
+    restarted = MetadataSupervisor(repo, archive_root=root, state_path=supervisor.state_path,
+        policy=policy(), clock=lambda: 105)
+    state = restarted.inspect(MID)
+    assert state["state"] == "needs_attention" and state["reason"] == "previous_process_interrupted"
+    assert state["error_code"] == "supervision_interrupted" and state["active_attempt"] is None
+    assert state["last_run_id"] is None and state["consecutive_no_progress"] == 1
+    assert restarted.collect(MetadataIngestor(gateway, repo), mid=MID).result is None
+    assert gateway.page_calls == []
+    assert repo.connection.execute("SELECT COUNT(*) FROM ingestion_runs").fetchone()[0] == 0
 
 
 def test_persisted_backoff_and_streak_survive_service_reconstruction(supervision):

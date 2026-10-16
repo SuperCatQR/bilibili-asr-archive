@@ -5,11 +5,13 @@ from __future__ import annotations
 import multiprocessing
 import errno
 import os
+import queue
 import signal
 import subprocess
 import time
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -197,6 +199,136 @@ def test_real_progress_keeps_long_work_alive_but_stalled_work_and_heartbeats_are
                 invoke(session, path, config=config, timeout=6)
             assert caught.value.safe_details["reason"] == "no_progress"
             assert session._process is None
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def worker_protocol(monkeypatch):
+    """Exercise the worker protocol without starting its process guardians here."""
+    from bili_asr.asr import session as session_module
+    from bili_asr.asr.progress import set_progress_hook
+
+    monkeypatch.setattr(session_module, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(session_module, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(session_module, "threading", SimpleNamespace(
+        Thread=lambda **_: SimpleNamespace(start=lambda: None)))
+
+    def exchange(runner, *paths):
+        commands, responses = queue.Queue(), queue.Queue()
+        envelopes = []
+        for attempt, path in enumerate(paths, 1):
+            envelope = {"protocol": 1, "generation": 7, "request_id": f"request-{attempt}",
+                        "identity": request(attempt).identity()}
+            envelopes.append(envelope)
+            commands.put({**envelope, "audio_path": path, "paired_subtitle_text": str(attempt)})
+        commands.put(None)
+        session_module._session_worker(ASRConfig(model_name="offline", device="cpu"),
+            commands, responses, 7, lambda _config: runner, False, 1024)
+        result = []
+        while not responses.empty():
+            result.append(responses.get_nowait())
+        return envelopes, result
+
+    try:
+        yield exchange
+    finally:
+        set_progress_hook(None)
+
+
+def test_worker_emits_only_real_progress_with_request_identity_and_resets_sequence(worker_protocol):
+    from bili_asr.asr.progress import _progress
+
+    class StagedRunner(ProcessRunner):
+        released = 0
+
+        def transcribe(self, path, *, bust_cache=False):
+            for phase in ("load", "model_ready", "audio_ready", "decode", "decoded",
+                          "align", "aligned", "chunk_complete", "heartbeat"):
+                _progress(phase)
+            return super().transcribe(path, bust_cache=bust_cache)
+
+        def release(self):
+            self.released += 1
+
+    runner = StagedRunner(ASRConfig(model_name="offline", device="cpu"))
+    envelopes, responses = worker_protocol(runner, "first", "second")
+    phases = ["model_ready", "audio_ready", "decoded", "aligned", "chunk_complete"]
+    for attempt, envelope in enumerate(envelopes, 1):
+        frames = [frame for frame in responses if frame["request_id"] == envelope["request_id"]]
+        assert frames[:-1] == [{**envelope, "progress": {"phase": phase, "sequence": sequence}}
+                              for sequence, phase in enumerate(phases, 1)]
+        assert frames[-1]["ok"] is True
+        assert all(frames[-1][key] == value for key, value in envelope.items())
+        assert frames[-1]["segments"][0]["text"] == f"{'first' if attempt == 1 else 'second'}:{attempt}"
+        assert frames[-1]["coverage"] == {"calls": attempt}
+    assert runner.released == 1
+
+
+@pytest.mark.parametrize("phase,expected", [
+    ("load", "model_load"), ("model_ready", "audio_prepare"), ("audio_ready", "decode"),
+    ("decode", "decode"), ("decoded", "align"), ("align", "align"),
+    ("aligned", "align"), ("chunk_complete", "decode"),
+    ("sensitive /private/path SESSDATA", "inference"),
+])
+def test_worker_failure_keeps_safe_stage_and_system_facts_then_discards_runner(worker_protocol, phase, expected):
+    from bili_asr.asr.progress import _progress
+
+    class FailedRunner(ProcessRunner):
+        released = 0
+
+        def transcribe(self, _path, *, bust_cache=False):
+            self.calls += 1
+            _progress(phase)
+            raise OSError(errno.EMFILE, "sensitive /private/model token=value")
+
+        def release(self):
+            self.released += 1
+
+    runner = FailedRunner(ASRConfig(model_name="offline", device="cpu"))
+    envelopes, responses = worker_protocol(runner, "failure", "must-not-run")
+    failure = responses[-1]
+    assert all(failure[key] == value for key, value in envelopes[0].items())
+    assert failure["ok"] is False
+    assert failure["diagnostic"] == {"phase": expected, "exception_type": "OSError",
+        "errno": errno.EMFILE, "errno_name": "EMFILE"}
+    assert "sensitive" not in repr(responses)
+    assert all(frame["request_id"] == envelopes[0]["request_id"] for frame in responses)
+    assert runner.calls == 1 and runner.released == 1
+
+
+@pytest.mark.parametrize("events", [
+    pytest.param([{"phase": "chunk_complete", "sequence": 1},
+                  {"phase": "chunk_complete", "sequence": 1}], id="repeated-sequence"),
+    pytest.param([{"phase": "chunk_complete", "sequence": 2}], id="skipped-sequence"),
+    pytest.param([{"phase": "heartbeat", "sequence": 1}], id="heartbeat"),
+    pytest.param([{"phase": "decoded", "sequence": True}], id="boolean-sequence"),
+    pytest.param([{"phase": [], "sequence": 1}], id="malformed-phase"),
+])
+def test_invalid_progress_frame_reaps_session_and_cannot_return_a_completed_result(monkeypatch, events):
+    session = AsrInferenceSession(runner_factory=ProcessRunner)
+    try:
+        first, _ = invoke(session)
+        original = session._responses.get
+        pending = iter(events)
+        completed = None
+
+        def invalid_progress(*args, **kwargs):
+            nonlocal completed
+            if completed is None:
+                completed = original(*args, **kwargs)
+            return {key: completed[key] for key in ("protocol", "generation", "request_id", "identity")} | {
+                "progress": next(pending)}
+
+        monkeypatch.setattr(session._responses, "get", invalid_progress)
+        with pytest.raises(InferenceSessionError, match="invalid ASR progress response") as caught:
+            invoke(session, "must-not-be-returned", attempt=2)
+        assert caught.value.safe_details == {"phase": "ipc"}
+        assert session._process is None
+        recovered, evidence = invoke(session, "new-generation", attempt=3)
+        assert recovered[0][0]["text"] == "new-generation:3"
+        assert recovered[1]["pid"] != first[1]["pid"]
+        assert evidence["calls"] == 1
     finally:
         session.close()
 

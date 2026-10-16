@@ -47,6 +47,22 @@ def inspect(workflow, proof, replacement, **kwargs):
                                    no_control_state=True, **kwargs)
 
 
+def test_recovery_enqueue_requires_application_transaction_before_changing_chain(database, tmp_path):
+    workflow, _, _, client, _, proof, render, replacement = chain(database, tmp_path)
+    plan = inspect(workflow, proof, replacement)
+    before = snapshot(database)
+    assert not database.in_transaction
+    with pytest.raises(RuntimeError, match="editorial recovery enqueue requires a write transaction"):
+        workflow.enqueue_editorial_recovery(video_part_id=plan["video_part_id"], input_id=plan["input_id"],
+            previous_proofread_job_id=proof, previous_render_job_id=render,
+            replacement_asr_job_id=replacement, replacement_attempt_id=plan["replacement_attempt_id"],
+            replacement_run_id=plan["replacement_run_id"])
+    assert not database.in_transaction
+    assert snapshot(database) == before and client.requests == []
+    applied = inspect(workflow, proof, replacement, apply=True, expected_plan_id=plan["plan_id"])
+    assert applied["applied"] and applied["created"] and client.requests == []
+
+
 def test_recovery_plans_readonly_and_creates_an_explicit_frozen_chain(database, tmp_path):
     workflow, editorial, executor, client, original, proof, render, replacement = chain(database, tmp_path)
     before = snapshot(database)
