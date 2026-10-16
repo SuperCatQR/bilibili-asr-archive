@@ -28,6 +28,7 @@
 /venv/
 
 # Python caches and tool state
+*.egg-info/
 __pycache__/
 *.py[cod]
 *.pyo
