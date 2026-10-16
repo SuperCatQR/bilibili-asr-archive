@@ -19,7 +19,7 @@ bili-asr artifacts policy-show --archive-root /srv/bili-asr --policy-id audio --
 | `target_id` | 主备份目标的逻辑身份，必须事先绑定目录；机器路径通过命令行传入 |
 | `replica_target_ids` | 额外目标身份列表，每批先完成所有配置目标的备份 |
 | `minimum_verified_copies` | 最终删除前至少需要的已核验目录副本数，必须大于零且不能大于目标数；目录 inode/文件标识相同不重复计数 |
-| `minimum_age_seconds` | 源文件 mtime 与所有直接、间接消费者最后更新时间的最大值开始计龄；满足此年龄才可备份或迁出 |
+| `minimum_age_seconds` | 增加副本只按稳定源文件 mtime 计龄；删除还按源文件 mtime 与所有直接、间接消费者最后更新时间的最大值计龄 |
 | `local_retention_seconds` | 完成年龄达到此期限时允许迁出。必须不小于 minimum age |
 | `maximum_local_audio_bytes` | 所有根目录中音频文件按物理文件去重的容量上限；超过时可迁出已满足 minimum age 的批次 |
 | `trigger_free_bytes`、`stop_free_bytes` | 低空闲空间触发，较高水位停止；冻结批次的容量/水位决策允许一次有界超额迁出 |
@@ -39,7 +39,7 @@ bili-asr artifacts policy-set --archive-root /srv/bili-asr --policy-id audio --c
 bili-asr artifacts policy-run --archive-root /srv/bili-asr --policy-id audio --target-root /mnt/audio-backup --storage-target second-audio=/mnt/second-backup --holds-file /etc/bili-asr/audio-holds.json
 ```
 
-`audio-holds.json` 使用现有 `{"version":1,"holds":{...}}` 契约。它是本次运行读取的外部 hold 观察，未提供时无法确认 hold 状态，音频受保护。只有实际检查外部控制状态后才可改用 `--no-external-holds`。在策略文件中明确修改 `allow_delete=true` 与 `mode=offload` 后执行 `policy-set`，即授权符合已保存条件的自动删除；不逐文件询问。任何过程中配置变更都会在下一个检查点停止旧批次。
+`audio-holds.json` 使用现有 `{"version":1,"holds":{...}}` 契约。它是本次运行读取的外部 hold 观察，未提供时无法确认 hold 状态，因此禁止删除；增加副本仍可继续。只有实际检查外部控制状态后才可改用 `--no-external-holds`。在策略文件中明确修改 `allow_delete=true` 与 `mode=offload` 后执行 `policy-set`，即授权符合已保存条件的自动删除；不逐文件询问。任何过程中配置变更都会在下一个检查点停止旧批次。
 
 ## 独立常驻与停止
 
@@ -50,6 +50,23 @@ bili-asr artifacts policy-run --archive-root /srv/bili-asr --policy-id audio --t
 可按本机路径调整 `deployment/audio-retention.service.example` 后安装为独立 systemd 服务。示例默认只绑定主目标，配置额外目标时必须向 ExecStart 添加对应 `--storage-target`。停止文件在每轮、每个最多 1 MiB 的流式读取及限速等待中复验；限速等待最多 0.25 秒一个检查点。SIGINT / Ctrl-C 同样产生持久化失败收据并退出 watch。再次启动前显式移除停止文件。正常流程清理自身 target-side staging；它不会扫描、删除未知孤儿文件。
 
 所有 unfinished、failed、cancelled 任务和 running attempt，以及通过依赖链关联音频的 AI 修复/发布任务、等待恢复的任务、人工 pin 和外部 hold 都阻止迁出。运行中的实际 ASR 输入另有对象 fence、消费者 pin 和独立私有文件。私有输入、未知文件、未绑定历史文件不进入候选，维护不会解除人工 pin/hold。
+
+增加副本与删除资格分别冻结：`backup` 使用新的 `artifact-copy-plan-v1`，
+`release` 仍使用 `artifact-offload-plan-v1`。AI queued/failed、旧 ASR failed、
+cancelled job、活跃 reader pin 和 retention hold 不阻止复制已验证的稳定对象；
+它们继续阻止删除。复制取得共享对象 fence，可与读取并存，但不允许源变更；
+摘要、代次、完整组、已登记身份、目标空间检查和复制后目标复验继续强制执行。
+copy plan 在 transfer 的 offload 模式及 release reconciliation 中会被拒绝，不能用
+复制资格冒充删除授权。独立预览可使用：
+
+```sh
+bili-asr artifacts plan --archive-root /srv/bili-asr --purpose copy --kind audio --target-id cold-audio --out /tmp/audio-copy-plan.json
+```
+
+收据中的 `copy_selection` 表示本次有界批次，`copy_backlog` 表示该批次尚未全部
+完成复验的副本工作，`scope=selected_batch` 不代表全归档扫描的累计待办。
+成功获得全部目标收据后该批次 backlog 归零；`release_blockers` 单独保留删除阻碍。
+因此 `state=blocked` 可以同时有成功备份收据和零删除字节，并不表示备份失败。
 
 ## 压缩、峰值空间和审计
 
@@ -68,6 +85,10 @@ ASR 另有私有输入，Linux 优先 CoW、其他平台有界流式复制，预
 可控中断若已隔离源，会仅按冻结计划和已持久化 intent 复验该隔离文件，再恢复原本地路径，不扫描未知文件。仍有活动 reader、源发生变化或数据库不可写时保留隔离字节，收据记录 `recovery_pending`，待问题解决后再次运行同一策略；不强制解除 fence。
 
 进程被强杀后 kernel fence 自动释放，隔离字节和收据仍保留。重启相同配置的维护服务会读取同一冻结 backup/release plan，重新核验目标，再恢复/继续释放；新的消费者/hold 可以阻止释放并恢复本地源。配置暂时停用不删除隔离内容；重新启用完全相同配置可定位原配置摘要下的未完成收据。无法核验的源与未知 target staging 应按既有 artifact-storage 的显式停止、核查和恢复步骤处理。
+
+升级前遗留的未完成冻结计划若仍把 backup 标成 offload-plan，会先按既有
+release journal 恢复其确切隔离源，再从当前事实重新规划 copy/release；旧计划摘要
+记入 `legacy_plan_replanned`。不会清理历史 attempt 或把旧的删除意图解释为 copy。
 
 workflow 使用下面的绑定，在 claim 前按需恢复正确对象，并保持原 audio attempt / ASR profile 证据：
 

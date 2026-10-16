@@ -113,9 +113,79 @@ def test_all_unfinished_consumers_preserve_audio_and_attempt_history(archive, ki
         job(connection, "pending", kind=kind, status=status)
     configure(archive, allow_delete=True)
     before = domain_facts(archive)
-    assert run(archive)["state"] == "blocked"
+    report = run(archive)
+    assert report["state"] == "blocked"
+    assert report["object_receipts"][0]["object_id"] == archive.digest
+    assert report["copy_backlog"]["objects"] == 0
+    assert report["release_blockers"] and report["released_bytes"] == 0
+    assert len(list((archive.target / "packages").glob("*.zip"))) == 1
     assert (archive.root / "audio/input.m4a").read_bytes() == archive.data
     assert domain_facts(archive) == before
+
+
+def test_queued_ai_and_failed_old_asr_copy_without_deleting_unique_source(archive):
+    from tests.test_artifact_inventory_service import job
+    with sqlite3.connect(archive.root / "archive.db") as connection:
+        job(connection, "old-asr", kind="asr", status="failed")
+        job(connection, "replacement", kind="asr", status="succeeded")
+        job(connection, "ai", kind="proofread", status="queued")
+    configure(archive, allow_delete=True)
+    before = domain_facts(archive)
+    report = run(archive)
+    assert report["state"] == "blocked" and report["released_bytes"] == 0
+    assert report["object_receipts"][0]["original_byte_size"] == len(archive.data)
+    assert (archive.root / "audio/input.m4a").read_bytes() == archive.data
+    assert domain_facts(archive) == before
+    ready(archive)
+    resumed = run(archive)
+    assert resumed["object_receipts"] == report["object_receipts"]
+    assert len(list((archive.target / "packages").glob("*.zip"))) == 1
+
+
+def test_copy_shares_active_consumer_read_fence_but_release_remains_guarded(archive):
+    from bili_asr.services.artifact_coordination import consumer_pin
+    configure(archive, allow_delete=True)
+    with ArchiveSession(archive.root, mode=ArchiveAccessMode.WRITE) as session:
+        with consumer_pin(session.connection, archive.roots, archive.digest, owner="live-asr"):
+            report = run(archive)
+            assert report["state"] == "blocked"
+            assert report["object_receipts"][0]["object_id"] == archive.digest
+            assert ArtifactCatalog(session.connection).pinned(archive.digest)
+    assert (archive.root / "audio/input.m4a").read_bytes() == archive.data
+
+
+def test_copy_plan_cannot_authorize_offload_or_release_reconciliation(archive):
+    from bili_asr.services.artifact_inventory_service import inventory_artifacts, plan_artifact_copy
+    inventory = inventory_artifacts(archive.root / "archive.db", archive.roots, deep=True, external_holds=None)
+    plan = plan_artifact_copy(inventory, target_id="cold")
+    assert plan["items"] and plan["external_holds_verified"] is False
+    for action in (
+        lambda: artifact_transfer.transfer_artifacts(archive.roots, plan, target_root=archive.target, mode="offload"),
+        lambda: artifact_transfer.reconcile_artifact_transfer(archive.roots, plan, target_root=archive.target),
+    ):
+        with pytest.raises(ValueError, match="copy plan cannot authorize"):
+            action()
+    assert (archive.root / "audio/input.m4a").read_bytes() == archive.data
+
+
+def test_legacy_frozen_copy_gate_is_replanned_without_clearing_consumer_history(archive):
+    from bili_asr.services.artifact_inventory_service import inventory_artifacts, plan_artifact_offload
+    from tests.test_artifact_inventory_service import job
+    with sqlite3.connect(archive.root / "archive.db") as connection:
+        job(connection, "old-asr", kind="asr", status="failed")
+    configure(archive, allow_delete=True)
+    assert run(archive)["state"] == "blocked"
+    inventory = inventory_artifacts(archive.root / "archive.db", archive.roots, deep=True, external_holds={})
+    old = plan_artifact_offload(inventory, target_id="cold")
+    assert not old["items"]
+    frozen = {"format": "audio-retention-plan/v1", "backup": old, "release": old, "pressure_active": False}
+    with sqlite3.connect(archive.root / "archive.db") as connection:
+        connection.execute("UPDATE artifact_policy_runs SET state='failed',retry_after=0,plan_json=?", (json.dumps(frozen),))
+    before = domain_facts(archive)
+    report = run(archive)
+    assert report["state"] == "blocked" and report["object_receipts"]
+    assert report["legacy_plan_replanned"] == old["plan_sha256"]
+    assert report["released_bytes"] == 0 and domain_facts(archive) == before
 
 
 def test_transitive_ai_repair_and_external_hold_without_part_column_protect_audio(archive):

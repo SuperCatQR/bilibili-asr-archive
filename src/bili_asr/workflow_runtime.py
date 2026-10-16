@@ -24,6 +24,9 @@ from bili_asr import archive, asr, bili_client
 from bili_asr.artifact_inventory import stream_hash
 from bili_asr.artifact_root import ArtifactRoots, usable_audio_path
 from bili_asr.asr.session import AsrInferenceSession, InferenceRequest
+from bili_asr.asr.deadlines import inference_budget
+from bili_asr.exception_diagnostics import DiagnosedFailure, capture_failure
+from bili_asr.workflow_errors import JobExecutionError
 from bili_asr.formatting import duration_s_from_ms, pubdate_utc
 from bili_asr.file_ops import install_prepared_file
 from bili_asr.page_identity import PageIdentity, artifact_stem
@@ -285,6 +288,12 @@ class ArchiveWorkflowHandlers:
         audio_result, audio_path = audio_input.evidence, audio_input.path
         profile = self.repository.profile(job.profile_id)
         config, binding_identity = self.config_resolver(profile.asr_config())
+        try:
+            budget = inference_budget(config, duration_ms=audio_result.get("duration_ms"))
+        except ValueError:
+            raise JobExecutionError("asr_deadline_duration_unavailable", {
+                "phase": "audio_prepare", "reason": "verified-duration-required",
+                "profile_id": job.profile_id, "job_id": job.job_id, "attempt_count": job.attempt_count}) from None
         inference_request = InferenceRequest(job.job_id, job.lease_owner or "", job.attempt_count,
             self.repository.profile_digest(job.profile_id), binding_identity)
         reference_id = job.payload.get("reference_transcript_id")
@@ -306,10 +315,11 @@ class ArchiveWorkflowHandlers:
                 started_at=started,
             )
         )
+        failure_phase = "inference"
         try:
             self.repository.assert_lease(job)
             diagnostics: dict[str, Any] = {}
-            if profile.device.casefold().startswith(("cuda", "rocm")):
+            if profile.device.casefold().startswith(("cuda", "rocm")) or budget.policy == "audio-scaled":
                 infer = self.timeout_transcriber if self.inference_session is None else self.inference_session.transcribe
                 session_args = {} if self.inference_session is None else {
                     "request": inference_request, "checkpoint": lambda: self._inference_checkpoint(job)}
@@ -321,7 +331,7 @@ class ArchiveWorkflowHandlers:
                     config,
                     os.fspath(audio_path),
                     paired_subtitle_text=paired_text,
-                    timeout_seconds=config.inference_timeout_seconds,
+                    timeout_seconds=budget.total_seconds,
                     diagnostics_sink=diagnostics,
                     **session_args,
                 )
@@ -337,10 +347,13 @@ class ArchiveWorkflowHandlers:
                 coverage = asr.transcribed_coverage(runner)
                 diagnostics_reader = getattr(runner, "diagnostics", None)
                 if callable(diagnostics_reader):
-                    diagnostics = diagnostics_reader()
+                    diagnostics = dict(diagnostics_reader())
+            if budget.policy == "audio-scaled":
+                diagnostics["deadline"] = budget.evidence()
             audio_input.assert_unchanged()
             self._inference_checkpoint(job)
             from bili_asr.services.asr_result import preserve_inference
+            failure_phase = "result_commit"
             finished = int(time.time())
             stored, admission = preserve_inference(
                 self.repository, job, run_id=run_id, segments=segments,
@@ -361,10 +374,16 @@ class ArchiveWorkflowHandlers:
             # Completed inference is distinct from usable output. The original
             # evidence commits before admission can block downstream work.
             transcripts.finish_acquisition_run(run_id, int(time.time()), outcome="complete")
-        except BaseException:
+        except BaseException as exc:
             transcripts.finish_acquisition_run(
                 run_id, int(time.time()), outcome="failed"
             )
+            if isinstance(exc, (sqlite3.Error, OSError, DiagnosedFailure)):
+                from bili_asr.workflow_failure_diagnostics import execution_failure
+                error_code, _ = execution_failure(exc)
+                details = {**capture_failure(exc, phase=failure_phase), "run_id": run_id,
+                           "profile_id": job.profile_id, "job_id": job.job_id, "attempt_count": job.attempt_count}
+                raise JobExecutionError(error_code, details) from exc
             raise
         from bili_asr.storage.asr_quality import require_admission
 

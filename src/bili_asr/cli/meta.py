@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import json
+from pathlib import Path
 
 from bili_asr.cli._shared import _metadata_database_path
 from bili_asr.config import MetadataConfigError, load_metadata_config, redact_sessdata
@@ -25,12 +27,21 @@ def _cmd_fetch_meta(args) -> int:
     from bili_asr.storage import MetadataRepository
     from bili_asr.metadata_policy import MetadataRefreshPolicy
     from bili_asr.request_budget import RequestScheduler
+    from bili_asr.services.metadata_supervision import MetadataSupervisor, MetadataSupervisionPolicy
+    from bili_asr.services.retry_maintenance_io import MaintenanceBusyError
 
     if getattr(args, "bvid", None) or getattr(args, "refresh_failed", False):
         return _cmd_refresh_meta(args)
 
     try:
         config = load_metadata_config(args)
+        supervised = getattr(args, "supervised", False) or getattr(args, "supervision_status", False)
+        if (getattr(args, "supervision_state", None) or getattr(args, "supervision_policy", None)) and not supervised:
+            raise MetadataConfigError("--supervision-state/--supervision-policy requires --supervised")
+        supervision_policy = (MetadataSupervisionPolicy.from_file(args.supervision_policy)
+            if getattr(args, "supervision_policy", None) else MetadataSupervisionPolicy())
+        if supervised and (config.start_page is not None or config.incremental or config.skip_failed_page):
+            raise MetadataConfigError("supervised collection cannot rewind or skip pages; re-enumerate explicitly after review")
         scheduler = RequestScheduler(max_requests=getattr(args, "request_budget", 10000),
                                      request_seconds=getattr(args, "request_timeout", 30),
                                      total_seconds=getattr(args, "run_timeout", 14400))
@@ -39,16 +50,20 @@ def _cmd_fetch_meta(args) -> int:
     except MetadataConfigError as exc:
         write_stderr(f"fetch-meta: {exc}")
         return 1
-    except ValueError:
-        write_stderr("fetch-meta: invalid request budget or timeout")
+    except (ValueError, OSError):
+        write_stderr("fetch-meta: invalid request budget, timeout or supervision policy")
         return 1
     if config.resume and not os.path.isfile(_metadata_database_path(config.archive_root)):
         write_stderr(f"fetch-meta: no archive database at {config.archive_root}; --resume requires a stored cursor")
         return 1
-    try:
-        require_platform_access()
-    except PlatformAccessError:
-        write_stderr(_PLATFORM_ACCESS_DIAGNOSTIC)
+    if not getattr(args, "supervision_status", False):
+        try:
+            require_platform_access()
+        except PlatformAccessError:
+            write_stderr(_PLATFORM_ACCESS_DIAGNOSTIC)
+            return 1
+    elif not os.path.isfile(_metadata_database_path(config.archive_root)):
+        write_stderr("fetch-meta: supervision status requires an existing archive database")
         return 1
     try:
         connection = open_archive_connection(config.archive_root, mode=ArchiveAccessMode.BOOTSTRAP)
@@ -60,10 +75,17 @@ def _cmd_fetch_meta(args) -> int:
         if config.resume and repository.read_cursor(config.mid) is None:
             write_stderr(f"fetch-meta: --resume requires a stored cursor; none recorded for mid={config.mid}")
             return 1
-        result = MetadataIngestor(
+        supervisor = MetadataSupervisor(repository, archive_root=config.archive_root,
+            state_path=getattr(args, "supervision_state", None) or Path(config.archive_root) / ".metadata-supervision" / f"{config.mid}.json",
+            policy=supervision_policy) if supervised else None
+        if getattr(args, "supervision_status", False):
+            state = supervisor.inspect(config.mid)
+            print("supervision: " + json.dumps(state, sort_keys=True))
+            return 4 if state["state"] == "needs_attention" else 0
+        ingestor = MetadataIngestor(
             BilibiliApiGateway(sessdata=config.sessdata, request_scheduler=scheduler), repository
-        ).collect_user_pages(
-            mid=config.mid,
+        )
+        options = dict(
             start_page=config.start_page,
             page_limit=config.page_limit,
             skip_failed_page=config.skip_failed_page,
@@ -72,11 +94,26 @@ def _cmd_fetch_meta(args) -> int:
             incremental=config.incremental,
             refresh_policy=MetadataRefreshPolicy(config.refresh_mode, config.ttl_seconds),
         )
+        if supervisor is not None:
+            supervised_result = supervisor.collect(ingestor, mid=config.mid, **options)
+            state, result = supervised_result.supervision, supervised_result.result
+            print("supervision: " + json.dumps(state, sort_keys=True))
+            if result is None:
+                return {"complete": 0, "needs_attention": 4}.get(state["state"], 3)
+        else:
+            state = None
+            result = ingestor.collect_user_pages(mid=config.mid, **options)
     except PlatformAccessError:
         # Keep a local policy/configuration refusal distinct from a gateway failure
         # (exit 2), and never echo the exception text because future policy
         # implementations may include deployment-specific details.
         write_stderr(_PLATFORM_ACCESS_DIAGNOSTIC)
+        return 1
+    except MaintenanceBusyError:
+        write_stderr("fetch-meta: supervision is already active for this state")
+        return 3
+    except ValueError:
+        write_stderr("fetch-meta: supervision state/configuration rejected; preserve state and investigate")
         return 1
     except Exception:
         write_stderr("fetch-meta: unexpected error")
@@ -95,6 +132,9 @@ def _cmd_fetch_meta(args) -> int:
         print(f"requests: attempted={result.request_metrics['request_count']}")
     if result.tag_failure_count:
         write_stderr("fetch-meta: optional tag coverage incomplete; use fetch-tags to retry archived videos")
+    if state is not None and state["state"] == "needs_attention":
+        write_stderr("fetch-meta: supervision needs_attention; automatic collection stopped: " + str(state["reason"]))
+        return 4
     if result.outcome in {"risk_interrupted", "failed"}:
         if result.failure_bvid is not None:
             write_stderr(f"fetch-meta: failed bvid={result.failure_bvid} operation={result.failure_operation}")
@@ -131,6 +171,9 @@ def _cmd_refresh_meta(args) -> int:
     from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
     from bili_asr.storage import MetadataRepository, SchemaContractError
     from bili_asr.platform_access import PlatformAccessError, require_platform_access
+    if any(getattr(args, name, False) for name in ("supervised", "supervision_status", "supervision_state", "supervision_policy")):
+        write_stderr("fetch-meta: supervision applies only to paginated collection")
+        return 1
     if getattr(args, "operation_retries", 0) != 0:
         write_stderr("fetch-meta: --operation-retries applies only to paginated collection")
         return 1

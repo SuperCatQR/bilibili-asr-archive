@@ -40,7 +40,7 @@ from bilibili_api.exceptions import (
 )
 from bilibili_api.user import API as USER_API
 from bilibili_api.user import User, VideoOrder
-from bilibili_api.utils.network import Api
+from bilibili_api.utils.network import Api, lazy_settings, session_pool
 from bilibili_api.video import API as VIDEO_API
 from bilibili_api.video import Video
 
@@ -103,8 +103,12 @@ _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
 # that trips risk control (``-412``) mid-run.  Execution stays strictly
 # sequential (``sequential-no-daemon`` is by design); only the delay is
 # added.
-_METADATA_PACING_MIN_SECONDS = 0.8
-_METADATA_PACING_JITTER_SPAN_SECONDS = 0.8
+# Use a wider inter-operation delay for long creator-page enumerations.  The
+# shorter legacy range is too aggressive once the upstream WAF has issued a
+# 412 challenge; 3-5 seconds leaves more room between signed requests while
+# keeping the collector sequential and resumable.
+_METADATA_PACING_MIN_SECONDS = 3.0
+_METADATA_PACING_JITTER_SPAN_SECONDS = 2.0
 
 # The one scheme a signed subtitle-document URL is put on the wire under, and
 # the plain-``http`` form upstream may answer with instead.  Upstream answers
@@ -1020,10 +1024,19 @@ class BilibiliApiGateway:
         require_platform_access()
 
         async def scoped_call():
-            async with sdk_settings_scope(request_settings, self.resolved_proxy):
-                return await self._mapped_call(operation, call, not_found_api_codes=not_found_api_codes,
-                                               authentication_api_codes=authentication_api_codes)
-        return await self.request_scheduler.run(operation, scoped_call)
+            async with sdk_settings_scope(
+                request_settings, self.resolved_proxy,
+                client_pools=session_pool, client_settings=lazy_settings,
+            ):
+                return await call()
+
+        async def mapped_call():
+            return await self._mapped_call(
+                operation, scoped_call, not_found_api_codes=not_found_api_codes,
+                authentication_api_codes=authentication_api_codes,
+            )
+
+        return await self.request_scheduler.run(operation, mapped_call)
 
     async def _mapped_call(self, operation: str, call: Callable[[], Awaitable[Any]], *,
                            not_found_api_codes: frozenset[int],

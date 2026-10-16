@@ -44,6 +44,11 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     plan.add_argument("--language", default=None)
     plan.add_argument("--chunk-seconds", type=float, default=None)
     plan.add_argument("--inference-timeout", type=float, default=None)
+    plan.add_argument("--inference-timeout-policy", choices=("fixed", "audio-scaled"), default=None)
+    plan.add_argument("--inference-max-rtf", type=float, default=None)
+    plan.add_argument("--inference-startup-seconds", type=float, default=None)
+    plan.add_argument("--inference-hard-cap-seconds", type=float, default=None)
+    plan.add_argument("--inference-no-progress-seconds", type=float, default=None)
     plan.add_argument("--hotword", action="append", default=None)
     plan.add_argument("--model-id", default=None)
     plan.add_argument("--offline", action=argparse.BooleanOptionalAction, default=None)
@@ -86,6 +91,17 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
         help="Explicit corrected transcript version for the same part; otherwise retain the old source")
     _add_editorial_arguments(repair_ai)
     repair_ai.set_defaults(reasoning_effort="low", max_chunk_segments=128, max_chunk_chars=10_000)
+
+    recover = actions.add_parser("recover-editorial",
+        help="Inspect or queue a new editorial chain for an exact successful ASR replacement; never execute AI")
+    recover.set_defaults(database_policy=ArchiveAccessMode.READ)
+    recover.add_argument("--archive-root", default=archive_root)
+    recover.add_argument("--proofread-job-id", required=True)
+    recover.add_argument("--replacement-asr-job-id", required=True)
+    recover.add_argument("--apply", action=_RecoveryApply, nargs=0, default=False,
+                         help="Queue the exact inspected replacement and retire only untouched queued consumers")
+    recover.add_argument("--expected-plan-id", default=None)
+    _add_control_arguments(recover)
 
     render = actions.add_parser("render", help="Queue deterministic Markdown rendering without calling AI")
     render.add_argument("--archive-root", default=archive_root)
@@ -239,6 +255,12 @@ class _ReadOnlyDryRun(argparse.Action):
         namespace.database_policy = ArchiveAccessMode.READ
 
 
+class _RecoveryApply(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, True)
+        namespace.database_policy = ArchiveAccessMode.WRITE
+
+
 def _add_control_arguments(parser: argparse.ArgumentParser) -> None:
     control = parser.add_mutually_exclusive_group()
     control.add_argument("--control-state", default=None, help="Explicit external holds/retry-ledger JSON snapshot")
@@ -325,7 +347,7 @@ def _execute_workflow(args: argparse.Namespace) -> int:
         artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
                                    require_writable=args.workflow_action == "run")
     readonly = args.workflow_action in {"status", "explain", "asr-evidence", "asr-quality", "asr-performance"} or (
-        args.workflow_action == "repair-dependencies" and not args.apply) or (
+        args.workflow_action in {"repair-dependencies", "recover-editorial"} and not args.apply) or (
         args.workflow_action in {"publish", "retry"} and args.dry_run)
     mode = ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE
     session = ArchiveSession(args.archive_root, mode=mode, artifact_roots=artifact_roots).open()
@@ -396,6 +418,19 @@ def _execute_workflow(args: argparse.Namespace) -> int:
             report = repair_asr(repository, job_id=args.job_id, transcript_id=args.transcript_id,
                                 profile=profile, reason=args.reason)
             print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+            return 0
+        if args.workflow_action == "recover-editorial":
+            from bili_asr.services.editorial_chain_recovery import recover_editorial_chain
+            from bili_asr.workflow_errors import JobExecutionError
+            try:
+                report = recover_editorial_chain(repository, proofread_job_id=args.proofread_job_id,
+                    replacement_asr_job_id=args.replacement_asr_job_id, apply=args.apply,
+                    expected_plan_id=args.expected_plan_id, control_state_path=args.control_state,
+                    no_control_state=args.no_control_state)
+            except JobExecutionError as exc:
+                write_stderr(json.dumps({"error_code": exc.error_code, "diagnostic": exc.safe_details}))
+                return 1
+            print(json.dumps(report, ensure_ascii=False, sort_keys=True, allow_nan=False))
             return 0
         if args.workflow_action == "repair-proofread":
             from bili_asr.services.editorial_repair import repair_proofread
@@ -487,6 +522,8 @@ def _execute_workflow(args: argparse.Namespace) -> int:
                 overrides = {}
                 for name in ("model", "model_revision", "aligner", "aligner_revision",
                              "device", "language", "chunk_seconds", "inference_timeout",
+                             "inference_timeout_policy", "inference_max_rtf", "inference_startup_seconds",
+                             "inference_hard_cap_seconds", "inference_no_progress_seconds",
                              "hotword", "offline", "model_id", "tokens_per_second",
                              "min_new_tokens", "second_pass_cache", "model_dtype", "aligner_dtype",
                              "asr_batch_size", "aligner_batch_size", "batch_max_audio_seconds",

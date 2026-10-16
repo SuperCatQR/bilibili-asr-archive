@@ -9,6 +9,9 @@ class ArtifactReleaseRepository:
 
     def plan(self, *, transfer_id, copy_id, object_id, source_target_id, source_key,
              quarantine_key, source_replica_id, source_generation, now=None):
+        transfer = self.connection.execute("SELECT kind FROM artifact_transfers WHERE transfer_id=?", (transfer_id,)).fetchone()
+        if transfer is None or transfer[0] != "offload":
+            raise ValueError("release intents require an offload transfer")
         now = int(time.time()) if now is None else now
         self.connection.execute("INSERT INTO artifact_release_intents VALUES (?,?,?,?,?,?,?,?, 'planned',?,?)",
             (transfer_id, copy_id, object_id, source_target_id, source_key, quarantine_key,

@@ -603,6 +603,8 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
     user_mod.VideoOrder = VideoOrder
 
     network_mod = types.ModuleType("bilibili_api.utils.network")
+    network_mod.session_pool = {}
+    network_mod.lazy_settings = {}
 
     class Api:
         """Mirror of ``utils.network.Api`` for the documented requests.

@@ -229,7 +229,7 @@ class EditorialRepository:
 
     def recovery_status_for_job(self, job_id: str) -> dict[str, Any]:
         """Read-only gate for maintenance; no budget resets or job mutation."""
-        from bili_asr.editorial_recovery import recoverable
+        from bili_asr.editorial_recovery import provider_recovery_blocker, recoverable
         input_id = input_for_proofread(self.connection, job_id)
         if input_id is None:
             return {"eligible": False, "exhausted": False, "reason": "unfrozen_input"}
@@ -243,6 +243,9 @@ class EditorialRepository:
             if self.chunk_result(input_id, chunk["chunk_id"]) is not None:
                 continue
             calls = self.physical_calls(input_id, chunk["chunk_id"])
+            blocker = provider_recovery_blocker(calls[-1] if calls else None)
+            if blocker is not None:
+                return {"eligible": False, "exhausted": False, "reason": blocker.error_code}
             maximum = 1 + config.max_chunk_regenerations
             if not legacy and len(calls) >= maximum:
                 # A complete but unvalidated successful envelope can still be

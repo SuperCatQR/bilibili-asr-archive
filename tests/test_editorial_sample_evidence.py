@@ -238,3 +238,50 @@ def test_missing_ambiguous_or_bad_producer_evidence_never_becomes_usable(sample,
     else:
         result = analyze_sample(sample)[0]
         assert result["source_quality"]["producer_admission"] == expected
+
+
+def test_producer_run_identity_mismatch_is_rejected(sample):
+    export = producer_export(sample)
+    export["rows"]["transcript_asr_evidence"][0]["video_part_id"] = 999
+    write(sample / "producer-quality-posthoc.json", export)
+    with pytest.raises(ValueError, match="producer run transcript mismatch"):
+        analyze_sample(sample)
+
+
+def test_unsupported_producer_evidence_remains_unknown(sample):
+    export = producer_export(sample)
+    evidence = json.loads(export["rows"]["transcript_asr_evidence"][0]["evidence_json"])
+    evidence["schema_version"] = 2
+    export["rows"]["transcript_asr_evidence"][0]["evidence_json"] = json.dumps(evidence)
+    write(sample / "producer-quality-posthoc.json", export)
+    result = analyze_sample(sample)[0]
+    assert result["source_quality"]["producer_admission"] == "unknown"
+    assert result["source_quality"]["producer_check"]["basis"] == "posthoc_exported_producer_evidence"
+    assert result["source_quality"]["reason"] == "unsupported_producer_evidence"
+
+
+def test_embedded_producer_identity_mismatch_is_rejected(sample):
+    export = producer_export(sample)
+    evidence = json.loads(export["rows"]["transcript_asr_evidence"][0]["evidence_json"])
+    evidence["run_id"] = "different-run"
+    export["rows"]["transcript_asr_evidence"][0]["evidence_json"] = json.dumps(evidence)
+    write(sample / "producer-quality-posthoc.json", export)
+    with pytest.raises(ValueError, match="embedded producer evidence identity mismatch"):
+        analyze_sample(sample)
+
+
+def test_producer_coverage_part_mismatch_is_rejected(sample):
+    export = producer_export(sample)
+    export["rows"]["transcript_coverage_attestations"][0]["video_part_id"] = 999
+    write(sample / "producer-quality-posthoc.json", export)
+    with pytest.raises(ValueError, match="producer coverage part mismatch"):
+        analyze_sample(sample)
+
+
+@pytest.mark.parametrize("coverage_short", [2, True, "0"])
+def test_invalid_producer_coverage_flag_is_rejected(sample, coverage_short):
+    export = producer_export(sample)
+    export["rows"]["transcript_coverage_attestations"][0]["coverage_short"] = coverage_short
+    write(sample / "producer-quality-posthoc.json", export)
+    with pytest.raises(ValueError, match="invalid exported producer coverage flag"):
+        analyze_sample(sample)

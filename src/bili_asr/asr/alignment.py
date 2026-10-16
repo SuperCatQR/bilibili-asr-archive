@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Any
+import unicodedata
+import math
 import bili_asr.asr.constants as _dependency_constants
 
 
@@ -62,6 +64,7 @@ def _thread_text(text: str, units: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "text": unit_text,
                 "start": float(unit["start_time"]),
                 "end": float(unit["end_time"]),
+                "timing_source": "aligned",
             })
             position += len(unit_text)
             index += 1
@@ -69,7 +72,10 @@ def _thread_text(text: str, units: list[dict[str, Any]]) -> list[dict[str, Any]]
         anchor = pieces[-1]["end"] if pieces else (
             float(units[index]["start_time"]) if index < len(units) else 0.0
         )
-        pieces.append({"text": text[position], "start": anchor, "end": anchor})
+        character = text[position]
+        meaningful = not character.isspace() and unicodedata.category(character)[0] not in {"P", "Z", "C"}
+        pieces.append({"text": character, "start": anchor, "end": anchor,
+                       "timing_source": "unmatched_text" if meaningful else "mark"})
         position += 1
     # A unit the text does not account for should not exist; if one does it is kept rather than
     # dropped, and naming that case is the audit's job, not this function's.
@@ -79,8 +85,43 @@ def _thread_text(text: str, units: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "text": _clean_text(unit["text"]),
                 "start": float(unit["start_time"]),
                 "end": float(unit["end_time"]),
+                "timing_source": "extra_unit",
             })
     return pieces
+
+
+def threading_evidence(text: str, units: list[dict[str, Any]], pieces: list[dict[str, Any]]) -> dict[str, Any]:
+    """Measure unmatched speech text and retain a bounded private aligner witness.
+
+    Anchored punctuation is expected. Anchored letters, numbers or symbols are
+    unresolved alignment, even when a later cue merge makes its interval look
+    representable. The original pieces and cue timestamps stay unchanged.
+    """
+    unmatched = sum(len(piece["text"]) for piece in pieces if piece.get("timing_source") == "unmatched_text")
+    extra = sum(piece.get("timing_source") == "extra_unit" for piece in pieces)
+    timing_problem = any(not math.isfinite(float(unit[name])) for unit in units for name in ("start_time", "end_time"))
+    zero_spans = sum(float(unit["end_time"]) <= float(unit["start_time"]) for unit in units)
+    result = {"schema_version": 1, "unmatched_text_characters": unmatched,
+              "extra_alignment_units": extra}
+    if unmatched or extra or timing_problem or zero_spans:
+        # This report is stored only in private ASR assessment evidence. Public
+        # diagnostics expose counts/codes, never this text or the aligner units.
+        max_units, max_characters = 512, 8192
+        remaining = max_characters
+        witness = []
+        for unit in units[:max_units]:
+            value = str(unit.get("text", ""))
+            kept = value[:remaining]
+            remaining -= len(kept)
+            witness.append({"text": kept, "start_time": unit.get("start_time"),
+                            "end_time": unit.get("end_time")})
+        result["private_witness"] = {
+            "schema_version": 1, "recognized_text": text[:max_characters], "units": witness,
+            "recognized_text_characters": len(text), "alignment_unit_count": len(units),
+            "text_truncated": len(text) > max_characters,
+            "units_truncated": len(units) > max_units or sum(len(str(unit.get("text", ""))) for unit in units[:max_units]) > max_characters,
+        }
+    return result
 
 
 def _aligned_cues(pieces: list[dict[str, Any]]) -> list[dict[str, Any]]:

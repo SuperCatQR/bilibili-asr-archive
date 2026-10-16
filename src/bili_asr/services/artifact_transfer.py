@@ -26,6 +26,9 @@ from bili_asr.services.artifact_consumer_graph import (
 )
 from bili_asr.services.artifact_inventory_service import (
     ArtifactSelection,
+    COPY_PLAN_SCHEMA,
+    PLAN_SCHEMA,
+    copy_candidate_inventory,
     inventory_artifacts,
     validate_offload_plan,
 )
@@ -57,6 +60,8 @@ def _inventory(roots, plan, external_holds):
 
 def _revalidate(roots, plan, external_holds, items) -> dict:
     current = _inventory(roots, plan, external_holds)
+    if plan["schema"] == COPY_PLAN_SCHEMA:
+        current = copy_candidate_inventory(current)
     copies = {copy["copy_id"]: copy for copy in current["copies"]}
     for item in items:
         copy = copies.get(item["copy_id"])
@@ -205,8 +210,19 @@ def _recheck_target_object(catalog, target, operation_id, identity):
     return path, generation
 
 
-def _release_intents(catalog, roots, target, plan, operation_id, external_holds, *, current_inventory=None, policy_guard=None,
+def _require_release_authority(catalog, plan, operation_id, *, mode):
+    if mode != "offload" or plan["schema"] != PLAN_SCHEMA:
+        raise ValueError("copy transfer cannot execute release intents")
+    operation = catalog.connection.execute(
+        "SELECT kind,plan_sha256,target_id FROM artifact_transfers WHERE transfer_id=?", (operation_id,)).fetchone()
+    if (operation is None or operation["kind"] != "offload" or operation["plan_sha256"] != plan["plan_sha256"]
+            or operation["target_id"] != plan["target_id"]):
+        raise ValueError("release intent lacks matching persisted offload authority")
+
+
+def _release_intents(catalog, roots, target, plan, operation_id, external_holds, *, mode, current_inventory=None, policy_guard=None,
                      release_verifier=None, release_progress=None):
+    _require_release_authority(catalog, plan, operation_id, mode=mode)
     identities = _package_evidence(catalog, target, operation_id)
     current = current_inventory if current_inventory is not None else _inventory(roots, plan, external_holds)
     retention = {obj["sha256"]: obj["retention_reasons"] for obj in current["objects"] if obj["sha256"]}
@@ -254,6 +270,7 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
             # and short filesystem commit against newly enqueued consumers.
             catalog.connection.execute("BEGIN IMMEDIATE")
             try:
+                _require_release_authority(catalog, plan, operation_id, mode=mode)
                 if policy_guard is not None:
                     policy_guard()
                 if (catalog.pinned(identity) or _live_hold(catalog.connection, object_facts[identity], external_holds)
@@ -286,7 +303,7 @@ def _release_intents(catalog, roots, target, plan, operation_id, external_holds,
 
 
 @contextmanager
-def _transfer_fences(roots, plan, *, online, external_holds):
+def _transfer_fences(roots, plan, *, online, external_holds, mode):
     with ExitStack() as resources:
         resources.enter_context(archive_access(roots.archive_root, exclusive=not online, create_root=False))
         if online:
@@ -302,7 +319,7 @@ def _transfer_fences(roots, plan, *, online, external_holds):
             for part in sorted(parts):
                 resources.enter_context(resource_fence(roots, f"publication-part:{part}", exclusive=True))
             for identity in sorted(selected):
-                resources.enter_context(object_fence(roots, identity, exclusive=True))
+                resources.enter_context(object_fence(roots, identity, exclusive=mode != "copy"))
         yield
 
 
@@ -314,6 +331,8 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
     validate_offload_plan(plan)
     if mode not in {"copy", "offload"}:
         raise ValueError("transfer mode must be copy or offload")
+    if mode == "offload" and plan["schema"] == COPY_PLAN_SCHEMA:
+        raise ValueError("copy plan cannot authorize source release")
     for item in plan["items"]:
         _local_target(roots, Path(item["root"]))
         portable_artifact_parts(item["path"])
@@ -324,7 +343,7 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
     operation_id = f"{mode}-{plan['plan_sha256']}"
     if _package_version != 1:
         operation_id += f"-v{_package_version}-deflate{_compression_level}"
-    with _transfer_fences(roots, plan, online=_online, external_holds=external_holds):
+    with _transfer_fences(roots, plan, online=_online, external_holds=external_holds, mode=mode):
         connection = open_archive_connection(roots.archive_root, mode=ArchiveAccessMode.WRITE, artifact_roots=roots)
         try:
             if _online:
@@ -332,13 +351,15 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                 require_artifact_online(connection, required=True)
             catalog = ArtifactCatalog(connection)
             _require_complete_text_groups(catalog, plan["items"])
-            existing = connection.execute("SELECT state FROM artifact_transfers WHERE transfer_id=?", (operation_id,)).fetchone()
-            if existing and existing[0] == "complete":
+            existing = connection.execute("SELECT state,kind FROM artifact_transfers WHERE transfer_id=?", (operation_id,)).fetchone()
+            if existing and existing["kind"] != mode:
+                raise ValueError("persisted transfer kind differs from requested mode")
+            if connection.execute("SELECT 1 FROM artifact_release_intents WHERE transfer_id=?", (operation_id,)).fetchone():
+                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, mode=mode, policy_guard=_policy_guard,
+                                        release_verifier=_release_verifier, release_progress=_release_progress)
+            if existing and existing["state"] == "complete":
                 _package_evidence(catalog, target, operation_id)
                 return _result(connection, operation_id)
-            if connection.execute("SELECT 1 FROM artifact_release_intents WHERE transfer_id=?", (operation_id,)).fetchone():
-                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, policy_guard=_policy_guard,
-                                        release_verifier=_release_verifier, release_progress=_release_progress)
             _revalidate(roots, plan, external_holds, plan["items"])
             if mode == "offload" and any(catalog.pinned(item["sha256"]) for item in plan["items"]):
                 raise ValueError("selected audio is pinned")
@@ -390,7 +411,7 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
                             source_replica_id=source_id,
                             source_generation=capture_source_generation(Path(item["root"]) / item["path"]))
                     catalog.set_transfer_state(operation_id, "releasing")
-                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, current_inventory=current,
+                return _release_intents(catalog, roots, target, plan, operation_id, external_holds, mode=mode, current_inventory=current,
                                         policy_guard=_policy_guard, release_verifier=_release_verifier, release_progress=_release_progress)
             except (ValueError, OSError, sqlite3.Error):
                 with connection:
@@ -403,6 +424,8 @@ def transfer_artifacts(roots: ArtifactRoots, plan: dict, *, target_root: Path, m
 def reconcile_artifact_transfer(roots: ArtifactRoots, plan: dict, *, target_root: Path, external_holds=None) -> dict:
     """Resume a journaled offload without interpreting an old plan as permission."""
     validate_offload_plan(plan)
+    if plan["schema"] == COPY_PLAN_SCHEMA:
+        raise ValueError("copy plan cannot authorize source release")
     target = open_directory_target(target_root, plan["target_id"], roots=roots)
     operation_id = f"offload-{plan['plan_sha256']}"
     with archive_access(roots.archive_root, exclusive=True, create_root=False):
@@ -411,6 +434,6 @@ def reconcile_artifact_transfer(roots: ArtifactRoots, plan: dict, *, target_root
             catalog = ArtifactCatalog(connection)
             if not connection.execute("SELECT 1 FROM artifact_release_intents WHERE transfer_id=?", (operation_id,)).fetchone():
                 raise ValueError("no persisted release intents; resume transfer with the same plan instead")
-            return _release_intents(catalog, roots, target, plan, operation_id, external_holds)
+            return _release_intents(catalog, roots, target, plan, operation_id, external_holds, mode="offload")
         finally:
             connection.close()

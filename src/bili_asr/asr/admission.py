@@ -115,6 +115,16 @@ def assess_output(segments: Sequence[Mapping[str, Any]], *, duration_ms: int | N
         if isinstance(quality, Mapping) and quality.get("status") == "needs-review":
             review_required = True
             issue("asr_diagnostics_review_required")
+        passes = diagnostics.get("passes")
+        final = passes[-1] if isinstance(passes, list) and passes else None
+        if isinstance(final, Mapping) and isinstance(final.get("chunks"), list):
+            for chunk in final["chunks"]:
+                alignment = chunk.get("alignment") if isinstance(chunk, Mapping) else None
+                if isinstance(alignment, Mapping) and any(
+                    type(alignment.get(name)) is int and alignment[name] > 0
+                    for name in ("unmatched_text_characters", "extra_alignment_units")
+                ):
+                    issue("asr_alignment_unresolved")
     hard = set(counts) - {"asr_coverage_short", "asr_diagnostics_review_required"}
     status = ("unusable" if hard else "needs-review" if coverage_short or review_required
               else "unknown" if bound is None or not coverage_valid else "usable")

@@ -191,8 +191,15 @@ class WorkflowExecutor:
                         heartbeat.check_health()
                 except Exception as exc:  # noqa: BLE001 - injected handlers return bounded typed diagnostics.
                     from bili_asr.workflow_errors import JobExecutionError
-                    details = {"diagnostic": exc.safe_details} if isinstance(exc, JobExecutionError) else None
-                    if self._fail(job, str(getattr(exc, "error_code", ""))[:64] or type(exc).__name__[:64],
+                    from bili_asr.workflow_failure_diagnostics import execution_failure
+                    if isinstance(exc, JobExecutionError):
+                        error_code, details = exc.error_code, {"diagnostic": exc.safe_details}
+                    elif isinstance(exc, (WorkerDrainTimeout, LeaseRenewalFailed)):
+                        error_code, details = exc.error_code, None
+                    else:
+                        error_code, diagnostic = execution_failure(exc)
+                        details = {"diagnostic": {**diagnostic, "job_id": job.job_id, "attempt_count": job.attempt_count}}
+                    if self._fail(job, error_code or "Exception",
                                   details if isinstance(details, Mapping) else None):
                         cancelled += 1
                     else:
@@ -224,6 +231,19 @@ class WorkflowExecutor:
             # Reclamation records lease_expired. A stale worker must leave the
             # newer attempt's result and ownership untouched, even with a reused ID.
             pass
+        except Exception as exc:
+            # A failed database cannot persist its own diagnostic. Emit only a
+            # bounded independent signal, then preserve the original failure.
+            import json
+            from bili_asr.diagnostics import write_stderr
+            from bili_asr.exception_diagnostics import capture_failure
+            try:
+                write_stderr(json.dumps({"event": "workflow_failure_persist_failed", "job_id": job.job_id,
+                    "attempt_count": job.attempt_count, "diagnostic": capture_failure(exc, phase="failure_persistence")},
+                    sort_keys=True))
+            except OSError:
+                pass  # Preserve the persistence error even if stderr is also unavailable.
+            raise
         return False
 
 

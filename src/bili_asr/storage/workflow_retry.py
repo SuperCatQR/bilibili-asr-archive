@@ -82,21 +82,33 @@ def editorial_retry_facts(connection, jobs):
             FROM selected s JOIN editorial_inputs i ON i.input_id=s.input_id
             JOIN json_each(i.prepared_json,'$.chunks') c
         ), provider_calls AS (
-            SELECT m.rowid AS call_rowid,m.input_id,m.chunk_id,m.error_code,m.response_json IS NOT NULL AS has_response
+            SELECT m.rowid AS call_rowid,m.input_id,m.chunk_id,m.error_code,m.response_json IS NOT NULL AS has_response,
+                CASE WHEN json_valid(m.response_json) THEN
+                    CASE WHEN json_type(m.response_json,'$.choices[0]')='object' THEN
+                        CASE json_extract(m.response_json,'$.choices[0].finish_reason')
+                            WHEN 'content_filter' THEN 'deepseek_content_filtered'
+                            WHEN 'tool_calls' THEN 'deepseek_unsupported_completion'
+                            WHEN 'function_call' THEN 'deepseek_unsupported_completion'
+                            WHEN 'stop' THEN NULL WHEN 'length' THEN NULL
+                            ELSE 'deepseek_output_interrupted' END
+                    END END AS termination_code
             FROM editorial_model_calls m JOIN (SELECT DISTINCT input_id FROM selected) s ON s.input_id=m.input_id
             WHERE {PHYSICAL_CALL_SQL}
         ), budgets AS (
             SELECT input_id,chunk_id,count(*) AS consumed,max(call_rowid) AS latest_rowid
             FROM provider_calls GROUP BY input_id,chunk_id
         ) SELECT c.job_id,c.request_policy,c.maximum,c.chunk_id,coalesce(b.consumed,0) AS consumed,
-            p.has_response,p.error_code,r.chunk_id IS NOT NULL AS complete
+            p.has_response,p.error_code,p.termination_code,r.chunk_id IS NOT NULL AS complete
             FROM chunks c LEFT JOIN budgets b ON b.input_id=c.input_id AND b.chunk_id=c.chunk_id
             LEFT JOIN provider_calls p ON p.call_rowid=b.latest_rowid
             LEFT JOIN editorial_chunk_results r ON r.input_id=c.input_id AND r.chunk_id=c.chunk_id""", ids)
         for row in rows:
             gate = result.setdefault(row['job_id'], {'eligible': True, 'exhausted': False,
                                                     'reason': 'remaining_physical_budget'})
-            if (not row['complete'] and row['request_policy'] == 'deepseek-v2'
+            if not row['complete'] and row['termination_code'] is not None:
+                gate.update(eligible=False, exhausted=False, reason=row['termination_code'])
+            elif (not row['complete'] and row['request_policy'] == 'deepseek-v2'
+                    and not gate['reason'].startswith('deepseek_')
                     and row['consumed'] >= row['maximum']
                     and not (row['has_response'] and row['error_code'] is None)):
                 gate.update(eligible=False, exhausted=True, reason='physical_budget_exhausted')

@@ -142,6 +142,16 @@ def test_unknown_external_holds_block_candidates(cli_archive, capsys, action):
         assert not report["copies"][0]["candidate"]
 
 
+def test_copy_preview_is_non_destructive_and_does_not_claim_release_capacity(cli_archive, capsys):
+    assert call(cli_archive, "plan", "--target-id", "disk", "--purpose", "copy", "--kind", "audio") == 0
+    report = json.loads(capsys.readouterr().out)
+    validate_offload_plan(report)
+    assert report["schema"] == "artifact-copy-plan-v1" and len(report["items"]) == 1
+    assert report["external_holds_verified"] is False
+    assert report["estimate"]["reclaimable_content_bytes"] == 0
+    assert (cli_archive / "audio/BVCLI.p0.m4a").read_bytes() == b"sound"
+
+
 @pytest.mark.parametrize("universal", [False, True])
 def test_upgrade_cli_preserves_source_contract_and_supports_both_archive_kinds(tmp_path, monkeypatch, capsys, universal):
     from bili_asr.services.archive_migration import migrate_archive
